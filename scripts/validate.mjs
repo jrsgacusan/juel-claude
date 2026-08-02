@@ -96,6 +96,33 @@ for (const name of skills) {
     fail('skill', `skills/${name}/SKILL.md: description is required`);
 }
 
+// --- Check 3: dangling juel: references ------------------------------------
+const REF_RE = /(?:Skill\(\s*["']juel:([a-z0-9-]+)["']|\/juel:([a-z0-9-]+))/g;
+const known = new Set(skills);
+for (const [name, text] of skillBodies) {
+  for (const m of text.matchAll(REF_RE)) {
+    const target = m[1] ?? m[2];
+    if (!known.has(target))
+      fail('ref', `skills/${name}/SKILL.md references juel:${target}, which is not a skill`);
+  }
+}
+
+// --- Check 4: stale juel- prefix -------------------------------------------
+for (const [name, text] of skillBodies) {
+  const lines = text.split(/\r?\n/);
+  lines.forEach((line, i) => {
+    if (line.includes('juel-'))
+      fail('prefix', `skills/${name}/SKILL.md:${i + 1}: stale 'juel-' prefix — use 'juel:' — ${line.trim().slice(0, 80)}`);
+  });
+}
+
+// --- Check 5: protocol marker ----------------------------------------------
+const PROTOCOL_MARKER = '<!-- juel-protocol v1 -->';
+for (const [name, text] of skillBodies) {
+  if (!text.includes(PROTOCOL_MARKER))
+    fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
