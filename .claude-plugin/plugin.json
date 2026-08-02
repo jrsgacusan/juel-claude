@@ -1,0 +1,19 @@
+{
+  "name": "juel",
+  "description": "Ticket-to-PR workflow skills: plan, execute, review, remediate, verify, ship.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Juel Rei Solomon Gacusan"
+  },
+  "repository": "https://github.com/jrsgacusan/juel-claude",
+  "homepage": "https://github.com/jrsgacusan/juel-claude",
+  "license": "MIT",
+  "keywords": ["workflow", "linear", "code-review", "worktrees", "cmux"],
+  "dependencies": [
+    "superpowers@claude-plugins-official",
+    "pr-review-toolkit@claude-plugins-official",
+    "linear@claude-plugins-official",
+    "playwright@claude-plugins-official",
+    "context7@claude-plugins-official"
+  ]
+}

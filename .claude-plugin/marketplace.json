@@ -1,0 +1,17 @@
+{
+  "name": "juel-claude",
+  "owner": {
+    "name": "Juel Rei Solomon Gacusan",
+    "url": "https://github.com/jrsgacusan"
+  },
+  "description": "Juel's personal Claude Code workflow plugin.",
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
+  "plugins": [
+    {
+      "name": "juel",
+      "source": "./",
+      "category": "development",
+      "tags": ["workflow", "linear", "worktrees", "code-review"]
+    }
+  ]
+}
