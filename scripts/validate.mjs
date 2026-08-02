@@ -45,8 +45,14 @@ if (existsSync(marketPath)) {
     if (plugin && entries.length && entries[0].name !== plugin.name)
       fail('manifest',
         `marketplace entry name '${entries[0].name}' != plugin.json name '${plugin.name}'`);
+    const isCrossMarketplace = (d) => {
+      if (typeof d === 'string') return d.includes('@');
+      if (d && typeof d === 'object') return Boolean(d.marketplace) || (typeof d.name === 'string' && d.name.includes('@'));
+      return false;
+    };
     const crossDeps = (Array.isArray(plugin?.dependencies) ? plugin.dependencies : [])
-      .filter((d) => typeof d === 'string' && d.includes('@'));
+      .filter(isCrossMarketplace)
+      .map((d) => (typeof d === 'string' ? d : (d.name ?? JSON.stringify(d))));
     if (crossDeps.length && !(market.allowCrossMarketplaceDependenciesOn ?? []).length)
       fail('manifest',
         'marketplace.json: allowCrossMarketplaceDependenciesOn is required when cross-marketplace ' +
