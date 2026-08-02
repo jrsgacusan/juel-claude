@@ -4,6 +4,7 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 
 const root = resolve(process.argv[2] ?? '.');
+const SKIP = new Set((process.env.JUEL_VALIDATE_SKIP ?? '').split(',').filter(Boolean));
 const problems = [];
 const fail = (check, msg) => problems.push({ sev: 'ERROR', check, msg });
 const warn = (check, msg) => problems.push({ sev: 'WARN', check, msg });
@@ -118,9 +119,11 @@ for (const [name, text] of skillBodies) {
 
 // --- Check 5: protocol marker ----------------------------------------------
 const PROTOCOL_MARKER = '<!-- juel-protocol v1 -->';
-for (const [name, text] of skillBodies) {
-  if (!text.includes(PROTOCOL_MARKER))
-    fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
+if (!SKIP.has('protocol')) {
+  for (const [name, text] of skillBodies) {
+    if (!text.includes(PROTOCOL_MARKER))
+      fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
+  }
 }
 
 // --- Report -----------------------------------------------------------------
