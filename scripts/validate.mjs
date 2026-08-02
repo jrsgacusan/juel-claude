@@ -45,7 +45,8 @@ if (existsSync(marketPath)) {
     if (plugin && entries.length && entries[0].name !== plugin.name)
       fail('manifest',
         `marketplace entry name '${entries[0].name}' != plugin.json name '${plugin.name}'`);
-    const crossDeps = (plugin?.dependencies ?? []).filter((d) => d.includes('@'));
+    const crossDeps = (Array.isArray(plugin?.dependencies) ? plugin.dependencies : [])
+      .filter((d) => typeof d === 'string' && d.includes('@'));
     if (crossDeps.length && !(market.allowCrossMarketplaceDependenciesOn ?? []).length)
       fail('manifest',
         'marketplace.json: allowCrossMarketplaceDependenciesOn is required when cross-marketplace ' +
