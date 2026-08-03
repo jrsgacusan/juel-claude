@@ -36,6 +36,10 @@ const GROUPS_WITH_CHECK = new Set(['mcp', 'cli', 'context']);
 // (a GitLab remote would satisfy `git-repo` while failing a real HARD
 // GitHub-remote requirement). A context id outside this set is treated as
 // unparseable, not silently accepted.
+// `app-url` and `verification-criteria` added for Task 23 (`regression`) — a
+// resolved-target claim and a criteria-source claim, neither of which any
+// prior context id already covers (they are not a location, a permission, a
+// provider capability, or a human-presence check).
 const CONTEXT_VOCAB = new Set([
   'git-repo',
   'git-worktree',
@@ -48,6 +52,8 @@ const CONTEXT_VOCAB = new Set([
   'writable-cwd',
   'work-source-list-capable',
   'github-remote',
+  'app-url',
+  'verification-criteria',
 ]);
 
 // id -> { kind, label, install, paths? }. Every id referenced by any skill's
@@ -149,7 +155,7 @@ const DEFINITIONS = {
   'juel:regression': {
     kind: 'skill',
     label: 'juel:regression',
-    install: 'Ships with this plugin (not implemented yet — a later task adds it)',
+    install: 'Ships with this plugin',
   },
 
   // --- context (closed vocabulary — every member documented even if unused) --
@@ -207,6 +213,16 @@ const DEFINITIONS = {
     kind: 'context',
     label: 'GitHub-hosted remote',
     install: 'The repo remote must resolve to github.com — a GitLab or Bitbucket remote does not satisfy this',
+  },
+  'app-url': {
+    kind: 'context',
+    label: 'resolved app URL',
+    install: 'Pass an explicit URL argument, or ensure commands.run resolves and can be started in the foreground; otherwise this skill asks where the app is running',
+  },
+  'verification-criteria': {
+    kind: 'context',
+    label: 'acceptance criteria to verify',
+    install: 'Provide acceptance criteria via the work item or the spec file, or answer when this skill asks for concrete verification steps',
   },
 
   // --- perms -----------------------------------------------------------------
