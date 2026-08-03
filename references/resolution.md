@@ -244,7 +244,7 @@ denylist).
 
 ```sh
 # Anchored to whole '/'-delimited segments, with a branch-word denylist.
-DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review)$'
+DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
 
 # _ref_from_segment SEGMENT — classifies one path segment. Prints the
 # candidate ref and returns 0 on a match, prints nothing and returns 1
@@ -374,6 +374,32 @@ correctly); `feat/savi-1162-add-auth` → `SAVI-1162` (trailing slug correctly d
 `issues-88` → `#88`, `ISSUE-77` → `#77` (case-insensitive, both singular and plural); with
 `refPattern="^SAVI-"` configured, `feat/mstr-3034-thing` correctly flips to no-ref while
 `feat/savi-1162-thing` still resolves.
+
+**Round-1 fix (found downstream, during Task 20's execution of `start`, not caught in the original
+pass above):** the original `DENY` list was not exhaustive. Common branch-naming words absent from
+it produced silent false positives — `demo-1` → `DEMO-1`, `poc-2` → `POC-2`, `spike-3` → `SPIKE-3`,
+`task-3` → `TASK-3`, `revert-3` → `REVERT-3`, `day-0-setup` → `DAY-0`, `sync-4` → `SYNC-4`,
+`update-9` → `UPDATE-9`, `bugfix-12` → `BUGFIX-12` — the exact defect class (a ref-shaped substring
+silently promoted to a fake ticket key) `DENY` was written to stop, just incompletely. `DENY`
+extended to add `backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|
+temp|tmp|update|week` (`wip` was already present). Re-verified after the extension, identical
+across `sh`/`bash`/`zsh`: all nine false positives above now correctly return no ref; all six of
+the originally-required cases and every edge case in this section still resolve exactly as before
+— in particular `.worktrees/savi-1162` → `SAVI-1162` and `feat/mstr-3034-thing` → `MSTR-3034`
+still pass, confirming the extension did not over-correct into rejecting real refs.
+
+**`day-0-setup` vs. `feat/mstr-3034-thing` — cannot be distinguished by shape alone.** Both are
+`PREFIX-NUM-slug`: `mstr-3034-thing` (prefix `mstr`, num `3034`) and `day-0-setup` (prefix `day`,
+num `0`) parse identically under `_ref_from_segment` — there is no structural feature (prefix
+length, digit-run length, presence of a trailing slug) that differentiates a genuine tracker key
+from a common English word followed by a small number. The only available signal is the semantic
+one: `mstr`/`savi`/`asw` are not dictionary words, `day`/`demo`/`task` are. `DENY` (an enumerated
+list of known-generic words) is therefore the correct and only mechanism here, not a shape-based
+rule — inventing a shape heuristic to reject `day-0-setup` would necessarily also reject
+`mstr-3034-thing`, which is a required, working case. This means `DENY` can never be exhaustive by
+construction (any real-world word not yet listed is a latent false positive); it is a maintained
+list, not a closed-form solution, and each future sighting should extend it the same way this round
+did.
 
 **`resolve_bin`** — `resolve_bin git` returned the real `PATH` hit; a nonexistent name with no
 candidates returned rc=1 and printed nothing; a nonexistent name with one executable candidate

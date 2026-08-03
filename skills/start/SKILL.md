@@ -79,7 +79,7 @@ ticket key (the old loose match turned those into `BUMP-2` and `V2-1`). Try the 
 name first, then fall back to the current branch name:
 
 ```sh
-DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review)$'
+DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
 
 _ref_from_segment() {
   seg=$1
