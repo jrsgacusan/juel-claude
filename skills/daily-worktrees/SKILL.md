@@ -275,10 +275,12 @@ For each selected ticket:
    [ -n "$ZSH_VERSION" ] && setopt SH_WORD_SPLIT
 
    # EXTRA_PATTERNS is built from config.worktreeCopy — EXTRA, opt-in-only glob patterns
-   # (e.g. "*.pem"). Secrets are never in the default set below; a repo that wants private
-   # keys copied must say so explicitly via config.worktreeCopy.
+   # (e.g. *.pem). Secrets are never in the default set below; a repo that wants private
+   # keys copied must say so explicitly via config.worktreeCopy. No embedded quotes around
+   # each pattern: this value is only ever word-split (SH_WORD_SPLIT/bash), never re-parsed
+   # by a shell, so a literal quote character would pass straight through to `find` as text.
    EXTRA_PATTERNS=""
-   # for p in $config_worktreeCopy; do EXTRA_PATTERNS="$EXTRA_PATTERNS -o -name '$p'"; done
+   # for p in $config_worktreeCopy; do EXTRA_PATTERNS="$EXTRA_PATTERNS -o -name $p"; done
 
    # copy_untracked SRC DST — portable, untracked-only, no glob-abort.
    copy_untracked() {

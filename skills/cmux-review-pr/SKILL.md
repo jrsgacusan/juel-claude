@@ -247,7 +247,37 @@ git -C "$MAIN_ROOT" worktree add --detach "$abs_worktree"
 ( cd "$abs_worktree" && "$GH" pr checkout "$pr_number" )
 ```
 
-Copy env files from repo root the same way `juel:daily-worktrees` does (`.env*`, `*.pem`). Wrap glob expansions in a subshell with `setopt NULL_GLOB` (zsh) or `shopt -s nullglob` (bash) so missing files do not abort.
+**Copy untracked project files only** — same `copy_untracked` semantics `juel:daily-worktrees` uses
+(`references/resolution.md` §4.2): untracked-only (`git ls-files --error-unmatch` skips anything
+tracked, so a tracked `CLAUDE.md`/config file is never clobbered), `find`-based so a no-match never
+aborts the script (no `NULL_GLOB` / `nullglob` needed — that glob-based approach is exactly what
+`daily-worktrees` moved away from), and secrets (`*.pem` and anything else wider than the
+`.env`-family default) are opt-in only via `config.worktreeCopy`, never copied by default:
+
+```bash
+# Guard REQUIRED under zsh: without it, an unquoted $EXTRA_PATTERNS is passed to `find` as ONE
+# literal argument instead of being word-split, `find` fails outright, and the ENTIRE copy
+# silently produces ZERO files, including the always-on .env/.npmrc defaults.
+[ -n "$ZSH_VERSION" ] && setopt SH_WORD_SPLIT
+
+EXTRA_PATTERNS=""   # built from config.worktreeCopy, e.g. -o -name *.pem — opt-in only.
+                     # No embedded quotes: this value is only ever word-split by
+                     # SH_WORD_SPLIT/bash, never re-parsed by a shell, so a literal
+                     # quote character would pass straight through to `find` as text.
+
+# copy_untracked SRC DST — portable, untracked-only, no glob-abort.
+copy_untracked() {
+  find "$1" -maxdepth 1 \( \
+        -name '.env' -o -name '.env.*' -o -name '*.local' \
+     -o -name '.envrc' -o -name '.npmrc' -o -name '.tool-versions' \
+     $EXTRA_PATTERNS \) -type f -print | while IFS= read -r f; do
+    git -C "$1" ls-files --error-unmatch "${f#"$1"/}" >/dev/null 2>&1 && continue
+    cp -p "$f" "$2/"
+  done
+}
+
+copy_untracked "$MAIN_ROOT" "$abs_worktree"
+```
 
 **Do NOT copy or symlink `venv/` into the worktree.** If the resolved install command builds a Python venv (e.g. `python3 -m venv venv`, common behind a `make install` target), it refuses to create over an existing file or symlink (`Error: Unable to create directory .../venv`). Leave `venv/` absent so the tab-2 install command builds a fresh one.
 
