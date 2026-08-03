@@ -1,0 +1,19 @@
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate plugin structure
+        # TEMPORARY: protocol blocks do not exist until Phase B. Task 12 removes
+        # this env var along with the hatch in validate.mjs.
+        run: JUEL_VALIDATE_SKIP=protocol node scripts/validate.mjs
