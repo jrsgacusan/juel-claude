@@ -282,10 +282,11 @@
     "start": {
       "hard": [
         "git-repo",
-        "linear",
         "superpowers:brainstorming"
       ],
-      "soft": []
+      "soft": [
+        "linear"
+      ]
     }
   }
 }
