@@ -9,6 +9,59 @@ End-to-end daily kickoff: fetch Linear todos, create git worktrees, spawn one CM
 
 **Announce:** "Using juel:cmux-ship-tickets to spin up worktrees + CMUX workspaces + claude sessions."
 
+## Strict Execution Protocol (non-negotiable)
+
+<!-- juel:protocol v1 -->
+
+**1. Preflight, then checklist, before anything else.** Before any other output and before any tool call, emit the Preflight block (below), then this skill's `## Phases` checklist rendered as:
+
+```
+<skill-name> — N phases
+[ ] 1. <phase name>
+[ ] 2. <phase name>
+```
+
+If the preflight verdict is STOP, print the preflight block and **stop** — do not print the checklist and do not begin work. Otherwise no work begins until the checklist is on screen. This is not optional on re-invocation, on resume, or when the user says "just do it".
+
+**2. Phases run in order.** No skipping, reordering, or merging. A phase that does not apply is still announced: mark it `[-] N. <name> — SKIPPED: <one-line reason>` and continue at N+1. Never drop a phase silently. Never begin phase N+1 before phase N is marked done or skipped.
+
+**3. Report after every phase.** Re-emit the checklist (`[x]` done, `[-]` skipped, `[ ]` pending) plus one line of evidence for the phase just finished — path written, command run, count found. Never claim progress in prose alone.
+
+**4. Everything runs in the FOREGROUND.** This overrides every other instruction in this file and in any skill invoked from it.
+- `pr-review-toolkit:review-pr`, `simplify`, and `codex exec` are all foreground-only. Invoke subagents with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice.
+- Never `&`. Never `run_in_background: true`. Never "dispatch and continue".
+- **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. The user must be able to watch the run as it happens.
+- Do not request `review-pr`'s parallel / `all parallel` mode.
+- Read the complete output and state the outcome — finding count, exit status, files changed — before marking the phase done. A summary may follow the raw output; it may never replace it.
+- Passing any of this into another session (a CMUX prompt, a nested `claude`) carries these rules with it — say so explicitly in that prompt string.
+
+**5. Confirmation gates stack; they do not replace this.** Where this skill pauses between phases, the checklist report comes first, then the "Proceed to phase N+1?" question. A user's "yes" advances exactly one phase — it never authorizes skipping ahead or batching the remainder.
+
+## Preflight
+
+| Dep | Type | H/S | Check | If missing |
+|---|---|---|---|---|
+| cmux | cli | HARD | `command -v cmux`, else `/Applications/cmux.app/Contents/Resources/bin/cmux` | STOP → https://github.com/manaflow-ai/cmux |
+| claude | cli | HARD | `command -v claude`, else the cmux.app path | STOP → install the Claude Code CLI |
+| coreutils | cli | HARD | one batched `test -x` for sleep/grep/head/cat | STOP |
+| git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
+| juel:daily-worktrees, juel:ship-ticket | skill | HARD | ship with this plugin | STOP |
+| Linear MCP | mcp | HARD | **none — render as `?`** | proceed; phase 2 fails loudly if absent |
+| resolved install command | cli | SOFT | see resolution layer | skip the second surface; install deps yourself |
+| `--permission-mode auto` | perm | SOFT | none (attempt + catch) | relaunch with `acceptEdits`, never `bypassPermissions` |
+
+## Phases
+
+[ ] 1. Preflight — resolve every binary to an absolute path
+[ ] 2. Run juel:daily-worktrees, declining its planning offer
+[ ] 3. Confirm the CMUX launch with the user
+[ ] 4. Per item: create the workspace and launch claude
+[ ] 5. Per item: guard the workspace id, rename it, set the status pill
+[ ] 6. Per item: wait for the TUI, send /juel:ship-ticket <REF> + Enter
+[ ] 7. Per item: open the second surface and start the resolved install command
+[ ] 8. Report the item → worktree → workspace table
+[ ] 9. Verify the QA checklist
+
 ## Prerequisites
 
 - `cmux` CLI installed (on PATH or at the default GUI install location `/Applications/cmux.app/Contents/Resources/bin/cmux`). If neither resolves, abort with install hint.

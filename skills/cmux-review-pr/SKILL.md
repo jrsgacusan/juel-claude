@@ -13,6 +13,60 @@ Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspa
 
 **Announce:** "Using juel:cmux-review-pr to set up a CMUX workspace for review."
 
+## Strict Execution Protocol (non-negotiable)
+
+<!-- juel:protocol v1 -->
+
+**1. Preflight, then checklist, before anything else.** Before any other output and before any tool call, emit the Preflight block (below), then this skill's `## Phases` checklist rendered as:
+
+```
+<skill-name> — N phases
+[ ] 1. <phase name>
+[ ] 2. <phase name>
+```
+
+If the preflight verdict is STOP, print the preflight block and **stop** — do not print the checklist and do not begin work. Otherwise no work begins until the checklist is on screen. This is not optional on re-invocation, on resume, or when the user says "just do it".
+
+**2. Phases run in order.** No skipping, reordering, or merging. A phase that does not apply is still announced: mark it `[-] N. <name> — SKIPPED: <one-line reason>` and continue at N+1. Never drop a phase silently. Never begin phase N+1 before phase N is marked done or skipped.
+
+**3. Report after every phase.** Re-emit the checklist (`[x]` done, `[-]` skipped, `[ ]` pending) plus one line of evidence for the phase just finished — path written, command run, count found. Never claim progress in prose alone.
+
+**4. Everything runs in the FOREGROUND.** This overrides every other instruction in this file and in any skill invoked from it.
+- `pr-review-toolkit:review-pr`, `simplify`, and `codex exec` are all foreground-only. Invoke subagents with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice.
+- Never `&`. Never `run_in_background: true`. Never "dispatch and continue".
+- **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. The user must be able to watch the run as it happens.
+- Do not request `review-pr`'s parallel / `all parallel` mode.
+- Read the complete output and state the outcome — finding count, exit status, files changed — before marking the phase done. A summary may follow the raw output; it may never replace it.
+- Passing any of this into another session (a CMUX prompt, a nested `claude`) carries these rules with it — say so explicitly in that prompt string.
+
+**5. Confirmation gates stack; they do not replace this.** Where this skill pauses between phases, the checklist report comes first, then the "Proceed to phase N+1?" question. A user's "yes" advances exactly one phase — it never authorizes skipping ahead or batching the remainder.
+
+## Preflight
+
+| Dep | Type | H/S | Check | If missing |
+|---|---|---|---|---|
+| cmux | cli | HARD | `command -v cmux`, else the cmux.app path | STOP → https://github.com/manaflow-ai/cmux |
+| claude | cli | HARD | `command -v claude`, else the cmux.app path | STOP |
+| gh (authenticated) | cli | HARD | `gh auth status` | STOP → `gh auth login` |
+| codex | cli | SOFT | `command -v codex` | the inner session validates findings itself |
+| coreutils | cli | HARD | one batched `test -x` | STOP |
+| git repo matching the PR remote | context | HARD | `git remote get-url <remote>` | STOP |
+| resolvable PR or branch | context | HARD | `gh pr view <N> --json number` | STOP |
+| pr-review-toolkit | skill | SOFT | ships as a plugin dependency | inner session falls back to `/review` |
+| Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the alignment section is omitted |
+
+## Phases
+
+[ ] 1. Preflight — resolve binaries, set CMUX_QUIET
+[ ] 2. Resolve the PR to a branch and label
+[ ] 3. Extract the work-item ref from the branch, falling back to the PR title
+[ ] 4. Create the worktree and copy untracked env files
+[ ] 5. Compute the deterministic session id
+[ ] 6. Spawn the workspace, rename it, poll for the prompt, send the review prompt + Enter
+[ ] 7. Open the second surface and start the resolved install command
+[ ] 8. Report PR, work item, worktree, session, workspace, surface
+[ ] 9. Verify the QA checklist
+
 ## Arguments
 
 | Argument | Required | Description |
@@ -182,7 +236,7 @@ done
 # base diff can coexist. `codex exec review --base <b> "<prompt>"` is REJECTED by codex
 # (>=0.140): `--base` cannot combine with a positional prompt. Instead let codex run the
 # diff itself inside the prompt. Do NOT pin -m / model_reasoning_effort — codex defaults.
-prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via the Linear MCP get_issue for ${ticket_id:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip ticket grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch:-dev}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each ticket requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the ticket. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch:-dev}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Ticket-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to docs/.superpowers/findings-review.md."
+prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via the Linear MCP get_issue for ${ticket_id:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip ticket grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch:-dev}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each ticket requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the ticket. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch:-dev}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Ticket-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to docs/.superpowers/findings-review.md. run /pr-review-toolkit:review-pr in the FOREGROUND (run_in_background: false), do not use parallel mode, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
 
 "$CMUX" send --workspace "$ws_id" "$prompt"
 "$SLEEP" 1
