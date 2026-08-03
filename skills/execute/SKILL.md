@@ -14,7 +14,7 @@ metadata:
         hard: true
         why: phase 1 finds the newest plan under ${docsRoot}/plans/*.md to execute
         check: "newest ${docsRoot}/plans/*.md"
-      - id: worktree-root-cwd
+      - id: writable-cwd
         hard: true
         why: codex's workspace-write sandbox needs a writable cwd to apply changes
         check: "test -w ."

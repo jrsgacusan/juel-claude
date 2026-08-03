@@ -58,6 +58,11 @@
       "label": "git repository",
       "install": "Run from inside a git repository"
     },
+    "github-remote": {
+      "kind": "context",
+      "label": "GitHub-hosted remote",
+      "install": "The repo remote must resolve to github.com — a GitLab or Bitbucket remote does not satisfy this"
+    },
     "interactive-user": {
       "kind": "context",
       "label": "interactive user",
@@ -138,10 +143,20 @@
       "label": "superpowers:brainstorming",
       "install": "Ships as part of the superpowers plugin dependency"
     },
+    "work-source-list-capable": {
+      "kind": "context",
+      "label": "work-source provider with list capability",
+      "install": "Configure a work-item provider that supports listing (e.g. Linear MCP), or paste refs / point at a spec directory"
+    },
     "worktree-root-cwd": {
       "kind": "context",
       "label": "cwd at worktree root",
       "install": "Run with the working directory set to the worktree root"
+    },
+    "writable-cwd": {
+      "kind": "context",
+      "label": "writable cwd",
+      "install": "Run somewhere the current directory is writable (`test -w .`) — a permission claim, not a location claim"
     }
   },
   "skills": {
@@ -206,7 +221,8 @@
       "hard": [
         "git",
         "git-repo",
-        "interactive-user"
+        "interactive-user",
+        "work-source-list-capable"
       ],
       "soft": [
         "linear"
@@ -215,7 +231,7 @@
     "execute": {
       "hard": [
         "plan-file",
-        "worktree-root-cwd"
+        "writable-cwd"
       ],
       "soft": [
         "codex"
@@ -224,7 +240,7 @@
     "receive-review-and-execute": {
       "hard": [
         "gh",
-        "git-repo",
+        "github-remote",
         "interactive-user",
         "open-pr",
         "superpowers"

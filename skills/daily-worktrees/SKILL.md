@@ -8,7 +8,7 @@ metadata:
         hard: false
         why: phase 2 fetches open Todo tickets assigned to the user
         check: none
-        fallback: falls back to the next available work-item provider
+        fallback: falls back to the next available provider
     cli:
       - id: git
         hard: true
@@ -22,7 +22,7 @@ metadata:
       - id: interactive-user
         hard: true
         why: phase 5 lets the user select which tickets to set up via AskUserQuestion
-      - id: interactive-user
+      - id: work-source-list-capable
         hard: true
         why: phase 2 needs a work source that can list items, or the user pastes refs / points at a spec directory
 ---

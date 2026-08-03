@@ -2,7 +2,7 @@
 // Zero-dependency validator for the juel plugin. Node 20+, ESM.
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
-import { buildRequirements } from './gen-requirements.mjs';
+import { buildRequirements, checkPreflightAgreement } from './gen-requirements.mjs';
 
 const root = resolve(process.argv[2] ?? '.');
 const problems = [];
@@ -125,16 +125,29 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 6: declaration agreement -----------------------------------------
-// Every id used in a frontmatter metadata.requires block must have a
-// definitions entry with an install hint, and requirements.json must be
-// current with respect to the frontmatter. Implemented by regenerating in
-// memory (buildRequirements walks the same skills/*/SKILL.md frontmatter
-// check 2 already read) and diffing against the committed file — so
-// requirements.json can never silently drift from the inline ## Preflight
-// tables it mirrors.
+// A real 3-way check across all three representations of a skill's
+// requirements: the inline `## Preflight` markdown table (what the model
+// reads at invoke time), the frontmatter `metadata.requires` block (tooling
+// source), and the generated `.claude-plugin/requirements.json` (tooling
+// rollup). Every id used in a frontmatter block must also have a
+// `definitions` entry with an install hint.
+//
+// Two independent comparisons together guarantee all three pairs agree
+// (equality is transitive — if A=B and B=C then A=C):
+//   1. table <-> frontmatter, position-by-position within each dependency
+//      group (checkPreflightAgreement, in gen-requirements.mjs).
+//   2. frontmatter <-> generated file, by regenerating requirements.json
+//      in memory (buildRequirements, which walks the same frontmatter this
+//      comparison also reads) and diffing it against the committed file.
+// A skill whose table is not in the expected shape makes
+// checkPreflightAgreement THROW rather than silently skip that skill.
 {
   const reqPath = join(root, '.claude-plugin', 'requirements.json');
   try {
+    // 1. table <-> frontmatter, per skill, per group, positionally.
+    for (const issue of checkPreflightAgreement(root)) fail('requirements', issue);
+
+    // 2. frontmatter <-> generated file, by exact regenerate-and-diff.
     const generated = buildRequirements(root);
     if (!existsSync(reqPath)) {
       fail('requirements', '.claude-plugin/requirements.json is missing — run `node scripts/gen-requirements.mjs`');
@@ -153,7 +166,7 @@ for (const [name, text] of skillBodies) {
       }
     }
   } catch (e) {
-    fail('requirements', `metadata.requires: ${e.message}`);
+    fail('requirements', `metadata.requires / Preflight table: ${e.message}`);
   }
 }
 

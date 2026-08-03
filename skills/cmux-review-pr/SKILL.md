@@ -8,7 +8,7 @@ metadata:
         hard: false
         why: phase 3 grades the review against the linked ticket's requirements
         check: none
-        fallback: review proceeds ungraded; the Ticket-alignment section is omitted
+        fallback: review proceeds ungraded; the alignment section is omitted
     cli:
       - id: cmux
         hard: true

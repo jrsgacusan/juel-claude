@@ -18,7 +18,7 @@ metadata:
         hard: true
         why: this skill consumes review comments from an existing PR
         check: "gh pr view <N> --json number"
-      - id: git-repo
+      - id: github-remote
         hard: true
         why: step 1 resolves the PR's repo and requires a github.com remote
         check: "git remote get-url <remote> matches github.com"

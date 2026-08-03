@@ -42,7 +42,7 @@ metadata:
       - id: permission-mode-auto
         hard: false
         why: spawned sessions must not stall on the first tool prompt
-        fallback: relaunch with --permission-mode acceptEdits, never bypassPermissions
+        fallback: relaunch with acceptEdits, never bypassPermissions
 ---
 
 # Juel CMUX Ship Tickets

@@ -28,8 +28,14 @@ const GROUPS = ['mcp', 'cli', 'skills', 'context', 'perms'];
 const GROUPS_WITH_CHECK = new Set(['mcp', 'cli', 'context']);
 
 // `context` ids are a closed vocabulary — see task-12-brief.md and
-// docs/design/research/design-preflight.md §3.1. A context id outside this
-// set is treated as unparseable, not silently accepted.
+// docs/design/research/design-preflight.md §3.1, extended per the Task 12
+// review (round 1, finding 3) with `writable-cwd`, `work-source-list-capable`
+// and `github-remote` — each replaces a prior overloaded mapping that either
+// conflated a location claim with a permission claim, conflated a
+// provider-capability check with human presence, or produced a false pass
+// (a GitLab remote would satisfy `git-repo` while failing a real HARD
+// GitHub-remote requirement). A context id outside this set is treated as
+// unparseable, not silently accepted.
 const CONTEXT_VOCAB = new Set([
   'git-repo',
   'git-worktree',
@@ -39,6 +45,9 @@ const CONTEXT_VOCAB = new Set([
   'plan-file',
   'cmux-session',
   'interactive-user',
+  'writable-cwd',
+  'work-source-list-capable',
+  'github-remote',
 ]);
 
 // id -> { kind, label, install, paths? }. Every id referenced by any skill's
@@ -184,6 +193,21 @@ const DEFINITIONS = {
     label: 'interactive user',
     install: 'Requires an interactive session (AskUserQuestion); unavailable headless',
   },
+  'writable-cwd': {
+    kind: 'context',
+    label: 'writable cwd',
+    install: 'Run somewhere the current directory is writable (`test -w .`) — a permission claim, not a location claim',
+  },
+  'work-source-list-capable': {
+    kind: 'context',
+    label: 'work-source provider with list capability',
+    install: 'Configure a work-item provider that supports listing (e.g. Linear MCP), or paste refs / point at a spec directory',
+  },
+  'github-remote': {
+    kind: 'context',
+    label: 'GitHub-hosted remote',
+    install: 'The repo remote must resolve to github.com — a GitLab or Bitbucket remote does not satisfy this',
+  },
 
   // --- perms -----------------------------------------------------------------
   'permission-mode-auto': {
@@ -214,11 +238,28 @@ function unquote(raw) {
 function parseItem(rawLines, skillLabel, group) {
   const item = {};
   for (const raw of rawLines) {
-    const m = raw.match(/^(id|hard|why|check|fallback):\s?(.*)$/);
+    const m = raw.match(/^(id|hard|why|check|fallback):(.*)$/);
     if (!m) throw new Error(`${skillLabel}: [${group}] unrecognized line in entry: ${JSON.stringify(raw)}`);
-    const [, key, rawValue] = m;
+    const [, key, rest] = m;
+    // Exactly one space must separate the colon from the value, and the
+    // value itself must carry no leading/trailing whitespace. A stray
+    // double-space or trailing space is a malformed-spacing error, not
+    // something to silently absorb into the stored string (round-1 review
+    // finding: this exact class of drift previously parsed without error).
+    if (rest.length === 0)
+      throw new Error(`${skillLabel}: [${group}] key '${key}' has no value: ${JSON.stringify(raw)}`);
+    if (rest[0] !== ' ')
+      throw new Error(`${skillLabel}: [${group}] key '${key}' must have exactly one space after the colon: ${JSON.stringify(raw)}`);
+    const rawValue = rest.slice(1);
+    if (rawValue.length === 0 || /^\s/.test(rawValue) || /\s$/.test(rawValue))
+      throw new Error(`${skillLabel}: [${group}] key '${key}' has malformed spacing around its value: ${JSON.stringify(raw)}`);
+    const value = unquote(rawValue);
+    // Re-check after unquoting: padding *inside* the quotes (e.g. `check: "
+    // command -v git"`) is invisible to the outer check above.
+    if (value.length === 0 || /^\s/.test(value) || /\s$/.test(value))
+      throw new Error(`${skillLabel}: [${group}] key '${key}' has malformed spacing inside its quoted value: ${JSON.stringify(raw)}`);
     if (key in item) throw new Error(`${skillLabel}: [${group}] duplicate key '${key}' within one entry`);
-    item[key] = unquote(rawValue);
+    item[key] = value;
   }
   if (!item.id) throw new Error(`${skillLabel}: [${group}] entry missing required 'id'`);
   if (item.hard !== 'true' && item.hard !== 'false')
@@ -288,27 +329,41 @@ export function parseRequires(frontmatterText, skillLabel) {
   return result;
 }
 
-/** Builds the full requirements.json object in-memory from every skill's SKILL.md. */
-export function buildRequirements(root) {
+/** List every `skills/*` directory name, sorted, for deterministic iteration. */
+function listSkillNames(root) {
   const skillsDir = join(root, 'skills');
-  const names = (
+  return (
     existsSync(skillsDir)
       ? readdirSync(skillsDir).filter((d) => statSync(join(skillsDir, d)).isDirectory())
       : []
   ).sort();
+}
 
+/**
+ * Reads one skill's SKILL.md and parses its `metadata.requires` frontmatter.
+ * Shared by buildRequirements() (frontmatter -> requirements.json) and
+ * checkPreflightAgreement() (frontmatter <-> inline table), so both walk the
+ * exact same parse of the exact same file — no second, divergent code path.
+ */
+function loadSkill(root, name) {
+  const skillLabel = `skills/${name}`;
+  const p = join(root, 'skills', name, 'SKILL.md');
+  if (!existsSync(p)) throw new Error(`${skillLabel}/SKILL.md not found`);
+  const text = readFileSync(p, 'utf8');
+  const fmMatch = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fmMatch) throw new Error(`${skillLabel}/SKILL.md: no YAML frontmatter`);
+  const requires = parseRequires(fmMatch[1], skillLabel);
+  return { name, skillLabel, text, requires };
+}
+
+/** Builds the full requirements.json object in-memory from every skill's SKILL.md. */
+export function buildRequirements(root) {
+  const names = listSkillNames(root);
   const usedIds = new Set();
   const skillsOut = {};
 
   for (const name of names) {
-    const skillLabel = `skills/${name}`;
-    const p = join(skillsDir, name, 'SKILL.md');
-    if (!existsSync(p)) throw new Error(`${skillLabel}/SKILL.md not found`);
-    const text = readFileSync(p, 'utf8');
-    const fmMatch = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-    if (!fmMatch) throw new Error(`${skillLabel}/SKILL.md: no YAML frontmatter`);
-
-    const requires = parseRequires(fmMatch[1], skillLabel);
+    const { requires } = loadSkill(root, name);
     const hard = new Set();
     const soft = new Set();
     for (const group of GROUPS) {
@@ -336,6 +391,179 @@ export function buildRequirements(root) {
     definitions,
     skills: skillsOut,
   };
+}
+
+// --- Inline `## Preflight` table parsing (Task 12 review, round 1) ---------
+//
+// requirements.json is generated FROM frontmatter, so a diff between the two
+// (buildRequirements() vs the committed file, done in validate.mjs check 6)
+// only proves frontmatter and requirements.json agree with EACH OTHER. It
+// says nothing about whether the inline `## Preflight` table — the
+// representation the model actually reads at invoke time, per this file's
+// header comment — still agrees with either. That is a real, independent
+// drift surface: someone could edit the table (the thing that governs model
+// behavior) without touching frontmatter (the thing tooling reads), and
+// nothing would notice. This section closes that gap directly: it parses
+// the table and diffs it against frontmatter, position by position within
+// each dependency group. Combined with the existing frontmatter<->generated
+// diff, any single-representation edit among the three is now caught by at
+// least one of the two comparisons (transitivity covers the third pair).
+
+const TYPE_TO_GROUP = { mcp: 'mcp', cli: 'cli', skill: 'skills', context: 'context', perm: 'perms' };
+const TABLE_HEADER = ['Dep', 'Type', 'H/S', 'Check', 'If missing'];
+
+/** Strips pure-markdown decoration (code spans, bold) and collapses whitespace, for comparison. */
+function normalizeProse(s) {
+  return s.replace(/`/g, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// A Dep cell's comma can mean two unrelated things: a genuine multi-id list
+// ("juel:daily-worktrees, juel:ship-ticket" — two skill ids) or a single
+// dependency described in prose that happens to contain a comma ("git
+// worktree, cwd = root" — one context dependency). Blanket-splitting on
+// every comma silently over-splits the second case (confirmed: it produced
+// a spurious extra `context` row for `ship-ticket` and broke the table<->
+// frontmatter count). The distinguishing signal used here: a genuine id list
+// is comma-separated BARE IDENTIFIERS with no internal whitespace; prose
+// contains spaces. Only split when EVERY resulting segment is bare-identifier
+// shaped — otherwise treat the whole cell as one label.
+const looksLikeId = (s) => /^[A-Za-z0-9][A-Za-z0-9:_./-]*$/.test(s);
+
+function splitDepCell(depCell) {
+  const raw = normalizeProse(depCell);
+  const candidates = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return candidates.length > 1 && candidates.every(looksLikeId) ? candidates : [raw];
+}
+
+function splitTableRow(line, skillLabel) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('|') || !trimmed.endsWith('|'))
+    throw new Error(`${skillLabel}: Preflight table row must start and end with '|': ${JSON.stringify(line)}`);
+  return trimmed.slice(1, -1).split('|').map((c) => c.trim());
+}
+
+/**
+ * Parses a skill's inline `## Preflight` markdown table into an ordered list
+ * of rows: { label, group, hard, ifMissing }. A row whose Dep cell lists
+ * several comma-separated ids (e.g. "juel:a, juel:b") expands to one entry
+ * per id, in order, all sharing that row's group/hard/ifMissing — mirroring
+ * how such a row was hand-expanded into separate frontmatter entries.
+ *
+ * Throws on any shape it does not recognize. A skill silently exempted from
+ * the table<->frontmatter comparison is worse than no comparison at all.
+ */
+export function parsePreflightTable(skillMdText, skillLabel) {
+  const lines = skillMdText.replace(/\r\n/g, '\n').split('\n');
+  const headingIdx = lines.findIndex((l) => l.trim() === '## Preflight');
+  if (headingIdx === -1) throw new Error(`${skillLabel}: no '## Preflight' heading found`);
+
+  let i = headingIdx + 1;
+  while (i < lines.length && !lines[i].startsWith('|')) {
+    if (/^## /.test(lines[i])) throw new Error(`${skillLabel}: no Preflight table found before the next '## ' heading`);
+    i++;
+  }
+  if (i >= lines.length) throw new Error(`${skillLabel}: no Preflight table found under '## Preflight'`);
+
+  const header = splitTableRow(lines[i], skillLabel);
+  if (header.length !== TABLE_HEADER.length || header.some((c, idx) => c !== TABLE_HEADER[idx]))
+    throw new Error(`${skillLabel}: Preflight table header must be exactly ${JSON.stringify(TABLE_HEADER)}, got ${JSON.stringify(header)}`);
+  i++;
+
+  if (i >= lines.length) throw new Error(`${skillLabel}: Preflight table has a header but no separator row`);
+  const sep = splitTableRow(lines[i], skillLabel);
+  if (sep.length !== TABLE_HEADER.length || sep.some((c) => !/^:?-+:?$/.test(c)))
+    throw new Error(`${skillLabel}: Preflight table separator row is malformed: ${JSON.stringify(lines[i])}`);
+  i++;
+
+  const rows = [];
+  while (i < lines.length && lines[i].trim().startsWith('|')) {
+    const cells = splitTableRow(lines[i], skillLabel);
+    if (cells.length !== TABLE_HEADER.length)
+      throw new Error(
+        `${skillLabel}: Preflight table row has ${cells.length} cell(s), expected ${TABLE_HEADER.length}: ${JSON.stringify(lines[i])}`
+      );
+    const [depCell, typeCell, hsCell, , ifMissingCell] = cells;
+    const group = TYPE_TO_GROUP[typeCell];
+    if (!group)
+      throw new Error(
+        `${skillLabel}: Preflight table row has unknown Type '${typeCell}' (expected one of ${Object.keys(TYPE_TO_GROUP).join(', ')}): ${JSON.stringify(lines[i])}`
+      );
+    let hard;
+    if (hsCell === 'HARD') hard = true;
+    else if (hsCell === 'SOFT') hard = false;
+    else
+      throw new Error(`${skillLabel}: Preflight table row has unrecognized H/S '${hsCell}' (expected HARD or SOFT): ${JSON.stringify(lines[i])}`);
+    const labels = splitDepCell(depCell);
+    if (labels.length === 0 || labels.some((l) => l.length === 0))
+      throw new Error(`${skillLabel}: Preflight table row has an empty Dep cell: ${JSON.stringify(lines[i])}`);
+    for (const label of labels) rows.push({ label, group, hard, ifMissing: normalizeProse(ifMissingCell) });
+    i++;
+  }
+  if (rows.length === 0) throw new Error(`${skillLabel}: Preflight table has a header row but no data rows`);
+  return rows;
+}
+
+/**
+ * Diffs a skill's inline Preflight table rows against its frontmatter
+ * `requires`, group by group, POSITIONALLY: the frontmatter was hand-authored
+ * in table order within each group (verified for all 11 skills — see
+ * task-12-report.md), so entry N of a group's table rows must correspond to
+ * entry N of that group's frontmatter array. This catches count drift
+ * (row added/removed in only one place), HARD/SOFT flips, and — for SOFT
+ * rows, where the table's "If missing" text is the frontmatter `fallback`
+ * verbatim by construction — fallback-text drift.
+ *
+ * Returns an array of human-readable disagreement messages (empty = agree).
+ * Never throws on disagreement (that is the caller's decision); parsing
+ * failures upstream in parsePreflightTable() still throw.
+ */
+export function diffTableAndFrontmatter(skillLabel, tableRows, requires) {
+  const issues = [];
+  for (const group of GROUPS) {
+    const tRows = tableRows.filter((r) => r.group === group);
+    const fEntries = requires[group] ?? [];
+    if (tRows.length !== fEntries.length) {
+      issues.push(
+        `${skillLabel} [${group}]: table<->frontmatter disagree on entry count — table has ${tRows.length} row(s), frontmatter has ${fEntries.length} entry(ies)`
+      );
+      continue; // positional comparison below is meaningless once lengths differ
+    }
+    for (let idx = 0; idx < tRows.length; idx++) {
+      const t = tRows[idx];
+      const f = fEntries[idx];
+      if (t.hard !== f.hard) {
+        issues.push(
+          `${skillLabel} [${group}] position ${idx + 1} ('${t.label}' / frontmatter id '${f.id}'): table<->frontmatter disagree on HARD/SOFT — table says ${t.hard ? 'HARD' : 'SOFT'}, frontmatter says ${f.hard ? 'HARD' : 'SOFT'}`
+        );
+        continue;
+      }
+      if (!t.hard) {
+        const fFallback = normalizeProse(f.fallback ?? '');
+        if (t.ifMissing !== fFallback) {
+          issues.push(
+            `${skillLabel} [${group}] position ${idx + 1} (id '${f.id}'): table<->frontmatter disagree on the SOFT fallback text — table 'If missing' is ${JSON.stringify(t.ifMissing)}, frontmatter 'fallback' is ${JSON.stringify(fFallback)}`
+          );
+        }
+      }
+    }
+  }
+  return issues;
+}
+
+/**
+ * Runs diffTableAndFrontmatter() for every skill in the plugin. Throws
+ * immediately (does not skip) if any skill's table is not in the expected
+ * shape — see parsePreflightTable(). Returns the combined issues array
+ * (empty = every skill's table and frontmatter agree).
+ */
+export function checkPreflightAgreement(root) {
+  const issues = [];
+  for (const name of listSkillNames(root)) {
+    const { skillLabel, text, requires } = loadSkill(root, name);
+    const tableRows = parsePreflightTable(text, skillLabel);
+    issues.push(...diffTableAndFrontmatter(skillLabel, tableRows, requires));
+  }
+  return issues;
 }
 
 function main() {
