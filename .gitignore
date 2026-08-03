@@ -4,3 +4,8 @@ superpowers/
 
 # Design docs, research, specs and plans — local only
 docs/
+
+# Local workspace config for developing this plugin (not product).
+# The plugin declares superpowers/pr-review-toolkit as dependencies, so
+# consumers do not need these.
+.claude/
