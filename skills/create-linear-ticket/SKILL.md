@@ -1,12 +1,12 @@
 ---
 name: create-linear-ticket
-description: Use when user asks to create a Linear ticket, file a bug, track a task, or when discovering issues/TODOs in code that need a Linear issue
+description: Use when user asks to create a Linear ticket, file a bug, track a task, or when discovering issues/TODOs in code that need a Linear issue. Linear-specific — for other sources, resolve the work item via the work-source reference.
 metadata:
   requires:
     mcp:
       - id: linear
         hard: true
-        why: creates the ticket directly via Linear's create_issue; this skill is Linear-specific by design
+        why: creates the ticket directly via Linear's save_issue (the sole create-or-update verb); this skill is Linear-specific by design
         check: none
     context:
       - id: interactive-user
@@ -80,31 +80,39 @@ Phase 4 is the canonical rule-2 case: it is never silently dropped. Not in a git
 
 ## Workflow
 
+**Resolve the Linear MCP prefix first — every call below is written `<LINEAR_PREFIX>tool_name`.**
+Both `mcp__linear__` (the plugin dependency) and `mcp__claude_ai_Linear__` (the claude.ai connector)
+are real; the active one depends on which connector the user authenticated. Use whichever prefix
+exposes a *domain* tool — anything other than `authenticate`/`complete_authentication`, since the
+plugin connector can be installed but not yet authorized, which is not the same as usable. If
+neither prefix exposes a domain tool, **STOP**: "Linear MCP is not connected. Enable the connector,
+restart this session (connectors bind at startup), then re-run." Do not retry.
+
 ### Step 1: Gather Input
 
 If input is vague, ask a targeted follow-up before proceeding. Never guess.
 
 Extract from input if mentioned:
-- **Parent issue:** "sub-task of ENG-123" → resolve via `get_issue`, set `parentId`
+- **Parent issue:** "sub-task of ENG-123" → resolve via `<LINEAR_PREFIX>get_issue`, set `parentId`
 - **Blocking relationships:** "blocked by ENG-456" → set `blockedBy`; "blocks ENG-789" → set `blocks`
-- **Assignee:** resolve via `list_users`
+- **Assignee:** resolve via `<LINEAR_PREFIX>list_users`
 - **Deadline:** "by next Friday", "before the release" → compute due date
-- **Cycle:** "for this sprint", "current cycle" → fetch current cycle
+- **Cycle:** "for this sprint", "current cycle" → fetch current cycle via `<LINEAR_PREFIX>list_cycles`
 - **URLs:** attach as `links`
 
 ### Step 2: Project Selection (MANDATORY)
 
-Ask the user to type a project name or keyword. Then call `list_projects(query="<input>")` to filter and present matches with AskUserQuestion.
+Ask the user to type a project name or keyword. Then call `<LINEAR_PREFIX>list_projects(query="<input>")` to filter and present matches with AskUserQuestion.
 
 **Session memory:** if the user already selected a project in this conversation, offer "Same project ([ProjectName])?" instead of asking again. Only re-prompt the full selection if the user requests a different project.
 
 ### Step 3: Fetch Team Data (parallel)
 
-From the selected project, resolve the team (use `list_teams` if needed). Then fetch in parallel:
-- `list_issue_labels` (for that team)
-- `list_issue_statuses` (for that team — identify the team's default entry status)
+From the selected project, resolve the team (use `<LINEAR_PREFIX>list_teams` if needed). Then fetch in parallel:
+- `<LINEAR_PREFIX>list_issue_labels` (for that team)
+- `<LINEAR_PREFIX>list_issue_statuses` (for that team — identify the team's default entry status)
 
-**Error handling:** if any non-critical call fails (labels, cycles, statuses), continue with that field unset and note it in the preview. Only abort if `list_projects` or `create_issue` fails.
+**Error handling:** if any non-critical call fails (labels, cycles, statuses), continue with that field unset and note it in the preview. Only abort if `<LINEAR_PREFIX>list_projects` or `<LINEAR_PREFIX>save_issue` fails.
 
 ### Step 4: Codebase Scan (conditional)
 
@@ -131,7 +139,11 @@ From the selected project, resolve the team (use `list_teams` if needed). Then f
 
 **Code references:** prefer component/module names over raw file paths. References are for orientation, not prescription.
 
-**Code samples policy — diagnostic only, never descriptive:**
+**Code samples policy — diagnostic only, never descriptive** (canonical shared copy:
+`references/work-source.md` §6.1, extracted verbatim so a future provider-neutral authoring
+dispatcher can reuse it without re-deriving from scratch — kept inline here too, since this skill
+must stay fully self-contained: `references/*.md` files are authoring sources of truth, never read
+at runtime, so nothing that must actually run can live only there):
 
 | Include | Don't include |
 |---------|---------------|
@@ -146,7 +158,8 @@ From the selected project, resolve the team (use `list_teams` if needed). Then f
 
 **Title:** concise, imperative (e.g., "Add retry logic to payment webhook handler")
 
-**Description template — adapt based on ticket type:**
+**Description template — adapt based on ticket type** (canonical shared copy: `references/work-source.md`
+§6.2 — same reuse/inlining rationale as the code-samples policy above):
 
 For **features and bugs**, use Context / Requirements / Acceptance Criteria:
 
@@ -182,20 +195,23 @@ For **chores and tech debt**, replace AC with:
 
 For **trivial tickets** (fix typo, rename variable): a one-line description is fine. Skip the template.
 
-**AC rules:** each item must be verifiable — no vague language like "works correctly." State the observable outcome.
+**AC rules** (canonical shared copy: `references/work-source.md` §6.3): each item must be verifiable — no vague language like "works correctly." State the observable outcome.
 
 **Defaults (auto-set unless user specifies otherwise):**
 
 | Field | Value |
 |-------|-------|
 | Priority | No priority (0) — only set higher if user indicates urgency |
-| Status | Team's default entry status (from `list_issue_statuses`) |
+| Status | Team's default entry status (from `<LINEAR_PREFIX>list_issue_statuses`) |
 | Cycle | Unset — only set if user says "this sprint" or "current cycle" |
 | Due date | Unset — only set if user mentions a deadline |
 
 Suggest 1-3 labels by keyword overlap between ticket content and label names. Never invent labels that don't exist.
 
 ### Step 6: Preview (MANDATORY)
+
+Canonical shared copy: `references/work-source.md` §6.4 — same reuse/inlining rationale as above;
+this step is never skipped regardless of which copy a future generic dispatcher reads.
 
 ```
 Linear Ticket Preview
@@ -222,21 +238,21 @@ If user says **Edit**: apply their changes and re-preview. If **Cancel**: stop. 
 
 ### Step 7: Create & Report
 
-Call `create_issue` with all fields. Include `parentId`, `blocks`, `blockedBy`, `links` if detected in Step 1. Report the ticket identifier.
+Call `<LINEAR_PREFIX>save_issue` with all fields. Include `parentId`, `blocks`, `blockedBy`, `links` if detected in Step 1. Report the ticket identifier. `save_issue` is the sole create-or-update verb — `create_issue` does not exist as a tool.
 
 ## Edge Cases
 
 | Situation | Action |
 |-----------|--------|
 | Input too vague | Ask targeted follow-up before drafting |
-| User mentions parent issue | Resolve via `get_issue`, set `parentId` |
+| User mentions parent issue | Resolve via `<LINEAR_PREFIX>get_issue`, set `parentId` |
 | User mentions "blocked by" / "blocks" | Set `blockedBy` / `blocks` fields |
-| User mentions assignee | Resolve via `list_users` |
+| User mentions assignee | Resolve via `<LINEAR_PREFIX>list_users` |
 | User mentions URL | Attach as `links` |
 | Video/timestamp mentioned | Add "Video timestamp: MM:SS" to Context |
 | User wants edits after preview | Apply changes, re-preview |
 | API call fails (non-critical) | Continue with field unset, note in preview |
-| 50+ projects in workspace | Use `list_projects(query=...)` to filter, never dump full list |
+| 50+ projects in workspace | Use `<LINEAR_PREFIX>list_projects(query=...)` to filter, never dump full list |
 
 ## Common Mistakes
 

@@ -194,10 +194,10 @@
         "coreutils",
         "git-repo",
         "juel:daily-worktrees",
-        "juel:ship-ticket",
-        "linear"
+        "juel:ship-ticket"
       ],
       "soft": [
+        "linear",
         "permission-mode-auto",
         "resolved-install-command"
       ]

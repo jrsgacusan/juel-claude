@@ -1,12 +1,12 @@
 ---
 name: cmux-review-pr
-description: Use to review a GitHub PR (or arbitrary branch) inside an isolated CMUX workspace. Creates a git worktree for the PR branch, spawns a CMUX workspace, auto-launches `claude` with a deterministic session id derived from the PR id, fetches the linked Linear ticket so the review is graded against the ticket's requirements, runs `/pr-review-toolkit:review-pr`, then validates the findings with codex. Triggers "review pr", "/juel:cmux-review-pr".
+description: Use to review a GitHub PR (or arbitrary branch) inside an isolated CMUX workspace. Creates a git worktree for the PR branch, spawns a CMUX workspace, auto-launches `claude` with a deterministic session id derived from the PR id, fetches the linked work item so the review is graded against its requirements, runs `/pr-review-toolkit:review-pr`, then validates the findings with codex. Triggers "review pr", "/juel:cmux-review-pr".
 metadata:
   requires:
     mcp:
       - id: linear
         hard: false
-        why: phase 3 grades the review against the linked ticket's requirements
+        why: phase 3 grades the review against the linked work item's requirements
         check: none
         fallback: review proceeds ungraded; the alignment section is omitted
     cli:
@@ -56,7 +56,7 @@ metadata:
 
 Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspace + deterministic claude session) but the payload is a code review followed by an independent codex validation pass.
 
-**Two reviewers, one report — graded against the ticket.** Before reviewing, the inner claude fetches the linked Linear ticket (id extracted from the branch/PR title — a different source than `juel:start`, which reads the worktree dirname instead, but the same spirit: resolve a ref before doing anything else) so the diff is judged against the ticket's requirements and acceptance criteria, not just generic code quality. It then runs `/pr-review-toolkit:review-pr`, hands every finding to codex for a second opinion. Do NOT pin a codex model or reasoning effort — let codex use its own defaults. Final consolidated report lives at `${docsRoot}/findings/findings-review.md` with four buckets: Ticket-alignment, Confirmed, Disputed, Codex-only.
+**Two reviewers, one report — graded against the work item.** Before reviewing, the inner claude fetches the linked work item (ref extracted from the branch/PR title via the same `detect_ref` helper `juel:start` inlines — a different source than `juel:start`, which reads the worktree dirname instead, but the same spirit: resolve a ref before doing anything else) so the diff is judged against the work item's requirements and acceptance criteria, not just generic code quality. It then runs `/pr-review-toolkit:review-pr`, hands every finding to codex for a second opinion. Do NOT pin a codex model or reasoning effort — let codex use its own defaults. Final consolidated report lives at `${docsRoot}/findings/findings-review.md` with four buckets: Requirement-alignment, Confirmed, Disputed, Codex-only.
 
 > **Codex invocation (important).** Use `codex exec --sandbox read-only "<prompt>"`, NOT `codex exec review --base <base> "<prompt>"`. Codex (>=0.140) rejects combining `--base` with a positional prompt (`error: the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`). Since validation needs both a custom prompt and the base diff, instruct codex to run the diff itself inside the prompt: start the prompt with "First run: git diff <base>...HEAD to see the real changes, then validate...".
 
@@ -231,16 +231,82 @@ If cross-repo (`isCrossRepository == true`), use `gh pr checkout $pr_number` lat
 
 If the argument is a branch name, set `branch=<arg>`, `label=$(echo "$branch" | tr '/' '-' | tr '[:upper:]' '[:lower:]')`, and skip `gh`.
 
-### Step 1b: Extract the Linear ticket id
+### Step 1b: Extract the work-item ref
 
-The review is graded against the ticket, so resolve its id from the branch name (e.g. `feat/savi-1343-...` → `SAVI-1343`), falling back to the PR title (which often carries `[SAVI-XXX]`):
+The review is graded against the work item, so resolve its ref via `detect_ref` — anchored to
+whole `/`-delimited segments with a denylist of generic branch-type words (never a loose substring
+match), the same shared helper `juel:start` inlines. Try the branch name first, then the PR title:
 
 ```bash
-ticket_id=$(echo "$branch" | "$GREP" -oiE '[a-z]+-[0-9]+' | "$HEAD" -1 | tr '[:lower:]' '[:upper:]')
-[ -z "$ticket_id" ] && ticket_id=$(echo "$title" | "$GREP" -oiE '[a-z]+-[0-9]+' | "$HEAD" -1 | tr '[:lower:]' '[:upper:]')
+DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
+
+_ref_from_segment() {
+  seg=$1
+  case "$seg" in
+    *-*) : ;;
+    *) return 1 ;;
+  esac
+  prefix=${seg%%-*}
+  rest=${seg#*-}
+  case "$rest" in
+    *-*) num=${rest%%-*} ;;
+    *)   num=$rest ;;
+  esac
+  lc_prefix=$(printf '%s' "$prefix" | tr 'A-Z' 'a-z')
+  case "$lc_prefix" in
+    issue|issues)
+      case "$num" in
+        ''|*[!0-9]*) return 1 ;;
+      esac
+      printf '#%s\n' "$num"
+      return 0
+      ;;
+  esac
+  case "$prefix" in
+    *[!A-Za-z]*) return 1 ;;
+  esac
+  [ "${#prefix}" -ge 2 ] || return 1
+  case "$num" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  if printf '%s\n' "$lc_prefix" | grep -Eq "$DENY"; then
+    return 1
+  fi
+  uc_prefix=$(printf '%s' "$prefix" | tr 'a-z' 'A-Z')
+  printf '%s-%s\n' "$uc_prefix" "$num"
+  return 0
+}
+
+detect_ref() {
+  str=$1; pat=${2:-}
+  result=$(printf '%s\n' "$str" | tr '/' '\n' | while IFS= read -r seg; do
+    if ref=$(_ref_from_segment "$seg") && [ -n "$ref" ]; then
+      if [ -n "$pat" ]; then
+        printf '%s\n' "$ref" | grep -Eq "$pat" || continue
+      fi
+      printf '%s\n' "$ref"
+      break
+    fi
+  done)
+  [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+  return 1
+}
+
+REF=$(detect_ref "$branch") || {
+  # PR titles aren't pre-segmented by '/' the way branch names are (e.g. "[SAVI-1343] Fix
+  # login redirect bug" or "feat(SAVI-1343): fix login"). Normalize bracket/paren/colon/space
+  # delimiters to '/' so detect_ref's whole-segment matching applies the same way it does to a
+  # branch name — this conditions the INPUT only; detect_ref's own algorithm and DENY list
+  # (above) are untouched, byte-identical to references/resolution.md §5 and skills/start/SKILL.md.
+  title_norm=$(printf '%s' "$title" | tr '[]():' '/////' | tr ' ' '/')
+  REF=$(detect_ref "$title_norm") || REF=""
+}
 ```
 
-If `ticket_id` is empty, the review proceeds without ticket grading — note this in the report. Do NOT block the review on a missing ticket. The inner claude fetches the ticket itself via the Linear MCP `get_issue` inside the workspace (keeps large multi-line descriptions out of the single-line CMUX prompt); the orchestrator only passes the id.
+If `REF` is empty, the review proceeds without grading — note "no ref" in the report. Do NOT block
+the review on a missing ref. The inner claude fetches the work item itself via the Linear MCP
+`get_issue` inside the workspace (keeps large multi-line descriptions out of the single-line CMUX
+prompt); the orchestrator only passes the ref.
 
 ### Step 2: Create the worktree
 
@@ -262,7 +328,7 @@ abs_worktree="$MAIN_ROOT/.worktrees/review-$slug"
 ```
 
 Worktrees are created under `$MAIN_ROOT/.worktrees`, **never** `$CWD_ROOT` — otherwise a review
-launched from inside ticket A's worktree nests ticket B's review worktree inside ticket A's.
+launched from inside item A's worktree nests item B's review worktree inside item A's.
 
 If the worktree already exists, reuse it (skip the create). Otherwise:
 
@@ -507,7 +573,7 @@ session is that literal path, never an unresolved placeholder.
 # base diff can coexist. `codex exec review --base <b> "<prompt>"` is REJECTED by codex
 # (>=0.140): `--base` cannot combine with a positional prompt. Instead let codex run the
 # diff itself inside the prompt. Do NOT pin -m / model_reasoning_effort — codex defaults.
-prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via the Linear MCP get_issue for ${ticket_id:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip ticket grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each ticket requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the ticket. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Ticket-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to ${docsRoot}/findings/findings-review.md. run /pr-review-toolkit:review-pr in the FOREGROUND (run_in_background: false), do not use parallel mode, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
+prompt="First, if a work-item ref was resolved (${REF:-NONE}), fetch it via the Linear MCP get_issue for ${REF:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip work-item grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each work-item requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the work item. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Requirement-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to ${docsRoot}/findings/findings-review.md. run /pr-review-toolkit:review-pr in the FOREGROUND (run_in_background: false), do not use parallel mode, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
 
 "$CMUX" send --workspace "$ws_id" "$prompt"
 "$SLEEP" 1
@@ -541,7 +607,7 @@ If `cmux new-workspace` output cannot be parsed, fall back to `"$CMUX" list-work
 ```
 Workspace ready for review:
   PR/branch : <pr or branch>
-  Ticket    : <SAVI-XXX or "none — ungraded">
+  Work item : <SAVI-XXX or "none — ungraded">
   Worktree  : <abs path>
   Session   : <uuid>   (resume: `claude --resume <uuid>`)
   CMUX ws   : workspace:<N> (renamed to <label>)
@@ -553,8 +619,8 @@ Workspace ready for review:
 | Situation | Action |
 |-----------|--------|
 | PR is merged or closed | Warn user, ask whether to continue |
-| No ticket id in branch or title | Review proceeds ungraded; note "no ticket" in the report. Do not block. |
-| Ticket id extracted but Linear `get_issue` fails / not found | Inner claude proceeds with code review only; Ticket-alignment section records the fetch failure instead of grading. |
+| No ref in branch or title | Review proceeds ungraded; note "no ref" in the report. Do not block. |
+| Ref extracted but Linear `get_issue` fails / not found | Inner claude proceeds with code review only; Requirement-alignment section records the fetch failure instead of grading. |
 | Local branch with same name already checked out elsewhere | Use `git worktree add --detach` + `gh pr checkout` style instead of duplicate branch |
 | `.worktrees/review-<slug>` already exists | Reuse; do not re-fetch unless user asks |
 | `pr-review-toolkit` not installed | Stop and instruct user to install the plugin |
@@ -574,7 +640,7 @@ Workspace ready for review:
 - [ ] All binaries resolved once via `resolve_bin`, persisted to `$BINS`, and sourced (not re-resolved) at the top of every subsequent call (cmux, claude, gh, sleep, grep, head) — `python3` and `jq` are never resolved, both dependencies removed
 - [ ] No `cd` in the orchestrator script (only inside subshells `( cd ... && ... )`)
 - [ ] PR/branch resolved correctly (right repo, right head ref)
-- [ ] Ticket id extracted from branch (fallback: PR title), uppercased; empty → review proceeds ungraded (not blocked)
+- [ ] Ref extracted from branch via `detect_ref` (fallback: PR title, bracket/paren/colon/space-normalized before `detect_ref`), uppercased; empty → review proceeds ungraded (not blocked). `DENY` byte-identical to `references/resolution.md` §5 / `skills/start/SKILL.md`
 - [ ] Worktree under `<MAIN_ROOT>/.worktrees/review-<slug>` with env files copied
 - [ ] CMUX workspace cwd = worktree absolute path
 - [ ] `ws_id` parsed and matches `workspace:[0-9]+` before any `send` / `send-key` / `rename-workspace`
@@ -582,13 +648,13 @@ Workspace ready for review:
 - [ ] `"$CLAUDE_BIN" --session-id <uuid>` launched in the workspace (absolute path, not bare `claude`)
 - [ ] `read-screen` readiness poll (wait for ANY of `❯`, `>` at line start, or `for shortcuts`) used before `send` — NOT a blind `sleep`, NOT a poll for `❯` alone
 - [ ] Composite prompt sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
-- [ ] Prompt instructs inner claude to fetch the Linear ticket (`get_issue` for `$ticket_id`) and grade the diff against its requirements/acceptance criteria before the code review
+- [ ] Prompt instructs inner claude to fetch the work item (`get_issue` for `$REF`) and grade the diff against its requirements/acceptance criteria before the code review
 - [ ] Codex validation step uses `codex exec --sandbox read-only "<prompt>"` (NOT `codex exec review --base ...`, which rejects a prompt), with the prompt telling codex to `git diff <base>...HEAD` itself, and NO `-m` / `model_reasoning_effort` override (codex defaults)
 - [ ] `INSTALL_CMD` resolved once (against `$CWD_ROOT`, before Step 4's second-tab step) via the tiered detection layer; if non-empty, a second tab (surface) opened with it running (sent to the new surface, NOT the claude tab); if empty, the second surface is skipped entirely (no error, no empty tab)
 - [ ] `export CMUX_QUIET=1` set so alias-deprecation notices are silenced
 - [ ] `docsRoot` resolved once (config, then existing non-empty dotted dir, then canonical) before the prompt string is built, and expanded to a literal path inside the double-quoted `prompt=` assignment — never sent to the inner session as an unresolved `${docsRoot}` placeholder
 - [ ] `base_branch` resolved once (explicit argument → config → git → gh → main/master/develop/dev/trunk → ask) before the prompt string is built, and expanded to a literal branch name inside the double-quoted `prompt=` assignment — never an unresolved `${base_branch}` placeholder, never a bash-fallback literal
 - [ ] Repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries (added if absent)
-- [ ] Final report destination `${docsRoot}/findings/findings-review.md` mentioned in the prompt with the four buckets (Ticket-alignment / Confirmed / Disputed / Codex-only)
-- [ ] Final report shows PR id, ticket id, worktree path, session id, workspace id, make-install surface
+- [ ] Final report destination `${docsRoot}/findings/findings-review.md` mentioned in the prompt with the four buckets (Requirement-alignment / Confirmed / Disputed / Codex-only)
+- [ ] Final report shows PR id, ref, worktree path, session id, workspace id, make-install surface
 - [ ] No accidental rename / send against the orchestrator workspace

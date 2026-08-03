@@ -124,7 +124,7 @@ Use `"$CMUX"`, `"$TAIL"`, `"$GREP"`, `"$SLEEP"` (never bare names) in every comm
 
 Any snippet longer than ~5 lines is written to a temp file and run as `bash "$f"`, which normalizes semantics regardless of the user's login shell (this machine's is zsh, but the pattern must not assume that). Inline one-liners stay POSIX `sh` and need no such wrapping.
 
-**Discover targets:** workspaces with a `ship` status pill (`"$CMUX" list-status --workspace workspace:<N>`), or take the list from the conversation / `"$CMUX" list-workspaces` (ticket-id titles). Confirm the list with the user once.
+**Discover targets:** workspaces with a `ship` status pill (`"$CMUX" list-status --workspace workspace:<N>`), or take the list from the conversation / `"$CMUX" list-workspaces` (ref-titled workspaces). Confirm the list with the user once.
 
 **Self-guard:** never `send`/`send-key` to the orchestrator's own workspace (`$CMUX_WORKSPACE_ID` if set). Only target refs matching `workspace:[0-9]+`.
 
@@ -144,14 +144,14 @@ Classify by these verified markers (check in order, first match wins):
 | IDLE/DONE | idle footer, no question (e.g. PR opened, summary printed) | `set-status ship "done" --color "#3b82f6"` |
 | ERROR | `error`, `failed`, traceback near prompt | `set-status ship "error" --color "#ef4444"` |
 
-Present pending tickets **one at a time, interactively** — never a batched list. For each ticket needing input, in priority order (approvals first, then questions):
+Present pending workspaces **one at a time, interactively** — never a batched list. For each workspace needing input, in priority order (approvals first, then questions):
 
-1. Show the ticket id, state, and the verbatim question/command.
+1. Show the ref, state, and the verbatim question/command.
 2. Ask via AskUserQuestion with options mirroring the actual dialog (e.g. "Yes", "Always allow", "No" for approvals; "Proceed"/"Hold" for phase gates). Include a recommendation when there's an obvious default.
 3. Relay the answer immediately (`send`/`send-key`), verify it landed, update the pill.
-4. Only then present the next pending ticket.
+4. Only then present the next pending workspace.
 
-After all pending tickets are handled, summarize working/done tickets in one line each. If nothing needs action, one line: "All N working."
+After all pending workspaces are handled, summarize working/done workspaces in one line each. If nothing needs action, one line: "All N working."
 
 ## Relaying user answers
 
@@ -192,5 +192,5 @@ Stop when user says stop or all workspaces are done (kill the waiter task too).
 | read-screen returns empty / errors | Mark workspace `unknown`, report it, keep looping |
 | Workspace closed mid-loop | Drop from target list, note in next report |
 | Two dialogs queued back-to-back | After relaying, re-read screen; a new dialog may already be up |
-| User answer ambiguous about target | Ask which ticket — never guess the workspace |
+| User answer ambiguous about target | Ask which workspace/ref — never guess the workspace |
 | Approval is destructive (rm, push, deploy) | Quote the full command in the report; require explicit per-item confirmation, exclude from "approve all" |

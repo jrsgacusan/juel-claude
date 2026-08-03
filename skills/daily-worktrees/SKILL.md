@@ -1,12 +1,12 @@
 ---
 name: daily-worktrees
-description: Use when starting your workday and need to see Linear tickets assigned to you, or when setting up worktrees for multiple tickets in parallel
+description: Use when starting your workday and need to see work items assigned to you (Linear, Jira, GitHub Issues, or a spec directory), or when setting up worktrees for multiple items in parallel
 metadata:
   requires:
     mcp:
       - id: linear
         hard: false
-        why: phase 2 fetches open Todo tickets assigned to the user
+        why: phase 2 fetches open todo work items assigned to the user, when Linear resolves as the provider
         check: none
         fallback: falls back to the next available provider
     cli:
@@ -32,13 +32,13 @@ metadata:
         why: phase 2 needs a work source that can list items, or the user pastes refs / points at a spec directory
 ---
 
-# Daily Linear Worktrees
+# Daily Worktrees
 
 ## Overview
 
-Fetch Linear tickets for the current project and create git worktrees for parallel development.
+Fetch open work items from the resolved work source and create git worktrees for parallel development.
 
-**Announce:** "Using this skill to fetch your tickets and set up worktrees."
+**Announce:** "Using this skill to fetch your open work items and set up worktrees."
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -93,28 +93,65 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 ## Prerequisites
 
-- Linear plugin installed & authenticated
+- A work source resolved with `list` capability (a Linear/Jira project, a GitHub repo, or a spec
+  directory) — see "Configuration" below; a provider without `list` falls back to the edge case in
+  Step 2
 - Inside a git repository
 - Git worktrees supported (git 2.5+)
 
 ## Workflow
 
-### Step 1: Detect Project
+### Step 1: Resolve the Provider and Project/Repo Scope
 
-```bash
-project_name=$(basename "$(git rev-parse --show-toplevel)")
+Resolve the work-source provider first (`config.tracker.type`, or capability auto-detect — see
+`references/resolution.md` §2's absent-config table, `tracker.type` row).
+
+**Project/scope resolution is provider-specific — there is no single "project" concept that
+applies to every provider:**
+
+- **`linear` / `jira`:** prefer `config.tracker.project` if it is set. Otherwise:
+  ```bash
+  project_name=$(basename "$(git rev-parse --show-toplevel)")
+  ```
+  Search the provider's projects for a match against `project_name`. If no confident match, list
+  available projects and ask the user to select.
+- **`github`:** **no project step at all** — the repo IS the scope. Skip straight to Step 2; there
+  is nothing to detect or ask about here.
+- **`file`:** use the configured directory (`config.docsRoot`'s `specs/` subdirectory, or a
+  user-pointed spec directory) — no project lookup, just a directory listing in Step 2.
+- **`inline`:** cannot list (§3 of `references/work-source.md`'s capability table) — see the "no
+  `list`" edge case in Step 2 instead of running this step at all.
+
+### Step 2: Fetch Open Work Items
+
+Call the resolved work source's `list`:
+
+```
+list({ assignee: "me", project: <resolved project/repo/dir from Step 1>, status: "todo" })
 ```
 
-Search Linear projects for a match. If no confident match, list available projects and ask user to select.
+For `linear` specifically: resolve `LINEAR_PREFIX` first — accept either `mcp__linear__` or
+`mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix; same
+detection rule `juel:start`'s Step 2 uses), then call:
 
-### Step 2: Fetch Tickets
+```
+<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")
+```
 
-Query Linear using `linear__list_issues`:
-- `assignee`: "me"
-- `project`: matched project name/ID
-- `state`: "Todo"
+The verb is **`list_issues`** — not `list_tickets`, not `search_issues`.
 
-**IMPORTANT:** Only fetch tickets in "Todo" status. Do NOT fetch "In Progress" tickets - those are already being worked on.
+**IMPORTANT:** Only fetch work items in `todo` status. Do NOT fetch `in_progress` items — those
+are already being worked on. This rule is correct and provider-neutral: it holds regardless of
+which provider resolved.
+
+**Provider capability note.** This skill needs `list` + assignee filter + status write
+simultaneously. Linear has all three. Jira needs a `statusMap` because transition names are
+per-workflow. **GitHub Issues has no todo/in-progress axis at all — only open/closed** — so
+status is emulated via labels or a Projects v2 field, which is a convention the user maintains by
+hand and other tools will not respect. `inline` cannot list and is unsupported here.
+
+**If the resolved provider has no `list` capability** (or none resolved at all), do not fail the
+phase — ask instead: "paste the refs you want to work on, or point me at a spec directory."
 
 ### Step 3: Generate Branch Names
 
@@ -212,14 +249,20 @@ Does this look correct? [Type adjustments needed?]
 
 ### Step 6: Handle Existing
 
-For each selected ticket with existing branch/worktree, ask:
-- "Reuse existing" - keep current work, update Linear status to "In Progress"
+For each selected item with existing branch/worktree, ask:
+- "Reuse existing" - keep current work, update the work item's status to `in_progress`
 - "Start fresh" - delete old branch, create new
 
-**Auto-update Linear:** If ticket has existing branch/worktree and user reuses it, update ticket status:
+**Auto-update status:** If the item has an existing branch/worktree and the user reuses it, write
+`in_progress` through the resolved work source's `update_status`. For `linear` specifically:
+resolve `LINEAR_PREFIX` (accept either `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever
+exposes a domain tool — never hardcode either), then call:
 ```
-linear__update_issue(id: ticket_id, state: "In Progress")
+<LINEAR_PREFIX>save_issue(id: item_id, state: "In Progress")
 ```
+`save_issue` is the sole create-or-update verb — `update_issue` does not exist as a tool. If the
+provider has no `update_status` capability, print `Status: skipped — provider '<name>' has no
+status field configured` and continue; never block worktree reuse on it.
 
 ### Step 7: Create Worktrees
 
@@ -321,10 +364,14 @@ For each selected ticket:
    ```
    If nothing resolves and verifies, that is not an error — skip this step with a one-line note and
    let the user install dependencies themselves.
-5. **Update Linear status to "In Progress":**
+5. **Update the work item's status to `in_progress`** through the resolved work source (same call
+   and degrade rule as Step 6's "Auto-update status" above — reuse the `LINEAR_PREFIX` resolved
+   once for this run, never re-derive it):
    ```
-   linear__update_issue(id: ticket_id, state: "In Progress")
+   <LINEAR_PREFIX>save_issue(id: item_id, state: "In Progress")
    ```
+   A missing `update_status` capability is not an error — print the one-line skip note and
+   continue; the worktree is already created.
 
 ### Step 8: Report & Offer Planning
 
@@ -371,27 +418,49 @@ cd [path] to begin, or wait for plans to complete.
 
 ## Configuration
 
-Check CLAUDE.md for overrides:
+Config resolves via the shared precedence chain (`references/resolution.md` §1), read from
+`<repo-root>/.claude/workflow.json` (`.claude/workflow.local.json` deep-merged over it, local
+wins):
+
+```jsonc
+{
+  "tracker": {
+    "type": "linear",       // linear | jira | github | file | inline | none
+    "project": "PROJECT_NAME_OR_ID"
+  }
+}
+```
+
+`tracker.project` is consumed by Step 1 (preferred over basename guessing); `tracker.type` selects
+the provider this whole skill resolves against.
+
+**Deprecated fallback.** When neither `workflow.json` nor `workflow.local.json` exists, the legacy
+CLAUDE.md block below is still read (precedence step 4 — see `references/resolution.md` §2's
+"Backwards compatibility" note):
+
 ```markdown
 ## Linear Worktrees Config
 - linear-project: PROJECT_NAME
 - default-status: Todo
 ```
 
+New repos should use `.claude/workflow.json`; this block is read only for repos that already have
+it and haven't migrated.
+
 ## Edge Cases
 
 | Situation | Action |
 |-----------|--------|
-| No Todo tickets found | Report "No Todo tickets" - do NOT fall back to In Progress |
+| No Todo work items found | Report "No Todo work items found" - do NOT fall back to In Progress |
 | Worktree already exists | Show as "already exists", skip creating, inform user of path |
 | Branch exists (no worktree) | Offer to create worktree from existing branch or start fresh |
-| Project not found | List Linear projects, ask to select |
-| Only 1 new ticket | Use Yes/No confirmation (AskUserQuestion requires 2+ options) |
+| Project not found (`linear`/`jira`) | List the provider's projects, ask to select — not applicable to `github` (no project step) or `file` (directory-based) |
+| Only 1 new item | Use Yes/No confirmation (AskUserQuestion requires 2+ options) |
 | Branch name conflict | Append `-v2` suffix or ask |
 | Worktree creation fails | Report error, continue with others |
-| 0 tickets selected | "No tickets selected. Done." |
+| 0 items selected | "No items selected. Done." |
 | Type inference wrong | Let user adjust before creating |
-| Worktree created/reused | Update Linear ticket to "In Progress" |
+| Worktree created/reused | Update the work item's status to `in_progress` through the resolved work source (skipped with a one-line note if the provider has no `update_status`) |
 | No untracked env files found | Continue without copying - user handles setup |
 | `CLAUDE.md` (or any other candidate) is tracked | `copy_untracked` skips it — the worktree's own checked-out version is used, never clobbered by the main checkout's copy |
 | No `config.worktreeCopy` patterns configured | `EXTRA_PATTERNS` stays empty; only the default `.env`-family patterns are copied — no `*.pem` unless opted in |
@@ -403,7 +472,7 @@ Check CLAUDE.md for overrides:
 ## Quick Reference
 
 ```
-Project detection → Linear fetch → Branch names → Check existing → Select → Create worktrees → Update Linear → Offer planning → Report
+Resolve provider/scope → Fetch work items → Branch names → Check existing → Select → Create worktrees → Update status → Offer planning → Report
 ```
 
 **Naming:**

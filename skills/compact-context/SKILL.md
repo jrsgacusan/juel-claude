@@ -111,7 +111,70 @@ All output goes to `$docsRoot/context/`. Never write elsewhere.
 Pattern: `{YYYY-MM-DD}-{ticket-slug}-{topic-slug}-session.md`
 
 - `{YYYY-MM-DD}` - today's date.
-- `{ticket-slug}` - lowercase ticket id from the branch / worktree if there is one (e.g. `savi-1346`). Get it from `git rev-parse --abbrev-ref HEAD`. If no ticket, drop this segment.
+- `{ticket-slug}` - lowercase ref detected via `detect_ref` — anchored to whole `/`-delimited
+  segments with a denylist of generic branch-type words (never a loose substring match), the same
+  shared helper `juel:start` inlines. Try the worktree directory name first, then the branch name:
+
+  ```sh
+  DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
+
+  _ref_from_segment() {
+    seg=$1
+    case "$seg" in
+      *-*) : ;;
+      *) return 1 ;;
+    esac
+    prefix=${seg%%-*}
+    rest=${seg#*-}
+    case "$rest" in
+      *-*) num=${rest%%-*} ;;
+      *)   num=$rest ;;
+    esac
+    lc_prefix=$(printf '%s' "$prefix" | tr 'A-Z' 'a-z')
+    case "$lc_prefix" in
+      issue|issues)
+        case "$num" in
+          ''|*[!0-9]*) return 1 ;;
+        esac
+        printf '#%s\n' "$num"
+        return 0
+        ;;
+    esac
+    case "$prefix" in
+      *[!A-Za-z]*) return 1 ;;
+    esac
+    [ "${#prefix}" -ge 2 ] || return 1
+    case "$num" in
+      ''|*[!0-9]*) return 1 ;;
+    esac
+    if printf '%s\n' "$lc_prefix" | grep -Eq "$DENY"; then
+      return 1
+    fi
+    uc_prefix=$(printf '%s' "$prefix" | tr 'a-z' 'A-Z')
+    printf '%s-%s\n' "$uc_prefix" "$num"
+    return 0
+  }
+
+  detect_ref() {
+    str=$1; pat=${2:-}
+    result=$(printf '%s\n' "$str" | tr '/' '\n' | while IFS= read -r seg; do
+      if ref=$(_ref_from_segment "$seg") && [ -n "$ref" ]; then
+        if [ -n "$pat" ]; then
+          printf '%s\n' "$ref" | grep -Eq "$pat" || continue
+        fi
+        printf '%s\n' "$ref"
+        break
+      fi
+    done)
+    [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+    return 1
+  }
+
+  REF=$(detect_ref "$(basename "$(pwd)")") || REF=$(detect_ref "$(git branch --show-current 2>/dev/null)")
+  ```
+
+  Lowercase `$REF` for the filename segment (e.g. `savi-1346`). **If no ticket, drop this
+  segment** — never a placeholder like `none` or `noref`.
 - `{topic-slug}` - 2-4 word kebab-case summary of what the conversation is about (e.g. `shelf-schema`).
 
 **Versioning on collision.** If the derived filename already exists in the dir, append `-v2` before `.md`. If `-v2` exists too, use `-v3`, and so on. Never overwrite an existing file.
