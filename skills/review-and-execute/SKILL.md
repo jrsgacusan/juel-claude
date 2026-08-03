@@ -11,6 +11,51 @@ Orchestrates a full review-to-fix cycle: PR review → validate findings → wri
 
 **Announce at start:** "I'm using the review-and-execute skill to review and remediate changes."
 
+## Strict Execution Protocol (non-negotiable)
+
+<!-- juel:protocol v1 -->
+
+**1. Preflight, then checklist, before anything else.** Before any other output and before any tool call, emit the Preflight block (below), then this skill's `## Phases` checklist rendered as:
+
+```
+<skill-name> — N phases
+[ ] 1. <phase name>
+[ ] 2. <phase name>
+```
+
+If the preflight verdict is STOP, print the preflight block and **stop** — do not print the checklist and do not begin work. Otherwise no work begins until the checklist is on screen. This is not optional on re-invocation, on resume, or when the user says "just do it".
+
+**2. Phases run in order.** No skipping, reordering, or merging. A phase that does not apply is still announced: mark it `[-] N. <name> — SKIPPED: <one-line reason>` and continue at N+1. Never drop a phase silently. Never begin phase N+1 before phase N is marked done or skipped.
+
+**3. Report after every phase.** Re-emit the checklist (`[x]` done, `[-]` skipped, `[ ]` pending) plus one line of evidence for the phase just finished — path written, command run, count found. Never claim progress in prose alone.
+
+**4. Everything runs in the FOREGROUND.** This overrides every other instruction in this file and in any skill invoked from it.
+- `pr-review-toolkit:review-pr`, `simplify`, and `codex exec` are all foreground-only. Invoke subagents with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice.
+- Never `&`. Never `run_in_background: true`. Never "dispatch and continue".
+- **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. The user must be able to watch the run as it happens.
+- Do not request `review-pr`'s parallel / `all parallel` mode.
+- Read the complete output and state the outcome — finding count, exit status, files changed — before marking the phase done. A summary may follow the raw output; it may never replace it.
+- Passing any of this into another session (a CMUX prompt, a nested `claude`) carries these rules with it — say so explicitly in that prompt string.
+
+**5. Confirmation gates stack; they do not replace this.** Where this skill pauses between phases, the checklist report comes first, then the "Proceed to phase N+1?" question. A user's "yes" advances exactly one phase — it never authorizes skipping ahead or batching the remainder.
+
+## Preflight
+
+| Dep | Type | H/S | Check | If missing |
+|---|---|---|---|---|
+| pr-review-toolkit | skill | SOFT | ships as a plugin dependency | fall back to `/review`, or an inline review of `git diff <base>...HEAD` |
+| superpowers | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
+| codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
+| git repo with a diffable base | context | HARD | `git rev-parse --show-toplevel` | STOP |
+
+## Phases
+
+[ ] 1. PR review — pr-review-toolkit:review-pr against the base branch, FOREGROUND, output read in full
+[ ] 2. Validate findings via superpowers:receiving-code-review
+[ ] 3. Write the remediation plan, or stop here if there are zero actionable findings
+[ ] 4. Run the executor on that plan, FOREGROUND
+[ ] 5. Report the plan path, the command run, and the result
+
 ## Arguments
 
 | Argument | Default | Description |
@@ -46,13 +91,15 @@ digraph flow {
 Invoke the PR review skill against the base branch:
 
 ```
-Skill("pr-review-toolkit:review-pr", args: "<base-branch>")
+Skill("pr-review-toolkit:review-pr", args: "<base-branch>", run_in_background: false)
 ```
+
+> Do not request `all parallel` mode. Read the entire review output and state the finding count before proceeding to phase 2.
 
 - Default base branch: `dev`
 - If user passed an argument, use that as base branch instead
 
-Wait for the full review to complete. Capture all findings.
+You **must** wait for the full review and read every finding before phase 2.
 
 ### Step 2: Validate Findings
 

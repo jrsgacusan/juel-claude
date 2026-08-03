@@ -13,6 +13,56 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 
 **Announce at start:** "I'm using the receive-review-and-execute skill to apply PR review feedback."
 
+## Strict Execution Protocol (non-negotiable)
+
+<!-- juel:protocol v1 -->
+
+**1. Preflight, then checklist, before anything else.** Before any other output and before any tool call, emit the Preflight block (below), then this skill's `## Phases` checklist rendered as:
+
+```
+<skill-name> — N phases
+[ ] 1. <phase name>
+[ ] 2. <phase name>
+```
+
+If the preflight verdict is STOP, print the preflight block and **stop** — do not print the checklist and do not begin work. Otherwise no work begins until the checklist is on screen. This is not optional on re-invocation, on resume, or when the user says "just do it".
+
+**2. Phases run in order.** No skipping, reordering, or merging. A phase that does not apply is still announced: mark it `[-] N. <name> — SKIPPED: <one-line reason>` and continue at N+1. Never drop a phase silently. Never begin phase N+1 before phase N is marked done or skipped.
+
+**3. Report after every phase.** Re-emit the checklist (`[x]` done, `[-]` skipped, `[ ]` pending) plus one line of evidence for the phase just finished — path written, command run, count found. Never claim progress in prose alone.
+
+**4. Everything runs in the FOREGROUND.** This overrides every other instruction in this file and in any skill invoked from it.
+- `pr-review-toolkit:review-pr`, `simplify`, and `codex exec` are all foreground-only. Invoke subagents with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice.
+- Never `&`. Never `run_in_background: true`. Never "dispatch and continue".
+- **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. The user must be able to watch the run as it happens.
+- Do not request `review-pr`'s parallel / `all parallel` mode.
+- Read the complete output and state the outcome — finding count, exit status, files changed — before marking the phase done. A summary may follow the raw output; it may never replace it.
+- Passing any of this into another session (a CMUX prompt, a nested `claude`) carries these rules with it — say so explicitly in that prompt string.
+
+**5. Confirmation gates stack; they do not replace this.** Where this skill pauses between phases, the checklist report comes first, then the "Proceed to phase N+1?" question. A user's "yes" advances exactly one phase — it never authorizes skipping ahead or batching the remainder.
+
+## Preflight
+
+| Dep | Type | H/S | Check | If missing |
+|---|---|---|---|---|
+| gh (authenticated) | cli | HARD | `gh auth status` | STOP → `gh auth login` |
+| open PR + number | context | HARD | `gh pr view <N> --json number` | STOP → this skill consumes an existing PR |
+| GitHub remote | context | HARD | `git remote get-url <remote>` matches github.com | STOP → non-GitHub remotes are unsupported here |
+| superpowers | skill | HARD | ships as a plugin dependency | STOP |
+| codex | cli | SOFT | `command -v codex` | execute the plan in-session |
+| AskUserQuestion | context | HARD | always available interactively | STOP in headless sessions |
+
+## Phases
+
+[ ] 1. Ensure a PR number, asking if it was not supplied
+[ ] 2. Read every review thread and deliver the summary before forming an opinion
+[ ] 3. Fetch structured data — inline comments, reviews, issue comments, diff
+[ ] 4. Validate findings into actionable / rejected / ambiguous
+[ ] 5. Clarify ambiguous findings (SKIPPED if none were ambiguous)
+[ ] 6. Write the remediation plan, or stop here if there are zero actionable findings
+[ ] 7. Run the executor on the plan, FOREGROUND
+[ ] 8. Report the result
+
 ## First action (non-negotiable)
 
 When asked to review a PR, your **first action is always**:
@@ -164,7 +214,7 @@ Run Codex CLI non-interactively with the workspace-write sandbox:
 codex exec --sandbox workspace-write '$claude-plan-executor docs/.superpowers/receive-review-plan<-vN if applicable>.md'
 ```
 
-Run this in the background (Bash tool with `run_in_background: true`). Announce to the user that Codex has been dispatched and surface the command.
+Run this in the **foreground** (`run_in_background: false`). Do not redirect its output to a file — the user watches the executor run. Wait for it to exit, read the complete output, and state the exit status and files changed before marking the phase done. Announce to the user that Codex has been dispatched and surface the command.
 
 Wait for Codex to complete before reporting results.
 
@@ -181,6 +231,6 @@ Wait for Codex to complete before reporting results.
 | Treating already-fixed comments as actionable | Verify against current PR HEAD before accepting |
 | Forming an opinion before reading existing comments | Run `gh pr view <num> --comments` first, summarize, then think |
 | Simplify pass without scope confirmation | Read last 3 commits, ask user to confirm scope before edits |
-| Running Codex in foreground | Step 4 — dispatch with `run_in_background: true` |
+| Backgrounding the executor or redirecting its output to a file | Never. Phase 7 runs it in the foreground so the user can watch. |
 | Forgetting `--sandbox workspace-write` | Codex needs write access to apply the plan |
 | Overwriting an existing `receive-review-plan.md` | Always pick the next free `-vN` suffix; prior plans are historical |
