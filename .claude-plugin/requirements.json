@@ -266,7 +266,6 @@
         "clean-tree",
         "juel:review-and-execute",
         "juel:start",
-        "linear",
         "superpowers",
         "worktree-root-cwd"
       ],
@@ -274,6 +273,7 @@
         "codex",
         "gh",
         "juel:regression",
+        "linear",
         "pr-review-toolkit",
         "run",
         "simplify"

@@ -5,9 +5,10 @@ metadata:
   requires:
     mcp:
       - id: linear
-        hard: true
-        why: phase 1 fetches the ticket and phase 8 writes its status to In Review
+        hard: false
+        why: phase 1 (via juel:start) and phase 8's status update use the resolved Linear connection when one exists
         check: none
+        fallback: phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR
     cli:
       - id: codex
         hard: false
@@ -62,7 +63,7 @@ metadata:
 
 End-to-end orchestration that replaces the manual sequence `/juel:start` → `/juel:execute` → `/juel:review-and-execute` with a single skill. Simplify runs **last**, as the final polish after review remediation, so it cleans up whatever shape the code ends up in rather than producing findings that get rewritten by the review pass.
 
-**Announce at start:** "I'm using juel:ship-ticket to drive SAVI-XXX from ticket to PR."
+**Announce at start:** "I'm using juel:ship-ticket to drive the ticket from start to PR."
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -106,7 +107,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 | juel:regression | skill | SOFT | ships with this plugin | phase 7 frontend path is manual |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 8 prints a compare URL instead of opening the PR |
-| Linear MCP | mcp | HARD | **none — render as `?`** | proceed; phase 1 fetch and phase 8 status write fail loudly |
+| Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR |
 
 ## Phases
 
@@ -261,7 +262,7 @@ digraph flow {
     p5 [label="5. Review + remediation\n(juel:review-and-execute)"];
     p6 [label="6. Simplify (final polish)\n(simplify in apply mode)"];
     p7 [label="7. Manual verification\n(decide FE/BE, verify behavior)"];
-    p8 [label="8. Open PR\n(gh pr create with QA instructions)"];
+    p8 [label="8. Open PR\n(gh pr create, or push + compare URL if gh is absent)"];
     p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8;
 }
 ```
@@ -305,8 +306,8 @@ unanchored so they match at any depth. Add them if absent. This directory is scr
 
 Write a short spec doc capturing the agreed approach from brainstorming.
 
-- Path: `${docsRoot}/specs/<YYYY-MM-DD>-savi-XXX-<slug>.md` (gitignored, per user memory)
-- Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the Linear ticket.
+- Path: `${docsRoot}/specs/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` — the ref segment is included, lower-cased, only when the work item has one (e.g. `2026-08-01-savi-1162-add-auth.md`); when `ref` is null it drops out entirely, never a placeholder (e.g. `2026-08-01-add-auth.md`) (gitignored, per user memory)
+- Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the work item if it has any; otherwise ask the user for concrete verification steps and record those in the spec instead.
 
 **Checkpoint:** show spec path, ask to proceed.
 
@@ -314,7 +315,7 @@ Write a short spec doc capturing the agreed approach from brainstorming.
 
 Invoke `Skill("superpowers:writing-plans")` using the spec as input.
 
-- Plan path: `${docsRoot}/plans/<YYYY-MM-DD>-savi-XXX-<slug>.md` (docsRoot already resolved in phase 2 — reuse it, do not re-derive)
+- Plan path: `${docsRoot}/plans/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` (same ref-optional naming as the spec path above — omitted entirely when `ref` is null; docsRoot already resolved in phase 2 — reuse it, do not re-derive)
 - Each step must include file paths, line refs where applicable, and a verification command.
 
 **Checkpoint:** show plan path, ask to proceed.
@@ -382,10 +383,10 @@ Verify the change actually works before opening the PR. This phase is **human-in
 
 1. **Ask the user, explicitly:** "How do we test these changes manually? Do you need anything from me (test account, env var, seed data, a specific org/case, a running service)?" Wait for their answer — they may already know the exact steps.
 2. **Decide who drives, based on what changed (`git diff --stat`):**
-   - **Frontend / UI** — the user usually verifies in the browser themselves. Offer concrete steps (route, inputs, expected result) derived from the work item's acceptance criteria, and let them confirm. If they want automated help, or are unavailable, invoke `Skill("juel:regression", run_in_background: false)` to drive the change through Playwright and capture evidence.
+   - **Frontend / UI** — the user usually verifies in the browser themselves. Offer concrete steps (route, inputs, expected result) derived from the work item's acceptance criteria if it has any; otherwise from the verification steps the user gave in Phase 2 (recorded in the spec). Let them confirm. If they want automated help, or are unavailable, invoke `Skill("juel:regression", run_in_background: false)` to drive the change through Playwright and capture evidence.
    - **Backend / API** — Claude drives. Invoke `Skill("run", run_in_background: false)` to launch the app and observe real behavior (hit the endpoint, check the DB, exercise the background task). If `run` is unavailable, execute the `commands.run` resolved in Phase 4 directly (reuse it, do not re-derive) and observe. Ask the user only for inputs you cannot self-serve.
    - **Mixed** — split: Claude verifies the BE surface, the user confirms the FE surface.
-3. **Run the actual verification**, capturing evidence (request/response, log lines, screenshots, DB rows). Map each acceptance-criterion to an observed result.
+3. **Run the actual verification**, capturing evidence (request/response, log lines, screenshots, DB rows). Map each verification item recorded in the spec — the work item's acceptance criteria if it has any, otherwise the concrete steps the user gave in Phase 2 — to an observed result. **An empty checklist is never a pass.** If the spec has neither acceptance criteria nor recorded verification steps, stop here and ask the user for concrete verification steps before marking this phase done — a zero-item checklist must never be allowed to read as "verified".
 4. If verification surfaces a defect, **do not patch by hand** — loop back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-verify after the fix.
 
 **Checkpoint:** summarize what was verified, who verified it, and the evidence. Ask to proceed to PR.
@@ -394,11 +395,13 @@ Verify the change actually works before opening the PR. This phase is **human-in
 
 1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
 2. Resolve the PR title and body per "Base branch & repo conventions" above:
-   - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved.
-   - **Body:** if a PR template was found, fill its sections (Linear link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** (link to the Linear ticket) / **QA instructions** (concrete steps a reviewer can follow, derived from the ticket's acceptance criteria) / **Test plan** (checklist).
-   - Write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC.
-3. Update the Linear ticket status to "In Review" via `mcp__linear__save_issue`.
-4. Return the PR URL to the user.
+   - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
+   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist).
+3. Open the PR, or degrade if `gh` is unavailable:
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC.
+   - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
+4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3. For Linear specifically: resolve the active prefix — accept either `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then call `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)` — `save_issue` is the sole create-or-update verb; no other write verb exists for this. **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.**
+5. Return the PR URL — or, if `gh` was unavailable, the compare URL — to the user.
 
 Trailers: apply the detected convention from "Base branch & repo conventions" above (zero `Co-Authored-By:` history → omit; do not impose a trailer the repo's own commit history doesn't use).
 
@@ -427,10 +430,10 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Skipping `git status` review between phases | Each checkpoint must show what changed. |
 | Opening the PR on green unit tests alone | Phase 7 requires observed behavior, not just passing tests. Verify the real surface first. |
 | Posting PR review-style summary instead of QA-oriented body | Phase 8 PR body is for the reviewer, not a changelog. |
-| Forgetting to update Linear status | Phase 8 step 3. |
+| Forgetting to update the work item's status | Phase 8 step 4 — but a provider with no `update_status` capability (including "no tracker resolved at all") is a legitimate skip printed as one line, not a forgotten step; only flag this when the provider does support `update_status` and the call was simply never made. |
 
 ## Notes
 
 - Spec/plan/findings files live under `${docsRoot}/` (gitignored) per user memory.
 - Branch naming, commit style, and trailers follow the detected convention (see "Base branch & repo conventions" above) — never a hardcoded assumption.
-- For dependent tickets: branch from the parent tip, do not rebase (user memory).
+- For dependent tickets — gated on the work item's `parent` field being non-null, which only Linear and Jira ever populate; this guidance simply does not fire for other providers or when there is no tracker — branch from the parent tip, do not rebase (user memory).
