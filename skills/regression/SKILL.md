@@ -76,7 +76,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 | Argument | Default | Description |
 |----------|---------|--------------|
 | `[url]` | resolved `commands.run`, started in the foreground | The running app's URL to verify against |
-| `[ref]` | auto-detect from worktree (same `detect_ref` helper `juel:start` inlines) | Work item to pull acceptance criteria from |
+| `[ref]` | auto-detect from worktree (`detect_ref`, inlined in Phase 1 below) | Work item to pull acceptance criteria from |
 
 Usage: `/juel:regression`, `/juel:regression https://localhost:3000`, or `/juel:regression SAVI-1162`
 
@@ -86,7 +86,7 @@ Usage: `/juel:regression`, `/juel:regression https://localhost:3000`, or `/juel:
 
 **Resolve the URL, in order:**
 1. Explicit URL argument.
-2. The resolved `commands.run` — reuse the tiered probe `juel:ship-ticket`'s "Toolchain commands" section defines (Tier A project-authored task runners → Tier B language manifests, each gated on real evidence → Tier C CI-derived, confirmed with the user). If this session already resolved `commands.run` earlier (e.g. `juel:ship-ticket` Phase 4 reported it), reuse that exact value — do not re-run the probe. Otherwise resolve it now, side-effect-free, then start it in the **foreground** (`run_in_background: false`) and read the listen URL from its own output — never redirected to a log file.
+2. The resolved `commands.run` — **only when this session already resolved and reported it** (e.g. `juel:ship-ticket` Phase 4's checkpoint, still visible earlier in this same conversation). Reuse that exact value and start it in the **foreground** (`run_in_background: false`), reading the listen URL from its own output — never redirected to a log file. **This skill never independently runs a tiered install/test/run-command probe of its own to invent a value here** — that full Tier A/B/C manifest table is defined in `juel:ship-ticket`'s "Toolchain commands" section, a file this skill has no guarantee of ever having loaded when invoked standalone, so treating it as available would be exactly the kind of guessed result this skill exists to avoid. When invoked standalone with nothing already resolved and reported, this step does not apply — fall through to step 3.
 3. Ask the user where the app is running.
 
 If none of the three resolves to a real URL, STOP — do not guess a port or protocol.
@@ -119,9 +119,81 @@ the filesystem check above — config always takes precedence.)
 Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
 unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
 
+**Resolve `ref`**, needed by step 2 below to fetch the work item's acceptance criteria. Run
+`detect_ref` — anchored to whole `/`-delimited path segments, with a denylist of generic
+branch-type words, so a branch like `chore/bump-2fa-lib` or `release/v2-1` is never mistaken for a
+ticket key (the old loose match turned those into `BUMP-2` and `V2-1`). Try the worktree directory
+name first, then fall back to the current branch name:
+
+```sh
+DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
+
+_ref_from_segment() {
+  seg=$1
+  case "$seg" in
+    *-*) : ;;
+    *) return 1 ;;
+  esac
+  prefix=${seg%%-*}
+  rest=${seg#*-}
+  case "$rest" in
+    *-*) num=${rest%%-*} ;;
+    *)   num=$rest ;;
+  esac
+  lc_prefix=$(printf '%s' "$prefix" | tr 'A-Z' 'a-z')
+  case "$lc_prefix" in
+    issue|issues)
+      case "$num" in
+        ''|*[!0-9]*) return 1 ;;
+      esac
+      printf '#%s\n' "$num"
+      return 0
+      ;;
+  esac
+  case "$prefix" in
+    *[!A-Za-z]*) return 1 ;;
+  esac
+  [ "${#prefix}" -ge 2 ] || return 1
+  case "$num" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  if printf '%s\n' "$lc_prefix" | grep -Eq "$DENY"; then
+    return 1
+  fi
+  uc_prefix=$(printf '%s' "$prefix" | tr 'a-z' 'A-Z')
+  printf '%s-%s\n' "$uc_prefix" "$num"
+  return 0
+}
+
+detect_ref() {
+  str=$1; pat=${2:-}
+  result=$(printf '%s\n' "$str" | tr '/' '\n' | while IFS= read -r seg; do
+    if ref=$(_ref_from_segment "$seg") && [ -n "$ref" ]; then
+      if [ -n "$pat" ]; then
+        printf '%s\n' "$ref" | grep -Eq "$pat" || continue
+      fi
+      printf '%s\n' "$ref"
+      break
+    fi
+  done)
+  [ -n "$result" ] && { printf '%s\n' "$result"; return 0; }
+  return 1
+}
+
+REF=$(detect_ref "$(basename "$(pwd)")") || REF=$(detect_ref "$(git branch --show-current 2>/dev/null)")
+```
+
+Copied verbatim from `juel:start` (the same copy `juel:compact-context` and `juel:cmux-review-pr`
+also carry) rather than referenced by name — `references/*.md` are never read at runtime, so a
+skill that only *names* `detect_ref` is pointing at logic the agent executing it would never load.
+
+**"No ref" is a valid outcome, not an error.** If `detect_ref` finds nothing in either the
+worktree dirname or the branch name, `ref` is simply absent — proceed to resolve criteria from the
+spec file or by asking, per the precedence below; never block this skill on a missing ref.
+
 **Resolve the criteria to verify, in order:**
 1. Explicit list passed as an argument.
-2. The work item's `acceptance_criteria` (per `references/work-source.md`'s work-item interface — fetched via the resolved `ref`, same `detect_ref` heuristic `juel:start` inlines).
+2. The work item's `acceptance_criteria` (per `references/work-source.md`'s work-item interface — fetched via the `ref` resolved above).
 3. The verification steps recorded in the spec under `${docsRoot}/specs/` (`juel:ship-ticket` Phase 2 records these when a work item has no AC of its own).
 4. Ask the user for concrete verification steps.
 
