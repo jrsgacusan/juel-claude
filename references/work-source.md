@@ -113,9 +113,23 @@ LINEAR_PREFIX = the first of "mcp__linear__" or "mcp__claude_ai_Linear__" for wh
                 If "mcp__linear__" is present but exposes only authenticate/
                 complete_authentication, treat it as present-but-unauthenticated, NOT as
                 satisfying the Linear dependency — fall through to "mcp__claude_ai_Linear__".
-                If neither prefix has a domain tool, Linear capability is absent — degrade
-                per §5.
+                If neither prefix has a domain tool, Linear capability is absent.
+
+LINEAR_STATE = one of three values, carried alongside LINEAR_PREFIX and kept distinguishable
+               all the way to the degrade message a skill actually prints — never collapsed
+               into a single "unavailable" bucket:
+                 "working"     — LINEAR_PREFIX resolved to a domain tool. Proceed normally.
+                 "auth_needed" — "mcp__linear__" exposes only authenticate/
+                                 complete_authentication, AND "mcp__claude_ai_Linear__" has
+                                 no domain tool either. Degrade per §5's auth-needed message,
+                                 NOT the generic absent message.
+                 "absent"      — neither prefix appears at all. Degrade per §5's generic
+                                 absent message.
 ```
+
+A downstream preflight table renders these three differently: `working` → proceed / `✓`,
+`auth_needed` → its own line (never folded into `✗` or the generic `!`), `absent` → `✗`/`!` per
+`references/preflight.md`'s existing symbol vocabulary.
 
 Every recipe call below is written as `<LINEAR_PREFIX>get_issue` etc. — substitute whichever
 prefix resolved.
@@ -220,12 +234,30 @@ None of the following ever fail a phase:
 
 - **Missing `update_status`** — print exactly one line and continue:
   `Status: skipped — provider '<name>' has no status field configured`
-  (or the provider-specific reason, e.g. "Linear MCP unavailable"). Never retry, never block the
-  remaining phases on it.
+  (or the provider-specific reason — for `linear` specifically, use the `LINEAR_STATE`-keyed
+  message below, never the generic phrase unqualified). Never retry, never block the remaining
+  phases on it.
 - **Missing `url`** — omit the PR-body link section entirely rather than printing a dead
   placeholder (no `Linear: [none]` or `Linear: N/A` line — the section itself does not appear).
 - **Missing `list`** — prompt the user for refs directly (paste ticket IDs / point at a spec
   directory) rather than failing the phase that needed the list.
+
+**Linear degrade messages, keyed by `LINEAR_STATE` (§4.1) — the two non-`working` states print
+different lines, wired here so a reader of this section alone reaches the right one without also
+reading the §4.1 prose:**
+
+| `LINEAR_STATE` | One-line message actually printed |
+|---|---|
+| `auth_needed` | `Status: skipped — Linear plugin is installed but not authorized. Run the plugin's authenticate tool, then restart the session so its tools bind.` |
+| `absent` | `Status: skipped — Linear MCP unavailable.` |
+| `working` | (no degrade message — the call proceeds) |
+
+The `auth_needed` message is never replaced by the generic `absent` line, and vice versa — a user
+whose only problem is an unauthorized plugin must never be told Linear is missing, because the fix
+(`authenticate`, then restart) is a completely different action from installing or reconnecting a
+missing provider. Any skill or preflight table that surfaces a Linear degrade message must read
+`LINEAR_STATE` and select the matching row above, not print a single hardcoded string for both
+cases.
 
 **Standing user constraint — comment posting requires explicit per-instance confirmation.** No
 Linear comment may be posted without the user's explicit go-ahead for that specific instance. Any
