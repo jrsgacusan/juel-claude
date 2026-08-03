@@ -78,7 +78,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 |----------|---------|-------------|
 | `[plan-path]` | auto-detect | Path to the plan file |
 
-Usage: `/juel:execute` or `/juel:execute docs/.superpowers/plans/2026-03-31-my-feature.md`
+Usage: `/juel:execute` or `/juel:execute ${docsRoot}/plans/2026-03-31-my-feature.md`
 
 ## Workflow
 
@@ -98,15 +98,39 @@ digraph flow {
 
 ### Step 1: Find the Plan
 
+**Resolve `docsRoot` once, then reuse it.** In order:
+1. `config.docsRoot`, if set.
+2. `<repo-root>/docs/.superpowers/` **if it exists and is non-empty** — an existing repo keeps
+   using the dotted path so prior specs, plans and context are never stranded or split.
+3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
+
+Never pick between the two variants ad hoc. Layout underneath is
+`${docsRoot}/{specs,plans,context,findings}/`.
+
+```bash
+ROOT=$(git rev-parse --show-toplevel)
+if [ -d "$ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$ROOT/docs/.superpowers" 2>/dev/null)" ]; then
+  docsRoot="$ROOT/docs/.superpowers"
+else
+  docsRoot="$ROOT/docs/superpowers"
+fi
+```
+
+(If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
+the filesystem check above — config always takes precedence.)
+
+Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
+unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+
 If a plan path was passed as an argument, use that.
 
 Otherwise, search for the most recent plan:
 
 ```bash
-ls -t docs/.superpowers/plans/*.md | head -1
+ls -t "$docsRoot/plans"/*.md | head -1
 ```
 
-If no plans found, check `docs/.superpowers/review-plan.md` as fallback.
+If no plans found, check `$docsRoot/plans/review-plan.md` as fallback.
 
 If still no plan found, tell the user and stop.
 

@@ -207,6 +207,30 @@ After clarification, fold the user's answers into the actionable list.
 
 ### Step 3: Write Remediation Plan
 
+**Resolve `docsRoot` once, then reuse it.** In order:
+1. `config.docsRoot`, if set.
+2. `<repo-root>/docs/.superpowers/` **if it exists and is non-empty** — an existing repo keeps
+   using the dotted path so prior specs, plans and context are never stranded or split.
+3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
+
+Never pick between the two variants ad hoc. Layout underneath is
+`${docsRoot}/{specs,plans,context,findings}/`.
+
+```bash
+ROOT=$(git rev-parse --show-toplevel)
+if [ -d "$ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$ROOT/docs/.superpowers" 2>/dev/null)" ]; then
+  docsRoot="$ROOT/docs/.superpowers"
+else
+  docsRoot="$ROOT/docs/superpowers"
+fi
+```
+
+(If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
+the filesystem check above — config always takes precedence.)
+
+Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
+unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+
 If there are NO actionable findings after validation and clarification, announce this and stop. Do not proceed.
 
 Otherwise invoke writing-plans:
@@ -215,14 +239,14 @@ Otherwise invoke writing-plans:
 Skill("superpowers:writing-plans")
 ```
 
-Write the resulting plan to: `docs/.superpowers/receive-review-plan.md`.
+Write the resulting plan to: `${docsRoot}/plans/receive-review-plan.md`.
 
 **Never overwrite an existing plan file.** If `receive-review-plan.md` already exists, write the new plan to the next available versioned suffix: `receive-review-plan-v2.md`, then `-v3.md`, etc. Prior plan files are historical records — leave them in place.
 
 Determine the next suffix with:
 
 ```bash
-ls docs/.superpowers/receive-review-plan*.md 2>/dev/null
+ls "$docsRoot/plans"/receive-review-plan*.md 2>/dev/null
 ```
 
 Then pass the chosen path to Codex in Step 4.
@@ -239,7 +263,7 @@ The plan must:
 Run Codex CLI non-interactively with the workspace-write sandbox:
 
 ```bash
-codex exec --sandbox workspace-write '$claude-plan-executor docs/.superpowers/receive-review-plan<-vN if applicable>.md'
+codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/receive-review-plan<-vN if applicable>.md'
 ```
 
 Run this in the **foreground** (`run_in_background: false`). Do not redirect its output to a file — the user watches the executor run. Wait for it to exit, read the complete output, and state the exit status and files changed before marking the phase done. Announce to the user that Codex has been dispatched and surface the command.

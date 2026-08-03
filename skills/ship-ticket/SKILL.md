@@ -161,9 +161,33 @@ If the user passed an explicit ticket id as argument, use that instead of the wo
 
 ### Phase 2 — Spec
 
+**Resolve `docsRoot` once, then reuse it.** In order:
+1. `config.docsRoot`, if set.
+2. `<repo-root>/docs/.superpowers/` **if it exists and is non-empty** — an existing repo keeps
+   using the dotted path so prior specs, plans and context are never stranded or split.
+3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
+
+Never pick between the two variants ad hoc. Layout underneath is
+`${docsRoot}/{specs,plans,context,findings}/`.
+
+```bash
+ROOT=$(git rev-parse --show-toplevel)
+if [ -d "$ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$ROOT/docs/.superpowers" 2>/dev/null)" ]; then
+  docsRoot="$ROOT/docs/.superpowers"
+else
+  docsRoot="$ROOT/docs/superpowers"
+fi
+```
+
+(If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
+the filesystem check above — config always takes precedence.)
+
+Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
+unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+
 Write a short spec doc capturing the agreed approach from brainstorming.
 
-- Path: `docs/.superpowers/specs/<YYYY-MM-DD>-savi-XXX-<slug>.md` (gitignored, per user memory)
+- Path: `${docsRoot}/specs/<YYYY-MM-DD>-savi-XXX-<slug>.md` (gitignored, per user memory)
 - Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the Linear ticket.
 
 **Checkpoint:** show spec path, ask to proceed.
@@ -172,7 +196,7 @@ Write a short spec doc capturing the agreed approach from brainstorming.
 
 Invoke `Skill("superpowers:writing-plans")` using the spec as input.
 
-- Plan path: `docs/.superpowers/plans/<YYYY-MM-DD>-savi-XXX-<slug>.md`
+- Plan path: `${docsRoot}/plans/<YYYY-MM-DD>-savi-XXX-<slug>.md` (docsRoot already resolved in phase 2 — reuse it, do not re-derive)
 - Each step must include file paths, line refs where applicable, and a verification command.
 
 **Checkpoint:** show plan path, ask to proceed.
@@ -184,7 +208,7 @@ Verify cwd is the worktree root (not `frontend/` or any subdirectory) — Codex 
 Dispatch Codex non-interactively, run this in the **foreground** (`run_in_background: false`):
 
 ```bash
-codex exec --sandbox workspace-write '$claude-plan-executor docs/.superpowers/plans/<plan-file>.md'
+codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md'
 ```
 
 Do not redirect its output to a file — the user watches the executor run. Wait for it to exit, read the complete output, and state the exit status and files changed before marking the phase done.
@@ -202,7 +226,7 @@ Skill("juel:review-and-execute", args: "<base-branch>")
 That skill internally runs:
 1. `pr-review-toolkit:review-pr` against the base branch
 2. `superpowers:receiving-code-review` to filter findings with technical rigor
-3. `superpowers:writing-plans` → writes to `docs/.superpowers/plans/review-plan.md` (auto-bumps to `-v2`, `-v3`, ... if a prior one exists)
+3. `superpowers:writing-plans` → writes to `${docsRoot}/plans/review-plan.md` (auto-bumps to `-v2`, `-v3`, ... if a prior one exists)
 4. `codex exec --sandbox workspace-write` to apply remediation
 
 If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (simplify still runs) and phase 7 (verification still runs) either way.
@@ -279,7 +303,7 @@ Verify the change actually works before opening the PR. This phase is **human-in
 
 ## Notes
 
-- Spec/plan/findings files live under `docs/.superpowers/` (gitignored) per user memory.
+- Spec/plan/findings files live under `${docsRoot}/` (gitignored) per user memory.
 - Branch naming: `feat/savi-xxx-<slug>` or `fix/savi-xxx-<slug>` (CLAUDE.md).
 - Commit messages must include the ticket id as scope, e.g. `feat(SAVI-1162): ...` (user memory).
 - For dependent tickets: branch from the parent tip, do not rebase (user memory).

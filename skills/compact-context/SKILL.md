@@ -1,6 +1,6 @@
 ---
 name: compact-context
-description: Use to snapshot the current conversation into a compaction-style summary Markdown file under docs/.superpowers/context/, so context survives a /compact or a fresh session. Triggers - "compact the context", "save this conversation", "snapshot context", "dump session to a file".
+description: Use to snapshot the current conversation into a compaction-style summary Markdown file under the resolved docsRoot's context/ directory, so context survives a /compact or a fresh session. Triggers - "compact the context", "save this conversation", "snapshot context", "dump session to a file".
 metadata:
   requires:
     cli:
@@ -11,15 +11,15 @@ metadata:
     context:
       - id: git-repo
         hard: true
-        why: output path is <repo-root>/docs/.superpowers/context/
+        why: output path is under the resolved docsRoot, rooted at <repo-root>
         check: "git rev-parse --show-toplevel"
 ---
 
 # Compact Context
 
-Produce a compaction-quality summary of the **entire conversation so far** and write it to a Markdown file under `docs/.superpowers/context/` in the current project.
+Produce a compaction-quality summary of the **entire conversation so far** and write it to a Markdown file under `${docsRoot}/context/` in the current project.
 
-**Announce at start:** "Using juel:compact-context to snapshot this conversation to docs/.superpowers/context/."
+**Announce at start:** "Using juel:compact-context to snapshot this conversation to ${docsRoot}/context/."
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -76,14 +76,32 @@ All satisfied renders as: `Preflight: 2/2 OK (git, git repo)` / `→ PROCEED: al
 
 ### Step 1: Resolve the output directory
 
-Find the project root and target dir:
+**Resolve `docsRoot` once, then reuse it.** In order:
+1. `config.docsRoot`, if set.
+2. `<repo-root>/docs/.superpowers/` **if it exists and is non-empty** — an existing repo keeps
+   using the dotted path so prior specs, plans and context are never stranded or split.
+3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
+
+Never pick between the two variants ad hoc. Layout underneath is
+`${docsRoot}/{specs,plans,context,findings}/`.
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
-mkdir -p "$ROOT/docs/.superpowers/context"
+if [ -d "$ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$ROOT/docs/.superpowers" 2>/dev/null)" ]; then
+  docsRoot="$ROOT/docs/.superpowers"
+else
+  docsRoot="$ROOT/docs/superpowers"
+fi
+mkdir -p "$docsRoot/context"
 ```
 
-All output goes to `$ROOT/docs/.superpowers/context/`. Never write elsewhere.
+(If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
+the filesystem check above — config always takes precedence.)
+
+Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
+unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+
+All output goes to `$docsRoot/context/`. Never write elsewhere.
 
 ### Step 2: Derive the filename
 
@@ -97,7 +115,7 @@ Pattern: `{YYYY-MM-DD}-{ticket-slug}-{topic-slug}-session.md`
 
 ```bash
 BASE="2026-07-02-savi-1346-shelf-schema-session"   # example
-DIR="$ROOT/docs/.superpowers/context"
+DIR="$docsRoot/context"
 NAME="$BASE.md"
 n=2
 while [ -e "$DIR/$NAME" ]; do NAME="${BASE}-v${n}.md"; n=$((n+1)); done
@@ -145,11 +163,11 @@ Report the written path and a one-line summary of what was captured. Do not modi
 
 - **Format:** Markdown
 - **File naming:** `{YYYY-MM-DD}-{ticket-slug}-{topic-slug}-session.md`, `-v2`/`-v3` suffix on collision
-- **Location:** `<project-root>/docs/.superpowers/context/`
+- **Location:** `${docsRoot}/context/`
 
 ## QA checklist
 
-- [ ] Output dir resolved from `git rev-parse --show-toplevel`, not hardcoded
+- [ ] Output dir resolved via the `docsRoot` rule (config, then existing dotted dir, then canonical), not hardcoded to one variant
 - [ ] Filename matches the date-ticket-topic-session pattern
 - [ ] Existing file NOT overwritten - `-vN` suffix used on collision
 - [ ] Summary covers the entire conversation, not just recent turns

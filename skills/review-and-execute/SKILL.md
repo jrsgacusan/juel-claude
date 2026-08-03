@@ -141,21 +141,45 @@ If there are NO actionable findings after validation, announce this to the user 
 
 ### Step 3: Write Remediation Plan
 
+**Resolve `docsRoot` once, then reuse it.** In order:
+1. `config.docsRoot`, if set.
+2. `<repo-root>/docs/.superpowers/` **if it exists and is non-empty** — an existing repo keeps
+   using the dotted path so prior specs, plans and context are never stranded or split.
+3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
+
+Never pick between the two variants ad hoc. Layout underneath is
+`${docsRoot}/{specs,plans,context,findings}/`.
+
+```bash
+ROOT=$(git rev-parse --show-toplevel)
+if [ -d "$ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$ROOT/docs/.superpowers" 2>/dev/null)" ]; then
+  docsRoot="$ROOT/docs/.superpowers"
+else
+  docsRoot="$ROOT/docs/superpowers"
+fi
+```
+
+(If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
+the filesystem check above — config always takes precedence.)
+
+Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
+unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+
 Invoke the writing-plans skill with the validated findings as input:
 
 ```
 Skill("superpowers:writing-plans")
 ```
 
-**Plan location:** write to `docs/.superpowers/plans/review-plan.md`.
+**Plan location:** write to `${docsRoot}/plans/review-plan.md`.
 
-**Never overwrite an existing plan.** If `docs/.superpowers/plans/review-plan.md` already exists, write a new file with a `-vN` suffix where N is the next available integer:
+**Never overwrite an existing plan.** If `${docsRoot}/plans/review-plan.md` already exists, write a new file with a `-vN` suffix where N is the next available integer:
 
 - `review-plan.md` exists → write `review-plan-v2.md`
 - `review-plan-v2.md` also exists → write `review-plan-v3.md`
 - ...continue until you find a name that does not exist.
 
-Check with `ls docs/.superpowers/plans/review-plan*.md` before deciding the filename. Create the `plans/` directory if it does not exist.
+Check with `ls "${docsRoot}/plans"/review-plan*.md` before deciding the filename. Create the `plans/` directory if it does not exist.
 
 The plan should:
 - Reference specific findings from the review
@@ -168,7 +192,7 @@ The plan should:
 Run Codex CLI non-interactively to execute the plan written in Step 3 (use the exact filename, including any `-vN` suffix):
 
 ```bash
-codex exec --sandbox workspace-write '$claude-plan-executor docs/.superpowers/plans/<plan-filename>.md'
+codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/<plan-filename>.md'
 ```
 
 Announce to the user that Codex has been dispatched and provide the command being run.
