@@ -51,7 +51,7 @@ metadata:
 
 Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspace + deterministic claude session) but the payload is a code review followed by an independent codex validation pass.
 
-**Two reviewers, one report — graded against the ticket.** Before reviewing, the inner claude fetches the linked Linear ticket (id extracted from the branch/PR title, `juel:start` style) so the diff is judged against the ticket's requirements and acceptance criteria, not just generic code quality. It then runs `/pr-review-toolkit:review-pr`, hands every finding to codex for a second opinion. Do NOT pin a codex model or reasoning effort — let codex use its own defaults. Final consolidated report lives at `docs/.superpowers/findings-review.md` with four buckets: Ticket-alignment, Confirmed, Disputed, Codex-only.
+**Two reviewers, one report — graded against the ticket.** Before reviewing, the inner claude fetches the linked Linear ticket (id extracted from the branch/PR title, `juel:start` style) so the diff is judged against the ticket's requirements and acceptance criteria, not just generic code quality. It then runs `/pr-review-toolkit:review-pr`, hands every finding to codex for a second opinion. Do NOT pin a codex model or reasoning effort — let codex use its own defaults. Final consolidated report lives at `${docsRoot}/findings/findings-review.md` with four buckets: Ticket-alignment, Confirmed, Disputed, Codex-only.
 
 > **Codex invocation (important).** Use `codex exec --sandbox read-only "<prompt>"`, NOT `codex exec review --base <base> "<prompt>"`. Codex (>=0.140) rejects combining `--base` with a positional prompt (`error: the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`). Since validation needs both a custom prompt and the base diff, instruct codex to run the diff itself inside the prompt: start the prompt with "First run: git diff <base>...HEAD to see the real changes, then validate...".
 
@@ -273,14 +273,46 @@ for _ in $(seq 1 30); do          # up to ~30s
   "$SLEEP" 1
 done
 [ "$ready" = 1 ] || echo "WARN: claude input prompt not detected after 30s; sending anyway"
+```
 
+**Resolve `docsRoot` once, then reuse it.** In order:
+1. `config.docsRoot`, if set.
+2. `<repo-root>/docs/.superpowers/` **if it exists and is non-empty** — an existing repo keeps
+   using the dotted path so prior specs, plans and context are never stranded or split.
+3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
+
+Never pick between the two variants ad hoc. Layout underneath is
+`${docsRoot}/{specs,plans,context,findings}/`.
+
+```bash
+# Step 1 of the precedence above (config.docsRoot in .claude/workflow.json /
+# .claude/workflow.local.json) — if set there, use that value directly
+# instead of the filesystem check below. Steps 2-3 (filesystem fallback):
+if [ -d "$repo_root/docs/.superpowers" ] && [ -n "$(ls -A "$repo_root/docs/.superpowers" 2>/dev/null)" ]; then
+  docsRoot="$repo_root/docs/.superpowers"
+else
+  docsRoot="$repo_root/docs/superpowers"
+fi
+mkdir -p "$docsRoot/findings"
+```
+
+Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
+unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+
+**`docsRoot` must be resolved here, in THIS shell, before the prompt string below is built.** The
+spawned inner `claude` session inherits nothing from this script — it cannot resolve `${docsRoot}`
+itself. The `prompt=` assignment below is a double-quoted bash string, so `${docsRoot}` inside it
+expands to the literal resolved path at the moment the string is built; what gets sent to the inner
+session is that literal path, never an unresolved placeholder.
+
+```bash
 # Composite prompt — ONE LINE (real newlines submit prematurely). Inner claude runs
 # the review, then dispatches codex to second-opinion every finding against the diff.
 # Codex validation: use `codex exec` (NOT `codex exec review`) so a custom prompt and a
 # base diff can coexist. `codex exec review --base <b> "<prompt>"` is REJECTED by codex
 # (>=0.140): `--base` cannot combine with a positional prompt. Instead let codex run the
 # diff itself inside the prompt. Do NOT pin -m / model_reasoning_effort — codex defaults.
-prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via the Linear MCP get_issue for ${ticket_id:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip ticket grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch:-dev}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each ticket requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the ticket. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch:-dev}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Ticket-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to docs/.superpowers/findings-review.md. run /pr-review-toolkit:review-pr in the FOREGROUND (run_in_background: false), do not use parallel mode, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
+prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via the Linear MCP get_issue for ${ticket_id:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip ticket grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch:-dev}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each ticket requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the ticket. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch:-dev}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Ticket-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to ${docsRoot}/findings/findings-review.md. run /pr-review-toolkit:review-pr in the FOREGROUND (run_in_background: false), do not use parallel mode, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
 
 "$CMUX" send --workspace "$ws_id" "$prompt"
 "$SLEEP" 1
@@ -352,6 +384,8 @@ Workspace ready for review:
 - [ ] Codex validation step uses `codex exec --sandbox read-only "<prompt>"` (NOT `codex exec review --base ...`, which rejects a prompt), with the prompt telling codex to `git diff <base>...HEAD` itself, and NO `-m` / `model_reasoning_effort` override (codex defaults)
 - [ ] A second tab (surface) opened with `make install` running (sent to the new surface, NOT the claude tab)
 - [ ] `export CMUX_QUIET=1` set so alias-deprecation notices are silenced
-- [ ] Final report destination `docs/.superpowers/findings-review.md` mentioned in the prompt with the four buckets (Ticket-alignment / Confirmed / Disputed / Codex-only)
+- [ ] `docsRoot` resolved once (config, then existing non-empty dotted dir, then canonical) before the prompt string is built, and expanded to a literal path inside the double-quoted `prompt=` assignment — never sent to the inner session as an unresolved `${docsRoot}` placeholder
+- [ ] Repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries (added if absent)
+- [ ] Final report destination `${docsRoot}/findings/findings-review.md` mentioned in the prompt with the four buckets (Ticket-alignment / Confirmed / Disputed / Codex-only)
 - [ ] Final report shows PR id, ticket id, worktree path, session id, workspace id, make-install surface
 - [ ] No accidental rename / send against the orchestrator workspace

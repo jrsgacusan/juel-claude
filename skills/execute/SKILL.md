@@ -109,6 +109,9 @@ Never pick between the two variants ad hoc. Layout underneath is
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)
+# Step 1 of the precedence above (config.docsRoot in .claude/workflow.json /
+# .claude/workflow.local.json) — if set there, use that value directly
+# instead of the filesystem check below. Steps 2-3 (filesystem fallback):
 if [ -d "$ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$ROOT/docs/.superpowers" 2>/dev/null)" ]; then
   docsRoot="$ROOT/docs/.superpowers"
 else
