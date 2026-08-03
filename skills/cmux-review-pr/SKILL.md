@@ -215,23 +215,35 @@ If `ticket_id` is empty, the review proceeds without ticket grading — note thi
 
 ### Step 2: Create the worktree
 
-Worktree dir mirrors the ship-tickets convention so both skills coexist. Compute the absolute path from the repo root, not the current CWD:
+Worktree dir mirrors the ship-tickets convention so both skills coexist. **Never derive it from
+`--show-toplevel` alone** — invoked from inside a worktree, that returns the *worktree's* root, so
+the review worktree would be created nested inside another worktree. Use the three-root discipline
+instead:
 
 ```bash
-repo_root=$(git rev-parse --show-toplevel)
+CWD_ROOT=$(git rev-parse --show-toplevel)                        # current checkout — for reading project files
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)   # main repo's .git, normalized —
+                                                                   # --git-common-dir can print a
+                                                                   # RELATIVE path (e.g. bare ".git"
+                                                                   # from the main repo's own root),
+                                                                   # so never use its raw output
+MAIN_ROOT=$(dirname "$GIT_COMMON")                                # main checkout — worktrees always go here
 slug=$(echo "$label" | tr '[:upper:]' '[:lower:]')
-abs_worktree="$repo_root/.worktrees/review-$slug"
+abs_worktree="$MAIN_ROOT/.worktrees/review-$slug"
 ```
+
+Worktrees are created under `$MAIN_ROOT/.worktrees`, **never** `$CWD_ROOT` — otherwise a review
+launched from inside ticket A's worktree nests ticket B's review worktree inside ticket A's.
 
 If the worktree already exists, reuse it (skip the create). Otherwise:
 
 ```bash
 # Non-cross-repo PR or plain branch:
-git -C "$repo_root" fetch origin "$branch"
-git -C "$repo_root" worktree add "$abs_worktree" "origin/$branch"
+git -C "$MAIN_ROOT" fetch origin "$branch"
+git -C "$MAIN_ROOT" worktree add "$abs_worktree" "origin/$branch"
 
 # Cross-repo PR:
-git -C "$repo_root" worktree add --detach "$abs_worktree"
+git -C "$MAIN_ROOT" worktree add --detach "$abs_worktree"
 ( cd "$abs_worktree" && "$GH" pr checkout "$pr_number" )
 ```
 
@@ -294,10 +306,10 @@ Never pick between the two variants ad hoc. Layout underneath is
 # Step 1 of the precedence above (config.docsRoot in .claude/workflow.json /
 # .claude/workflow.local.json) — if set there, use that value directly
 # instead of the filesystem check below. Steps 2-3 (filesystem fallback):
-if [ -d "$repo_root/docs/.superpowers" ] && [ -n "$(ls -A "$repo_root/docs/.superpowers" 2>/dev/null)" ]; then
-  docsRoot="$repo_root/docs/.superpowers"
+if [ -d "$CWD_ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$CWD_ROOT/docs/.superpowers" 2>/dev/null)" ]; then
+  docsRoot="$CWD_ROOT/docs/.superpowers"
 else
-  docsRoot="$repo_root/docs/superpowers"
+  docsRoot="$CWD_ROOT/docs/superpowers"
 fi
 mkdir -p "$docsRoot/findings"
 ```
@@ -334,7 +346,7 @@ For `make`/`just`/`task`, additionally confirm the `install` target exists. On r
 to the next tier. Resolution is side-effect free — never run the command itself while resolving.
 
 ```bash
-INSTALL_CMD=""   # resolved once here against "$repo_root"; the "open second tab" step below
+INSTALL_CMD=""   # resolved once here against "$CWD_ROOT"; the "open second tab" step below
                   # (end of Step 4) reuses this exact value — never re-detected
 # ... detection per the tiers above, assigning INSTALL_CMD on the first verified hit ...
 ```
@@ -357,29 +369,29 @@ prefer it and say so. Config always wins.
 # Resolve once, in THIS shell, before the prompt string below is built — the spawned inner
 # claude inherits nothing and cannot resolve a base-branch placeholder itself.
 base_branch="<explicit [base-branch] argument, if the user gave one — else leave empty>"
-[ -n "$base_branch" ] || base_branch=$(git -C "$repo_root" config --get claude.baseBranch 2>/dev/null)
+[ -n "$base_branch" ] || base_branch=$(git -C "$CWD_ROOT" config --get claude.baseBranch 2>/dev/null)
 if [ -z "$base_branch" ]; then
-  base_branch=$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+  base_branch=$(git -C "$CWD_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 fi
 if [ -z "$base_branch" ]; then
-  git -C "$repo_root" remote set-head origin --auto >/dev/null 2>&1
-  base_branch=$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+  git -C "$CWD_ROOT" remote set-head origin --auto >/dev/null 2>&1
+  base_branch=$(git -C "$CWD_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 fi
 if [ -z "$base_branch" ]; then
   base_branch=$("$GH" repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)
 fi
 if [ -z "$base_branch" ]; then
   for cand in main master develop dev trunk; do
-    git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$cand" && { base_branch=$cand; break; }
+    git -C "$CWD_ROOT" show-ref --verify --quiet "refs/remotes/origin/$cand" && { base_branch=$cand; break; }
   done
 fi
 # Gitflow caveat: prefer develop/dev as the INTEGRATION branch (not just the default
 # branch) when >=70% of its last 30 merges came from feat/*-shaped branches.
 for integ in develop dev; do
-  git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$integ" || continue
-  total=$(git -C "$repo_root" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | wc -l | tr -d ' ')
+  git -C "$CWD_ROOT" show-ref --verify --quiet "refs/remotes/origin/$integ" || continue
+  total=$(git -C "$CWD_ROOT" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | wc -l | tr -d ' ')
   [ "$total" -gt 0 ] || continue
-  feat=$(git -C "$repo_root" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | "$GREP" -ciE 'feat/')
+  feat=$(git -C "$CWD_ROOT" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | "$GREP" -ciE 'feat/')
   if [ "$(( feat * 100 / total ))" -ge 70 ]; then
     base_branch="$integ"
   fi
@@ -478,7 +490,7 @@ Workspace ready for review:
 - [ ] No `cd` in the orchestrator script (only inside subshells `( cd ... && ... )`)
 - [ ] PR/branch resolved correctly (right repo, right head ref)
 - [ ] Ticket id extracted from branch (fallback: PR title), uppercased; empty → review proceeds ungraded (not blocked)
-- [ ] Worktree under `<repo_root>/.worktrees/review-<slug>` with env files copied
+- [ ] Worktree under `<MAIN_ROOT>/.worktrees/review-<slug>` with env files copied
 - [ ] CMUX workspace cwd = worktree absolute path
 - [ ] `ws_id` parsed and matches `workspace:[0-9]+` before any `send` / `send-key` / `rename-workspace`
 - [ ] Workspace tab renamed via POSITIONAL title (NOT `--name`) — verify the sidebar shows just `<label>`, not `--name <label>`
@@ -487,7 +499,7 @@ Workspace ready for review:
 - [ ] Composite prompt sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Prompt instructs inner claude to fetch the Linear ticket (`get_issue` for `$ticket_id`) and grade the diff against its requirements/acceptance criteria before the code review
 - [ ] Codex validation step uses `codex exec --sandbox read-only "<prompt>"` (NOT `codex exec review --base ...`, which rejects a prompt), with the prompt telling codex to `git diff <base>...HEAD` itself, and NO `-m` / `model_reasoning_effort` override (codex defaults)
-- [ ] `INSTALL_CMD` resolved once (against `$repo_root`, before Step 4's second-tab step) via the tiered detection layer; if non-empty, a second tab (surface) opened with it running (sent to the new surface, NOT the claude tab); if empty, the second surface is skipped entirely (no error, no empty tab)
+- [ ] `INSTALL_CMD` resolved once (against `$CWD_ROOT`, before Step 4's second-tab step) via the tiered detection layer; if non-empty, a second tab (surface) opened with it running (sent to the new surface, NOT the claude tab); if empty, the second surface is skipped entirely (no error, no empty tab)
 - [ ] `export CMUX_QUIET=1` set so alias-deprecation notices are silenced
 - [ ] `docsRoot` resolved once (config, then existing non-empty dotted dir, then canonical) before the prompt string is built, and expanded to a literal path inside the double-quoted `prompt=` assignment — never sent to the inner session as an unresolved `${docsRoot}` placeholder
 - [ ] `base_branch` resolved once (explicit argument → config → git → gh → main/master/develop/dev/trunk → ask) before the prompt string is built, and expanded to a literal branch name inside the double-quoted `prompt=` assignment — never an unresolved `${base_branch}` placeholder, never a bash-fallback literal

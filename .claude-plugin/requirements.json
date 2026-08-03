@@ -226,7 +226,8 @@
         "work-source-list-capable"
       ],
       "soft": [
-        "linear"
+        "linear",
+        "resolved-install-command"
       ]
     },
     "execute": {
