@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel-protocol v1 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v1 -->';
 if (!SKIP.has('protocol')) {
   for (const [name, text] of skillBodies) {
     if (!text.includes(PROTOCOL_MARKER))
