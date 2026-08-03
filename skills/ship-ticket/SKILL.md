@@ -176,6 +176,55 @@ None of the above ever aborts the skill: an inconclusive detection asks once (an
 the answer to `.claude/workflow.json`) or falls through to its documented default — never guessed
 silently, never a convention the repo doesn't exhibit.
 
+## Toolchain commands
+
+This skill runs against whatever repo it's invoked in — never assume `black`, `npm test`, or any
+other single toolchain. Resolve each of `commands.install`, `.test`, `.lint`, `.typecheck`,
+`.format`, `.run` **independently** — a repo may legitimately get `test` from a Makefile and
+`typecheck` from `package.json`. Probed in tiers, stopping at the first verified hit per key:
+
+- **Tier A — project-authored task runners** (highest priority; the author chose the entry point):
+  `Makefile`, `justfile`, `Taskfile.yml`, `mise.toml`. Emit `make <target>` (or `just`/`task`/`mise
+  run <target>`) only for targets that actually exist in the file — e.g. `make install`/`make test`
+  only when those targets are defined, never assumed.
+- **Tier B — language manifests:** `package.json` (+ lockfile → package manager:
+  `package-lock.json`→npm, `yarn.lock`→yarn, `pnpm-lock.yaml`→pnpm, `bun.lockb`→bun),
+  `pyproject.toml` (+ `uv.lock`→uv, `poetry.lock`→poetry), `Cargo.toml`, `go.mod`, `mix.exs`,
+  `Gemfile`, Gradle (`build.gradle`/`build.gradle.kts`), Maven (`pom.xml`), `composer.json`, dotnet
+  (`*.csproj`).
+- **Tier C — CI, as a last resort:** extract `run:` steps from `.github/workflows/*.yml`. Treat as a
+  **suggestion** and confirm with the user — never run a CI-derived command blind.
+
+In a monorepo declaring workspaces, resolve per-package and record the package dir alongside each
+command.
+
+**Verify before accepting — never accept a command whose entry point cannot run:**
+
+```sh
+head_bin=$(printf '%s' "$cmd" | awk '{print $1}')
+case "$head_bin" in
+  ./*) [ -x "$head_bin" ] || reject ;;
+  *)   command -v "$head_bin" >/dev/null 2>&1 || reject ;;
+esac
+```
+
+For `make`/`just`/`task`, additionally confirm the target exists. On reject, fall through to the
+next tier. **Resolution is side-effect free — never run the command itself while resolving.**
+
+**A missing command is not an error.** If nothing in any tier resolves and verifies for a given key,
+that key resolves to `null` and the corresponding gate is **skipped with an explicit one-line note**
+("no test command resolved — test gate skipped"), never invented (never `npm test` for a repo with
+no `test` script), and never a reason to stop the skill.
+
+**Resolve once, in Phase 4; reuse in Phases 5, 6 and 7 — never re-detect per phase.** This whole
+tiered probe runs exactly one time per run, in Phase 4, immediately after Codex finishes. Its result
+(one line per key: resolved command + source tier, or `null — skipped`) is reported as part of Phase
+4's checkpoint. Phases 5, 6 and 7 read that already-reported set as-is; they must not re-run tier
+detection, re-scan for `Makefile`/`package.json`, or otherwise "pick project-relevant lint/test
+commands" fresh at each phase — that ad-hoc re-picking is the same failure mode Task 15 fixed for
+`docsRoot` (a value that drifts mid-run because two phases derived it independently instead of one
+phase resolving it and the rest reusing that answer).
+
 ## Phase gating
 
 **Pause for explicit user confirmation between every phase.** Never chain phases automatically. After each phase, summarize what was done and ask: "Proceed to phase N+1: <name>?"
@@ -262,7 +311,15 @@ codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/<p
 
 Do not redirect its output to a file — the user watches the executor run. Wait for it to exit, read the complete output, and state the exit status and files changed before marking the phase done.
 
-**Checkpoint:** Codex finished. Summarize files changed (`git status`, `git diff --stat`). Ask to proceed.
+**Resolve toolchain commands now, once.** Immediately after Codex finishes, resolve
+`commands.install`, `.test`, `.lint`, `.typecheck`, `.format` and `.run` per "Toolchain commands"
+above. This step is side-effect-free detection only — it must not install or run anything. Report
+the resolved set in this phase's checkpoint (one line per key: command + source tier, or `null —
+skipped`). Phases 5, 6 and 7 reuse this exact set; see "Toolchain commands" for why re-resolving
+mid-run is a Common Mistake, not a harmless redundancy.
+
+**Checkpoint:** Codex finished. Summarize files changed (`git status`, `git diff --stat`) and the
+resolved toolchain commands (key → command or `null — skipped`, with source tier). Ask to proceed.
 
 ### Phase 5 — Review + remediation
 
@@ -284,7 +341,7 @@ That skill internally runs:
 
 If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (simplify still runs) and phase 7 (verification still runs) either way.
 
-After it returns, run `black . --check` and any project-relevant lint/test commands from `CLAUDE.md` to verify nothing regressed.
+After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused here — do not re-derive) to verify nothing regressed. Run a command only when its resolved value is non-null; a `null` command reports its one-line skip note (e.g. "no lint command resolved — lint gate skipped") and the phase continues rather than stopping.
 
 **Checkpoint:** show diff summary post-remediation. Ask to proceed.
 
@@ -294,7 +351,7 @@ This is the last **planned** code-change phase (phase 7 verification may still l
 
 1. Invoke `Skill("simplify", run_in_background: false)` in normal apply mode — let it edit files directly. The skill itself targets recently-modified code, which is what we want.
 2. Read simplify's complete output and state what it changed before marking phase 6 done.
-3. After simplify finishes, re-run `black . --check` and project lint/test commands to verify the polish did not regress anything.
+3. After simplify finishes, re-run the `format`, `lint` and `test` commands resolved in Phase 4 (the same resolved set Phase 5 used — reused again, not re-derived) to verify the polish did not regress anything. Any command that resolved to `null` in Phase 4 has its gate skipped here too, with the same one-line note.
 4. Review the simplify diff. If anything looks wrong, revert that specific change with `git restore -p` rather than the whole pass.
 
 **Checkpoint:** show diff summary post-simplify. Ask to proceed to manual verification.
@@ -306,7 +363,7 @@ Verify the change actually works before opening the PR. This phase is **human-in
 1. **Ask the user, explicitly:** "How do we test these changes manually? Do you need anything from me (test account, env var, seed data, a specific org/case, a running service)?" Wait for their answer — they may already know the exact steps.
 2. **Decide who drives, based on what changed (`git diff --stat`):**
    - **Frontend / UI** — the user usually verifies in the browser themselves. Offer concrete steps (route, inputs, expected result) derived from the work item's acceptance criteria, and let them confirm. If they want automated help, or are unavailable, invoke `Skill("juel:regression", run_in_background: false)` to drive the change through Playwright and capture evidence.
-   - **Backend / API** — Claude drives. Invoke `Skill("run", run_in_background: false)` to launch the app and observe real behavior (hit the endpoint, check the DB, exercise the background task). If `run` is unavailable, execute the resolved `commands.run` directly and observe. Ask the user only for inputs you cannot self-serve.
+   - **Backend / API** — Claude drives. Invoke `Skill("run", run_in_background: false)` to launch the app and observe real behavior (hit the endpoint, check the DB, exercise the background task). If `run` is unavailable, execute the `commands.run` resolved in Phase 4 directly (reuse it, do not re-derive) and observe. Ask the user only for inputs you cannot self-serve.
    - **Mixed** — split: Claude verifies the BE surface, the user confirms the FE surface.
 3. **Run the actual verification**, capturing evidence (request/response, log lines, screenshots, DB rows). Map each acceptance-criterion to an observed result.
 4. If verification surfaces a defect, **do not patch by hand** — loop back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-verify after the fix.
@@ -343,6 +400,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Mistake | Fix |
 |---------|-----|
 | Skipping checkpoints to "save time" | Every phase pauses. The point is reviewable handoffs. |
+| Re-resolving install/test/lint/typecheck/format/run commands at each phase | Resolve once in Phase 4 (see "Toolchain commands"); Phases 5, 6 and 7 reuse that exact reported set, never re-scan the repo. |
 | Running simplify before review remediation | Simplify is the last planned code-change phase (phase 6) so it polishes the final shape of the code, not a draft. |
 | Hand-editing instead of delegating remediation | Never. Phase 5 delegates to `/juel:review-and-execute`; do not bypass it. |
 | Dispatching Codex from `frontend/` or another subdir | Always cd to worktree root first. |

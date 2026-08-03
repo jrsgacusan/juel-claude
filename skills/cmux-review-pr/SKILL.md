@@ -31,6 +31,11 @@ metadata:
         hard: true
         why: binaries are called by absolute path once PATH is resolved
         check: "one batched test -x"
+      - id: resolved-install-command
+        hard: false
+        why: end of Step 4 warms deps in a second tab while the inner review runs in the first
+        check: "see resolution layer"
+        fallback: skip the second surface; install deps yourself
     context:
       - id: git-repo
         hard: true
@@ -98,6 +103,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 | resolvable PR or branch | context | HARD | `gh pr view <N> --json number` | STOP |
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | inner session falls back to `/review` |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the alignment section is omitted |
+| resolved install command | cli | SOFT | see resolution layer | skip the second surface; install deps yourself |
 
 ## Phases
 
@@ -231,7 +237,7 @@ git -C "$repo_root" worktree add --detach "$abs_worktree"
 
 Copy env files from repo root the same way `juel:daily-worktrees` does (`.env*`, `*.pem`). Wrap glob expansions in a subshell with `setopt NULL_GLOB` (zsh) or `shopt -s nullglob` (bash) so missing files do not abort.
 
-**Do NOT copy or symlink `venv/` into the worktree.** `make install` runs `python3 -m venv venv`, which refuses to create over an existing file or symlink (`Error: Unable to create directory .../venv`). Leave `venv/` absent so the tab-2 `make install` builds a fresh one.
+**Do NOT copy or symlink `venv/` into the worktree.** If the resolved install command builds a Python venv (e.g. `python3 -m venv venv`, common behind a `make install` target), it refuses to create over an existing file or symlink (`Error: Unable to create directory .../venv`). Leave `venv/` absent so the tab-2 install command builds a fresh one.
 
 ### Step 3: Compute session id
 
@@ -298,6 +304,43 @@ mkdir -p "$docsRoot/findings"
 
 Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
 unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+
+**Resolve the install command once, then reuse it.** Same resolution layer as
+`juel:cmux-ship-tickets` — probed in tiers, stopping at the first verified hit, never invented if
+nothing resolves:
+
+- **Tier A — project-authored task runners** (highest priority): `Makefile`, `justfile`,
+  `Taskfile.yml`, `mise.toml`. Emit `make install` / `just install` / `task install` / `mise run
+  install` only if that target actually exists.
+- **Tier B — language manifests:** `package.json` (+ lockfile → package manager) → `<pm> install`;
+  `pyproject.toml` (+ `uv.lock`/`poetry.lock`) → `uv sync` / `poetry install`; `Cargo.toml` →
+  `cargo fetch`; `go.mod` → `go mod download`; `mix.exs` → `mix deps.get`; `Gemfile` →
+  `bundle install`; Gradle/Maven → `./gradlew build` / `mvn install -DskipTests`; `composer.json`
+  → `composer install`; `*.csproj` → `dotnet restore`.
+- **Tier C — CI, as a last resort:** an install-shaped `run:` step from `.github/workflows/*.yml`,
+  treated as a suggestion and confirmed with the user, never run blind.
+
+**Verify before accepting:**
+
+```sh
+head_bin=$(printf '%s' "$cmd" | awk '{print $1}')
+case "$head_bin" in
+  ./*) [ -x "$head_bin" ] || reject ;;
+  *)   command -v "$head_bin" >/dev/null 2>&1 || reject ;;
+esac
+```
+
+For `make`/`just`/`task`, additionally confirm the `install` target exists. On reject, fall through
+to the next tier. Resolution is side-effect free — never run the command itself while resolving.
+
+```bash
+INSTALL_CMD=""   # resolved once here against "$repo_root"; the "open second tab" step below
+                  # (end of Step 4) reuses this exact value — never re-detected
+# ... detection per the tiers above, assigning INSTALL_CMD on the first verified hit ...
+```
+
+**If `INSTALL_CMD` stays empty, that is not an error** — the second-tab step at the end of Step 4
+skips itself entirely for this review rather than opening a tab that runs nothing.
 
 **Resolve the base branch once, then reuse it.** In order: explicit `[base-branch]` argument (the
 second word of the invocation, if the user gave one) → `config.baseBranch` → `git config --get
@@ -373,19 +416,25 @@ prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via th
 "$SLEEP" 1
 "$CMUX" send-key --workspace "$ws_id" Enter
 
-# 5. Open a second tab and run `make install` so deps install in parallel with the
-#    review (mirrors juel:cmux-ship-tickets). Must be a NEW surface — typing into
-#    the claude tab would feed `make install` to the agent as a prompt, not the shell.
-raw2=$("$CMUX" new-surface --type terminal --workspace "$ws_id")
-surface_id=$(echo "$raw2" | "$GREP" -oE 'surface:[0-9]+' | "$HEAD" -1)
-case "$surface_id" in
-  surface:[0-9]*)
-    "$SLEEP" 1
-    "$CMUX" send --workspace "$ws_id" --surface "$surface_id" "make install"
-    "$SLEEP" 1
-    "$CMUX" send-key --workspace "$ws_id" --surface "$surface_id" Enter ;;
-  *) echo "WARN: failed to parse surface id from: $raw2 — skipping make install"; surface_id="" ;;
-esac
+# 5. If an install command resolved (INSTALL_CMD, above), open a second tab and run it
+#    so deps install in parallel with the review (mirrors juel:cmux-ship-tickets). Must
+#    be a NEW surface — typing into the claude tab would feed it to the agent as a
+#    prompt, not the shell. If nothing resolved, skip this whole step — do not open a
+#    tab that runs nothing.
+if [ -n "$INSTALL_CMD" ]; then
+  raw2=$("$CMUX" new-surface --type terminal --workspace "$ws_id")
+  surface_id=$(echo "$raw2" | "$GREP" -oE 'surface:[0-9]+' | "$HEAD" -1)
+  case "$surface_id" in
+    surface:[0-9]*)
+      "$SLEEP" 1
+      "$CMUX" send --workspace "$ws_id" --surface "$surface_id" "$INSTALL_CMD"
+      "$SLEEP" 1
+      "$CMUX" send-key --workspace "$ws_id" --surface "$surface_id" Enter ;;
+    *) echo "WARN: failed to parse surface id from: $raw2 — skipping install"; surface_id="" ;;
+  esac
+else
+  echo "No install command resolved for this repo — skipping the second surface. Install dependencies yourself."
+fi
 ```
 
 If `cmux new-workspace` output cannot be parsed, fall back to `"$CMUX" list-workspaces` and pick the newest entry whose cwd matches `$abs_worktree`. Still re-verify against the `workspace:[0-9]+` regex before any send.
@@ -399,7 +448,7 @@ Workspace ready for review:
   Worktree  : <abs path>
   Session   : <uuid>   (resume: `claude --resume <uuid>`)
   CMUX ws   : workspace:<N> (renamed to <label>)
-  Deps      : make install running in tab 2 (surface:<M>)
+  Deps      : <resolved install command> running in tab 2 (surface:<M>), or "none resolved — skipped, install deps yourself"
 ```
 
 ## Edge cases
@@ -418,7 +467,8 @@ Workspace ready for review:
 | Prompt never appears / input box empty after send | Send hit the TUI before it was ready (blind `sleep` too short; plugins/banners delay boot). Use the `read-screen` readiness poll (wait for `❯`) before sending. To recover: `read-screen` to confirm the empty input, then re-`send` the single-line prompt and `send-key Enter`. |
 | Slash command typed but not submitted (sits as a draft) | `send-key Enter` was not invoked after `send`. Re-send Enter via `"$CMUX" send-key --workspace "$ws_id" Enter`. |
 | Multi-line prompt submitted in fragments | Real newlines in a `cmux send` payload each act as Enter. Send the prompt as a SINGLE LINE. |
-| `make install` second tab not created | `new-surface` output parse failed; review still proceeds in tab 1. Re-run `"$CMUX" new-surface --type terminal --workspace "$ws_id"` and send `make install` to the returned surface. |
+| Install second tab not created despite `INSTALL_CMD` being non-empty | `new-surface` output parse failed; review still proceeds in tab 1. Re-run `"$CMUX" new-surface --type terminal --workspace "$ws_id"` and send `$INSTALL_CMD` to the returned surface. |
+| No install command resolves for this repo | Not an error — skip the second surface entirely (per "Resolve the install command once" above) and note "none resolved" in the Step 5 report. Never invent `npm install`/`make install` for a repo where nothing verified. |
 | `claude --session-id` rejects uuid | Launch `claude` without session id; warn that resume needs picker. |
 | User gave a forked-PR url and `gh pr checkout` fails auth | Surface `gh` error verbatim, do not retry blindly. |
 
@@ -437,7 +487,7 @@ Workspace ready for review:
 - [ ] Composite prompt sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Prompt instructs inner claude to fetch the Linear ticket (`get_issue` for `$ticket_id`) and grade the diff against its requirements/acceptance criteria before the code review
 - [ ] Codex validation step uses `codex exec --sandbox read-only "<prompt>"` (NOT `codex exec review --base ...`, which rejects a prompt), with the prompt telling codex to `git diff <base>...HEAD` itself, and NO `-m` / `model_reasoning_effort` override (codex defaults)
-- [ ] A second tab (surface) opened with `make install` running (sent to the new surface, NOT the claude tab)
+- [ ] `INSTALL_CMD` resolved once (against `$repo_root`, before Step 4's second-tab step) via the tiered detection layer; if non-empty, a second tab (surface) opened with it running (sent to the new surface, NOT the claude tab); if empty, the second surface is skipped entirely (no error, no empty tab)
 - [ ] `export CMUX_QUIET=1` set so alias-deprecation notices are silenced
 - [ ] `docsRoot` resolved once (config, then existing non-empty dotted dir, then canonical) before the prompt string is built, and expanded to a literal path inside the double-quoted `prompt=` assignment — never sent to the inner session as an unresolved `${docsRoot}` placeholder
 - [ ] `base_branch` resolved once (explicit argument → config → git → gh → main/master/develop/dev/trunk → ask) before the prompt string is built, and expanded to a literal branch name inside the double-quoted `prompt=` assignment — never an unresolved `${base_branch}` placeholder, never a bash-fallback literal

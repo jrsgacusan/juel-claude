@@ -183,7 +183,8 @@
       "soft": [
         "codex",
         "linear",
-        "pr-review-toolkit"
+        "pr-review-toolkit",
+        "resolved-install-command"
       ]
     },
     "cmux-ship-tickets": {

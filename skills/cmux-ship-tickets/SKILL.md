@@ -47,7 +47,7 @@ metadata:
 
 # Juel CMUX Ship Tickets
 
-End-to-end daily kickoff: fetch Linear todos, create git worktrees, spawn one CMUX workspace per ticket, start `claude` in each with `/juel:ship-ticket <TICKET>` queued, and kick off `make install` in a second tab so deps install in parallel.
+End-to-end daily kickoff: fetch Linear todos, create git worktrees, spawn one CMUX workspace per ticket, start `claude` in each with `/juel:ship-ticket <TICKET>` queued, and kick off the resolved install command in a second tab so deps install in parallel (skipped entirely for a repo where nothing resolves).
 
 **Announce:** "Using juel:cmux-ship-tickets to spin up worktrees + CMUX workspaces + claude sessions."
 
@@ -156,6 +156,50 @@ Rules:
 - After computing `path`, echo it next to `$ticket` and **eyeball that they match** before calling `new-workspace` — a mismatch here means a workspace lands in the wrong worktree.
 - If a workspace does get created with the wrong cwd/name, `close-workspace --workspace workspace:<N>` it and recreate, rather than trying to repoint it.
 
+### Resolve the install command — once, before spawning any workspace
+
+This is the "resolution layer" the Preflight table's `resolved-install-command` row points at.
+Resolve `commands.install` **once**, from the main repo root (`$ROOT`, the path `juel:daily-worktrees`
+operates on in Step 1), **before** the per-ticket loop in Step 3 — every ticket's worktree is a
+checkout of the same repo, so re-detecting per ticket is wasted work and risks a different answer
+for the same repo mid-run.
+
+Probed in tiers, stopping at the first verified hit — never invent a command if nothing resolves:
+
+- **Tier A — project-authored task runners** (highest priority): `Makefile`, `justfile`,
+  `Taskfile.yml`, `mise.toml`. Emit `make install` / `just install` / `task install` / `mise run
+  install` only if that target actually exists.
+- **Tier B — language manifests:** `package.json` (+ lockfile → package manager: `package-lock.json`
+  →npm, `yarn.lock`→yarn, `pnpm-lock.yaml`→pnpm, `bun.lockb`→bun) → `<pm> install`; `pyproject.toml`
+  (+ `uv.lock`→`uv sync`, `poetry.lock`→`poetry install`); `Cargo.toml`→`cargo fetch`;
+  `go.mod`→`go mod download`; `mix.exs`→`mix deps.get`; `Gemfile`→`bundle install`; Gradle/Maven
+  →`./gradlew build` / `mvn install -DskipTests`; `composer.json`→`composer install`;
+  `*.csproj`→`dotnet restore`.
+- **Tier C — CI, as a last resort:** an install-shaped `run:` step from `.github/workflows/*.yml`,
+  treated as a suggestion and confirmed with the user, never run blind.
+
+**Verify before accepting:**
+
+```sh
+head_bin=$(printf '%s' "$cmd" | awk '{print $1}')
+case "$head_bin" in
+  ./*) [ -x "$head_bin" ] || reject ;;
+  *)   command -v "$head_bin" >/dev/null 2>&1 || reject ;;
+esac
+```
+
+For `make`/`just`/`task`, additionally confirm the `install` target exists. On reject, fall through
+to the next tier. Resolution is side-effect free — never run the command itself while resolving.
+
+```bash
+INSTALL_CMD=""   # resolved once here; every ticket's Step 3.6 below reuses this exact value
+# ... detection per the tiers above against "$ROOT", assigning INSTALL_CMD on the first
+# verified hit; stays empty if nothing resolves and verifies ...
+```
+
+**If nothing resolves, `INSTALL_CMD` stays empty — that is not an error.** Step 3.6 below skips the
+second surface entirely for every ticket rather than opening a tab that runs nothing.
+
 ## CMUX CLI cheat sheet (verified against cmux 0.62.x)
 
 | Need                                                                 | Command                                                                                                  |
@@ -261,26 +305,32 @@ For each `{ticket, path}`:
    "$CMUX" send-key --workspace "$ws_id" Enter
    ```
 
-6. **Open a second tab and run `make install` to install deps.** Each worktree starts with no installed dependencies — kick off `make install` in a separate tab so it runs in parallel with the claude session. Do NOT run it in the main tab (that's where claude lives).
+6. **If `INSTALL_CMD` resolved (see "Resolve the install command" above), open a second tab and run it. If it did not resolve, skip this step entirely for this ticket** — do not open a tab that runs nothing.
 
    ```bash
-   raw2=$("$CMUX" new-surface --type terminal --workspace "$ws_id")
-   surface_id=$(echo "$raw2" | "$GREP" -oE 'surface:[0-9]+' | "$HEAD" -1)
-   case "$surface_id" in
-     surface:[0-9]*) ;;
-     *) echo "WARN: failed to parse surface id from: $raw2 — skipping make install for $ticket"; surface_id="" ;;
-   esac
-   if [ -n "$surface_id" ]; then
-     "$SLEEP" 1
-     "$CMUX" send --workspace "$ws_id" --surface "$surface_id" "make install"
-     "$SLEEP" 1
-     "$CMUX" send-key --workspace "$ws_id" --surface "$surface_id" Enter
+   if [ -n "$INSTALL_CMD" ]; then
+     raw2=$("$CMUX" new-surface --type terminal --workspace "$ws_id")
+     surface_id=$(echo "$raw2" | "$GREP" -oE 'surface:[0-9]+' | "$HEAD" -1)
+     case "$surface_id" in
+       surface:[0-9]*) ;;
+       *) echo "WARN: failed to parse surface id from: $raw2 — skipping install for $ticket"; surface_id="" ;;
+     esac
+     if [ -n "$surface_id" ]; then
+       "$SLEEP" 1
+       "$CMUX" send --workspace "$ws_id" --surface "$surface_id" "$INSTALL_CMD"
+       "$SLEEP" 1
+       "$CMUX" send-key --workspace "$ws_id" --surface "$surface_id" Enter
+     fi
+   else
+     echo "No install command resolved for this repo — skipping the second surface for $ticket. Install dependencies yourself."
    fi
    ```
 
-   **Why a second tab and not the claude tab:** typing `make install` into the claude tab would feed it as a prompt to the agent, not as a shell command. The new surface is a fresh terminal in the same workspace + cwd.
+   **Why a second tab and not the claude tab:** typing the install command into the claude tab would feed it as a prompt to the agent, not as a shell command. The new surface is a fresh terminal in the same workspace + cwd.
 
-   **Why not block on it:** `make install` can take minutes (pnpm install + venv + wheels). Fire-and-forget so claude can start planning in parallel.
+   **Why not block on it:** an install command (e.g. `pnpm install`, `make install`) can take minutes. Fire-and-forget so claude can start planning in parallel.
+
+   **Why skip the whole surface on null, not just the send:** an empty terminal tab with nothing running is noise, not a feature — the corollary to "a missing command is not an error" is that the *side effect* of a missing command (a tab) is also skipped, per ticket.
 
 7. **Record the mapping** for the final report.
 
@@ -329,7 +379,8 @@ Every workspace MUST be renamed to its canonical ticket id (e.g. `MSTR-3034`) pe
 - [ ] `claude` launched inside each workspace (no `--session-id`) with `--permission-mode auto`
 - [ ] `/juel:ship-ticket <TICKET>` typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Every workspace renamed to the canonical ticket id (e.g. `MSTR-3034`, not `mstr-3034`)
-- [ ] A second tab (surface) opened per workspace with `make install` running (not typed into the claude tab)
+- [ ] `INSTALL_CMD` resolved once (from `$ROOT`, before the per-ticket loop) via the tiered detection layer, reused unchanged for every ticket — never re-detected per ticket
+- [ ] Per ticket: if `INSTALL_CMD` is non-empty, a second tab (surface) opened with it running (not typed into the claude tab); if empty, the second surface is skipped entirely for that ticket (no error, no empty tab)
 - [ ] Workspace renamed via POSITIONAL title arg (NOT `--name`) — verify the sidebar shows just the ticket id, not `--name MSTR-XXXX`
 - [ ] Workspace tagged green via `set-status ship "ready" --color "#22c55e"`
 - [ ] `rename-workspace` never called with an empty or malformed `--workspace` (regex-guarded against `workspace:[0-9]+`)
