@@ -48,7 +48,7 @@ update; `daily-worktrees` lists issues by assignee+project+state, reads id/title
 | `acceptance_criteria` | No | derived from `description` (`## Acceptance Criteria`, `## Done When`, `## Outcome` headings, else `- [ ]` checkboxes); the highest-value derived field — six call sites across `ship-ticket` phases 2 and 7, `start` phase 3, PR body QA instructions |
 | `status` | No | normalized read/write target for `update_status` (`daily-worktrees` phases 6–7, `ship-ticket` phase 8) |
 | `url` | No | PR-body Linear link section (`ship-ticket` phase 8) |
-| `labels` | No | not read by these three skills today; carried for `create-linear-ticket` authoring parity |
+| `labels` | No | read by `daily-worktrees` phase 3's branch-type inference table (`skills/daily-worktrees/SKILL.md:119`: "Title/labels contain 'bug', 'fix', 'error'" → `fix`); also carried for `create-linear-ticket` authoring parity |
 | `branch_hint` | No | seeds branch naming when `slug`/`type` are absent |
 | `parent` | No | gates the "branch from the parent tip" guidance (spec §7.11); only Linear/Jira expose it |
 | `source` | No | which provider produced the item — drives capability-flag branching (§3 below), never branched on by name elsewhere |
@@ -78,87 +78,113 @@ Skills branch on **capability flags, never on a provider name**.
 
 ### 4.1 `linear`
 
-**Tool-name status: every name below is UNVERIFIED against a live tool listing.** This session's
-tool set contains zero `mcp__linear__*` or `mcp__claude_ai_Linear__*` tools — MCP connectors bind
-at session start, and the `linear` plugin dependency (installed in Task 5) was added after this
-session started, so Step 1 of this task's brief ("enumerate tools from a live session") is
-mechanically impossible here. **The verified corroboration below is the strongest evidence
-available without a restart; it is not a substitute for one.** See the report's explicit
-restart-confirmation item.
+**Tool names VERIFIED** — ground truth supplied by the user from a live session, 2026-08-03,
+superseding this task's original external-research round entirely (that round is preserved below
+only as one recorded lesson; every name it produced has been checked against the live listing).
 
-**Prefix — the connector shape, corroborated locally.**
+**Two Linear MCP connections exist for this user, in different states:**
 
-`~/.claude-personal/plugins/cache/claude-plugins-official/linear/unknown/.mcp.json` (installed in
-Task 5) registers the server under the key `linear`, pointed at Linear's own hosted endpoint:
+- `plugin:linear` (the plugin dependency installed in Task 5, registered under key `linear` at
+  `https://mcp.linear.app/mcp` per `~/.claude-personal/plugins/cache/claude-plugins-official/linear/unknown/.mcp.json`)
+  — **installed but NOT authenticated.** It exposes only `authenticate` and
+  `complete_authentication`; none of its domain tools (issues, projects, comments, etc.) are
+  present until the user completes that OAuth flow. **This is a distinct third state from
+  "absent"** — a check that only tests "does any `mcp__linear__*` tool exist" will false-positive
+  on this connector pre-authentication, because `authenticate`/`complete_authentication` themselves
+  match that prefix.
+- `claude.ai Linear` (the claude.ai connector, previously corroborated only indirectly via
+  `~/.claude.json`'s `claudeAiMcpEverConnected` array — now confirmed directly) — **authenticated,
+  full tool set.** This is the currently *active* source for every verified name below, exposed
+  under the composed prefix `mcp__claude_ai_Linear__<tool>`.
 
-```json
-{ "linear": { "type": "http", "url": "https://mcp.linear.app/mcp" } }
-```
+**The dual-prefix detection rule is load-bearing, not defensive — unchanged from the original
+design, now confirmed necessary rather than merely precautionary.** The active prefix for this user
+today is `mcp__claude_ai_Linear__*`, not `mcp__linear__*` — the opposite of what a naive reading of
+"the plugin dependency is installed, so use its prefix" would assume. A skill must not hardcode
+either prefix, and must not treat presence of the `mcp__linear__` namespace alone as proof the
+plugin connector is usable.
 
-An MCP server registered under key `linear` is exposed to the model as `mcp__linear__<tool>` —
-this is how the Claude Code / plugin tool-naming convention composes server key + tool name, and is
-the direct fix for defect 1 (the bare `linear__*` prefix used throughout the current skill set does
-not resolve to any real tool).
-
-`~/.claude.json`'s `claudeAiMcpEverConnected` array separately records `"claude.ai Linear"` — this
-user has, at some point, also connected Linear via the claude.ai connector (a different binding path
-than the plugin). A claude.ai-connector-sourced server is exposed under the composed key
-`claude_ai_Linear`, i.e. `mcp__claude_ai_Linear__<tool>`. **Both shapes are corroborated as
-genuinely reachable for this user** (one via the installed plugin's `.mcp.json`, one via connector
-history), which is why the detection rule below accepts either rather than assuming one.
-
-Grepping `~/.claude.json` for any recorded `mcp__*linear*` tool-call name returned nothing — the
-`linear@claude-plugins-official` plugin's own usage counter is `0`, consistent with it never having
-been exercised in a prior session. There is no local record of the *tool names themselves*, only of
-the *server bindings* — hence Step 2 below relies on external research, not local logs.
-
-**Detection rule (dual-prefix, required regardless of findings):**
+**Detection rule (dual-prefix, revised to account for the present-but-unauthenticated state):**
 
 ```
-LINEAR_PREFIX = the first of "mcp__linear__" or "mcp__claude_ai_Linear__" for which any
-                tool with that prefix appears in the current session's tool set.
-                If neither is present, Linear capability is absent — degrade per §5.
+LINEAR_PREFIX = the first of "mcp__linear__" or "mcp__claude_ai_Linear__" for which a DOMAIN
+                tool — i.e. anything other than authenticate / complete_authentication — with
+                that prefix appears in the current session's tool set.
+                If "mcp__linear__" is present but exposes only authenticate/
+                complete_authentication, treat it as present-but-unauthenticated, NOT as
+                satisfying the Linear dependency — fall through to "mcp__claude_ai_Linear__".
+                If neither prefix has a domain tool, Linear capability is absent — degrade
+                per §5.
 ```
 
 Every recipe call below is written as `<LINEAR_PREFIX>get_issue` etc. — substitute whichever
 prefix resolved.
 
-**Tool names — externally researched, name-by-name confidence:**
+**Tool names — VERIFIED (live tool listing supplied by the user, 2026-08-03):**
 
-| Operation | Candidate name | Status | Evidence |
+| Operation | Name | Status | Source |
 |---|---|---|---|
-| fetch one issue | `fetch_issue` | UNVERIFIED — two independent primary reports | Real-session bug reports against the actual `mcp.linear.app` endpoint name `fetch_issue` as a working read call: [Cursor Community Forum bug report](https://forum.cursor.com/t/linear-mcp-save-issue-fails-empty-payload-title-is-required-or-invalid-json-when-using-parentid-ticket-style-strings/155803) ("read-only Linear tools like fetch_issue work") |
-| fetch one issue (alt. candidate) | `get_issue` | UNVERIFIED — aggregator-catalog only, contradicted by primary evidence | [Fiberplane blog analysis](https://blog.fiberplane.com/blog/mcp-server-analysis-linear/), mcpservers.org agent-skills catalog. These aggregator catalogs may describe a normalized/generic naming scheme rather than Linear's actual hosted server, or may describe one of the many *community* Linear MCP servers (e.g. `jerhadf/linear-mcp-server`, `tacticlaunch/mcp-linear`) rather than Linear's own `mcp.linear.app`. Do not adopt without live confirmation |
-| create **or** update an issue | `save_issue` | UNVERIFIED — two independent primary reports, best-evidenced write verb | [Cursor Community Forum bug report](https://forum.cursor.com/t/linear-mcp-save-issue-fails-empty-payload-title-is-required-or-invalid-json-when-using-parentid-ticket-style-strings/155803) and [anthropics/claude-code issue #51674](https://github.com/anthropics/claude-code/issues/51674) both show real users' sessions calling `save_issue` against the live Linear MCP server and hitting real (transport/argument) errors — i.e. the name appears in **production tool-call logs**, not in a marketing/aggregator description. Both reports describe it handling issue creation; whether it also performs status-only updates (Linear's own web UI conventionally uses "save" as the single verb for both new and edited issues, which would make an upsert-style single write tool plausible) is **not confirmed** |
-| status write (alt. candidate) | `update_issue` | UNVERIFIED — aggregator-catalog only, no primary-log evidence found | [Fiberplane blog analysis](https://blog.fiberplane.com/blog/mcp-server-analysis-linear/), mcpservers.org, Speakeasy's MCP Gateway catalog. Zero real-session logs found using this name against `mcp.linear.app` (searched specifically) |
-| create a comment | `save_comment` | UNVERIFIED — one primary report | [anthropics/claude-code issue #51674](https://github.com/anthropics/claude-code/issues/51674) lists `save_comment` alongside `save_issue` as tool calls made in a real session |
-| list issues | `list_issues` | UNVERIFIED — primary report + aggregator agreement | Named directly in [anthropics/claude-code issue #51674](https://github.com/anthropics/claude-code/issues/51674)'s session log, and consistently in every aggregator catalog found. The one name with corroboration from both evidence classes |
-| list teams | `list_teams` | UNVERIFIED — primary report + aggregator agreement | Named as a working read call in [the Cursor forum report](https://forum.cursor.com/t/linear-mcp-save-issue-fails-empty-payload-title-is-required-or-invalid-json-when-using-parentid-ticket-style-strings/155803), and in aggregator catalogs |
-| list issue statuses | `list_issue_statuses` | UNVERIFIED — aggregator-catalog only | No primary-log sighting found; used by `create-linear-ticket`'s existing Step 3 today (pre-existing, unaudited by this task) |
-| list projects | `list_projects` | UNVERIFIED — aggregator-catalog only | Same caveat as above; used by `create-linear-ticket`'s existing Step 2 |
+| fetch one issue | `get_issue` | VERIFIED | live tool listing, 2026-08-03 |
+| get issue status | `get_issue_status` | VERIFIED | live tool listing, 2026-08-03 |
+| get project | `get_project` | VERIFIED | live tool listing, 2026-08-03 |
+| get team | `get_team` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` team resolution |
+| get user | `get_user` | VERIFIED | live tool listing, 2026-08-03 |
+| list issues | `list_issues` | VERIFIED | live tool listing, 2026-08-03 |
+| list projects | `list_projects` | VERIFIED | live tool listing, 2026-08-03 |
+| list teams | `list_teams` | VERIFIED | live tool listing, 2026-08-03 |
+| list users | `list_users` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` assignee resolution |
+| list comments | `list_comments` | VERIFIED | live tool listing, 2026-08-03 |
+| list cycles | `list_cycles` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` cycle field |
+| list issue statuses | `list_issue_statuses` | VERIFIED | live tool listing, 2026-08-03 |
+| list issue labels | `list_issue_labels` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` labels field |
+| create **or** update an issue | `save_issue` | VERIFIED | live tool listing, 2026-08-03 — `save_*` is confirmed upsert: creates when no matching issue is targeted, updates when one is |
+| create **or** update a comment | `save_comment` | VERIFIED | live tool listing, 2026-08-03 — **never call automatically; see the mandatory confirmation rule in §5** |
+| delete a comment | `delete_comment` | VERIFIED | live tool listing, 2026-08-03 |
 
-**Resolution of the `save_issue` vs `update_issue` disagreement (defect 2):** `ship-ticket:138`'s
-`mcp__linear__save_issue` is **better-evidenced** than `daily-worktrees:110`'s bare
-`linear__update_issue` — `save_issue` appears in two independent real production tool-call logs
-against the actual `mcp.linear.app` server, while no such log was found for `update_issue` (only
-third-party aggregator descriptions, which may not describe this exact server). **Neither is
-VERIFIED.** Both skills should converge on `<LINEAR_PREFIX>save_issue` pending live confirmation —
-this is a directional call based on the stronger of two unconfirmed candidates, not a fact.
+`update_issue` **does not exist.** The defect-2 disagreement is fully resolved, not directional.
+
+**A recorded lesson for anyone revisiting this file — `fetch_issue` was wrong.** The original
+research round weighted two real production error-log sightings (a Cursor Community Forum bug
+report and a GitHub issue, both showing users hitting real errors against Linear's MCP server) over
+third-party aggregator catalogs, and concluded the fetch-one-issue tool was named `fetch_issue`.
+**The live listing confirms it is `get_issue`** — the aggregator catalogs that round downgraded
+("may describe a different server") were right on this specific name. The lesson: a forum poster's
+own prose shorthand for "the read call that fetched my issue" can look exactly like a literal
+tool-call name without being one — evidence embedded in human prose is not automatically more
+reliable than a catalog's structured listing. Weight a machine-rendered tool-call trace over a
+prose description of one, and weight a live listing over both. This file no longer carries the name
+`fetch_issue` anywhere.
+
+**Resolution of the `save_issue` vs `update_issue` disagreement (defect 2) — CONFIRMED, not
+directional.** `ship-ticket:138`'s `mcp__linear__save_issue` was the correct verb all along (modulo
+the prefix defect, which the dual-prefix rule above fixes); `daily-worktrees:110`'s `update_issue`
+does not exist as a tool on Linear's MCP server. Both skills converge on `<LINEAR_PREFIX>save_issue`.
+`save_issue` is confirmed to perform both create and update.
 
 **Recipe:**
 
 ```
-fetch(ref)        → <LINEAR_PREFIX>fetch_issue(id: ref)
+fetch(ref)        → <LINEAR_PREFIX>get_issue(id: ref)
 list(filters)     → <LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")
 update_status(id, status) → map normalized status to Linear's native state name, then
                      <LINEAR_PREFIX>save_issue(id: id, state: <native-state-name>)
 create(fields)    → <LINEAR_PREFIX>save_issue(title: …, teamId: …, description: …, …)
 url(item)         → item.url as returned by fetch/list — Linear issues always carry one
+comment(id, body) → <LINEAR_PREFIX>save_comment(issueId: id, body: body) — subject to the
+                     mandatory per-instance confirmation rule in §5; never automatic
 ```
 
 Status mapping (normalized → Linear native, team-configurable — resolve via `list_issue_statuses`
 rather than hardcoding): `todo` → team's default entry status, `in_progress` → "In Progress",
 `in_review` → "In Review", `done` → team's completed state.
+
+**Remaining caveat — an auth-state check, not a naming gap.** `plugin:linear` requires the user to
+complete `authenticate` → `complete_authentication` before any domain tool appears. A session or
+machine that relies on the plugin connector rather than the claude.ai connector will see only
+`authenticate`/`complete_authentication` under `mcp__linear__*` until the user authorizes it. The
+tool *names* in the table above are no longer in question; whether a *given session* can reach them
+through the plugin connector specifically still depends on that session's own auth state, and must
+be checked (or degraded around, per the detection rule above) independently every time.
 
 ### 4.2 `jira`
 
@@ -200,6 +226,15 @@ None of the following ever fail a phase:
   placeholder (no `Linear: [none]` or `Linear: N/A` line — the section itself does not appear).
 - **Missing `list`** — prompt the user for refs directly (paste ticket IDs / point at a spec
   directory) rather than failing the phase that needed the list.
+
+**Standing user constraint — comment posting requires explicit per-instance confirmation.** No
+Linear comment may be posted without the user's explicit go-ahead for that specific instance. Any
+call to `<LINEAR_PREFIX>save_comment` (§4.1) must be preceded by an explicit confirmation prompt
+naming the issue and the comment text — it must never be automatic, never inferred from an earlier
+blanket "yes," and never fired as a side effect of another operation (e.g. a status update, a PR
+open, or a worktree setup must never silently also drop a comment). This is a hard rule, not a
+capability-flag default; it applies even when the provider's `create`/`update_status` flags are
+otherwise satisfied.
 
 ## 6. Authoring templates (extracted from `create-linear-ticket`, provider-neutral)
 
