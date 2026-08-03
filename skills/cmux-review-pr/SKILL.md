@@ -293,13 +293,24 @@ detect_ref() {
 }
 
 REF=$(detect_ref "$branch") || {
-  # PR titles aren't pre-segmented by '/' the way branch names are (e.g. "[SAVI-1343] Fix
-  # login redirect bug" or "feat(SAVI-1343): fix login"). Normalize bracket/paren/colon/space
-  # delimiters to '/' so detect_ref's whole-segment matching applies the same way it does to a
-  # branch name — this conditions the INPUT only; detect_ref's own algorithm and DENY list
-  # (above) are untouched, byte-identical to references/resolution.md §5 and skills/start/SKILL.md.
-  title_norm=$(printf '%s' "$title" | tr '[]():' '/////' | tr ' ' '/')
-  REF=$(detect_ref "$title_norm") || REF=""
+  # PR titles aren't pre-segmented by '/' the way branch names are, and free-form prose must
+  # NEVER be fed to detect_ref's segment matcher wholesale: DENY enumerates branch-type words
+  # (feat, chore, release, ...), not general technical vocabulary, so converting every space to
+  # a '/' delimiter would let ordinary titles leak phantom refs — "Fix UTF-8 handling" -> UTF-8,
+  # "Upgrade to Node-18" -> NODE-18, "Add OAuth-2 support" -> OAUTH-2. Instead, extract ONLY the
+  # tag span from a leading "[...]" or "type(...)" conventional-commit scope (e.g.
+  # "[SAVI-1343] Fix login redirect bug" -> "SAVI-1343"; "feat(SAVI-1343): fix login" ->
+  # "SAVI-1343") and run detect_ref on that span alone — text outside the tag is never
+  # segmented at all. detect_ref's own algorithm and DENY list (above) are untouched by this
+  # narrowing; the normalization lives entirely outside the shared function.
+  tag=$(printf '%s' "$title" | sed -n 's/^\[\([^]]*\)\].*/\1/p')
+  [ -n "$tag" ] || tag=$(printf '%s' "$title" | sed -n 's/^[A-Za-z]*(\([^)]*\)).*/\1/p')
+  if [ -n "$tag" ]; then
+    title_norm=$(printf '%s' "$tag" | tr ':' '/')
+    REF=$(detect_ref "$title_norm") || REF=""
+  else
+    REF=""
+  fi
 }
 ```
 
@@ -620,6 +631,7 @@ Workspace ready for review:
 |-----------|--------|
 | PR is merged or closed | Warn user, ask whether to continue |
 | No ref in branch or title | Review proceeds ungraded; note "no ref" in the report. Do not block. |
+| PR title has a ref with no surrounding `[...]`/`type(...)` tag (e.g. bare `SAVI-1343 Fix login`, no brackets) | Known limitation: the title fallback only extracts from a bracket or conventional-commit-scope span, deliberately, to avoid segmenting free-form prose (see Step 1b). Falls through to "no ref" unless the branch name already carried it — branch is tried first and usually does. |
 | Ref extracted but Linear `get_issue` fails / not found | Inner claude proceeds with code review only; Requirement-alignment section records the fetch failure instead of grading. |
 | Local branch with same name already checked out elsewhere | Use `git worktree add --detach` + `gh pr checkout` style instead of duplicate branch |
 | `.worktrees/review-<slug>` already exists | Reuse; do not re-fetch unless user asks |
@@ -640,7 +652,7 @@ Workspace ready for review:
 - [ ] All binaries resolved once via `resolve_bin`, persisted to `$BINS`, and sourced (not re-resolved) at the top of every subsequent call (cmux, claude, gh, sleep, grep, head) — `python3` and `jq` are never resolved, both dependencies removed
 - [ ] No `cd` in the orchestrator script (only inside subshells `( cd ... && ... )`)
 - [ ] PR/branch resolved correctly (right repo, right head ref)
-- [ ] Ref extracted from branch via `detect_ref` (fallback: PR title, bracket/paren/colon/space-normalized before `detect_ref`), uppercased; empty → review proceeds ungraded (not blocked). `DENY` byte-identical to `references/resolution.md` §5 / `skills/start/SKILL.md`
+- [ ] Ref extracted from branch via `detect_ref` (fallback: PR title, but ONLY the `[...]`/`type(...)` tag span is fed to `detect_ref` — never the whole title, which would leak phantom refs from ordinary prose), uppercased; empty → review proceeds ungraded (not blocked). `DENY` byte-identical to `references/resolution.md` §5 / `skills/start/SKILL.md`
 - [ ] Worktree under `<MAIN_ROOT>/.worktrees/review-<slug>` with env files copied
 - [ ] CMUX workspace cwd = worktree absolute path
 - [ ] `ws_id` parsed and matches `workspace:[0-9]+` before any `send` / `send-key` / `rename-workspace`

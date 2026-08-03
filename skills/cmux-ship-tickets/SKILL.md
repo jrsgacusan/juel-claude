@@ -352,7 +352,7 @@ For each `{ref, path}`:
 
    ```bash
    "$SLEEP" 6
-   "$CMUX" send --workspace "$ws_id" "/juel:ship-ticket $ticket"
+   "$CMUX" send --workspace "$ws_id" "/juel:ship-ticket $ref"
    "$SLEEP" 1
    "$CMUX" send-key --workspace "$ws_id" Enter
    ```
