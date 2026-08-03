@@ -1,3 +1,6 @@
 # Agent scratch output — never committed
 superpowers/
 .superpowers/
+
+# Design docs, research, specs and plans — local only
+docs/
