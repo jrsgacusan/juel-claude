@@ -13,11 +13,11 @@ metadata:
       - id: cmux
         hard: true
         why: phase 6 creates the review workspace
-        check: "command -v cmux, else the cmux.app path"
+        check: "resolve_bin cmux against PATH, then GUI/Homebrew candidates"
       - id: claude
         hard: true
         why: phase 6 launches claude inside the review workspace
-        check: "command -v claude, else the cmux.app path"
+        check: "resolve_bin claude against PATH, then GUI/Homebrew candidates"
       - id: gh
         hard: true
         why: phase 2 resolves the PR argument to a branch and label
@@ -29,8 +29,8 @@ metadata:
         fallback: the inner session validates findings itself
       - id: coreutils
         hard: true
-        why: binaries are called by absolute path once PATH is resolved
-        check: "one batched test -x"
+        why: sleep/grep/head are resolved once per session via resolve_bin and sourced from BINS every call, since each Bash call is an independent non-login shell
+        check: "resolve_bin per binary against PATH, then /usr/bin,/bin candidates"
       - id: resolved-install-command
         hard: false
         why: end of Step 4 warms deps in a second tab while the inner review runs in the first
@@ -56,7 +56,7 @@ metadata:
 
 Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspace + deterministic claude session) but the payload is a code review followed by an independent codex validation pass.
 
-**Two reviewers, one report — graded against the ticket.** Before reviewing, the inner claude fetches the linked Linear ticket (id extracted from the branch/PR title, `juel:start` style) so the diff is judged against the ticket's requirements and acceptance criteria, not just generic code quality. It then runs `/pr-review-toolkit:review-pr`, hands every finding to codex for a second opinion. Do NOT pin a codex model or reasoning effort — let codex use its own defaults. Final consolidated report lives at `${docsRoot}/findings/findings-review.md` with four buckets: Ticket-alignment, Confirmed, Disputed, Codex-only.
+**Two reviewers, one report — graded against the ticket.** Before reviewing, the inner claude fetches the linked Linear ticket (id extracted from the branch/PR title — a different source than `juel:start`, which reads the worktree dirname instead, but the same spirit: resolve a ref before doing anything else) so the diff is judged against the ticket's requirements and acceptance criteria, not just generic code quality. It then runs `/pr-review-toolkit:review-pr`, hands every finding to codex for a second opinion. Do NOT pin a codex model or reasoning effort — let codex use its own defaults. Final consolidated report lives at `${docsRoot}/findings/findings-review.md` with four buckets: Ticket-alignment, Confirmed, Disputed, Codex-only.
 
 > **Codex invocation (important).** Use `codex exec --sandbox read-only "<prompt>"`, NOT `codex exec review --base <base> "<prompt>"`. Codex (>=0.140) rejects combining `--base` with a positional prompt (`error: the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`). Since validation needs both a custom prompt and the base diff, instruct codex to run the diff itself inside the prompt: start the prompt with "First run: git diff <base>...HEAD to see the real changes, then validate...".
 
@@ -94,11 +94,11 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
-| cmux | cli | HARD | `command -v cmux`, else the cmux.app path | STOP → https://github.com/manaflow-ai/cmux |
-| claude | cli | HARD | `command -v claude`, else the cmux.app path | STOP |
+| cmux | cli | HARD | `resolve_bin cmux` against PATH, then GUI/Homebrew candidates | STOP → https://github.com/manaflow-ai/cmux |
+| claude | cli | HARD | `resolve_bin claude` against PATH, then GUI/Homebrew candidates | STOP |
 | gh (authenticated) | cli | HARD | `gh auth status` | STOP → `gh auth login` |
 | codex | cli | SOFT | `command -v codex` | the inner session validates findings itself |
-| coreutils | cli | HARD | one batched `test -x` | STOP |
+| coreutils | cli | HARD | `resolve_bin` per binary (sleep/grep/head) against PATH, then `/usr/bin`,`/bin` candidates | STOP |
 | git repo matching the PR remote | context | HARD | `git remote get-url <remote>` | STOP |
 | resolvable PR or branch | context | HARD | `gh pr view <N> --json number` | STOP |
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | inner session falls back to `/review` |
@@ -107,7 +107,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 ## Phases
 
-[ ] 1. Preflight — resolve binaries, set CMUX_QUIET
+[ ] 1. Preflight — resolve binaries via resolve_bin, persist to BINS, set CMUX_QUIET
 [ ] 2. Resolve the PR to a branch and label
 [ ] 3. Extract the work-item ref from the branch, falling back to the PR title
 [ ] 4. Create the worktree and copy untracked env files
@@ -128,35 +128,64 @@ Usage: `/juel:cmux-review-pr 1234` or `/juel:cmux-review-pr feat/savi-1162-foo` 
 
 ## Prerequisites
 
-- `cmux` CLI installed (on PATH or at default GUI install location `/Applications/cmux.app/Contents/Resources/bin/cmux`).
-- `claude` CLI installed (same resolution rule; default GUI path `/Applications/cmux.app/Contents/Resources/bin/claude`).
-- `gh` CLI on PATH and authenticated.
+- `cmux` CLI installed — resolved via `resolve_bin` (PATH first, then the GUI install at `/Applications/cmux.app/Contents/Resources/bin/cmux` and Homebrew paths as candidates, not the sole fallback).
+- `claude` CLI installed (same `resolve_bin` rule; GUI path and Homebrew paths are candidates).
+- `gh` CLI on PATH and authenticated. `gh` embeds its own `jq` — a standalone `jq` binary is never required, see "Resolve the PR" below.
 - Inside a git repo whose remote matches the PR.
 - `pr-review-toolkit` plugin/skill installed (provides `/pr-review-toolkit:review-pr`).
 
-### Resolve ALL binaries upfront — PATH drops mid-script
+### Resolve binaries once, persist, then source every call
 
-The Bash tool's subshell does not reliably inherit the login shell's PATH. `command -v <bin>` may succeed in one tool call and then a subsequent call in the same tool finds `command not found: python3` / `sleep` / `head` / `grep`. Resolve everything once at the start, then use absolute paths everywhere. Do NOT rely on `export PATH=...` — observed to be unreliable.
+Each Bash tool call is an **independent non-login shell** — the real reason a binary resolved in call N is unavailable in call N+1 is not "PATH drops"; it's that shell variables and function definitions from call N simply do not exist in call N+1. Resolve every binary once via `resolve_bin` (PATH first, then labelled candidates — never a hardcoded absolute path as the sole source), persist the resolved paths to `$GIT_COMMON/claude/bins.env`, and source that file at the top of every later call instead of re-resolving or assuming the previous call's variables survived. `python3` and `jq` are **not resolved at all** — both dependencies are removed outright, see "Resolve the PR" and "Compute session id" below.
 
 ```bash
-CMUX=$(command -v cmux 2>/dev/null || echo /Applications/cmux.app/Contents/Resources/bin/cmux)
-CLAUDE_BIN=$(command -v claude 2>/dev/null || echo /Applications/cmux.app/Contents/Resources/bin/claude)
-GH=$(command -v gh 2>/dev/null || echo /opt/homebrew/bin/gh)
-PYTHON3=$(command -v python3 2>/dev/null || echo /usr/bin/python3)
-SLEEP=/bin/sleep
-GREP=/usr/bin/grep
-HEAD=/usr/bin/head
-JQ=$(command -v jq 2>/dev/null || echo /opt/homebrew/bin/jq)
-[ -x "$CMUX" ] || { echo "cmux not found at $CMUX"; exit 1; }
-[ -x "$CLAUDE_BIN" ] || { echo "claude not found at $CLAUDE_BIN"; exit 1; }
-[ -x "$GH" ] || { echo "gh not found at $GH"; exit 1; }
-[ -x "$PYTHON3" ] || { echo "python3 not found"; exit 1; }
-[ -x "$JQ" ] || { echo "jq not found at $JQ"; exit 1; }
-[ -x "$SLEEP" ] && [ -x "$GREP" ] && [ -x "$HEAD" ] || { echo "missing coreutils"; exit 1; }
-export CMUX_QUIET=1   # silence cmux's "X is now an alias for Y" deprecation notices
+resolve_bin() {
+  n=$1; shift
+  p=$(command -v "$n" 2>/dev/null) && { printf '%s' "$p"; return 0; }
+  for c in "$@"; do [ -x "$c" ] && { printf '%s' "$c"; return 0; }; done
+  return 1
+}
+
+CMUX=$(resolve_bin cmux /Applications/cmux.app/Contents/Resources/bin/cmux \
+        "$HOME/.local/bin/cmux" /opt/homebrew/bin/cmux /usr/local/bin/cmux) || CMUX=
+CLAUDE_BIN=$(resolve_bin claude "$HOME/.claude/local/claude" "$HOME/.local/bin/claude" \
+        /Applications/cmux.app/Contents/Resources/bin/claude \
+        /opt/homebrew/bin/claude /usr/local/bin/claude) || CLAUDE_BIN=
+GH=$(resolve_bin gh /opt/homebrew/bin/gh /usr/local/bin/gh /usr/bin/gh) || GH=
+SLEEP=$(resolve_bin sleep /usr/bin/sleep /bin/sleep) || SLEEP=
+GREP=$(resolve_bin grep /usr/bin/grep /bin/grep) || GREP=
+HEAD=$(resolve_bin head /usr/bin/head /bin/head) || HEAD=
+
+[ -n "$CMUX" ] || { echo "cmux not found on PATH or any candidate location"; exit 1; }
+[ -n "$CLAUDE_BIN" ] || { echo "claude not found on PATH or any candidate location"; exit 1; }
+[ -n "$GH" ] || { echo "gh not found on PATH or any candidate location"; exit 1; }
+[ -n "$SLEEP" ] && [ -n "$GREP" ] && [ -n "$HEAD" ] || { echo "missing coreutils"; exit 1; }
+
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)   # normalized — --git-common-dir
+                                                                   # can print a RELATIVE ".git"
+BINS="$GIT_COMMON/claude/bins.env"
+mkdir -p "$(dirname "$BINS")"
+{
+  echo "CMUX=$CMUX"; echo "CLAUDE_BIN=$CLAUDE_BIN"; echo "GH=$GH"
+  echo "SLEEP=$SLEEP"; echo "GREP=$GREP"; echo "HEAD=$HEAD"
+  echo "export CMUX_QUIET=1"   # silence cmux's "X is now an alias for Y" deprecation notices —
+                                # exported here too since env vars don't survive across calls either
+} > "$BINS"
+. "$BINS"
 ```
 
-Use `"$CMUX"`, `"$CLAUDE_BIN"`, `"$GH"`, `"$PYTHON3"`, `"$JQ"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"` (never bare names) in every subsequent command.
+**Every subsequent Bash call in this skill starts with:**
+
+```sh
+BINS="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/claude/bins.env"
+. "$BINS"
+```
+
+(`BINS` itself is a shell variable and does not survive either — recompute the path fresh, then source. Recomputing the path is cheap; re-running the `resolve_bin` candidate search every call is what this pattern avoids.) Use `"$CMUX"`, `"$CLAUDE_BIN"`, `"$GH"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"` (never bare names) in every command.
+
+### Long snippets run as a temp file under `bash`
+
+Any snippet longer than ~5 lines is written to a temp file and run as `bash "$f"`, which normalizes semantics regardless of the user's login shell (this machine's is zsh, but the pattern must not assume that). Inline one-liners stay POSIX `sh` and need no such wrapping.
 
 ### CWD persistence — never `cd` in this skill
 
@@ -187,14 +216,14 @@ Anti-patterns confirmed broken:
 
 ### Step 1: Resolve PR → branch + label
 
-If the argument looks numeric or like a URL, treat it as a PR:
+If the argument looks numeric or like a URL, treat it as a PR. `gh` embeds its own `jq` —
+`--jq='<expr>'` filters the `--json` output directly, so no standalone `jq` binary is ever needed:
 
 ```bash
 pr_number=<parsed>
-data=$("$GH" pr view "$pr_number" --json number,headRefName,title,headRepository,headRepositoryOwner,isCrossRepository)
-branch=$(echo "$data" | "$JQ" -r .headRefName)
-title=$(echo "$data" | "$JQ" -r .title)
-cross=$(echo "$data" | "$JQ" -r .isCrossRepository)
+branch=$("$GH" pr view "$pr_number" --json headRefName --jq='.headRefName')
+title=$("$GH" pr view "$pr_number" --json title --jq='.title')
+cross=$("$GH" pr view "$pr_number" --json isCrossRepository --jq='.isCrossRepository')
 label="PR-$pr_number"
 ```
 
@@ -283,11 +312,33 @@ copy_untracked "$MAIN_ROOT" "$abs_worktree"
 
 ### Step 3: Compute session id
 
-Deterministic uuidv5 from the label so `claude --resume` is repeatable:
+Deterministic, uuid-shaped id from the label so `claude --resume` is repeatable — no `python3`
+dependency. `shasum` (a Perl wrapper around `Digest::SHA`, widely available on macOS and Linux)
+gives the SHA-1 hex digest of the label directly; the first 32 hex chars are reformatted `8-4-4-4-12` with
+the version nibble forced to `5` and the variant nibble forced into the RFC4122 range (`8`/`9`/`a`/`b`)
+so the result is always a well-formed UUID string, not just a UUID-shaped one:
 
 ```bash
-session_id=$("$PYTHON3" -c "import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_DNS, sys.argv[1].upper()))" "$label")
+hex=$(printf '%s' "${label}" | tr '[:lower:]' '[:upper:]' | shasum -a 1 | cut -c1-32)
+p1=$(printf '%s' "$hex" | cut -c1-8)
+p2=$(printf '%s' "$hex" | cut -c9-12)
+p3=$(printf '%s' "$hex" | cut -c13-16)
+p4=$(printf '%s' "$hex" | cut -c17-20)
+p5=$(printf '%s' "$hex" | cut -c21-32)
+p3="5$(printf '%s' "$p3" | cut -c2-4)"            # force version nibble -> 5
+variant=$(printf '%s' "$p4" | cut -c1)
+case "$variant" in
+  [89abAB]) : ;;                                   # already RFC4122-valid
+  *) variant=8 ;;                                   # force into range
+esac
+p4="${variant}$(printf '%s' "$p4" | cut -c2-4)"
+session_id=$(printf '%s-%s-%s-%s-%s\n' "$p1" "$p2" "$p3" "$p4" "$p5" | tr '[:upper:]' '[:lower:]')
 ```
+
+This is not a byte-for-byte RFC4122 uuid5 (that hashes namespace-UUID bytes + name; this hashes the
+label alone), but it is **stable per label** — the same `$label` always produces the same
+`$session_id`, in `sh`, `bash` and `zsh` alike, which is the only property `claude --resume`
+actually needs.
 
 ### Step 4: Spawn CMUX workspace and queue the review
 
@@ -312,10 +363,14 @@ esac
 # 4. Wait for the claude TUI to actually be ready, then queue the composite prompt.
 #    Do NOT use a blind `sleep N` — boot time varies (plugins/banners can push it
 #    past 10s, and a send to a not-yet-ready input silently vanishes). Poll the live
-#    screen with `read-screen` until the `❯` input prompt appears, with a hard cap.
+#    screen with `read-screen` until a readiness marker appears, with a hard cap.
+#    A single literal `❯` is fragile across Claude CLI versions/themes (glyph or
+#    color can change) — match ANY of: the `❯` glyph, a `>` at the start of a
+#    line, or the idle-footer string "for shortcuts". Any one of the three is
+#    sufficient evidence the TUI is accepting input.
 ready=0
 for _ in $(seq 1 30); do          # up to ~30s
-  if "$CMUX" read-screen --workspace "$ws_id" --lines 40 | "$GREP" -q '❯'; then
+  if "$CMUX" read-screen --workspace "$ws_id" --lines 40 | "$GREP" -qE '❯|^>|for shortcuts'; then
     ready=1; break
   fi
   "$SLEEP" 1
@@ -503,10 +558,10 @@ Workspace ready for review:
 | Local branch with same name already checked out elsewhere | Use `git worktree add --detach` + `gh pr checkout` style instead of duplicate branch |
 | `.worktrees/review-<slug>` already exists | Reuse; do not re-fetch unless user asks |
 | `pr-review-toolkit` not installed | Stop and instruct user to install the plugin |
-| `command not found: cmux` (or python3/sleep/head/grep/jq/gh) mid-script after earlier resolution succeeded | Subshell lost PATH. Re-resolve via Prerequisites block and use absolute path variables everywhere. Do not retry with bare names. |
+| `command not found: cmux` (or claude/sleep/head/grep/gh) mid-script after earlier resolution succeeded | Not a PATH drop — this is a fresh non-login shell that never had the earlier call's variables. Source `$BINS` (see "Resolve binaries once, persist, then source every call") and use the absolute-path variables everywhere. Do not retry with bare names. |
 | `cmux <subcmd>` rejects a flag (CLI version drift) | Run `cmux <subcmd> --help`, adapt once, continue. Do NOT loop on broken flags. |
 | Workspace creation succeeds but `ws_id` parse fails | Fall back to `cmux list-workspaces`, match by cwd. Never call `rename-workspace` / `send` / `send-key` with an empty `--workspace` — silently targets the orchestrator. |
-| Prompt never appears / input box empty after send | Send hit the TUI before it was ready (blind `sleep` too short; plugins/banners delay boot). Use the `read-screen` readiness poll (wait for `❯`) before sending. To recover: `read-screen` to confirm the empty input, then re-`send` the single-line prompt and `send-key Enter`. |
+| Prompt never appears / input box empty after send | Send hit the TUI before it was ready (blind `sleep` too short; plugins/banners delay boot). Use the `read-screen` readiness poll (wait for `❯`, `>` at line start, or `for shortcuts`) before sending. To recover: `read-screen` to confirm the empty input, then re-`send` the single-line prompt and `send-key Enter`. |
 | Slash command typed but not submitted (sits as a draft) | `send-key Enter` was not invoked after `send`. Re-send Enter via `"$CMUX" send-key --workspace "$ws_id" Enter`. |
 | Multi-line prompt submitted in fragments | Real newlines in a `cmux send` payload each act as Enter. Send the prompt as a SINGLE LINE. |
 | Install second tab not created despite `INSTALL_CMD` being non-empty | `new-surface` output parse failed; review still proceeds in tab 1. Re-run `"$CMUX" new-surface --type terminal --workspace "$ws_id"` and send `$INSTALL_CMD` to the returned surface. |
@@ -516,7 +571,7 @@ Workspace ready for review:
 
 ## QA checklist
 
-- [ ] All binaries resolved to absolute paths upfront (cmux, claude, gh, python3, jq, sleep, grep, head)
+- [ ] All binaries resolved once via `resolve_bin`, persisted to `$BINS`, and sourced (not re-resolved) at the top of every subsequent call (cmux, claude, gh, sleep, grep, head) — `python3` and `jq` are never resolved, both dependencies removed
 - [ ] No `cd` in the orchestrator script (only inside subshells `( cd ... && ... )`)
 - [ ] PR/branch resolved correctly (right repo, right head ref)
 - [ ] Ticket id extracted from branch (fallback: PR title), uppercased; empty → review proceeds ungraded (not blocked)
@@ -525,7 +580,7 @@ Workspace ready for review:
 - [ ] `ws_id` parsed and matches `workspace:[0-9]+` before any `send` / `send-key` / `rename-workspace`
 - [ ] Workspace tab renamed via POSITIONAL title (NOT `--name`) — verify the sidebar shows just `<label>`, not `--name <label>`
 - [ ] `"$CLAUDE_BIN" --session-id <uuid>` launched in the workspace (absolute path, not bare `claude`)
-- [ ] `read-screen` readiness poll (wait for `❯`) used before `send` — NOT a blind `sleep`
+- [ ] `read-screen` readiness poll (wait for ANY of `❯`, `>` at line start, or `for shortcuts`) used before `send` — NOT a blind `sleep`, NOT a poll for `❯` alone
 - [ ] Composite prompt sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Prompt instructs inner claude to fetch the Linear ticket (`get_issue` for `$ticket_id`) and grade the diff against its requirements/acceptance criteria before the code review
 - [ ] Codex validation step uses `codex exec --sandbox read-only "<prompt>"` (NOT `codex exec review --base ...`, which rejects a prompt), with the prompt telling codex to `git diff <base>...HEAD` itself, and NO `-m` / `model_reasoning_effort` override (codex defaults)

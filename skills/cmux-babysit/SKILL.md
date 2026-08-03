@@ -7,11 +7,11 @@ metadata:
       - id: cmux
         hard: true
         why: phase 1 resolves the cmux binary to discover and control workspaces
-        check: "command -v cmux, else the cmux.app path"
+        check: "resolve_bin cmux against PATH, then GUI/Homebrew candidates"
       - id: coreutils
         hard: true
-        why: tail/grep/sleep are called by absolute path once PATH is resolved
-        check: "one batched test -x for tail/grep/sleep"
+        why: tail/grep/sleep are resolved once per session via resolve_bin and sourced from BINS every call, since each Bash call is an independent non-login shell
+        check: "resolve_bin per binary against PATH, then /usr/bin,/bin candidates"
     context:
       - id: cmux-session
         hard: true
@@ -65,15 +65,15 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
-| cmux | cli | HARD | `command -v cmux`, else the cmux.app path | STOP → https://github.com/manaflow-ai/cmux |
-| coreutils | cli | HARD | one batched `test -x` for tail/grep/sleep | STOP |
+| cmux | cli | HARD | `resolve_bin cmux` against PATH, then GUI/Homebrew candidates | STOP → https://github.com/manaflow-ai/cmux |
+| coreutils | cli | HARD | `resolve_bin` per binary (tail/grep/sleep) against PATH, then `/usr/bin`,`/bin` candidates | STOP |
 | ≥1 CMUX workspace running a claude TUI | context | HARD | `cmux list-workspaces` non-empty | STOP → nothing to babysit |
 | AskUserQuestion | context | HARD | always available interactively | STOP |
 | Notification + Stop hooks | perm | SOFT | `grep -q 'cmux wait-for' <settings>` | run poll-only mode; offer to add the hooks |
 
 ## Phases
 
-[ ] 1. Setup — resolve binaries, discover target workspaces, confirm the list
+[ ] 1. Setup — resolve binaries via resolve_bin, persist to BINS, discover target workspaces, confirm the list
 [ ] 2. Poll — list notifications, read the screens of flagged workspaces
 [ ] 3. Classify — assign state per the marker table, set sidebar pills
 [ ] 4. Triage — present pending workspaces one at a time, approvals first
@@ -84,12 +84,45 @@ Phases 2–6 loop: after phase 6, control returns to phase 2 for the next wake/p
 
 ## Setup
 
-Resolve binaries once, absolute paths everywhere (PATH drops mid-script):
+### Resolve binaries once, persist, then source every call
+
+Each Bash tool call is an **independent non-login shell** — the real reason a binary resolved in call N is unavailable in call N+1 is not "PATH drops"; it's that shell variables and function definitions from call N simply do not exist in call N+1 (this skill loops through phases 2-6 repeatedly, so this happens often). Resolve every binary once via `resolve_bin` (PATH first, then labelled candidates — never a hardcoded absolute path as the sole source), persist to `$GIT_COMMON/claude/bins.env`, and source it at the top of every later call:
 
 ```bash
-CMUX=$(command -v cmux 2>/dev/null || echo /Applications/cmux.app/Contents/Resources/bin/cmux)
-TAIL=/usr/bin/tail; GREP=/usr/bin/grep; SLEEP=/bin/sleep
+resolve_bin() {
+  n=$1; shift
+  p=$(command -v "$n" 2>/dev/null) && { printf '%s' "$p"; return 0; }
+  for c in "$@"; do [ -x "$c" ] && { printf '%s' "$c"; return 0; }; done
+  return 1
+}
+
+CMUX=$(resolve_bin cmux /Applications/cmux.app/Contents/Resources/bin/cmux \
+        "$HOME/.local/bin/cmux" /opt/homebrew/bin/cmux /usr/local/bin/cmux) || CMUX=
+TAIL=$(resolve_bin tail /usr/bin/tail /bin/tail) || TAIL=
+GREP=$(resolve_bin grep /usr/bin/grep /bin/grep) || GREP=
+SLEEP=$(resolve_bin sleep /usr/bin/sleep /bin/sleep) || SLEEP=
+
+[ -n "$CMUX" ] || { echo "cmux not found on PATH or any candidate location"; exit 1; }
+[ -n "$TAIL" ] && [ -n "$GREP" ] && [ -n "$SLEEP" ] || { echo "missing coreutils"; exit 1; }
+
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
+BINS="$GIT_COMMON/claude/bins.env"
+mkdir -p "$(dirname "$BINS")"
+{ echo "CMUX=$CMUX"; echo "TAIL=$TAIL"; echo "GREP=$GREP"; echo "SLEEP=$SLEEP"; } > "$BINS"
 ```
+
+**Every subsequent Bash call in this skill — including each pass back through the phase 2-6 loop — starts with:**
+
+```sh
+BINS="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/claude/bins.env"
+. "$BINS"
+```
+
+Use `"$CMUX"`, `"$TAIL"`, `"$GREP"`, `"$SLEEP"` (never bare names) in every command.
+
+### Long snippets run as a temp file under `bash`
+
+Any snippet longer than ~5 lines is written to a temp file and run as `bash "$f"`, which normalizes semantics regardless of the user's login shell (this machine's is zsh, but the pattern must not assume that). Inline one-liners stay POSIX `sh` and need no such wrapping.
 
 **Discover targets:** workspaces with a `ship` status pill (`"$CMUX" list-status --workspace workspace:<N>`), or take the list from the conversation / `"$CMUX" list-workspaces` (ticket-id titles). Confirm the list with the user once.
 
@@ -136,9 +169,11 @@ After every relay, `"$SLEEP" 2` then `read-screen` to verify it landed (dialog g
 
 ## Wake model: push first, poll fallback
 
-**Push (preferred):** global `~/.claude/settings.json` has async `Notification` + `Stop` hooks running `cmux wait-for -S babysit`. Start a background waiter each cycle:
+**Push (preferred):** global `~/.claude/settings.json` has async `Notification` + `Stop` hooks running `cmux wait-for -S babysit`. Start a background waiter each cycle (source `$BINS` first — this is its own Bash call and does not inherit `$CMUX` from the call that resolved it):
 
 ```bash
+BINS="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/claude/bins.env"
+. "$BINS"
 "$CMUX" wait-for babysit --timeout 3500
 ```
 

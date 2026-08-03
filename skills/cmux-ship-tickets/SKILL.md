@@ -12,15 +12,15 @@ metadata:
       - id: cmux
         hard: true
         why: phase 4 creates one workspace per selected ticket
-        check: "command -v cmux, else /Applications/cmux.app/Contents/Resources/bin/cmux"
+        check: "resolve_bin cmux against PATH, then GUI/Homebrew candidates"
       - id: claude
         hard: true
         why: phase 4 launches claude inside each workspace
-        check: "command -v claude, else the cmux.app path"
+        check: "resolve_bin claude against PATH, then GUI/Homebrew candidates"
       - id: coreutils
         hard: true
-        why: sleep/grep/head/cat are called by absolute path once PATH drops
-        check: "one batched test -x for sleep/grep/head/cat"
+        why: sleep/grep/head/cat are resolved once per session via resolve_bin and sourced from BINS every call, since each Bash call is an independent non-login shell
+        check: "resolve_bin per binary against PATH, then /usr/bin,/bin candidates"
       - id: resolved-install-command
         hard: false
         why: phase 7 warms deps in a second tab while claude works in the first
@@ -83,9 +83,9 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
-| cmux | cli | HARD | `command -v cmux`, else `/Applications/cmux.app/Contents/Resources/bin/cmux` | STOP → https://github.com/manaflow-ai/cmux |
-| claude | cli | HARD | `command -v claude`, else the cmux.app path | STOP → install the Claude Code CLI |
-| coreutils | cli | HARD | one batched `test -x` for sleep/grep/head/cat | STOP |
+| cmux | cli | HARD | `resolve_bin cmux` against PATH, then GUI/Homebrew candidates | STOP → https://github.com/manaflow-ai/cmux |
+| claude | cli | HARD | `resolve_bin claude` against PATH, then GUI/Homebrew candidates | STOP → install the Claude Code CLI |
+| coreutils | cli | HARD | `resolve_bin` per binary (sleep/grep/head/cat) against PATH, then `/usr/bin`,`/bin` candidates | STOP |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
 | juel:daily-worktrees, juel:ship-ticket | skill | HARD | ship with this plugin | STOP |
 | Linear MCP | mcp | HARD | **none — render as `?`** | proceed; phase 2 fails loudly if absent |
@@ -94,7 +94,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 ## Phases
 
-[ ] 1. Preflight — resolve every binary to an absolute path
+[ ] 1. Preflight — resolve every binary via resolve_bin, persist to BINS
 [ ] 2. Run juel:daily-worktrees, declining its planning offer
 [ ] 3. Confirm the CMUX launch with the user
 [ ] 4. Per item: create the workspace and launch claude
@@ -106,61 +106,107 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 ## Prerequisites
 
-- `cmux` CLI installed (on PATH or at the default GUI install location `/Applications/cmux.app/Contents/Resources/bin/cmux`). If neither resolves, abort with install hint.
-- `claude` CLI installed (same resolution rule; default GUI path `/Applications/cmux.app/Contents/Resources/bin/claude`).
+- `cmux` CLI installed — resolved via `resolve_bin` (PATH first, then the GUI install at `/Applications/cmux.app/Contents/Resources/bin/cmux` and Homebrew paths as candidates, not the sole fallback). If nothing resolves, abort with install hint.
+- `claude` CLI installed (same `resolve_bin` rule; GUI path and Homebrew paths are candidates).
 - Inside a git repo with `juel:daily-worktrees` skill available.
 - Linear plugin authenticated.
 
-### Resolve ALL binaries upfront — PATH drops mid-script
+### Resolve binaries once, persist, then source every call
 
-The Bash tool's subshell does not reliably inherit the login shell's PATH. `command -v <bin>` may succeed in one tool call and then a subsequent call in the same tool finds `command not found: python3` / `sleep` / `head` / `grep`. Resolve everything once at the start, then use absolute paths everywhere. Do NOT rely on `export PATH=...` — observed to be unreliable.
+Each Bash tool call is an **independent non-login shell** — the real reason a binary resolved in call N is unavailable in call N+1 is not "PATH drops"; it's that shell variables and function definitions from call N simply do not exist in call N+1. Resolve every binary once via `resolve_bin` (PATH first, then labelled candidates — never a hardcoded absolute path as the sole source), persist the resolved paths to `$GIT_COMMON/claude/bins.env`, and source that file at the top of every later call instead of re-resolving or assuming the previous call's variables survived.
 
 ```bash
-CMUX=$(command -v cmux 2>/dev/null || echo /Applications/cmux.app/Contents/Resources/bin/cmux)
-CLAUDE_BIN=$(command -v claude 2>/dev/null || echo /Applications/cmux.app/Contents/Resources/bin/claude)
-SLEEP=/bin/sleep
-GREP=/usr/bin/grep
-HEAD=/usr/bin/head
-CAT=/bin/cat
-[ -x "$CMUX" ] || { echo "cmux not found at $CMUX"; exit 1; }
-[ -x "$CLAUDE_BIN" ] || { echo "claude not found at $CLAUDE_BIN"; exit 1; }
-[ -x "$SLEEP" ] && [ -x "$GREP" ] && [ -x "$HEAD" ] && [ -x "$CAT" ] || { echo "missing coreutils"; exit 1; }
+resolve_bin() {
+  n=$1; shift
+  p=$(command -v "$n" 2>/dev/null) && { printf '%s' "$p"; return 0; }
+  for c in "$@"; do [ -x "$c" ] && { printf '%s' "$c"; return 0; }; done
+  return 1
+}
+
+CMUX=$(resolve_bin cmux /Applications/cmux.app/Contents/Resources/bin/cmux \
+        "$HOME/.local/bin/cmux" /opt/homebrew/bin/cmux /usr/local/bin/cmux) || CMUX=
+CLAUDE_BIN=$(resolve_bin claude "$HOME/.claude/local/claude" "$HOME/.local/bin/claude" \
+        /Applications/cmux.app/Contents/Resources/bin/claude \
+        /opt/homebrew/bin/claude /usr/local/bin/claude) || CLAUDE_BIN=
+SLEEP=$(resolve_bin sleep /usr/bin/sleep /bin/sleep) || SLEEP=
+GREP=$(resolve_bin grep /usr/bin/grep /bin/grep) || GREP=
+HEAD=$(resolve_bin head /usr/bin/head /bin/head) || HEAD=
+CAT=$(resolve_bin cat /usr/bin/cat /bin/cat) || CAT=
+
+[ -n "$CMUX" ] || { echo "cmux not found on PATH or any candidate location"; exit 1; }
+[ -n "$CLAUDE_BIN" ] || { echo "claude not found on PATH or any candidate location"; exit 1; }
+[ -n "$SLEEP" ] && [ -n "$GREP" ] && [ -n "$HEAD" ] && [ -n "$CAT" ] || { echo "missing coreutils"; exit 1; }
+
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)   # normalized — --git-common-dir
+                                                                   # can print a RELATIVE ".git"
+MAIN_ROOT=$(dirname "$GIT_COMMON")                                # main checkout — worktrees live
+                                                                   # under $MAIN_ROOT/.worktrees,
+                                                                   # same convention juel:daily-worktrees
+                                                                   # uses in its Step 7 "Roots" section
+BINS="$GIT_COMMON/claude/bins.env"
+mkdir -p "$(dirname "$BINS")"
+{
+  echo "CMUX=$CMUX"; echo "CLAUDE_BIN=$CLAUDE_BIN"
+  echo "SLEEP=$SLEEP"; echo "GREP=$GREP"; echo "HEAD=$HEAD"; echo "CAT=$CAT"
+} > "$BINS"
 ```
 
-Use `"$CMUX"`, `"$CLAUDE_BIN"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"`, `"$CAT"` (never bare names) in every subsequent command. `echo` is a shell builtin so it is safe; `cat` is NOT — it drops out with the rest of PATH, so use `"$CAT"`.
+**Every subsequent Bash call in this skill starts with:**
+
+```sh
+GIT_COMMON="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"
+MAIN_ROOT="$(dirname "$GIT_COMMON")"
+BINS="$GIT_COMMON/claude/bins.env"
+. "$BINS"
+```
+
+(`MAIN_ROOT` is cheap to recompute — two `git`/`dirname` calls — so it is rederived fresh every call rather than persisted to `$BINS`; only the `resolve_bin` candidate search, which is the expensive/fragile part, is persisted.)
+
+(`BINS` itself is a shell variable and does not survive either — recompute the path fresh, then source. Recomputing the path is cheap; re-running the `resolve_bin` candidate search every call is what this pattern avoids.) Use `"$CMUX"`, `"$CLAUDE_BIN"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"`, `"$CAT"` (never bare names) in every command — including within this same call, since `.` (source) does not export the values as bare command names, just as shell variables.
+
+### Long snippets run as a temp file under `bash`
+
+Any snippet longer than ~5 lines is written to a temp file and run as `bash "$f"`, which normalizes semantics regardless of the user's login shell (this machine's is zsh, but the pattern must not assume that). Inline one-liners stay POSIX `sh` and need no such wrapping.
 
 ### CWD persistence — never `cd` in this skill
 
 The Bash tool's working directory persists across calls. A `cd .worktrees/savi-XXXX` in one call leaks into the next call and any relative path (e.g. `.worktrees/savi-XXXX`) then resolves to a nested location. **Never `cd` in this skill.** Always use absolute paths for everything. If you must operate in a worktree, use the absolute path directly.
 
-### The shell is zsh — DO NOT word-split a string in a `for` loop
+### Ticket/dir iteration — do not word-split, do not pack tokens
 
-The Bash tool runs under **zsh** on this machine, and zsh does **not** field-split unquoted variables the way bash does. This silently broke a run: a loop written `for pair in $tickets` (where `tickets` was a space-joined string `"SAVI-1287:savi-1287 SAVI-1312:savi-1312 ..."`) executed **once** with `pair` bound to the _entire_ string, and `${pair%%:*}` / `${pair##*:}` then produced the first ticket's id paired with the **last** ticket's dir — so a workspace was created in the wrong worktree and renamed to the wrong ticket.
+Word-splitting behavior differs across shells (zsh does not field-split unquoted variables the way bash and POSIX `sh` do), and this previously broke a run under zsh: a loop written `for pair in $tickets` (where `tickets` was a space-joined string `"SAVI-1287:savi-1287 SAVI-1312:savi-1312 ..."`) executed **once** with `pair` bound to the _entire_ string, and `${pair%%:*}` / `${pair##*:}` then produced the first ticket's id paired with the **last** ticket's dir — so a workspace was created in the wrong worktree and renamed to the wrong ticket.
 
-**Never iterate a space-joined string.** Use real zsh arrays and index them explicitly (zsh arrays are 1-based):
+**The fix is not shell-specific arrays (zsh arrays don't exist in `sh`/`bash`) — it's a form that never needed word-splitting in the first place.** Build the ticket/dir pairs as a here-doc, one `TICKET|dir` pair per line, and read them with `while IFS='|' read -r`, which behaves identically in `sh`, `bash` and `zsh`:
 
 ```bash
-tickets=(SAVI-1287 SAVI-1312 SAVI-1282 SAVI-1277)
-dirs=(savi-1287 savi-1312 savi-1282 savi-1277)   # parallel arrays, same order
-for i in {1..${#tickets[@]}}; do
-  ticket=${tickets[$i]}; dir=${dirs[$i]}
-  path="$ROOT/.worktrees/$dir"
+while IFS='|' read -r ticket dir; do
+  [ -n "$ticket" ] || continue
+  path="$MAIN_ROOT/.worktrees/$dir"
+  printf 'ticket=%s path=%s\n' "$ticket" "$path"
   # ... spawn workspace for $ticket at $path ...
-done
+done <<'EOF'
+SAVI-1287|savi-1287
+SAVI-1312|savi-1312
+SAVI-1282|savi-1282
+SAVI-1277|savi-1277
+EOF
 ```
 
-Rules:
+If a step instead needs a plain counted loop (no per-item data), use `for i in $(seq 1 "$n")`, never zsh's `{1..$n}` brace-expansion form — `seq` is portable, brace ranges with a variable bound are a zsh/bash-only extension `sh` does not expand.
 
-- Build the ticket list as a literal array `(A B C)`, never a quoted string you later split.
-- Keep `tickets` and `dirs` (and any ws-id map) as **parallel arrays** indexed by the same `$i`. Do NOT pack `ticket:dir` into one token and re-split with `%%`/`##`.
+Rules — this is the most important guidance in this file and is entirely shell-independent, only the mechanics above changed:
+
+- Build the ticket/dir list as literal `TICKET|dir` here-doc lines, never a space-joined string you later split.
+- Each line already keeps ticket and dir **paired atomically** — there is no separate "parallel array" to drift out of sync, and no `ticket:dir` token to mis-split with `%%`/`##` (the classic bug this section exists to prevent: packing two values into one token and re-splitting it is fragile regardless of shell — the here-doc's `|`-delimited fields sidestep that entirely).
 - After computing `path`, echo it next to `$ticket` and **eyeball that they match** before calling `new-workspace` — a mismatch here means a workspace lands in the wrong worktree.
 - If a workspace does get created with the wrong cwd/name, `close-workspace --workspace workspace:<N>` it and recreate, rather than trying to repoint it.
 
 ### Resolve the install command — once, before spawning any workspace
 
 This is the "resolution layer" the Preflight table's `resolved-install-command` row points at.
-Resolve `commands.install` **once**, from the main repo root (`$ROOT`, the path `juel:daily-worktrees`
-operates on in Step 1), **before** the per-ticket loop in Step 3 — every ticket's worktree is a
+Resolve `commands.install` **once**, from the main repo root (`$MAIN_ROOT`, derived the same way
+`juel:daily-worktrees` derives it in its Step 7 "Roots" section), **before** the per-ticket loop in
+Step 3 — every ticket's worktree is a
 checkout of the same repo, so re-detecting per ticket is wasted work and risks a different answer
 for the same repo mid-run.
 
@@ -193,7 +239,7 @@ to the next tier. Resolution is side-effect free — never run the command itsel
 
 ```bash
 INSTALL_CMD=""   # resolved once here; every ticket's Step 3.6 below reuses this exact value
-# ... detection per the tiers above against "$ROOT", assigning INSTALL_CMD on the first
+# ... detection per the tiers above against "$MAIN_ROOT", assigning INSTALL_CMD on the first
 # verified hit; stays empty if nothing resolves and verifies ...
 ```
 
@@ -354,24 +400,24 @@ Every workspace MUST be renamed to its canonical ticket id (e.g. `MSTR-3034`) pe
 | Situation                                                                                            | Action                                                                                                                                                                                                 |
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `cmux` not installed                                                                                 | Abort, link https://github.com/manaflow-ai/cmux                                                                                                                                                        |
-| `command not found: cmux` (or python3/sleep/head/grep) mid-script after earlier resolution succeeded | The subshell lost PATH. Re-resolve via the Prerequisites block and use `"$CMUX"` / `"$SLEEP"` / `"$GREP"` / `"$HEAD"` everywhere. Do not retry with bare names.                                        |
+| `command not found: cmux` (or claude/sleep/head/grep/cat) mid-script after earlier resolution succeeded | Not a PATH drop — this is a fresh non-login shell that never had the earlier call's variables. Source `$BINS` (see "Resolve binaries once, persist, then source every call") and use `"$CMUX"` / `"$SLEEP"` / `"$GREP"` / `"$HEAD"` / `"$CAT"` everywhere. Do not retry with bare names.       |
 | `juel:daily-worktrees` finds no tickets                                                            | Stop after Step 1, nothing to do                                                                                                                                                                       |
 | `claude` rejects `--permission-mode auto` (unknown value / not entitled)                             | Relaunch that workspace with `--permission-mode acceptEdits` and say so in the final report. Never fall back to `bypassPermissions`                                                                    |
 | `cmux <subcmd>` rejects a flag (CLI version drift)                                                   | Run `cmux <subcmd> --help`, adapt the call once, then continue. Do NOT loop on broken flags                                                                                                            |
 | Workspace creation succeeds but `ws_id` parse fails                                                  | Skip that ticket (per Step 3.2 guard). Never call `rename-workspace` / `send` / `send-key` with an empty `--workspace` value — it silently targets the currently-selected workspace (the orchestrator) |
 | Workspace creation fails for one ticket                                                              | Log error, continue with the rest, include in final report                                                                                                                                             |
 | Slash command appears typed but not submitted                                                        | `send-key Enter` was not invoked after `send`; re-send Enter via `"$CMUX" send-key --workspace "$ws_id" Enter`                                                                                         |
-| `juel:daily-worktrees` zsh glob error (`no matches found: .env.*`)                                 | Not this skill's bug — fix in `juel:daily-worktrees` by wrapping the copy block in `setopt NULL_GLOB`. Document and continue                                                                         |
-| Loop runs once / wrong dir paired with wrong ticket                                                  | zsh did not word-split your `for x in $string`. Rewrite with literal parallel arrays indexed by `$i` (see "The shell is zsh" section). Close any mis-created workspace and recreate                    |
-| `command not found: cat` mid-script                                                                  | `cat` is not a builtin and dropped with PATH. Use `"$CAT"` (resolved to `/bin/cat` upfront), or just `echo`                                                                                            |
+| `juel:daily-worktrees` copy step fails on an untracked-file pattern                                 | Not this skill's bug. `juel:daily-worktrees` no longer globs at all — its `copy_untracked` is `find`-based, which never aborts on no-match (see `references/resolution.md` §4.2). If `config.worktreeCopy` extra patterns are involved, the applicable guard is `[ -n "$ZSH_VERSION" ] && setopt SH_WORD_SPLIT` before building `EXTRA_PATTERNS`, not `NULL_GLOB` — `daily-worktrees` already carries this guard. Document and continue |
+| Loop runs once / wrong dir paired with wrong ticket                                                  | A `for x in $string` word-split was used instead of the here-doc `while IFS='|' read -r` form (see "Ticket/dir iteration" section) — word-splitting behavior differs by shell, the here-doc form does not depend on it. Close any mis-created workspace and recreate                    |
+| `command not found: cat` mid-script                                                                  | `$BINS` was not sourced in this call. Source it (see "Resolve binaries once..." above) and use `"$CAT"`, or just `echo`                                                                                            |
 | User reused an existing worktree                                                                     | Still spawn a workspace; claude starts fresh in it                                                                                                                                                     |
 | More than 5 tickets selected                                                                         | Ask user to confirm before launching that many parallel claudes                                                                                                                                        |
 
 ## QA checklist
 
-- [ ] All binaries resolved to absolute paths upfront (cmux, claude, sleep, grep, head, cat)
+- [ ] All binaries resolved once via `resolve_bin`, persisted to `$BINS`, and sourced (not re-resolved) at the top of every subsequent call (cmux, claude, sleep, grep, head, cat)
 - [ ] No `cd` anywhere in the script
-- [ ] Ticket/dir iteration uses literal zsh arrays + index, NOT a `for x in $string` word-split (zsh does not split) and NOT `ticket:dir` tokens re-split with `%%`/`##`
+- [ ] Ticket/dir iteration uses the `while IFS='|' read -r` here-doc form, NOT a `for x in $string` word-split (behavior differs by shell) and NOT `ticket:dir` tokens re-split with `%%`/`##`
 - [ ] Each `$path` echoed next to its `$ticket` and confirmed to match before `new-workspace`
 - [ ] Worktrees created/reused by `juel:daily-worktrees`
 - [ ] One CMUX workspace per selected ticket, `cwd` = worktree absolute path
@@ -379,7 +425,7 @@ Every workspace MUST be renamed to its canonical ticket id (e.g. `MSTR-3034`) pe
 - [ ] `claude` launched inside each workspace (no `--session-id`) with `--permission-mode auto`
 - [ ] `/juel:ship-ticket <TICKET>` typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Every workspace renamed to the canonical ticket id (e.g. `MSTR-3034`, not `mstr-3034`)
-- [ ] `INSTALL_CMD` resolved once (from `$ROOT`, before the per-ticket loop) via the tiered detection layer, reused unchanged for every ticket — never re-detected per ticket
+- [ ] `INSTALL_CMD` resolved once (from `$MAIN_ROOT`, before the per-ticket loop) via the tiered detection layer, reused unchanged for every ticket — never re-detected per ticket
 - [ ] Per ticket: if `INSTALL_CMD` is non-empty, a second tab (surface) opened with it running (not typed into the claude tab); if empty, the second surface is skipped entirely for that ticket (no error, no empty tab)
 - [ ] Workspace renamed via POSITIONAL title arg (NOT `--name`) — verify the sidebar shows just the ticket id, not `--name MSTR-XXXX`
 - [ ] Workspace tagged green via `set-status ship "ready" --color "#22c55e"`
