@@ -81,7 +81,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `[base-branch]` | `dev` | Branch to diff against |
+| `[base-branch]` | auto-detected — see "Base branch detection" in Step 1 | Branch to diff against |
 
 Usage: `/review-and-execute` or `/review-and-execute main`
 
@@ -117,8 +117,15 @@ Skill("pr-review-toolkit:review-pr", args: "<base-branch>", run_in_background: f
 
 > Do not request `all parallel` mode. Read the entire review output and state the finding count before proceeding to phase 2.
 
-- Default base branch: `dev`
-- If user passed an argument, use that as base branch instead
+**Base branch detection.** If the caller passed an explicit argument, use it. Otherwise, in order:
+`config.baseBranch` → `git config --get claude.baseBranch` →
+`git symbolic-ref --short refs/remotes/<remote>/HEAD` (if missing, `git remote set-head <remote>
+--auto` and retry once) → `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` → first
+existing of main, master, develop, dev, trunk → ask once and offer to persist.
+
+**Caveat:** default and *integration* branch differ in gitflow repos. If a `develop`/`dev` branch
+exists on the remote AND ≥70% of the last 30 merges into it came from `feat/*`-shaped branches,
+prefer it and say so. Config always wins. Resolve this once and reuse it for the rest of this run.
 
 You **must** wait for the full review and read every finding before phase 2.
 

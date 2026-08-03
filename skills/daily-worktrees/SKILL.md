@@ -121,7 +121,29 @@ For each ticket, infer the type:
 | Title contains "chore", "deps", "update dependencies" | `chore` |
 | Default | `feat` |
 
-**Branch format:** `<type>/<ticket-id-lowercase>-<slug>`
+**Resolve the repo's own conventions once, before naming branches, then reuse them:**
+
+**Remote:** exactly one → use it; contains `origin` → use `origin`; else ask once and cache.
+
+**Branch naming:** sample `git for-each-ref --sort=-committerdate --count=60 refs/remotes/<remote>`,
+strip the remote prefix and default branch, classify each into `type-slash` /
+`type-slash-noticket` / `ticket-first` / `user-slash` / `flat`, take the mode. Default
+`{type}/{ref-lower}-{slug}` when there is no history.
+
+**Commit style:** sample `git log --no-merges -n 60 --format=%s`. ≥60% conventional →
+`conventional`; of those, ≥50% with a ticket-shaped scope → `conventional-ticket`; else
+`freeform` — mirror the tone of the last 20 subjects, do not impose a format. (Consumed later, by
+whichever skill drives commits/PRs for the ticket in this worktree — not created here.)
+
+**Trailers:** `git log -n 100 --format=%B | grep -ci '^Co-Authored-By:'` — zero means omit.
+Default when ambiguous is omit.
+
+None of the above ever blocks worktree creation: an inconclusive detection asks once (and offers
+to persist the answer to `.claude/workflow.json`) or falls through to its documented default —
+never guessed silently, never a convention the repo doesn't exhibit.
+
+**Branch format:** the detected modal pattern, or `{type}/{ref-lower}-{slug}` when there is no
+remote branch history to sample — e.g. `<type>/<ticket-id-lowercase>-<slug>`
 **Worktree directory:** `.worktrees/<ticket-id-lowercase>`
 
 Example:
@@ -301,6 +323,6 @@ Project detection → Linear fetch → Branch names → Check existing → Selec
 
 **Naming:**
 - Worktree dir: `.worktrees/<ticket-id>` (simple)
-- Branch: `<type>/<ticket-id>-<slug>` (descriptive)
+- Branch: detected modal pattern, or `<type>/<ticket-id>-<slug>` when there's no history (see Step 3)
 
 **Types:** feat, fix, refactor, chore

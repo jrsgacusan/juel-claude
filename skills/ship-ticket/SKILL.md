@@ -126,9 +126,55 @@ Note phase 6's preflight row is SOFT while its phase is not optional: if `simpli
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `[ticket-id]` | auto-detect from worktree | Linear ticket id, e.g. `SAVI-1162` |
-| `[base-branch]` | `dev` | Branch to diff/PR against |
+| `[base-branch]` | auto-detected — see "Base branch & repo conventions" below | Branch to diff/PR against |
 
 Usage: `/juel:ship-ticket` or `/juel:ship-ticket SAVI-1162`
+
+## Base branch & repo conventions
+
+Resolved **once**, before Phase 5, then reused for the rest of the run (Phase 8's push, PR title,
+PR body, and trailers all read the same resolved values — never re-derive mid-run).
+
+**Base branch**, in order: explicit argument → `config.baseBranch` →
+`git config --get claude.baseBranch` → `git symbolic-ref --short refs/remotes/<remote>/HEAD`
+(if missing, `git remote set-head <remote> --auto` and retry once) →
+`gh repo view --json defaultBranchRef -q .defaultBranchRef.name` →
+first existing of main, master, develop, dev, trunk → ask once and offer to persist.
+
+**Caveat:** default and *integration* branch differ in gitflow repos. If a `develop`/`dev`
+branch exists on the remote AND ≥70% of the last 30 merges into it came from `feat/*`-shaped
+branches, prefer it and say so. Config always wins.
+
+**Remote:** exactly one → use it; contains `origin` → use `origin`; else ask once and cache.
+
+**Branch naming:** sample `git for-each-ref --sort=-committerdate --count=60 refs/remotes/<remote>`,
+strip the remote prefix and default branch, classify each into `type-slash` /
+`type-slash-noticket` / `ticket-first` / `user-slash` / `flat`, take the mode. Default
+`{type}/{ref-lower}-{slug}` when there is no history.
+
+**Commit style:** sample `git log --no-merges -n 60 --format=%s`. ≥60% conventional →
+`conventional`; of those, ≥50% with a ticket-shaped scope → `conventional-ticket`; else
+`freeform` — mirror the tone of the last 20 subjects, do not impose a format.
+
+**Trailers:** `git log -n 100 --format=%B | grep -ci '^Co-Authored-By:'` — zero means omit.
+Default when ambiguous is omit.
+
+**PR body**, in order: `.github/PULL_REQUEST_TEMPLATE.md` →
+`.github/pull_request_template.md` → `.github/PULL_REQUEST_TEMPLATE/*.md` →
+`docs/PULL_REQUEST_TEMPLATE.md` → `PULL_REQUEST_TEMPLATE.md`.
+
+Found: **fill** the template's sections; do not add or reorder them.
+None: use the default body — Summary / Requirement source / QA instructions / Test plan.
+
+Write via `gh pr create --body-file <tmp>`, never a HEREDOC.
+
+**PR title:** sample `gh pr list --state merged --limit 30 --json title`. ≥50% starting with a
+bracketed ref → `[REF] <title>`; ≥50% conventional → `feat(REF): <title>`; else plain title.
+When there is no ref, drop the prefix entirely.
+
+None of the above ever aborts the skill: an inconclusive detection asks once (and offers to persist
+the answer to `.claude/workflow.json`) or falls through to its documented default — never guessed
+silently, never a convention the repo doesn't exhibit.
 
 ## Phase gating
 
@@ -220,10 +266,14 @@ Do not redirect its output to a file — the user watches the executor run. Wait
 
 ### Phase 5 — Review + remediation
 
+**Resolve base branch, remote, branch naming, commit style and trailers now** (per "Base branch &
+repo conventions" above), before delegating — the rest of this run (including Phase 8) reuses these
+resolved values rather than re-deriving them.
+
 Delegate the full review-validate-plan-execute cycle to `/juel:review-and-execute`:
 
 ```
-Skill("juel:review-and-execute", args: "<base-branch>")
+Skill("juel:review-and-execute", args: "<resolved-base-branch>")
 ```
 
 That skill internally runs:
@@ -265,18 +315,15 @@ Verify the change actually works before opening the PR. This phase is **human-in
 
 ### Phase 8 — Open PR
 
-1. Push the branch: `git push -u origin <branch>`
-2. Create PR with `gh pr create`:
-   - Title: `[SAVI-XXX] <short description>` (from Linear ticket title)
-   - Body uses HEREDOC (per CLAUDE.md commit/PR rules) and contains:
-     - **Summary** — 1-3 bullets of what changed and why
-     - **Linear** — link to ticket
-     - **QA instructions** — concrete steps a reviewer can follow to validate, derived from the ticket's acceptance criteria
-     - **Test plan** — checklist
+1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
+2. Resolve the PR title and body per "Base branch & repo conventions" above:
+   - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved.
+   - **Body:** if a PR template was found, fill its sections (Linear link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** (link to the Linear ticket) / **QA instructions** (concrete steps a reviewer can follow, derived from the ticket's acceptance criteria) / **Test plan** (checklist).
+   - Write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC.
 3. Update the Linear ticket status to "In Review" via `mcp__linear__save_issue`.
 4. Return the PR URL to the user.
 
-**No** Co-Authored-By or AI attribution trailers (per CLAUDE.md).
+Trailers: apply the detected convention from "Base branch & repo conventions" above (zero `Co-Authored-By:` history → omit; do not impose a trailer the repo's own commit history doesn't use).
 
 ## Failure modes & recovery
 
@@ -307,6 +354,5 @@ Verify the change actually works before opening the PR. This phase is **human-in
 ## Notes
 
 - Spec/plan/findings files live under `${docsRoot}/` (gitignored) per user memory.
-- Branch naming: `feat/savi-xxx-<slug>` or `fix/savi-xxx-<slug>` (CLAUDE.md).
-- Commit messages must include the ticket id as scope, e.g. `feat(SAVI-1162): ...` (user memory).
+- Branch naming, commit style, and trailers follow the detected convention (see "Base branch & repo conventions" above) — never a hardcoded assumption.
 - For dependent tickets: branch from the parent tip, do not rebase (user memory).

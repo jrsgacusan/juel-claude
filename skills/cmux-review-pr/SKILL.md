@@ -116,7 +116,7 @@ If the preflight verdict is STOP, print the preflight block and **stop** — do 
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `<pr-or-branch>` | yes | Either `#1234`, `1234`, a GitHub PR URL, or a branch name |
-| `[base-branch]` | no | Branch to diff against for codex validation. Defaults to `dev`. |
+| `[base-branch]` | no | Branch to diff against for codex validation. Auto-detected if omitted — see "Resolve the base branch" in Step 4. |
 
 Usage: `/juel:cmux-review-pr 1234` or `/juel:cmux-review-pr feat/savi-1162-foo` or `/juel:cmux-review-pr 1234 main`.
 
@@ -299,6 +299,61 @@ mkdir -p "$docsRoot/findings"
 Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
 unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
 
+**Resolve the base branch once, then reuse it.** In order: explicit `[base-branch]` argument (the
+second word of the invocation, if the user gave one) → `config.baseBranch` → `git config --get
+claude.baseBranch` → `git symbolic-ref --short refs/remotes/origin/HEAD` (if missing, `git remote
+set-head origin --auto` and retry once) → `gh repo view --json defaultBranchRef -q
+.defaultBranchRef.name` → first existing of main, master, develop, dev, trunk → ask once and offer
+to persist.
+
+**Caveat:** default and *integration* branch differ in gitflow repos. If a `develop`/`dev` branch
+exists on the remote AND ≥70% of the last 30 merges into it came from `feat/*`-shaped branches,
+prefer it and say so. Config always wins.
+
+```bash
+# Resolve once, in THIS shell, before the prompt string below is built — the spawned inner
+# claude inherits nothing and cannot resolve a base-branch placeholder itself.
+base_branch="<explicit [base-branch] argument, if the user gave one — else leave empty>"
+[ -n "$base_branch" ] || base_branch=$(git -C "$repo_root" config --get claude.baseBranch 2>/dev/null)
+if [ -z "$base_branch" ]; then
+  base_branch=$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+fi
+if [ -z "$base_branch" ]; then
+  git -C "$repo_root" remote set-head origin --auto >/dev/null 2>&1
+  base_branch=$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+fi
+if [ -z "$base_branch" ]; then
+  base_branch=$("$GH" repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)
+fi
+if [ -z "$base_branch" ]; then
+  for cand in main master develop dev trunk; do
+    git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$cand" && { base_branch=$cand; break; }
+  done
+fi
+# Gitflow caveat: prefer develop/dev as the INTEGRATION branch (not just the default
+# branch) when >=70% of its last 30 merges came from feat/*-shaped branches.
+for integ in develop dev; do
+  git -C "$repo_root" show-ref --verify --quiet "refs/remotes/origin/$integ" || continue
+  total=$(git -C "$repo_root" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | wc -l | tr -d ' ')
+  [ "$total" -gt 0 ] || continue
+  feat=$(git -C "$repo_root" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | "$GREP" -ciE 'feat/')
+  if [ "$(( feat * 100 / total ))" -ge 70 ]; then
+    base_branch="$integ"
+  fi
+  break
+done
+if [ -z "$base_branch" ]; then
+  echo "No base branch detected from git/gh. Ask the user once for the base branch before continuing (offer to persist the answer as config.baseBranch in .claude/workflow.json) — do not guess silently, do not fall back to any hardcoded branch name."
+fi
+```
+
+**`base_branch` must be resolved here, in THIS shell, before the prompt string below is built.**
+Exactly like `docsRoot`, the spawned inner `claude` session inherits nothing and cannot resolve a
+`${base_branch}` placeholder itself; the `prompt=` assignment below is a double-quoted bash string,
+so `${base_branch}` inside it expands to the literal resolved branch name at the moment the string
+is built — the inner session always receives a real, detected branch name and never
+an unresolved placeholder.
+
 **`docsRoot` must be resolved here, in THIS shell, before the prompt string below is built.** The
 spawned inner `claude` session inherits nothing from this script — it cannot resolve `${docsRoot}`
 itself. The `prompt=` assignment below is a double-quoted bash string, so `${docsRoot}` inside it
@@ -312,7 +367,7 @@ session is that literal path, never an unresolved placeholder.
 # base diff can coexist. `codex exec review --base <b> "<prompt>"` is REJECTED by codex
 # (>=0.140): `--base` cannot combine with a positional prompt. Instead let codex run the
 # diff itself inside the prompt. Do NOT pin -m / model_reasoning_effort — codex defaults.
-prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via the Linear MCP get_issue for ${ticket_id:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip ticket grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch:-dev}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each ticket requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the ticket. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch:-dev}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Ticket-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to ${docsRoot}/findings/findings-review.md. run /pr-review-toolkit:review-pr in the FOREGROUND (run_in_background: false), do not use parallel mode, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
+prompt="First, if a ticket id was resolved (${ticket_id:-NONE}), fetch it via the Linear MCP get_issue for ${ticket_id:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip ticket grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each ticket requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the ticket. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Ticket-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to ${docsRoot}/findings/findings-review.md. run /pr-review-toolkit:review-pr in the FOREGROUND (run_in_background: false), do not use parallel mode, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
 
 "$CMUX" send --workspace "$ws_id" "$prompt"
 "$SLEEP" 1
@@ -385,6 +440,7 @@ Workspace ready for review:
 - [ ] A second tab (surface) opened with `make install` running (sent to the new surface, NOT the claude tab)
 - [ ] `export CMUX_QUIET=1` set so alias-deprecation notices are silenced
 - [ ] `docsRoot` resolved once (config, then existing non-empty dotted dir, then canonical) before the prompt string is built, and expanded to a literal path inside the double-quoted `prompt=` assignment — never sent to the inner session as an unresolved `${docsRoot}` placeholder
+- [ ] `base_branch` resolved once (explicit argument → config → git → gh → main/master/develop/dev/trunk → ask) before the prompt string is built, and expanded to a literal branch name inside the double-quoted `prompt=` assignment — never an unresolved `${base_branch}` placeholder, never a bash-fallback literal
 - [ ] Repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries (added if absent)
 - [ ] Final report destination `${docsRoot}/findings/findings-review.md` mentioned in the prompt with the four buckets (Ticket-alignment / Confirmed / Disputed / Codex-only)
 - [ ] Final report shows PR id, ticket id, worktree path, session id, workspace id, make-install surface
