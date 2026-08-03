@@ -44,12 +44,14 @@ cat "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/requirements.json"
 cat "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json"
 echo "CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}"
 # The cache path shape is <config-dir>/plugins/cache/<marketplace>/<plugin>/<version>/ —
-# derive marketplace/plugin/version from CLAUDE_PLUGIN_ROOT itself rather than hardcoding
-# names, and only trust it if the derived pieces actually look like that layout.
-cache_plugin_dir="$(dirname "${CLAUDE_PLUGIN_ROOT}")"     # .../<marketplace>/<plugin>
-cache_root="$(dirname "${cache_plugin_dir}")"              # .../<marketplace>
-if [ -d "${cache_root}" ]; then
-  echo "CACHE_SIBLINGS:"; ls -1 "${cache_root}" 2>/dev/null
+# CLAUDE_PLUGIN_ROOT IS the <version> directory, so its parent is where sibling VERSION
+# directories live (not its grandparent, which is one level too high and only lists plugin
+# NAMES under that marketplace — a wrong-level bug that fails silently, since `ls` still
+# succeeds there). Derive from CLAUDE_PLUGIN_ROOT itself rather than hardcoding names, and
+# only trust it if the directory actually exists on this machine.
+cache_plugin_dir="$(dirname "${CLAUDE_PLUGIN_ROOT}")"     # .../<marketplace>/<plugin> — version siblings live HERE
+if [ -d "${cache_plugin_dir}" ]; then
+  echo "CACHE_SIBLINGS:"; ls -1 "${cache_plugin_dir}" 2>/dev/null
 fi
 
 # --- cli binaries referenced by requirements.json's cli-kind definitions ---
@@ -101,9 +103,12 @@ naive presence check reports success while every real call fails. Do not collaps
 `claude mcp list` names each server explicitly; map its output onto the three states like this
 (a line has the shape `<name>: <endpoint> - <glyph> <status text>`):
 
+Check rows in order — the first one that matches wins:
+
 | Observed in `claude mcp list` output | `LINEAR_STATE` |
 |---|---|
 | A line starting `claude.ai Linear:` with status `Connected` | `working` (via the claude.ai connector) |
+| A line starting `claude.ai Linear:` with any status other than `Connected` | unverifiable — report the raw status text verbatim. `claude.ai`-hosted connectors on this machine (Gmail, Google Calendar) demonstrably have their own auth-needed state, so a `claude.ai Linear:` line is not guaranteed to be binary either; don't force it into `working`/`auth_needed`/`absent` on a guess — the same discipline row 6 already applies to the plugin connector |
 | No `claude.ai Linear:` line, but a `plugin:linear:linear:` (or `plugin:linear:`) line with status `Connected` | `working` (via the plugin connector) |
 | No `claude.ai Linear:` line, and `plugin:linear:linear:` shows `Needs authentication` | `auth_needed` — **the plugin dependency is installed, not authorized.** This is never reported as "Linear is missing" |
 | Neither line appears at all | `absent` |
