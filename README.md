@@ -60,6 +60,12 @@ your machine. The plugin cannot install these for you:
 
 11 skills today; a 12th is planned for a later phase.
 
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `/juel:doctor` | Machine audit: for every skill, reports each dependency present / missing / unverifiable against `.claude-plugin/requirements.json`, ending in a runnable / degraded / blocked verdict. The only place in this plugin that runs `claude mcp list` — see the command for why, and for the session-binding caveat that comes with it. |
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
