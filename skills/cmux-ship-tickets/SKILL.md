@@ -1,6 +1,48 @@
 ---
 name: cmux-ship-tickets
 description: Use when starting your workday in CMUX to ship multiple Linear tickets in parallel. Wraps juel:daily-worktrees + per-ticket CMUX workspace creation + auto-launch of `claude` running `/juel:ship-ticket`. Triggers "ship my tickets", "start my day", "/juel:cmux-ship-tickets".
+metadata:
+  requires:
+    mcp:
+      - id: linear
+        hard: true
+        why: phase 2 (via juel:daily-worktrees) fetches Todo tickets and sets them In Progress
+        check: none
+    cli:
+      - id: cmux
+        hard: true
+        why: phase 4 creates one workspace per selected ticket
+        check: "command -v cmux, else /Applications/cmux.app/Contents/Resources/bin/cmux"
+      - id: claude
+        hard: true
+        why: phase 4 launches claude inside each workspace
+        check: "command -v claude, else the cmux.app path"
+      - id: coreutils
+        hard: true
+        why: sleep/grep/head/cat are called by absolute path once PATH drops
+        check: "one batched test -x for sleep/grep/head/cat"
+      - id: resolved-install-command
+        hard: false
+        why: phase 7 warms deps in a second tab while claude works in the first
+        check: "see resolution layer"
+        fallback: skip the second surface; install deps yourself
+    context:
+      - id: git-repo
+        hard: true
+        why: worktrees are created under <repo-root>/.worktrees
+        check: "git rev-parse --show-toplevel"
+    skills:
+      - id: juel:daily-worktrees
+        hard: true
+        why: phase 2 creates/reuses the worktrees this skill spawns workspaces into
+      - id: juel:ship-ticket
+        hard: true
+        why: queued as the startup prompt inside every spawned workspace
+    perms:
+      - id: permission-mode-auto
+        hard: false
+        why: spawned sessions must not stall on the first tool prompt
+        fallback: relaunch with --permission-mode acceptEdits, never bypassPermissions
 ---
 
 # Juel CMUX Ship Tickets

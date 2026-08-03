@@ -1,6 +1,30 @@
 ---
 name: cmux-babysit
 description: Use when the user runs multiple claude sessions across CMUX workspaces (e.g. after juel:cmux-ship-tickets) and wants one manager session that monitors all of them, reports which need approval or replies, and relays the user's answers — so the user never switches tabs. Triggers "babysit my workspaces", "monitor my tickets", "/juel:cmux-babysit".
+metadata:
+  requires:
+    cli:
+      - id: cmux
+        hard: true
+        why: phase 1 resolves the cmux binary to discover and control workspaces
+        check: "command -v cmux, else the cmux.app path"
+      - id: coreutils
+        hard: true
+        why: tail/grep/sleep are called by absolute path once PATH is resolved
+        check: "one batched test -x for tail/grep/sleep"
+    context:
+      - id: cmux-session
+        hard: true
+        why: phase 1 needs at least one CMUX workspace running a claude TUI to babysit
+        check: "cmux list-workspaces non-empty"
+      - id: interactive-user
+        hard: true
+        why: phase 4 presents pending workspaces one at a time via AskUserQuestion
+    perms:
+      - id: cmux-notification-hooks
+        hard: false
+        why: the push wake model needs Notification and Stop hooks configured
+        fallback: run poll-only mode; offer to add the hooks
 ---
 
 # Juel CMUX Babysit

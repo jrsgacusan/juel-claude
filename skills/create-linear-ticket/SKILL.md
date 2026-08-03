@@ -1,6 +1,22 @@
 ---
 name: create-linear-ticket
 description: Use when user asks to create a Linear ticket, file a bug, track a task, or when discovering issues/TODOs in code that need a Linear issue
+metadata:
+  requires:
+    mcp:
+      - id: linear
+        hard: true
+        why: creates the ticket directly via Linear's create_issue; this skill is Linear-specific by design
+        check: none
+    context:
+      - id: interactive-user
+        hard: true
+        why: phase 2 project selection is mandatory and uses AskUserQuestion
+      - id: git-repo
+        hard: false
+        why: phase 4 scans the codebase for bug/refactor tickets
+        check: "git rev-parse --show-toplevel"
+        fallback: phase 4 codebase scan is SKIPPED
 ---
 
 # Create Linear Ticket

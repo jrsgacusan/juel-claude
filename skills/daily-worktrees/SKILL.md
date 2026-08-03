@@ -1,6 +1,30 @@
 ---
 name: daily-worktrees
 description: Use when starting your workday and need to see Linear tickets assigned to you, or when setting up worktrees for multiple tickets in parallel
+metadata:
+  requires:
+    mcp:
+      - id: linear
+        hard: false
+        why: phase 2 fetches open Todo tickets assigned to the user
+        check: none
+        fallback: falls back to the next available work-item provider
+    cli:
+      - id: git
+        hard: true
+        why: worktree creation in phase 7 requires git >= 2.5
+        check: "git --version"
+    context:
+      - id: git-repo
+        hard: true
+        why: worktrees are created under <repo-root>/.worktrees
+        check: "git rev-parse --show-toplevel"
+      - id: interactive-user
+        hard: true
+        why: phase 5 lets the user select which tickets to set up via AskUserQuestion
+      - id: interactive-user
+        hard: true
+        why: phase 2 needs a work source that can list items, or the user pastes refs / points at a spec directory
 ---
 
 # Daily Linear Worktrees

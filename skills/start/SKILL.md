@@ -1,6 +1,22 @@
 ---
 name: start
 description: Use when beginning work on a ticket inside a worktree - detects ticket ID from directory, fetches Linear ticket, analyzes requirements, then brainstorms implementation
+metadata:
+  requires:
+    mcp:
+      - id: linear
+        hard: true
+        why: phase 2 fetches the work item via mcp__linear__get_issue
+        check: none
+    context:
+      - id: git-repo
+        hard: true
+        why: phase 1 detects the ticket id from the worktree directory name
+        check: "git rev-parse --show-toplevel"
+    skills:
+      - id: superpowers:brainstorming
+        hard: true
+        why: phase 4 explores the implementation approach before writing code
 ---
 
 # Start Ticket Work

@@ -1,6 +1,18 @@
 ---
 name: compact-context
 description: Use to snapshot the current conversation into a compaction-style summary Markdown file under docs/.superpowers/context/, so context survives a /compact or a fresh session. Triggers - "compact the context", "save this conversation", "snapshot context", "dump session to a file".
+metadata:
+  requires:
+    cli:
+      - id: git
+        hard: true
+        why: resolves the project root for the output directory
+        check: "command -v git"
+    context:
+      - id: git-repo
+        hard: true
+        why: output path is <repo-root>/docs/.superpowers/context/
+        check: "git rev-parse --show-toplevel"
 ---
 
 # Compact Context

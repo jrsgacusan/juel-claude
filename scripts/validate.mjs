@@ -2,9 +2,9 @@
 // Zero-dependency validator for the juel plugin. Node 20+, ESM.
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
+import { buildRequirements } from './gen-requirements.mjs';
 
 const root = resolve(process.argv[2] ?? '.');
-const SKIP = new Set((process.env.JUEL_VALIDATE_SKIP ?? '').split(',').filter(Boolean));
 const problems = [];
 const fail = (check, msg) => problems.push({ sev: 'ERROR', check, msg });
 const warn = (check, msg) => problems.push({ sev: 'WARN', check, msg });
@@ -119,10 +119,41 @@ for (const [name, text] of skillBodies) {
 
 // --- Check 5: protocol marker ----------------------------------------------
 const PROTOCOL_MARKER = '<!-- juel:protocol v1 -->';
-if (!SKIP.has('protocol')) {
-  for (const [name, text] of skillBodies) {
-    if (!text.includes(PROTOCOL_MARKER))
-      fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
+for (const [name, text] of skillBodies) {
+  if (!text.includes(PROTOCOL_MARKER))
+    fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
+}
+
+// --- Check 6: declaration agreement -----------------------------------------
+// Every id used in a frontmatter metadata.requires block must have a
+// definitions entry with an install hint, and requirements.json must be
+// current with respect to the frontmatter. Implemented by regenerating in
+// memory (buildRequirements walks the same skills/*/SKILL.md frontmatter
+// check 2 already read) and diffing against the committed file — so
+// requirements.json can never silently drift from the inline ## Preflight
+// tables it mirrors.
+{
+  const reqPath = join(root, '.claude-plugin', 'requirements.json');
+  try {
+    const generated = buildRequirements(root);
+    if (!existsSync(reqPath)) {
+      fail('requirements', '.claude-plugin/requirements.json is missing — run `node scripts/gen-requirements.mjs`');
+    } else {
+      let committed;
+      try {
+        committed = JSON.parse(readFileSync(reqPath, 'utf8'));
+      } catch (e) {
+        fail('requirements', `.claude-plugin/requirements.json: invalid JSON — ${e.message}`);
+      }
+      if (committed !== undefined && JSON.stringify(committed) !== JSON.stringify(generated)) {
+        fail(
+          'requirements',
+          '.claude-plugin/requirements.json is stale (disagrees with frontmatter metadata.requires) — run `node scripts/gen-requirements.mjs` to regenerate'
+        );
+      }
+    }
+  } catch (e) {
+    fail('requirements', `metadata.requires: ${e.message}`);
   }
 }
 

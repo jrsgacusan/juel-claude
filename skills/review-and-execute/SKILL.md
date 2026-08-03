@@ -1,6 +1,27 @@
 ---
 name: review-and-execute
 description: Use when changes are ready for review and automated remediation - runs PR review, validates findings, creates a plan, then dispatches Codex to execute fixes
+metadata:
+  requires:
+    cli:
+      - id: codex
+        hard: false
+        why: phase 4 dispatches codex to execute the remediation plan
+        check: "command -v codex"
+        fallback: execute the plan in-session via superpowers:executing-plans
+    context:
+      - id: git-repo
+        hard: true
+        why: phase 1 reviews the diff against a base branch
+        check: "git rev-parse --show-toplevel"
+    skills:
+      - id: pr-review-toolkit
+        hard: false
+        why: phase 1 runs pr-review-toolkit:review-pr against the base branch
+        fallback: fall back to /review, or an inline review of git diff <base>...HEAD
+      - id: superpowers
+        hard: true
+        why: phases 2 and 3 delegate to superpowers:receiving-code-review and superpowers:writing-plans
 ---
 
 # Review and Execute

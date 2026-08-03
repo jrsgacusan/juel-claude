@@ -1,6 +1,34 @@
 ---
 name: receive-review-and-execute
 description: Use when a PR already has external review comments and you want them validated, planned, and executed automatically - fetches PR review comments, validates findings, asks about ambiguous ones, writes a plan, then dispatches Codex to execute fixes
+metadata:
+  requires:
+    cli:
+      - id: gh
+        hard: true
+        why: step 1 fetches PR comments, reviews and the diff via gh api
+        check: "gh auth status"
+      - id: codex
+        hard: false
+        why: phase 7 dispatches codex to execute the remediation plan
+        check: "command -v codex"
+        fallback: execute the plan in-session
+    context:
+      - id: open-pr
+        hard: true
+        why: this skill consumes review comments from an existing PR
+        check: "gh pr view <N> --json number"
+      - id: git-repo
+        hard: true
+        why: step 1 resolves the PR's repo and requires a github.com remote
+        check: "git remote get-url <remote> matches github.com"
+      - id: interactive-user
+        hard: true
+        why: phase 5 clarifies ambiguous findings via AskUserQuestion
+    skills:
+      - id: superpowers
+        hard: true
+        why: phases 4 and 6 delegate to superpowers:receiving-code-review and superpowers:writing-plans
 ---
 
 # Receive Review and Execute

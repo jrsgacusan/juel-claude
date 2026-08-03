@@ -1,6 +1,59 @@
 ---
 name: ship-ticket
 description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, a final simplify polish, then manual verification, then opens the PR. Pauses for confirmation between phases.
+metadata:
+  requires:
+    mcp:
+      - id: linear
+        hard: true
+        why: phase 1 fetches the ticket and phase 8 writes its status to In Review
+        check: none
+    cli:
+      - id: codex
+        hard: false
+        why: phase 4 dispatches codex to execute the plan
+        check: "command -v codex"
+        fallback: phase 4 executes the plan in-session
+      - id: gh
+        hard: false
+        why: phase 8 opens the PR
+        check: "command -v gh"
+        fallback: phase 8 prints a compare URL instead of opening the PR
+    context:
+      - id: worktree-root-cwd
+        hard: true
+        why: phase 4 dispatches codex from the worktree root; its sandbox requires it
+        check: 'test "$PWD" = "$(git rev-parse --show-toplevel)"'
+      - id: clean-tree
+        hard: true
+        why: phase 4 must not dispatch codex onto uncommitted changes
+        check: "git status --porcelain empty"
+    skills:
+      - id: superpowers
+        hard: true
+        why: phase 3 delegates to superpowers:writing-plans
+      - id: juel:start
+        hard: true
+        why: phase 1 delegates ticket detection, fetch and brainstorming to it
+      - id: juel:review-and-execute
+        hard: true
+        why: phase 5 delegates the full review-remediation cycle to it
+      - id: pr-review-toolkit
+        hard: false
+        why: phase 5 (via juel:review-and-execute) runs pr-review-toolkit:review-pr
+        fallback: phase 5 falls back to /review
+      - id: simplify
+        hard: false
+        why: phase 6 runs simplify as the final polish pass
+        fallback: phase 6 SKIPPED with a note
+      - id: run
+        hard: false
+        why: phase 7 launches the app to verify backend behavior
+        fallback: phase 7 drives commands.run directly and observes
+      - id: juel:regression
+        hard: false
+        why: phase 7 offers to drive frontend verification through Playwright when the user is unavailable
+        fallback: phase 7 frontend path is manual
 ---
 
 # Ship Ticket

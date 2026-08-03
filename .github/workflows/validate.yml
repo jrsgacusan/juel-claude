@@ -13,7 +13,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Check requirements.json is current
+        run: |
+          node scripts/gen-requirements.mjs
+          git diff --exit-code .claude-plugin/requirements.json
       - name: Validate plugin structure
-        # TEMPORARY: protocol blocks do not exist until Phase B. Task 12 removes
-        # this env var along with the hatch in validate.mjs.
-        run: JUEL_VALIDATE_SKIP=protocol node scripts/validate.mjs
+        run: node scripts/validate.mjs

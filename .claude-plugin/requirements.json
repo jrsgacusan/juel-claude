@@ -1,0 +1,273 @@
+{
+  "$schema": "https://github.com/jrsgacusan/juel-claude/blob/main/schema/requirements.schema.json",
+  "version": 1,
+  "definitions": {
+    "claude": {
+      "kind": "cli",
+      "label": "Claude Code CLI",
+      "install": "https://claude.com/claude-code",
+      "paths": [
+        "/Applications/cmux.app/Contents/Resources/bin/claude"
+      ]
+    },
+    "clean-tree": {
+      "kind": "context",
+      "label": "clean working tree",
+      "install": "Commit or stash outstanding changes first"
+    },
+    "cmux": {
+      "kind": "cli",
+      "label": "cmux",
+      "install": "https://github.com/manaflow-ai/cmux",
+      "paths": [
+        "/Applications/cmux.app/Contents/Resources/bin/cmux"
+      ]
+    },
+    "cmux-notification-hooks": {
+      "kind": "perm",
+      "label": "cmux Notification+Stop hooks",
+      "install": "Add async Notification and Stop hooks running `cmux wait-for` to ~/.claude/settings.json"
+    },
+    "cmux-session": {
+      "kind": "context",
+      "label": "cmux workspace",
+      "install": "Run with at least one active cmux workspace"
+    },
+    "codex": {
+      "kind": "cli",
+      "label": "Codex CLI",
+      "install": "npm i -g @openai/codex"
+    },
+    "coreutils": {
+      "kind": "cli",
+      "label": "coreutils",
+      "install": "preinstalled on macOS and Linux"
+    },
+    "gh": {
+      "kind": "cli",
+      "label": "GitHub CLI",
+      "install": "brew install gh && gh auth login"
+    },
+    "git": {
+      "kind": "cli",
+      "label": "git (>= 2.5)",
+      "install": "brew install git"
+    },
+    "git-repo": {
+      "kind": "context",
+      "label": "git repository",
+      "install": "Run from inside a git repository"
+    },
+    "interactive-user": {
+      "kind": "context",
+      "label": "interactive user",
+      "install": "Requires an interactive session (AskUserQuestion); unavailable headless"
+    },
+    "juel:daily-worktrees": {
+      "kind": "skill",
+      "label": "juel:daily-worktrees",
+      "install": "Ships with this plugin"
+    },
+    "juel:regression": {
+      "kind": "skill",
+      "label": "juel:regression",
+      "install": "Ships with this plugin (not implemented yet — a later task adds it)"
+    },
+    "juel:review-and-execute": {
+      "kind": "skill",
+      "label": "juel:review-and-execute",
+      "install": "Ships with this plugin"
+    },
+    "juel:ship-ticket": {
+      "kind": "skill",
+      "label": "juel:ship-ticket",
+      "install": "Ships with this plugin"
+    },
+    "juel:start": {
+      "kind": "skill",
+      "label": "juel:start",
+      "install": "Ships with this plugin"
+    },
+    "linear": {
+      "kind": "mcp",
+      "label": "Linear MCP",
+      "install": "Ships as a plugin dependency; authorize the connector, then restart the session"
+    },
+    "open-pr": {
+      "kind": "context",
+      "label": "open PR",
+      "install": "The current branch needs an open pull request (`gh pr view`)"
+    },
+    "permission-mode-auto": {
+      "kind": "perm",
+      "label": "--permission-mode auto",
+      "install": "Relaunch with --permission-mode acceptEdits if auto is rejected (never bypassPermissions)"
+    },
+    "plan-file": {
+      "kind": "context",
+      "label": "plan file",
+      "install": "An implementation plan must exist under docs/.superpowers/plans/"
+    },
+    "pr-review-toolkit": {
+      "kind": "skill",
+      "label": "pr-review-toolkit",
+      "install": "Ships as a plugin dependency"
+    },
+    "resolved-install-command": {
+      "kind": "cli",
+      "label": "project install command",
+      "install": "Resolved at runtime from the repo's own install/resolution layer (e.g. `make install`); there is no fixed install step — install project dependencies yourself if none resolves"
+    },
+    "run": {
+      "kind": "skill",
+      "label": "run",
+      "install": "Built-in Claude Code skill"
+    },
+    "simplify": {
+      "kind": "skill",
+      "label": "simplify",
+      "install": "Built-in Claude Code skill"
+    },
+    "superpowers": {
+      "kind": "skill",
+      "label": "superpowers",
+      "install": "/plugin install superpowers@claude-plugins-official"
+    },
+    "superpowers:brainstorming": {
+      "kind": "skill",
+      "label": "superpowers:brainstorming",
+      "install": "Ships as part of the superpowers plugin dependency"
+    },
+    "worktree-root-cwd": {
+      "kind": "context",
+      "label": "cwd at worktree root",
+      "install": "Run with the working directory set to the worktree root"
+    }
+  },
+  "skills": {
+    "cmux-babysit": {
+      "hard": [
+        "cmux",
+        "cmux-session",
+        "coreutils",
+        "interactive-user"
+      ],
+      "soft": [
+        "cmux-notification-hooks"
+      ]
+    },
+    "cmux-review-pr": {
+      "hard": [
+        "claude",
+        "cmux",
+        "coreutils",
+        "gh",
+        "git-repo",
+        "open-pr"
+      ],
+      "soft": [
+        "codex",
+        "linear",
+        "pr-review-toolkit"
+      ]
+    },
+    "cmux-ship-tickets": {
+      "hard": [
+        "claude",
+        "cmux",
+        "coreutils",
+        "git-repo",
+        "juel:daily-worktrees",
+        "juel:ship-ticket",
+        "linear"
+      ],
+      "soft": [
+        "permission-mode-auto",
+        "resolved-install-command"
+      ]
+    },
+    "compact-context": {
+      "hard": [
+        "git",
+        "git-repo"
+      ],
+      "soft": []
+    },
+    "create-linear-ticket": {
+      "hard": [
+        "interactive-user",
+        "linear"
+      ],
+      "soft": [
+        "git-repo"
+      ]
+    },
+    "daily-worktrees": {
+      "hard": [
+        "git",
+        "git-repo",
+        "interactive-user"
+      ],
+      "soft": [
+        "linear"
+      ]
+    },
+    "execute": {
+      "hard": [
+        "plan-file",
+        "worktree-root-cwd"
+      ],
+      "soft": [
+        "codex"
+      ]
+    },
+    "receive-review-and-execute": {
+      "hard": [
+        "gh",
+        "git-repo",
+        "interactive-user",
+        "open-pr",
+        "superpowers"
+      ],
+      "soft": [
+        "codex"
+      ]
+    },
+    "review-and-execute": {
+      "hard": [
+        "git-repo",
+        "superpowers"
+      ],
+      "soft": [
+        "codex",
+        "pr-review-toolkit"
+      ]
+    },
+    "ship-ticket": {
+      "hard": [
+        "clean-tree",
+        "juel:review-and-execute",
+        "juel:start",
+        "linear",
+        "superpowers",
+        "worktree-root-cwd"
+      ],
+      "soft": [
+        "codex",
+        "gh",
+        "juel:regression",
+        "pr-review-toolkit",
+        "run",
+        "simplify"
+      ]
+    },
+    "start": {
+      "hard": [
+        "git-repo",
+        "linear",
+        "superpowers:brainstorming"
+      ],
+      "soft": []
+    }
+  }
+}

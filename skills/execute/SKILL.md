@@ -1,6 +1,23 @@
 ---
 name: execute
 description: Use after /juel:start when a plan exists and is ready for implementation - dispatches Codex (sandboxed workspace-write) to execute the plan, honoring any commit conventions specified in the plan
+metadata:
+  requires:
+    cli:
+      - id: codex
+        hard: false
+        why: phase 4 dispatches codex to execute the plan
+        check: "command -v codex"
+        fallback: execute the plan in-session via superpowers:executing-plans
+    context:
+      - id: plan-file
+        hard: true
+        why: phase 1 finds the newest plan under ${docsRoot}/plans/*.md to execute
+        check: "newest ${docsRoot}/plans/*.md"
+      - id: worktree-root-cwd
+        hard: true
+        why: codex's workspace-write sandbox needs a writable cwd to apply changes
+        check: "test -w ."
 ---
 
 # Execute Plan

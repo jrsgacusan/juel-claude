@@ -1,6 +1,50 @@
 ---
 name: cmux-review-pr
 description: Use to review a GitHub PR (or arbitrary branch) inside an isolated CMUX workspace. Creates a git worktree for the PR branch, spawns a CMUX workspace, auto-launches `claude` with a deterministic session id derived from the PR id, fetches the linked Linear ticket so the review is graded against the ticket's requirements, runs `/pr-review-toolkit:review-pr`, then validates the findings with codex. Triggers "review pr", "/juel:cmux-review-pr".
+metadata:
+  requires:
+    mcp:
+      - id: linear
+        hard: false
+        why: phase 3 grades the review against the linked ticket's requirements
+        check: none
+        fallback: review proceeds ungraded; the Ticket-alignment section is omitted
+    cli:
+      - id: cmux
+        hard: true
+        why: phase 6 creates the review workspace
+        check: "command -v cmux, else the cmux.app path"
+      - id: claude
+        hard: true
+        why: phase 6 launches claude inside the review workspace
+        check: "command -v claude, else the cmux.app path"
+      - id: gh
+        hard: true
+        why: phase 2 resolves the PR argument to a branch and label
+        check: "gh auth status"
+      - id: codex
+        hard: false
+        why: the inner session dispatches codex to second-opinion the review findings
+        check: "command -v codex"
+        fallback: the inner session validates findings itself
+      - id: coreutils
+        hard: true
+        why: binaries are called by absolute path once PATH is resolved
+        check: "one batched test -x"
+    context:
+      - id: git-repo
+        hard: true
+        why: phase 4 creates the review worktree under the repo matching the PR remote
+        check: "git remote get-url <remote>"
+      - id: open-pr
+        hard: true
+        why: phase 2 resolves the PR argument to a branch
+        check: "gh pr view <N> --json number"
+    skills:
+      - id: pr-review-toolkit
+        hard: false
+        why: the inner session runs pr-review-toolkit:review-pr
+        fallback: inner session falls back to /review
 ---
 
 # Juel CMUX Review PR
