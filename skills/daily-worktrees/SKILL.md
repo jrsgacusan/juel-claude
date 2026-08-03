@@ -11,6 +11,56 @@ Fetch Linear tickets for the current project and create git worktrees for parall
 
 **Announce:** "Using this skill to fetch your tickets and set up worktrees."
 
+## Strict Execution Protocol (non-negotiable)
+
+<!-- juel:protocol v1 -->
+
+**1. Preflight, then checklist, before anything else.** Before any other output and before any tool call, emit the Preflight block (below), then this skill's `## Phases` checklist rendered as:
+
+```
+<skill-name> — N phases
+[ ] 1. <phase name>
+[ ] 2. <phase name>
+```
+
+If the preflight verdict is STOP, print the preflight block and **stop** — do not print the checklist and do not begin work. Otherwise no work begins until the checklist is on screen. This is not optional on re-invocation, on resume, or when the user says "just do it".
+
+**2. Phases run in order.** No skipping, reordering, or merging. A phase that does not apply is still announced: mark it `[-] N. <name> — SKIPPED: <one-line reason>` and continue at N+1. Never drop a phase silently. Never begin phase N+1 before phase N is marked done or skipped.
+
+**3. Report after every phase.** Re-emit the checklist (`[x]` done, `[-]` skipped, `[ ]` pending) plus one line of evidence for the phase just finished — path written, command run, count found. Never claim progress in prose alone.
+
+**4. Everything runs in the FOREGROUND.** This overrides every other instruction in this file and in any skill invoked from it.
+- `pr-review-toolkit:review-pr`, `simplify`, and `codex exec` are all foreground-only. Invoke subagents with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice.
+- Never `&`. Never `run_in_background: true`. Never "dispatch and continue".
+- **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. The user must be able to watch the run as it happens.
+- Do not request `review-pr`'s parallel / `all parallel` mode.
+- Read the complete output and state the outcome — finding count, exit status, files changed — before marking the phase done. A summary may follow the raw output; it may never replace it.
+- Passing any of this into another session (a CMUX prompt, a nested `claude`) carries these rules with it — say so explicitly in that prompt string.
+
+**5. Confirmation gates stack; they do not replace this.** Where this skill pauses between phases, the checklist report comes first, then the "Proceed to phase N+1?" question. A user's "yes" advances exactly one phase — it never authorizes skipping ahead or batching the remainder.
+
+## Preflight
+
+| Dep | Type | H/S | Check | If missing |
+|---|---|---|---|---|
+| git ≥ 2.5 | cli | HARD | `git --version` | STOP → worktree support required |
+| git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
+| AskUserQuestion | context | HARD | always available interactively | STOP → selection is interactive |
+| work source with `list` | context | HARD | provider capability | STOP → paste refs, or point at a spec directory |
+| Linear MCP | mcp | SOFT | **none — render as `?`** | falls back to the next available provider |
+
+## Phases
+
+[ ] 1. Detect the project
+[ ] 2. Fetch open work items from the resolved source
+[ ] 3. Generate branch and worktree names
+[ ] 4. Check for existing branches and worktrees
+[ ] 5. Present for confirmation and let the user select
+[ ] 6. Handle existing work — reuse or start fresh
+[ ] 7. Create worktrees, copy untracked files, set status to in_progress
+[ ] 8. Report and offer planning (SKIPPED if declined)
+[ ] 9. Final report
+
 ## Prerequisites
 
 - Linear plugin installed & authenticated
@@ -156,11 +206,11 @@ Created N worktrees:
 
 **Ask:** "Create implementation plans for these tickets?"
 
-If yes, for each worktree spawn a **ticket-planner subagent**:
+If yes, for each worktree spawn a **planning subagent**:
 
 ```
 Task(
-  subagent_type: "ticket-planner",
+  subagent_type: "general-purpose",
   prompt: "WORKTREE PATH: [absolute path, e.g., /Users/me/project/.worktrees/asw-123]
            TICKET ID: [TICKET-ID]
 
@@ -169,12 +219,14 @@ Task(
 )
 ```
 
+> This is a planning subagent, not a code review, simplify, or the plan executor. Protocol rule 4 does not apply to it.
+
 **Get the absolute worktree path:**
 ```bash
 realpath .worktrees/[ticket-id]
 ```
 
-The ticket-planner agent has access to Linear tools (`linear__get_issue`) to fetch full ticket details, Write access to create plans, and Skill access to use superpowers workflows. Each ticket gets dedicated planning in a fresh context.
+The agent has access to the same MCP tools as this session to fetch full ticket details, Write access to create plans, and Skill access to use superpowers workflows. Each ticket gets dedicated planning in a fresh context.
 
 ### Step 9: Final Report
 
