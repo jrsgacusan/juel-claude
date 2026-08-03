@@ -187,18 +187,38 @@ other single toolchain. Resolve each of `commands.install`, `.test`, `.lint`, `.
   `Makefile`, `justfile`, `Taskfile.yml`, `mise.toml`. Emit `make <target>` (or `just`/`task`/`mise
   run <target>`) only for targets that actually exist in the file — e.g. `make install`/`make test`
   only when those targets are defined, never assumed.
-- **Tier B — language manifests:** `package.json` (+ lockfile → package manager:
-  `package-lock.json`→npm, `yarn.lock`→yarn, `pnpm-lock.yaml`→pnpm, `bun.lockb`→bun),
-  `pyproject.toml` (+ `uv.lock`→uv, `poetry.lock`→poetry), `Cargo.toml`, `go.mod`, `mix.exs`,
-  `Gemfile`, Gradle (`build.gradle`/`build.gradle.kts`), Maven (`pom.xml`), `composer.json`, dotnet
-  (`*.csproj`).
+- **Tier B — language manifests.** Same rule as Tier A: a manifest proposes a command for a key
+  **only if that key's own evidence is actually present** — `install` is the sole exception (it's a
+  package-manager primitive that needs no script/config to exist). This gate runs **before** the
+  head-binary check below; a command that fails it is never proposed at all, and Tier B falls
+  through to Tier C (or `null`) for that key exactly as if nothing had matched.
+
+  | Manifest (+ lockfile) | Tool | `install` | `test` | `lint` | `typecheck` | `format` | `run` |
+  |---|---|---|---|---|---|---|---|
+  | `package.json` + `package-lock.json` | npm | `npm install` | `npm test` — **only if `scripts.test` exists** | `npm run lint` — **only if `scripts.lint` exists** | `npm run typecheck` — **only if `scripts.typecheck` exists** | `npm run format` — **only if `scripts.format` exists** | `npm start` — **only if `scripts.start` exists**, else `npm run dev` if `scripts.dev` exists |
+  | `package.json` + `yarn.lock` | yarn | `yarn install` | `yarn test` — same `scripts.test` gate | `yarn lint` — same `scripts.lint` gate | `yarn typecheck` — same `scripts.typecheck` gate | `yarn format` — same `scripts.format` gate | `yarn start` / `yarn dev` — same gate as npm |
+  | `package.json` + `pnpm-lock.yaml` | pnpm | `pnpm install` | `pnpm test` — same gate | `pnpm run lint` — same gate | `pnpm run typecheck` — same gate | `pnpm run format` — same gate | `pnpm start` / `pnpm run dev` — same gate |
+  | `package.json` + `bun.lockb` | bun | `bun install` | `bun test` — **only if `scripts.test` exists OR a `*.test.*`/`*.spec.*` file exists** (bun ships its own runner) | `bun run lint` — same `scripts.lint` gate | `bun run typecheck` — same gate | `bun run format` — same gate | `bun start` / `bun run dev` — same gate |
+  | `pyproject.toml` + `uv.lock` | uv | `uv sync` | `uv run pytest` — **only if `pytest` is a listed dependency or a `tests/`/`test/` dir exists** | `uv run ruff check` — **only if a `[tool.ruff]` section exists**, else if `flake8`/`pylint` is a listed dependency | `uv run mypy .` — **only if a `[tool.mypy]` section exists or `mypy` is a listed dependency** | `uv run ruff format --check` — **only if `[tool.ruff]` exists**, else `uv run black --check .` if `black` is listed | `uv run <entry>` — **only if `[project.scripts]` defines an entry** |
+  | `pyproject.toml` + `poetry.lock` | poetry | `poetry install` | `poetry run pytest` — same gate as uv | `poetry run ruff check` — same gate as uv | `poetry run mypy .` — same gate as uv | `poetry run ruff format --check` / `poetry run black --check .` — same gate as uv | `poetry run <entry>` — same gate as uv |
+  | `Cargo.toml` | cargo | `cargo fetch` | `cargo test` — a crate always defines this target, so no extra gate | `cargo clippy` — **only if the `clippy` component resolves** (`cargo clippy --version` succeeds) | `cargo check` | `cargo fmt --check` — **only if the `rustfmt` component resolves** | `cargo run` — **only if a `[[bin]]` target or `src/main.rs` exists** |
+  | `go.mod` | go | `go mod download` | `go test ./...` | `golangci-lint run` — **only if `golangci-lint` resolves on PATH**, else `go vet ./...` | `go vet ./...` | `gofmt -l .` | `go run .` — **only if a `main` package exists** |
+  | `mix.exs` | mix | `mix deps.get` | `mix test` | `mix credo` — **only if `credo` is a listed dep** | `mix dialyzer` — **only if `dialyxir` is a listed dep** | `mix format --check-formatted` | `mix run` — **only if the project defines a runnable entry** |
+  | `Gemfile` | bundler | `bundle install` | `bundle exec rspec` — **only if `rspec` is a listed dep**, else `bundle exec rake test` if a `Rakefile` defines a `test` task | `bundle exec rubocop` — **only if `rubocop` is a listed dep** | `null` (no standard opt-out-free Ruby typechecker) | `bundle exec rubocop -a --dry-run` — **only if `rubocop` is a listed dep** | `null` unless a framework entry (`bin/rails`, `config.ru`) is present |
+  | Gradle (`build.gradle`/`.kts`) | gradle | `./gradlew build -x test` | `./gradlew test` | `./gradlew check` — **only if a lint/checkstyle plugin is configured** | `null` unless a typecheck-capable plugin is configured | `./gradlew spotlessCheck` — **only if the Spotless plugin is configured** | `./gradlew run` — **only if the `application` plugin is configured** |
+  | Maven (`pom.xml`) | maven | `mvn install -DskipTests` | `mvn test` | `mvn checkstyle:check` — **only if the checkstyle plugin is configured** | `null` unless a typecheck-capable plugin is configured | `mvn spotless:check` — **only if the Spotless plugin is configured** | `mvn spring-boot:run` — **only if the Spring Boot plugin is configured** |
+  | `composer.json` | composer | `composer install` | `composer test` — **only if `scripts.test` exists**, else `vendor/bin/phpunit` if `phpunit/phpunit` is a listed dep | `vendor/bin/phpcs` — **only if `squizlabs/php_codesniffer` is a listed dep** | `vendor/bin/phpstan` — **only if `phpstan/phpstan` is a listed dep** | `vendor/bin/php-cs-fixer fix --dry-run` — **only if `friendsofphp/php-cs-fixer` is a listed dep** | `null` unless `scripts.start` or a framework entry exists |
+  | dotnet (`*.csproj`) | dotnet | `dotnet restore` | `dotnet test` | `null` unless an analyzer is configured | `dotnet build` (a failing compile *is* the typecheck signal) | `dotnet format --verify-no-changes` | `dotnet run` |
+
 - **Tier C — CI, as a last resort:** extract `run:` steps from `.github/workflows/*.yml`. Treat as a
   **suggestion** and confirm with the user — never run a CI-derived command blind.
 
 In a monorepo declaring workspaces, resolve per-package and record the package dir alongside each
 command.
 
-**Verify before accepting — never accept a command whose entry point cannot run:**
+**Verify before accepting — never accept a command whose entry point cannot run.** This runs after
+Tier B's existence gate above, never in place of it — the head binary resolving is necessary but not
+sufficient; `npm install`+`npm` on `PATH` says nothing about whether `scripts.test` exists.
 
 ```sh
 head_bin=$(printf '%s' "$cmd" | awk '{print $1}')
