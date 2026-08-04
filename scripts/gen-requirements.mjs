@@ -135,6 +135,7 @@ const DEFINITIONS = {
     install: 'Ships as part of the superpowers plugin dependency',
   },
   'juel:start': { kind: 'skill', label: 'juel:start', install: 'Ships with this plugin' },
+  'juel:review-pr': { kind: 'skill', label: 'juel:review-pr', install: 'Ships with this plugin' },
   'juel:review-and-execute': {
     kind: 'skill',
     label: 'juel:review-and-execute',

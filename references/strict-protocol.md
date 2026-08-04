@@ -8,10 +8,10 @@ first clause ("before any tool call") would be self-violating if obeying it
 required a tool call to fetch this file first.
 
 This file exists so that changing the protocol later is a mechanical,
-diffable sweep across all 12 skills rather than an archaeology exercise.
+diffable sweep across all 13 skills rather than an archaeology exercise.
 Every `SKILL.md` carries a byte-for-byte copy of the block below, pasted in
 verbatim by Tasks 7–11. If the protocol ever changes, edit it here first,
-then re-sweep all 12 skills from this copy.
+then re-sweep all 13 skills from this copy.
 
 The block below — from the `## Strict Execution Protocol` heading through
 the end of rule 5 — is `PROTOCOL_BLOCK`: the literal, exact text every skill

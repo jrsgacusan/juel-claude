@@ -88,6 +88,11 @@
       "label": "juel:review-and-execute",
       "install": "Ships with this plugin"
     },
+    "juel:review-pr": {
+      "kind": "skill",
+      "label": "juel:review-pr",
+      "install": "Ships with this plugin"
+    },
     "juel:ship-ticket": {
       "kind": "skill",
       "label": "juel:ship-ticket",
@@ -193,12 +198,11 @@
         "coreutils",
         "gh",
         "git-repo",
+        "juel:review-pr",
         "open-pr"
       ],
       "soft": [
-        "codex",
         "linear",
-        "pr-review-toolkit",
         "resolved-install-command"
       ]
     },
@@ -282,6 +286,17 @@
       ],
       "soft": [
         "codex",
+        "pr-review-toolkit"
+      ]
+    },
+    "review-pr": {
+      "hard": [
+        "git-repo",
+        "superpowers"
+      ],
+      "soft": [
+        "gh",
+        "linear",
         "pr-review-toolkit"
       ]
     },

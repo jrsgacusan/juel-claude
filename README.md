@@ -69,11 +69,12 @@ your machine. The plugin cannot install these for you:
 | `daily-worktrees` | Start the day by listing Linear tickets assigned to you and setting up a git worktree per ticket for parallel work. |
 | `compact-context` | Snapshot the current conversation into a compaction-style summary under `docs/.superpowers/context/`, so context survives a `/compact` or a fresh session. |
 | `cmux-ship-tickets` | Daily kickoff in CMUX: fetch Linear todos, create worktrees, spawn one CMUX workspace per ticket, and auto-launch `claude` running `/juel:ship-ticket` in each. |
-| `cmux-review-pr` | Review a GitHub PR (or branch) inside an isolated CMUX workspace: worktree, PR-derived session id, linked Linear ticket for context, `/pr-review-toolkit:review-pr`, then an independent Codex validation pass. |
+| `cmux-review-pr` | Workspace plumbing for a PR review: worktree, PR-derived session id, linked work-item ref, then auto-launch `claude` running `/juel:review-pr` inside an isolated CMUX workspace. |
+| `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
 | `cmux-babysit` | Turn the current session into a manager that monitors N CMUX workspaces, reports which need your input, and relays your replies — so you never switch tabs. |
 | `regression` | Drive Playwright MCP through a work item's acceptance criteria in a real browser, screenshotting each step as evidence, and report pass/fail/unverifiable per criterion. |
 
-12 skills.
+13 skills.
 
 ## Commands
 

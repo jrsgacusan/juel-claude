@@ -1,6 +1,6 @@
 ---
 name: cmux-review-pr
-description: Use to review a GitHub PR (or arbitrary branch) inside an isolated CMUX workspace. Creates a git worktree for the PR branch, spawns a CMUX workspace, auto-launches `claude` with a deterministic session id derived from the PR id, fetches the linked work item so the review is graded against its requirements, runs `/pr-review-toolkit:review-pr`, then validates the findings with codex. Triggers "review pr", "/juel:cmux-review-pr".
+description: Use to review a GitHub PR (or arbitrary branch) inside an isolated CMUX workspace. Creates a git worktree for the PR branch, spawns a CMUX workspace, auto-launches `claude` with a deterministic session id derived from the PR id, resolves the linked work-item ref, then runs `/juel:review-pr` inside that workspace. Triggers "review pr", "/juel:cmux-review-pr".
 metadata:
   requires:
     mcp:
@@ -22,11 +22,6 @@ metadata:
         hard: true
         why: phase 2 resolves the PR argument to a branch and label
         check: "gh auth status"
-      - id: codex
-        hard: false
-        why: the inner session dispatches codex to second-opinion the review findings
-        check: "command -v codex"
-        fallback: the inner session validates findings itself
       - id: coreutils
         hard: true
         why: sleep/grep/head are resolved once per session via resolve_bin and sourced from BINS every call, since each Bash call is an independent non-login shell
@@ -46,19 +41,14 @@ metadata:
         why: phase 2 resolves the PR argument to a branch
         check: "gh pr view <N> --json number"
     skills:
-      - id: pr-review-toolkit
-        hard: false
-        why: the inner session runs pr-review-toolkit:review-pr
-        fallback: inner session falls back to /review
+      - id: juel:review-pr
+        hard: true
+        why: queued as the startup prompt inside the spawned workspace
 ---
 
 # Juel CMUX Review PR
 
-Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspace + deterministic claude session) but the payload is a code review followed by an independent codex validation pass.
-
-**Two reviewers, one report — graded against the work item.** Before reviewing, the inner claude fetches the linked work item (ref extracted from the branch/PR title via the same `detect_ref` helper `juel:start` inlines — a different source than `juel:start`, which reads the worktree dirname instead, but the same spirit: resolve a ref before doing anything else) so the diff is judged against the work item's requirements and acceptance criteria, not just generic code quality. It then runs `/pr-review-toolkit:review-pr`, hands every finding to codex for a second opinion. Do NOT pin a codex model or reasoning effort — let codex use its own defaults. Final consolidated report lives at `${docsRoot}/findings/findings-review.md` with four buckets: Requirement-alignment, Confirmed, Disputed, Codex-only.
-
-> **Codex invocation (important).** Use `codex exec --sandbox read-only "<prompt>"`, NOT `codex exec review --base <base> "<prompt>"`. Codex (>=0.140) rejects combining `--base` with a positional prompt (`error: the argument '--base <BRANCH>' cannot be used with '[PROMPT]'`). Since validation needs both a custom prompt and the base diff, instruct codex to run the diff itself inside the prompt: start the prompt with "First run: git diff <base>...HEAD to see the real changes, then validate...".
+Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspace + deterministic claude session) — this skill's only job is to stand up that workspace and queue `/juel:review-pr` in it. It resolves the work-item ref (branch first, then PR title, via the same `detect_ref` helper `juel:start` inlines) and passes it along; everything about the review itself — grading against the work item, dispatching `pr-review-toolkit:review-pr`, validating findings, writing the consolidated report to `${docsRoot}/findings/findings-review.md` — lives in `juel:review-pr`, not here.
 
 **Announce:** "Using juel:cmux-review-pr to set up a CMUX workspace for review."
 
@@ -89,11 +79,10 @@ Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspa
 | cmux | cli | HARD | `resolve_bin cmux` against PATH, then GUI/Homebrew candidates | STOP → https://github.com/manaflow-ai/cmux |
 | claude | cli | HARD | `resolve_bin claude` against PATH, then GUI/Homebrew candidates | STOP |
 | gh (authenticated) | cli | HARD | `gh auth status` | STOP → `gh auth login` |
-| codex | cli | SOFT | `command -v codex` | the inner session validates findings itself |
 | coreutils | cli | HARD | `resolve_bin` per binary (sleep/grep/head) against PATH, then `/usr/bin`,`/bin` candidates | STOP |
 | git repo matching the PR remote | context | HARD | `git remote get-url <remote>` | STOP |
 | resolvable PR or branch | context | HARD | `gh pr view <N> --json number` | STOP |
-| pr-review-toolkit | skill | SOFT | ships as a plugin dependency | inner session falls back to `/review` |
+| juel:review-pr | skill | HARD | ships with this plugin | STOP |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the alignment section is omitted |
 | resolved install command | cli | SOFT | see resolution layer | skip the second surface; install deps yourself |
 
@@ -114,9 +103,8 @@ Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspa
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `<pr-or-branch>` | yes | Either `#1234`, `1234`, a GitHub PR URL, or a branch name |
-| `[base-branch]` | no | Branch to diff against for codex validation. Auto-detected if omitted — see "Resolve the base branch" in Step 4. |
 
-Usage: `/juel:cmux-review-pr 1234` or `/juel:cmux-review-pr feat/savi-1162-foo` or `/juel:cmux-review-pr 1234 main`.
+Usage: `/juel:cmux-review-pr 1234` or `/juel:cmux-review-pr feat/savi-1162-foo`.
 
 ## Prerequisites
 
@@ -124,7 +112,7 @@ Usage: `/juel:cmux-review-pr 1234` or `/juel:cmux-review-pr feat/savi-1162-foo` 
 - `claude` CLI installed (same `resolve_bin` rule; GUI path and Homebrew paths are candidates).
 - `gh` CLI on PATH and authenticated. `gh` embeds its own `jq` — a standalone `jq` binary is never required, see "Resolve the PR" below.
 - Inside a git repo whose remote matches the PR.
-- `pr-review-toolkit` plugin/skill installed (provides `/pr-review-toolkit:review-pr`).
+- `juel:review-pr` skill available (ships with this plugin) — it runs `/pr-review-toolkit:review-pr` itself.
 
 ### Resolve binaries once, persist, then source every call
 
@@ -447,29 +435,8 @@ done
 [ "$ready" = 1 ] || echo "WARN: claude input prompt not detected after 30s; sending anyway"
 ```
 
-**Resolve `docsRoot` once, then reuse it.** In order:
-1. `config.docsRoot`, if set.
-2. `<repo-root>/docs/.superpowers/` **if it exists and is non-empty** — an existing repo keeps
-   using the dotted path so prior specs, plans and context are never stranded or split.
-3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
-
-Never pick between the two variants ad hoc. Layout underneath is
-`${docsRoot}/{specs,plans,context,findings}/`.
-
-```bash
-# Step 1 of the precedence above (config.docsRoot in .claude/workflow.json /
-# .claude/workflow.local.json) — if set there, use that value directly
-# instead of the filesystem check below. Steps 2-3 (filesystem fallback):
-if [ -d "$CWD_ROOT/docs/.superpowers" ] && [ -n "$(ls -A "$CWD_ROOT/docs/.superpowers" 2>/dev/null)" ]; then
-  docsRoot="$CWD_ROOT/docs/.superpowers"
-else
-  docsRoot="$CWD_ROOT/docs/superpowers"
-fi
-mkdir -p "$docsRoot/findings"
-```
-
-Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
-unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+This skill does not resolve `docsRoot` or a base branch itself — `/juel:review-pr`, queued into the
+workspace below, resolves both of those for itself once it is running inside the worktree.
 
 **Resolve the install command once, then reuse it.** Same resolution layer as
 `juel:cmux-ship-tickets` — probed in tiers, stopping at the first verified hit, never invented if
@@ -508,75 +475,20 @@ INSTALL_CMD=""   # resolved once here against "$CWD_ROOT"; the "open second tab"
 **If `INSTALL_CMD` stays empty, that is not an error** — the second-tab step at the end of Step 4
 skips itself entirely for this review rather than opening a tab that runs nothing.
 
-**Resolve the base branch once, then reuse it.** In order: explicit `[base-branch]` argument (the
-second word of the invocation, if the user gave one) → `config.baseBranch` → `git config --get
-claude.baseBranch` → `git symbolic-ref --short refs/remotes/origin/HEAD` (if missing, `git remote
-set-head origin --auto` and retry once) → `gh repo view --json defaultBranchRef -q
-.defaultBranchRef.name` → first existing of main, master, develop, dev, trunk → ask once and offer
-to persist.
-
-**Caveat:** default and *integration* branch differ in gitflow repos. If a `develop`/`dev` branch
-exists on the remote AND ≥70% of the last 30 merges into it came from `feat/*`-shaped branches,
-prefer it and say so. Config always wins.
+**`REF` must be resolved here, in THIS shell (Step 1b, above), before the prompt string below is
+built.** The spawned inner `claude` session inherits nothing from this script — it cannot resolve a
+`${REF}` placeholder itself. The `prompt=` assignment below is a double-quoted bash string, so
+`${REF}` inside it expands to the literal resolved ref (or nothing, if none resolved) at the moment
+the string is built.
 
 ```bash
-# Resolve once, in THIS shell, before the prompt string below is built — the spawned inner
-# claude inherits nothing and cannot resolve a base-branch placeholder itself.
-base_branch="<explicit [base-branch] argument, if the user gave one — else leave empty>"
-[ -n "$base_branch" ] || base_branch=$(git -C "$CWD_ROOT" config --get claude.baseBranch 2>/dev/null)
-if [ -z "$base_branch" ]; then
-  base_branch=$(git -C "$CWD_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-fi
-if [ -z "$base_branch" ]; then
-  git -C "$CWD_ROOT" remote set-head origin --auto >/dev/null 2>&1
-  base_branch=$(git -C "$CWD_ROOT" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-fi
-if [ -z "$base_branch" ]; then
-  base_branch=$("$GH" repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)
-fi
-if [ -z "$base_branch" ]; then
-  for cand in main master develop dev trunk; do
-    git -C "$CWD_ROOT" show-ref --verify --quiet "refs/remotes/origin/$cand" && { base_branch=$cand; break; }
-  done
-fi
-# Gitflow caveat: prefer develop/dev as the INTEGRATION branch (not just the default
-# branch) when >=70% of its last 30 merges came from feat/*-shaped branches.
-for integ in develop dev; do
-  git -C "$CWD_ROOT" show-ref --verify --quiet "refs/remotes/origin/$integ" || continue
-  total=$(git -C "$CWD_ROOT" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | wc -l | tr -d ' ')
-  [ "$total" -gt 0 ] || continue
-  feat=$(git -C "$CWD_ROOT" log --merges -n 30 "origin/$integ" --format=%s 2>/dev/null | "$GREP" -ciE 'feat/')
-  if [ "$(( feat * 100 / total ))" -ge 70 ]; then
-    base_branch="$integ"
-  fi
-  break
-done
-if [ -z "$base_branch" ]; then
-  echo "No base branch detected from git/gh. Ask the user once for the base branch before continuing (offer to persist the answer as config.baseBranch in .claude/workflow.json) — do not guess silently, do not fall back to any hardcoded branch name."
-fi
-```
-
-**`base_branch` must be resolved here, in THIS shell, before the prompt string below is built.**
-Exactly like `docsRoot`, the spawned inner `claude` session inherits nothing and cannot resolve a
-`${base_branch}` placeholder itself; the `prompt=` assignment below is a double-quoted bash string,
-so `${base_branch}` inside it expands to the literal resolved branch name at the moment the string
-is built — the inner session always receives a real, detected branch name and never
-an unresolved placeholder.
-
-**`docsRoot` must be resolved here, in THIS shell, before the prompt string below is built.** The
-spawned inner `claude` session inherits nothing from this script — it cannot resolve `${docsRoot}`
-itself. The `prompt=` assignment below is a double-quoted bash string, so `${docsRoot}` inside it
-expands to the literal resolved path at the moment the string is built; what gets sent to the inner
-session is that literal path, never an unresolved placeholder.
-
-```bash
-# Composite prompt — ONE LINE (real newlines submit prematurely). Inner claude runs
-# the review, then dispatches codex to second-opinion every finding against the diff.
-# Codex validation: use `codex exec` (NOT `codex exec review`) so a custom prompt and a
-# base diff can coexist. `codex exec review --base <b> "<prompt>"` is REJECTED by codex
-# (>=0.140): `--base` cannot combine with a positional prompt. Instead let codex run the
-# diff itself inside the prompt. Do NOT pin -m / model_reasoning_effort — codex defaults.
-prompt="First, if a work-item ref was resolved (${REF:-NONE}), fetch it via the Linear MCP get_issue for ${REF:-NONE} and read its requirements and acceptance criteria; treat them as the spec this PR must satisfy (if NONE, skip work-item grading and note that in the report). Then run /pr-review-toolkit:review-pr against base branch ${base_branch}. Capture every finding (file, line, severity, claim, suggested fix) AND assess whether the diff actually fulfils each work-item requirement / acceptance criterion, flagging any that are unmet, partially met, or scope-creep beyond the work item. Then validate the code findings independently with codex: for each finding ask codex whether it is correct, incorrect, or out-of-scope with reference to the actual diff, using: codex exec --sandbox read-only \"First run: git diff ${base_branch}...HEAD to see the real changes, then validate the following review findings against that diff. For each return VALID / INVALID / OUT-OF-SCOPE with one-sentence justification. Findings: <paste findings here>\". Do NOT pin a codex model or reasoning effort. Produce a final consolidated report with four sections: Requirement-alignment (each requirement/acceptance criterion marked met / partial / unmet with evidence, plus any scope-creep), Confirmed (both reviewers agree), Disputed (codex disagrees with the original review), Codex-only (issues codex raised that the review missed). Save it to ${docsRoot}/findings/findings-review.md. run /pr-review-toolkit:review-pr all parallel in the FOREGROUND (run_in_background: false) so its review agents dispatch together instead of one at a time, read its complete output before continuing, and run codex in the foreground without redirecting its output to any file."
+# Prompt — ONE LINE (real newlines submit prematurely). Everything the review needs to
+# know — grading against the work item, dispatching pr-review-toolkit:review-pr,
+# validating findings, writing the consolidated report — lives inside juel:review-pr
+# itself; this orchestrator only queues the slash command and, if one resolved, the ref.
+# ${REF:+ $REF} expands to " <REF>" when REF is non-empty, or nothing at all when it
+# isn't — juel:review-pr resolves its own ref in that case rather than blocking.
+prompt="/juel:review-pr${REF:+ $REF}"
 
 "$CMUX" send --workspace "$ws_id" "$prompt"
 "$SLEEP" 1
@@ -624,10 +536,10 @@ Workspace ready for review:
 | PR is merged or closed | Warn user, ask whether to continue |
 | No ref in branch or title | Review proceeds ungraded; note "no ref" in the report. Do not block. |
 | PR title has a ref with no surrounding `[...]`/`type(...)` tag (e.g. bare `SAVI-1343 Fix login`, no brackets) | Known limitation: the title fallback only extracts from a bracket or conventional-commit-scope span, deliberately, to avoid segmenting free-form prose (see Step 1b). Falls through to "no ref" unless the branch name already carried it — branch is tried first and usually does. |
-| Ref extracted but Linear `get_issue` fails / not found | Inner claude proceeds with code review only; Requirement-alignment section records the fetch failure instead of grading. |
+| Ref extracted but Linear `get_issue` fails / not found | `juel:review-pr`, inside the workspace, proceeds with code review only; its Requirement-alignment section records the fetch failure instead of grading. |
 | Local branch with same name already checked out elsewhere | Use `git worktree add --detach` + `gh pr checkout` style instead of duplicate branch |
 | `.worktrees/review-<slug>` already exists | Reuse; do not re-fetch unless user asks |
-| `pr-review-toolkit` not installed | Stop and instruct user to install the plugin |
+| `juel:review-pr` not installed | Stop and instruct user to install/update the plugin |
 | `command not found: cmux` (or claude/sleep/head/grep/gh) mid-script after earlier resolution succeeded | Not a PATH drop — this is a fresh non-login shell that never had the earlier call's variables. Source `$BINS` (see "Resolve binaries once, persist, then source every call") and use the absolute-path variables everywhere. Do not retry with bare names. |
 | `cmux <subcmd>` rejects a flag (CLI version drift) | Run `cmux <subcmd> --help`, adapt once, continue. Do NOT loop on broken flags. |
 | Workspace creation succeeds but `ws_id` parse fails | Fall back to `cmux list-workspaces`, match by cwd. Never call `rename-workspace` / `send` / `send-key` with an empty `--workspace` — silently targets the orchestrator. |
@@ -651,14 +563,9 @@ Workspace ready for review:
 - [ ] Workspace tab renamed via POSITIONAL title (NOT `--name`) — verify the sidebar shows just `<label>`, not `--name <label>`
 - [ ] `"$CLAUDE_BIN" --session-id <uuid>` launched in the workspace (absolute path, not bare `claude`)
 - [ ] `read-screen` readiness poll (wait for ANY of `❯`, `>` at line start, or `for shortcuts`) used before `send` — NOT a blind `sleep`, NOT a poll for `❯` alone
-- [ ] Composite prompt sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
-- [ ] Prompt instructs inner claude to fetch the work item (`get_issue` for `$REF`) and grade the diff against its requirements/acceptance criteria before the code review
-- [ ] Codex validation step uses `codex exec --sandbox read-only "<prompt>"` (NOT `codex exec review --base ...`, which rejects a prompt), with the prompt telling codex to `git diff <base>...HEAD` itself, and NO `-m` / `model_reasoning_effort` override (codex defaults)
+- [ ] Prompt (`/juel:review-pr` plus the resolved `$REF`, if any) sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
+- [ ] Prompt string built from `${REF:+ $REF}` only — no `docsRoot`, `base_branch`, or review-procedure prose embedded in it; `juel:review-pr` resolves and does all of that itself once running in the workspace
 - [ ] `INSTALL_CMD` resolved once (against `$CWD_ROOT`, before Step 4's second-tab step) via the tiered detection layer; if non-empty, a second tab (surface) opened with it running (sent to the new surface, NOT the claude tab); if empty, the second surface is skipped entirely (no error, no empty tab)
 - [ ] `export CMUX_QUIET=1` set so alias-deprecation notices are silenced
-- [ ] `docsRoot` resolved once (config, then existing non-empty dotted dir, then canonical) before the prompt string is built, and expanded to a literal path inside the double-quoted `prompt=` assignment — never sent to the inner session as an unresolved `${docsRoot}` placeholder
-- [ ] `base_branch` resolved once (explicit argument → config → git → gh → main/master/develop/dev/trunk → ask) before the prompt string is built, and expanded to a literal branch name inside the double-quoted `prompt=` assignment — never an unresolved `${base_branch}` placeholder, never a bash-fallback literal
-- [ ] Repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries (added if absent)
-- [ ] Final report destination `${docsRoot}/findings/findings-review.md` mentioned in the prompt with the four buckets (Requirement-alignment / Confirmed / Disputed / Codex-only)
 - [ ] Final report shows PR id, ref, worktree path, session id, workspace id, make-install surface
 - [ ] No accidental rename / send against the orchestrator workspace

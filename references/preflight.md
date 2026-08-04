@@ -6,7 +6,7 @@ disclosure (a sibling file loaded only if the model chooses to) cannot
 deliver an "always render preflight this way" guarantee. It exists so that
 Tasks 7–11 have one canonical spec to derive each skill's own `## Preflight`
 dependency table from, and so that changing the render format later is a
-diffable sweep across all 12 skills rather than an archaeology exercise.
+diffable sweep across all 13 skills rather than an archaeology exercise.
 
 ## Preflight render spec
 
