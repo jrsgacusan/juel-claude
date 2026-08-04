@@ -6,7 +6,7 @@ allowed-tools: ["Bash", "Read"]
 # /juel:doctor — machine audit
 
 This is a **command**, not a skill: no preflight block of its own, no phase checklist, no
-`<!-- juel:protocol v1 -->`. It answers a different question than every skill's own `## Preflight`
+`<!-- juel:protocol v2 -->`. It answers a different question than every skill's own `## Preflight`
 section does.
 
 **Why this exists.** Every skill's preflight is forbidden from running `claude mcp list` —
