@@ -275,6 +275,94 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 8: codex exec sites must background, wait, and report outcome --
+// Root-caused defect (v1.2.1): rule 4 said `codex exec` was FOREGROUND-ONLY,
+// but the Bash tool's own spec caps `timeout` at 600000ms (10 minutes) — a
+// real `codex exec` run applying a plan routinely exceeds that, so the
+// harness silently DETACHES it at the cap regardless of what the skill
+// says. That detach is uncontrolled: nothing is watching, nothing reads the
+// output, and the skill proceeds as if the phase had ended. The fix
+// separates two properties rule 4 had conflated — WATCHED (what the user
+// actually wants: visibility into progress) and BLOCKING (the property with
+// the 600s ceiling). Backgrounding while leaving output un-redirected gives
+// the first without the second. `pr-review-toolkit:review-pr` and
+// `simplify` are unaffected — they run through the Skill/Agent tool, which
+// carries no such cap — so ONLY codex sites must flip.
+//
+// A "codex exec invocation site" is a line that, trimmed, starts with the
+// literal `codex exec --sandbox` — the actual dispatch command, not a `dot`
+// graph label or a Common-Mistakes-table mention of the phrase. For each
+// site this check reads the surrounding section — from the nearest
+// preceding markdown heading through the next one — and requires that
+// section to state:
+//   1. `run_in_background: true` present. `run_in_background: false`
+//      anywhere in the section is an immediate, unconditional failure — it
+//      is the exact defect this check exists to catch, not merely one more
+//      missing item.
+//   2. A wait-for-exit phrase ("wait for it/codex to exit/complete/finish")
+//      — backgrounding must never become fire-and-forget.
+//   3. An outcome-reporting phrase (exit status / files changed) — the
+//      phase is marked done from the *outcome*, not a printed transcript.
+// A site whose section shows none of this — no true, no false, no wait, no
+// outcome language — is a FAIL, not a skip: a codex site this check cannot
+// positively confirm as backgrounded-and-waited-on is exactly the
+// silently-exempted-site failure mode this plugin keeps producing (eleven
+// confirmed instances across prior checks). There is no "can't tell, pass
+// it" branch here.
+//
+// Like check 7, this is a closed-set heuristic tuned to the phrasing this
+// codebase currently uses ("Run this in the **background**
+// (`run_in_background: true`)", "wait for it to exit", "state the exit
+// status and files changed"). A future rewrite that says the same thing in
+// different words can defeat it; a human touching rule 4's prose again is
+// expected to re-tune these patterns, not trust them blindly.
+{
+  const CODEX_EXEC_LINE_RE = /^codex exec\s+--sandbox\b/;
+  const HEADING_RE = /^#{1,6}\s/;
+  const BG_TRUE_RE = /run_in_background:\s*true/i;
+  const BG_FALSE_RE = /run_in_background:\s*false/i;
+  const WAIT_EXIT_RE = /\bwait(?:ing)?\s+for\s+(?:it|codex)\s+to\s+(?:exit|complete|finish)\b/i;
+  const OUTCOME_RE = /\b(exit status|files changed)\b/i;
+
+  for (const [name, text] of skillBodies) {
+    const lines = text.split(/\r?\n/);
+    lines.forEach((line, i) => {
+      if (!CODEX_EXEC_LINE_RE.test(line.trim())) return;
+
+      let sectionStart = i;
+      while (sectionStart > 0 && !HEADING_RE.test(lines[sectionStart - 1])) sectionStart--;
+      let sectionEnd = i + 1;
+      while (sectionEnd < lines.length && !HEADING_RE.test(lines[sectionEnd])) sectionEnd++;
+      const section = lines.slice(sectionStart, sectionEnd).join('\n');
+      const lineNo = i + 1;
+
+      if (BG_FALSE_RE.test(section)) {
+        fail('codex-bg',
+          `skills/${name}/SKILL.md:${lineNo}: codex exec site declares run_in_background: false — codex ` +
+          'exec runs through the Bash tool (600s timeout cap), so it must always background ' +
+          '(run_in_background: true), wait for exit, then report the outcome — see rule 4');
+        return;
+      }
+      if (!BG_TRUE_RE.test(section)) {
+        fail('codex-bg',
+          `skills/${name}/SKILL.md:${lineNo}: codex exec site does not state run_in_background: true — ` +
+          'backgrounding must be explicit at the invocation site, not implied by the shared protocol block alone');
+        return;
+      }
+      if (!WAIT_EXIT_RE.test(section)) {
+        fail('codex-bg',
+          `skills/${name}/SKILL.md:${lineNo}: codex exec site backgrounds but states no wait-for-exit step — ` +
+          'add "wait for it to exit" so backgrounding does not become fire-and-forget');
+      }
+      if (!OUTCOME_RE.test(section)) {
+        fail('codex-bg',
+          `skills/${name}/SKILL.md:${lineNo}: codex exec site does not state outcome reporting (exit status / ` +
+          'files changed) — report the outcome at exit, not a transcript');
+      }
+    });
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
