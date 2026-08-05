@@ -296,9 +296,15 @@ the filesystem check above — config always takes precedence.)
 Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
 unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
 
+**Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
+findings report, or context file that already exists at the derived path — append `-v2` before
+the extension; if `-v2` exists too, use `-v3`, and so on. This applies to every file type written
+under `${docsRoot}`, not only the one this skill produces.
+
 Write a short spec doc capturing the agreed approach from brainstorming.
 
 - Path: `${docsRoot}/specs/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` — the ref segment is included, lower-cased, only when the work item has one (e.g. `2026-08-01-savi-1162-add-auth.md`); when `ref` is null it drops out entirely, never a placeholder (e.g. `2026-08-01-add-auth.md`) (gitignored, per user memory)
+- **If that path already exists (a re-run for the same ticket on the same day), never overwrite it.** Write `-v2` instead (e.g. `2026-08-01-savi-1162-add-auth-v2.md`); if `-v2` exists too, `-v3`, and so on.
 - Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the work item if it has any; otherwise ask the user for concrete verification steps and record those in the spec instead.
 
 **Checkpoint:** show spec path, ask to proceed.
@@ -308,6 +314,7 @@ Write a short spec doc capturing the agreed approach from brainstorming.
 Invoke `Skill("superpowers:writing-plans")` using the spec as input.
 
 - Plan path: `${docsRoot}/plans/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` (same ref-optional naming as the spec path above — omitted entirely when `ref` is null; docsRoot already resolved in phase 2 — reuse it, do not re-derive)
+- **If that path already exists, never overwrite it.** Write `-v2` instead; if `-v2` exists too, `-v3`, and so on — same rule as the spec path in Phase 2, and distinct from `review-plan.md`'s own `-vN` versioning in Phase 5 below.
 - Each step must include file paths, line refs where applicable, and a verification command.
 
 **Checkpoint:** show plan path, ask to proceed.
@@ -423,6 +430,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Opening the PR on green unit tests alone | Phase 7 requires observed behavior, not just passing tests. Verify the real surface first. |
 | Posting PR review-style summary instead of QA-oriented body | Phase 8 PR body is for the reviewer, not a changelog. |
 | Forgetting to update the work item's status | Phase 8 step 4 — but a provider with no `update_status` capability (including "no tracker resolved at all") is a legitimate skip printed as one line, not a forgotten step; only flag this when the provider does support `update_status` and the call was simply never made. |
+| Overwriting an existing spec or plan file on a re-run (e.g. after a failed prior attempt for the same ticket, same day) | Always bump to `-v2`, `-v3`, etc. — specs and plans are immutable history, same as `review-plan.md`. |
 
 ## Notes
 

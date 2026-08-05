@@ -96,6 +96,11 @@ the filesystem check above — config always takes precedence.)
 Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
 unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
 
+**Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
+findings report, or context file that already exists at the derived path — append `-v2` before
+the extension; if `-v2` exists too, use `-v3`, and so on. This applies to every file type written
+under `${docsRoot}`, not only the one this skill produces.
+
 All output goes to `$docsRoot/context/`. Never write elsewhere.
 
 ### Step 2: Derive the filename

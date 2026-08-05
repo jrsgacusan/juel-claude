@@ -266,6 +266,11 @@ the filesystem check above — config always takes precedence.)
 Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
 unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
 
+**Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
+findings report, or context file that already exists at the derived path — append `-v2` before
+the extension; if `-v2` exists too, use `-v3`, and so on. This applies to every file type written
+under `${docsRoot}`, not only the one this skill produces.
+
 Write the report to `${docsRoot}/findings/findings-review.md` with exactly four sections, in this
 order:
 
@@ -296,4 +301,4 @@ in equals the count out.
 | Zero findings from Step 2 | Confirmed / Rejected / Ambiguous sections are all empty; still write the report and say so explicitly — do not skip the report |
 | All findings rejected | Still write the report with an empty Confirmed section; do not suppress the file |
 | `${docsRoot}/findings/` does not exist yet | Create it (`mkdir -p`) before writing the report |
-| Existing `findings-review.md` from a prior run | Overwrite it — unlike plan files, this report reflects the CURRENT diff, not accumulating history |
+| Existing `findings-review.md` from a prior run | Never overwrite it. Write `findings-review-v2.md` instead; if that exists too, `-v3`, and so on — same versioning rule as every other file under `${docsRoot}` |
