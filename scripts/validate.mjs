@@ -170,6 +170,111 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 7: docsRoot write sites must state a no-overwrite rule ----------
+// User's rule, from memory: plans, specs, findings reports and context files
+// under docsRoot are NEVER overwritten — on a name collision, the next
+// available `-vN` suffix is used instead. v1.2.0 shipped two violations of
+// that rule: `ship-ticket` writes a spec and a plan under docsRoot and says
+// nothing about collisions at either site; `review-pr` said the opposite
+// ("Overwrite it") for its findings report. Both slipped through because the
+// rule was restated independently per skill instead of living somewhere a
+// check can verify. This check turns both defect classes into a hard
+// validation failure.
+//
+// A "write site" is a line where this skill itself (not a delegated skill it
+// invokes) names a concrete path under `${docsRoot}` with a specific
+// specs/plans/context/findings subdirectory, either as an imperative
+// ("Write the report to `${docsRoot}/findings/...`", "write to
+// `${docsRoot}/plans/...`") or as a labeled path bullet ("- Path:
+// `${docsRoot}/specs/...`", "- Plan path: `${docsRoot}/plans/...`"). A
+// mention that only reads (`ls`, "newest ${docsRoot}/plans/*.md", a plan
+// argument example) never matches this shape — this is what correctly
+// excludes `execute`, which only reads plans, without hardcoding its name.
+// A mention that explicitly delegates the write ("...lives in
+// `juel:review-pr`, not here") is excluded too — this is what correctly
+// excludes `cmux-review-pr`, whose overview prose happens to name the exact
+// path `juel:review-pr` itself writes.
+//
+// For every write-capable skill, the whole file (again excluding lines that
+// describe a DELEGATED skill's write, e.g. "`superpowers:writing-plans` →
+// writes to ... review-plan.md" — a real decoy found in `ship-ticket` that
+// names a *different* file than the ones actually missing the rule) must
+// contain either an explicit `-v2`/`-vN` collision suffix, or "overwrite"
+// used as a PROHIBITION (immediately preceded by never/don't/do not/must
+// not/cannot/can't). An "overwrite" mention that is not a prohibition is a
+// contradiction and fails immediately, regardless of anything else in the
+// file — this is what catches `review-pr`'s "Overwrite it" edge-case row.
+// A skill whose write sites are found here always enters this check; none
+// are silently exempted — a write-capable skill with no rule fails loudly,
+// naming the skill and the line(s) that need one.
+{
+  const DOCSROOT_SUBDIR_RE = /\$\{?docsRoot\}?\/(specs|plans|context|findings)\//;
+  const WRITE_VERB_RE = /(?<![-\w])(write|writes|writing|written)(?![-\w])/i;
+  const PATH_LABEL_RE = /^\s*-?\s*\**(spec |plan )?path\**:\s*`?\$\{?docsRoot\}?\/(specs|plans|context|findings)\//i;
+  const DELEGATION_DISCLAIMER_RE = /\b(lives in `juel:|does not resolve|does not write|not here)\b/i;
+  const DELEGATED_WRITE_LINE_RE = /`\/?(?:juel|superpowers|pr-review-toolkit):[a-z0-9-]+`[^\n]*\bwrites?\b/i;
+  const OVERWRITE_TOKEN_RE = /overwrit\w*/gi;
+  const VERSIONING_TOKEN_RE = /-v(2|N)\b/;
+  const NEGATION_TAIL_RE = /\b(never|don't|do not|must not|cannot|can't|not)\b\s*$/i;
+
+  for (const [name, text] of skillBodies) {
+    const lines = text.split(/\r?\n/);
+
+    // Locate write sites: category A (write verb + concrete docsRoot path,
+    // same line, no delegation disclaimer) or category B (a Path:/Plan
+    // path:/Spec path: label naming a concrete docsRoot path).
+    const writeSiteLines = [];
+    lines.forEach((line, i) => {
+      if (DELEGATION_DISCLAIMER_RE.test(line) || DELEGATED_WRITE_LINE_RE.test(line)) return;
+      if (DOCSROOT_SUBDIR_RE.test(line) && WRITE_VERB_RE.test(line)) { writeSiteLines.push(i + 1); return; }
+      if (PATH_LABEL_RE.test(line)) writeSiteLines.push(i + 1);
+    });
+    if (writeSiteLines.length === 0) continue; // read-only, or no docsRoot write at all
+
+    // Whole-file scan for a stated rule, excluding lines that describe a
+    // DELEGATED skill's own write (a decoy naming a different file).
+    let hasProhibition = false;
+    let hasVersioning = false;
+    const contradictions = [];
+
+    lines.forEach((line, i) => {
+      if (DELEGATED_WRITE_LINE_RE.test(line)) return;
+
+      if (VERSIONING_TOKEN_RE.test(line)) hasVersioning = true;
+
+      OVERWRITE_TOKEN_RE.lastIndex = 0;
+      let m;
+      while ((m = OVERWRITE_TOKEN_RE.exec(line))) {
+        const trimmed = line.trim();
+        const isTableRow = trimmed.startsWith('|') && trimmed.endsWith('|');
+        if (isTableRow) {
+          const cells = trimmed.slice(1, -1).split('|').map((c) => c.trim()).filter(Boolean);
+          const lastCell = cells[cells.length - 1] ?? '';
+          const idx = lastCell.toLowerCase().indexOf('overwrit');
+          if (idx === -1) continue; // named only as the mistake label, not the instruction cell
+          if (NEGATION_TAIL_RE.test(lastCell.slice(0, idx))) hasProhibition = true;
+          else contradictions.push({ line: i + 1, text: trimmed });
+        } else {
+          if (NEGATION_TAIL_RE.test(line.slice(Math.max(0, m.index - 30), m.index))) hasProhibition = true;
+          else contradictions.push({ line: i + 1, text: line.trim() });
+        }
+      }
+    });
+
+    if (contradictions.length) {
+      for (const c of contradictions)
+        fail('docsroot',
+          `skills/${name}/SKILL.md:${c.line}: instructs OVERWRITING a file under docsRoot instead of ` +
+          `versioning it (never overwrite; append -v2, then -v3, ... on collision) — "${c.text.slice(0, 110)}"`);
+    } else if (!hasProhibition && !hasVersioning) {
+      fail('docsroot',
+        `skills/${name}/SKILL.md: writes under docsRoot (line ${writeSiteLines.join(', ')}) but states no ` +
+        'no-overwrite/-vN versioning rule anywhere in the file — add one (never overwrite; append -v2, ' +
+        'then -v3, ... on collision)');
+    }
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
