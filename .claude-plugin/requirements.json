@@ -38,6 +38,11 @@
       "label": "cmux workspace",
       "install": "Run with at least one active cmux workspace"
     },
+    "code-simplifier": {
+      "kind": "skill",
+      "label": "code-simplifier",
+      "install": "Ships as a plugin dependency"
+    },
     "codex": {
       "kind": "cli",
       "label": "Codex CLI",
@@ -141,11 +146,6 @@
     "run": {
       "kind": "skill",
       "label": "run",
-      "install": "Built-in Claude Code skill"
-    },
-    "simplify": {
-      "kind": "skill",
-      "label": "simplify",
       "install": "Built-in Claude Code skill"
     },
     "superpowers": {
@@ -309,13 +309,13 @@
         "worktree-root-cwd"
       ],
       "soft": [
+        "code-simplifier",
         "codex",
         "gh",
         "juel:regression",
         "linear",
         "pr-review-toolkit",
-        "run",
-        "simplify"
+        "run"
       ]
     },
     "start": {

@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel:protocol v2 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v3 -->';
 for (const [name, text] of skillBodies) {
   if (!text.includes(PROTOCOL_MARKER))
     fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
@@ -286,8 +286,8 @@ for (const [name, text] of skillBodies) {
 // actually wants: visibility into progress) and BLOCKING (the property with
 // the 600s ceiling). Backgrounding while leaving output un-redirected gives
 // the first without the second. `pr-review-toolkit:review-pr` and
-// `simplify` are unaffected — they run through the Skill/Agent tool, which
-// carries no such cap — so ONLY codex sites must flip.
+// `code-simplifier` are unaffected — they run through the Skill/Agent tool,
+// which carries no such cap — so ONLY codex sites must flip.
 //
 // A "codex exec invocation site" is a line that, trimmed, starts with the
 // literal `codex exec --sandbox` — the actual dispatch command, not a `dot`

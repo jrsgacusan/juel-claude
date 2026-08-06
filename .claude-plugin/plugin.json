@@ -20,6 +20,7 @@
     "pr-review-toolkit@claude-plugins-official",
     "linear@claude-plugins-official",
     "playwright@claude-plugins-official",
-    "context7@claude-plugins-official"
+    "context7@claude-plugins-official",
+    "code-simplifier@claude-plugins-official"
   ]
 }

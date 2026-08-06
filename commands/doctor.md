@@ -6,7 +6,7 @@ allowed-tools: ["Bash", "Read"]
 # /juel:doctor — machine audit
 
 This is a **command**, not a skill: no preflight block of its own, no phase checklist, no
-`<!-- juel:protocol v2 -->`. It answers a different question than every skill's own `## Preflight`
+`<!-- juel:protocol v3 -->`. It answers a different question than every skill's own `## Preflight`
 section does.
 
 **Why this exists.** Every skill's preflight is forbidden from running `claude mcp list` —
@@ -80,7 +80,7 @@ for s in daily-worktrees regression review-and-execute ship-ticket start; do
   test -f "${CLAUDE_PLUGIN_ROOT}/skills/${s}/SKILL.md" && echo "JUEL_${s}=present" || echo "JUEL_${s}=absent"
 done
 cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-for p in superpowers pr-review-toolkit; do
+for p in superpowers pr-review-toolkit code-simplifier; do
   found=$(find "${cfg}/plugins/cache/claude-plugins-official" -maxdepth 1 -type d -iname "$p" 2>/dev/null | head -1)
   [ -n "$found" ] && echo "PLUGIN_${p}=present:${found}" || echo "PLUGIN_${p}=absent"
 done
@@ -169,10 +169,9 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `linear` | mcp | `LINEAR_STATE == working` | `LINEAR_STATE` is `auth_needed` or `absent` (see Step 2 — these render with different messages, never the same one) | |
 | `playwright` | mcp | `plugin:playwright:playwright` shows `Connected` | no such line | when the line exists but shows an unexpected status — report the raw text |
 | `juel:daily-worktrees`, `juel:regression`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
-| `pr-review-toolkit`, `superpowers` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
+| `pr-review-toolkit`, `superpowers`, `code-simplifier` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
 | `superpowers:brainstorming` | skill | the `superpowers` plugin cache dir exists **and** contains a `skills/brainstorming/SKILL.md` | the plugin dir is missing, or it's present without that skill | |
 | `run` | skill | — | — | yes, always — a harness built-in this plugin cannot install or query. Report plainly: "cannot determine; assume present unless a skill actually fails to invoke it" |
-| `simplify` | skill | — | — | yes, always — same reasoning as `run`; both are declared SOFT everywhere they're used precisely because they can't be guaranteed |
 
 ## Step 4 — Per-skill verdict
 

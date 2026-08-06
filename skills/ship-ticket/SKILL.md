@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, a final simplify polish, then manual verification, then opens the PR. Pauses for confirmation between phases.
+description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, a final code-simplifier polish, then manual verification, then opens the PR. Pauses for confirmation between phases.
 metadata:
   requires:
     mcp:
@@ -43,9 +43,9 @@ metadata:
         hard: false
         why: phase 5 (via juel:review-and-execute) runs pr-review-toolkit:review-pr
         fallback: phase 5 falls back to /review
-      - id: simplify
+      - id: code-simplifier
         hard: false
-        why: phase 6 runs simplify as the final polish pass
+        why: phase 6 dispatches the code-simplifier agent as the final polish pass
         fallback: phase 6 SKIPPED with a note
       - id: run
         hard: false
@@ -61,13 +61,13 @@ metadata:
 
 ## Overview
 
-End-to-end orchestration that replaces the manual sequence `/juel:start` → `/juel:execute` → `/juel:review-and-execute` with a single skill. Simplify runs **last**, as the final polish after review remediation, so it cleans up whatever shape the code ends up in rather than producing findings that get rewritten by the review pass.
+End-to-end orchestration that replaces the manual sequence `/juel:start` → `/juel:execute` → `/juel:review-and-execute` with a single skill. The `code-simplifier` agent runs **last**, as the final polish after review remediation, so it cleans up whatever shape the code ends up in rather than producing findings that get rewritten by the review pass.
 
 **Announce at start:** "I'm using juel:ship-ticket to drive the ticket from start to PR."
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v2 -->
+<!-- juel:protocol v3 -->
 
 **1. Preflight, then task list, before anything else.** Before any other output and before any tool call, emit the Preflight block (below). If the preflight verdict is STOP, print the preflight block and **stop** — do not create tasks and do not begin work. Otherwise, before any other work, create one task per phase in this skill's `## Phases` list via `TaskCreate` — `subject` is the phase name, `activeForm` is its present-continuous form. This task list, rendered persistently by the harness, IS the checklist; nothing else satisfies this rule. This is not optional on re-invocation, on resume, or when the user says "just do it".
 
@@ -75,13 +75,13 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 
 **3. Report after every phase.** Mark the phase's task `in_progress` via `TaskUpdate` when starting it, then `completed` via `TaskUpdate` when it finishes or is skipped — each transition accompanied by exactly one line of evidence (path written, command run, count found). Do not re-print the checklist as text; the task list is the persistent record and replaces that. Never claim progress in prose alone.
 
-**4. `review-pr`'s agents run in PARALLEL and FOREGROUND; `simplify` runs FOREGROUND; `codex exec` runs BACKGROUND, WATCHED, and WAITED-ON.** This overrides every other instruction in this file and in any skill invoked from it. Foreground/background is about whether the tool call blocks; watched is about whether output still streams somewhere the user can see it — these are different axes, and `codex exec` needs the second without the first. `review-pr`'s agents additionally need PARALLEL: dispatched together, not one at a time.
+**4. `review-pr`'s agents run in PARALLEL and FOREGROUND; `code-simplifier` runs FOREGROUND; `codex exec` runs BACKGROUND, WATCHED, and WAITED-ON.** This overrides every other instruction in this file and in any skill invoked from it. Foreground/background is about whether the tool call blocks; watched is about whether output still streams somewhere the user can see it — these are different axes, and `codex exec` needs the second without the first. `review-pr`'s agents additionally need PARALLEL: dispatched together, not one at a time.
 - `pr-review-toolkit:review-pr`'s agents MUST be dispatched in parallel: pass `all parallel`, or dispatch the agents together in ONE message. Its sequential default — one agent at a time — is the exact slowness this rule exists to prevent; requesting it, or omitting `all parallel`, is a violation.
-- `pr-review-toolkit:review-pr` and `simplify` are foreground-only. Invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
-- `codex exec` runs through the **Bash tool**, whose `timeout` parameter is capped at 600000ms (10 minutes). A real `codex exec` applying a plan routinely runs longer than that, so a foreground dispatch gets silently DETACHED by the harness at the cap regardless of this rule — nothing then watches it, nothing reads its output, and the skill would wrongly proceed as if the phase had ended. `review-pr` and `simplify` run through the **Skill/Agent tool**, which carries no such cap — that is the entire reason only `codex exec` changes. Do not "fix" this back to foreground; the cap is a harness fact, not a preference.
+- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. Invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
+- `codex exec` runs through the **Bash tool**, whose `timeout` parameter is capped at 600000ms (10 minutes). A real `codex exec` applying a plan routinely runs longer than that, so a foreground dispatch gets silently DETACHED by the harness at the cap regardless of this rule — nothing then watches it, nothing reads its output, and the skill would wrongly proceed as if the phase had ended. `review-pr` and `code-simplifier` run through the **Skill/Agent tool**, which carries no such cap — that is the entire reason only `codex exec` changes. Do not "fix" this back to foreground; the cap is a harness fact, not a preference.
 - **Always dispatch `codex exec` with `run_in_background: true`** — not optional, not "if it looks long," always. Omitting the flag, or passing `false`, is a violation.
 - **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. This applies to all three, and is now MORE load-bearing for `codex exec`: backgrounded with no ceiling, the shell is the only place the user watches it work.
-- For `review-pr` and `simplify`: read the complete output and state the outcome — finding count, exit status, files changed — before marking the phase done. A summary may follow the raw output; it may never replace it.
+- For `review-pr` and `code-simplifier`: read the complete output and state the outcome — finding count, exit status, files changed — before marking the phase done. A summary may follow the raw output; it may never replace it.
 - For `codex exec`: wait for it to exit before marking the phase done — backgrounding must never become fire-and-forget. Then state the outcome — exit status, files changed — not a transcript; the user already watched it stream in the shell, so its full output is never printed back into the conversation.
 - Passing any of this into another session (a CMUX prompt, a nested `claude`) carries these rules with it — say so explicitly in that prompt string.
 
@@ -96,7 +96,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
 | juel:start, juel:review-and-execute | skill | HARD | ship with this plugin | STOP |
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
-| simplify | skill | SOFT | built-in | phase 6 SKIPPED with a note |
+| code-simplifier | skill | SOFT | ships as a plugin dependency | phase 6 SKIPPED with a note |
 | run | skill | SOFT | built-in | phase 7 drives `commands.run` directly and observes |
 | juel:regression | skill | SOFT | ships with this plugin | phase 7 frontend path is manual |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
@@ -110,11 +110,11 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 [ ] 3. Plan — superpowers:writing-plans
 [ ] 4. Execute — run the executor from the worktree root, BACKGROUND (watched, waited-on)
 [ ] 5. Review + remediation — juel:review-and-execute
-[ ] 6. Simplify (final polish) — simplify in apply mode, FOREGROUND
+[ ] 6. Simplify (final polish) — code-simplifier agent, FOREGROUND
 [ ] 7. Manual verification — decide FE/BE, verify real behavior
 [ ] 8. Open PR — with QA instructions, update the work-item status
 
-Note phase 6's preflight row is SOFT while its phase is not optional: if `simplify` is genuinely unavailable the phase is marked `[-] SKIPPED`, which protocol rule 2 requires be announced rather than dropped.
+Note phase 6's preflight row is SOFT while its phase is not optional: if `code-simplifier` is genuinely unavailable the phase is marked `[-] SKIPPED`, which protocol rule 2 requires be announced rather than dropped.
 
 ## Arguments
 
@@ -254,7 +254,7 @@ digraph flow {
     p3 [label="3. Plan\n(superpowers:writing-plans)"];
     p4 [label="4. Execute\n(codex exec from worktree root)"];
     p5 [label="5. Review + remediation\n(juel:review-and-execute)"];
-    p6 [label="6. Simplify (final polish)\n(simplify in apply mode)"];
+    p6 [label="6. Simplify (final polish)\n(code-simplifier agent)"];
     p7 [label="7. Manual verification\n(decide FE/BE, verify behavior)"];
     p8 [label="8. Open PR\n(gh pr create, or push + compare URL if gh is absent)"];
     p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8;
@@ -361,7 +361,7 @@ That skill internally runs:
 3. `superpowers:writing-plans` → writes to `${docsRoot}/plans/review-plan.md` (auto-bumps to `-v2`, `-v3`, ... if a prior one exists)
 4. `codex exec --sandbox workspace-write` to apply remediation
 
-If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (simplify still runs) and phase 7 (verification still runs) either way.
+If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (code-simplifier still runs) and phase 7 (verification still runs) either way.
 
 After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused here — do not re-derive) to verify nothing regressed. Run a command only when its resolved value is non-null; a `null` command reports its one-line skip note (e.g. "no lint command resolved — lint gate skipped") and the phase continues rather than stopping.
 
@@ -369,12 +369,20 @@ After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused
 
 ### Phase 6 — Simplify (final polish)
 
-This is the last **planned** code-change phase (phase 7 verification may still loop back if it finds a defect). Run after review remediation so simplify operates on the final shape of the code, not a draft that's about to be rewritten.
+This is the last **planned** code-change phase (phase 7 verification may still loop back if it finds a defect). Run after review remediation so `code-simplifier` operates on the final shape of the code, not a draft that's about to be rewritten.
 
-1. Invoke `Skill("simplify", run_in_background: false)` in normal apply mode — let it edit files directly. The skill itself targets recently-modified code, which is what we want.
-2. Read simplify's complete output and state what it changed before marking phase 6 done.
-3. After simplify finishes, re-run the `format`, `lint` and `test` commands resolved in Phase 4 (the same resolved set Phase 5 used — reused again, not re-derived) to verify the polish did not regress anything. Any command that resolved to `null` in Phase 4 has its gate skipped here too, with the same one-line note.
-4. Review the simplify diff. If anything looks wrong, revert that specific change with `git restore -p` rather than the whole pass.
+1. Dispatch the `code-simplifier` agent via the Agent tool, `run_in_background: false`:
+
+   ```
+   Agent(subagent_type: "code-simplifier", run_in_background: false,
+         description: "Simplify recently-changed code",
+         prompt: "Review the code changed in this branch (see git diff against the base branch) for reuse, simplification, efficiency, and clarity, then apply the fixes directly. Preserve behavior exactly.")
+   ```
+
+   It is dispatched via the **Agent tool** — `code-simplifier` is an agent (ships as a plugin dependency), not a skill, so there is no `Skill("code-simplifier")` form. It targets recently-modified code, which is what we want. It pins `model: opus` in its own definition — never pass a model override here.
+2. Read `code-simplifier`'s complete output and state what it changed before marking phase 6 done.
+3. After `code-simplifier` finishes, re-run the `format`, `lint` and `test` commands resolved in Phase 4 (the same resolved set Phase 5 used — reused again, not re-derived) to verify the polish did not regress anything. Any command that resolved to `null` in Phase 4 has its gate skipped here too, with the same one-line note.
+4. Review the diff `code-simplifier` produced. If anything looks wrong, revert that specific change with `git restore -p` rather than the whole pass.
 
 **Checkpoint:** show diff summary post-simplify. Ask to proceed to manual verification.
 
@@ -412,7 +420,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 |-----------|--------|
 | Codex fails in phase 4 | Stop. Show error. Ask user to adjust plan or escalate. Do not run phase 5+. |
 | Working tree dirty before phase 4 | Stop. Ask user to commit/stash. |
-| Zero actionable findings in phase 5 | `/juel:review-and-execute` handles this internally; still run phase 6 (simplify), phase 7 (verification), and phase 8 (PR). |
+| Zero actionable findings in phase 5 | `/juel:review-and-execute` handles this internally; still run phase 6 (code-simplifier), phase 7 (verification), and phase 8 (PR). |
 | Lint/tests fail after phase 5 | Loop back: invoke `/juel:review-and-execute` again — it will write a `-vN` plan and dispatch Codex. Do not hand-edit. |
 | Simplify introduces a regression in phase 6 | `git restore -p` the offending hunks; do not revert the whole pass blindly. |
 | Verification finds a defect in phase 7 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-verify. Do not open the PR until verification passes. |
@@ -425,7 +433,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 |---------|-----|
 | Skipping checkpoints to "save time" | Every phase pauses. The point is reviewable handoffs. |
 | Re-resolving install/test/lint/typecheck/format/run commands at each phase | Resolve once in Phase 4 (see "Toolchain commands"); Phases 5, 6 and 7 reuse that exact reported set, never re-scan the repo. |
-| Running simplify before review remediation | Simplify is the last planned code-change phase (phase 6) so it polishes the final shape of the code, not a draft. |
+| Running code-simplifier before review remediation | code-simplifier is the last planned code-change phase (phase 6) so it polishes the final shape of the code, not a draft. |
 | Hand-editing instead of delegating remediation | Never. Phase 5 delegates to `/juel:review-and-execute`; do not bypass it. |
 | Dispatching Codex from `frontend/` or another subdir | Always cd to worktree root first. |
 | Skipping `git status` review between phases | Each checkpoint must show what changed. |
