@@ -41,9 +41,8 @@ metadata:
         why: queued as the startup prompt inside every spawned workspace
     perms:
       - id: permission-mode-auto
-        hard: false
-        why: spawned sessions must not stall on the first tool prompt
-        fallback: relaunch with acceptEdits, never bypassPermissions
+        hard: true
+        why: spawned sessions must not stall on the first tool prompt — nobody is watching a spawned CMUX session to answer it
 ---
 
 # Juel CMUX Ship Tickets
@@ -85,7 +84,7 @@ End-to-end daily kickoff: fetch open work items from the resolved work source, c
 | juel:daily-worktrees, juel:ship-ticket | skill | HARD | ship with this plugin | STOP |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 2 relies on juel:daily-worktrees' own provider fallback / no-list handling — CMUX workspaces still spawn for whatever refs it resolves |
 | resolved install command | cli | SOFT | see resolution layer | skip the second surface; install deps yourself |
-| `--permission-mode auto` | perm | SOFT | none (attempt + catch) | relaunch with `acceptEdits`, never `bypassPermissions` |
+| `--permission-mode auto` | perm | HARD | none — render as `?` | STOP → tell the user the account is not entitled to `--permission-mode auto`; never spawn a session nobody is watching on a lesser mode |
 
 ## Phases
 
@@ -306,7 +305,7 @@ For each `{ref, path}`:
 
    `auto` auto-approves tool calls but runs a background safety classifier that still blocks destructive actions (force push, mass deletion, `curl | bash`, production deploys) and falls back to manual prompting after repeated blocks. This is the point of the skill — an unattended session that pauses on the first `pnpm install` prompt has not shipped anything.
 
-   If `--permission-mode auto` is rejected (older `claude` build, or the account is not entitled to auto mode), fall back to `--permission-mode acceptEdits` and note it in the final report. Do **not** fall back to `bypassPermissions` / `--dangerously-skip-permissions`: these worktrees sit on the real filesystem with real credentials, not in a container.
+   If `--permission-mode auto` is rejected (older `claude` build, or the account is not entitled to auto mode), **STOP** — do not spawn the workspace, and do not fall back to `--permission-mode acceptEdits` or `bypassPermissions` / `--dangerously-skip-permissions`. Tell the user plainly that their account is not entitled to auto mode; a spawned CMUX session nobody is watching must never silently stall on a permission prompt, and these worktrees sit on the real filesystem with real credentials, not in a container.
 
 2. **Guard: abort this item if ws_id is empty.** A blank `--workspace` arg silently targets the currently-selected workspace, which is the orchestrator running this skill — `send`/`send-key` against an empty ref will type into the user's own claude session.
 
@@ -402,7 +401,7 @@ Every workspace MUST be renamed to its canonical ref (e.g. `MSTR-3034`) per Step
 | `cmux` not installed                                                                                 | Abort, link https://github.com/manaflow-ai/cmux                                                                                                                                                        |
 | `command not found: cmux` (or claude/sleep/head/grep/cat) mid-script after earlier resolution succeeded | Not a PATH drop — this is a fresh non-login shell that never had the earlier call's variables. Source `$BINS` (see "Resolve binaries once, persist, then source every call") and use `"$CMUX"` / `"$SLEEP"` / `"$GREP"` / `"$HEAD"` / `"$CAT"` everywhere. Do not retry with bare names.       |
 | `juel:daily-worktrees` finds no work items                                                          | Stop after Step 1, nothing to do                                                                                                                                                                       |
-| `claude` rejects `--permission-mode auto` (unknown value / not entitled)                             | Relaunch that workspace with `--permission-mode acceptEdits` and say so in the final report. Never fall back to `bypassPermissions`                                                                    |
+| `claude` rejects `--permission-mode auto` (unknown value / not entitled)                             | STOP. Do not spawn the workspace. Tell the user their account is not entitled to `--permission-mode auto` (or the `claude` build is too old). Never fall back to `acceptEdits` or `bypassPermissions`                                                                    |
 | `cmux <subcmd>` rejects a flag (CLI version drift)                                                   | Run `cmux <subcmd> --help`, adapt the call once, then continue. Do NOT loop on broken flags                                                                                                            |
 | Workspace creation succeeds but `ws_id` parse fails                                                  | Skip that item (per Step 3.2 guard). Never call `rename-workspace` / `send` / `send-key` with an empty `--workspace` value — it silently targets the currently-selected workspace (the orchestrator) |
 | Workspace creation fails for one item                                                                | Log error, continue with the rest, include in final report                                                                                                                                             |
@@ -422,7 +421,7 @@ Every workspace MUST be renamed to its canonical ref (e.g. `MSTR-3034`) per Step
 - [ ] Worktrees created/reused by `juel:daily-worktrees`
 - [ ] One CMUX workspace per selected item, `cwd` = worktree absolute path
 - [ ] `ws_id` parsed and non-empty before any `send`/`send-key`
-- [ ] `claude` launched inside each workspace (no `--session-id`) with `--permission-mode auto`
+- [ ] `claude` launched inside each workspace (no `--session-id`) with `--permission-mode auto` — no `acceptEdits`/`bypassPermissions` fallback attempted
 - [ ] `/juel:ship-ticket <REF>` typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Every workspace renamed to the canonical ref (e.g. `MSTR-3034`, not `mstr-3034`)
 - [ ] `INSTALL_CMD` resolved once (from `$MAIN_ROOT`, before the per-item loop) via the tiered detection layer, reused unchanged for every item — never re-detected per item

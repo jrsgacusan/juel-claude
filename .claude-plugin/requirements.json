@@ -2,11 +2,6 @@
   "$schema": "https://github.com/jrsgacusan/juel-claude/blob/main/schema/requirements.schema.json",
   "version": 1,
   "definitions": {
-    "app-url": {
-      "kind": "context",
-      "label": "resolved app URL",
-      "install": "Pass an explicit URL argument, or ensure commands.run resolves and can be started in the foreground; otherwise this skill asks where the app is running"
-    },
     "claude": {
       "kind": "cli",
       "label": "Claude Code CLI",
@@ -83,11 +78,6 @@
       "label": "juel:daily-worktrees",
       "install": "Ships with this plugin"
     },
-    "juel:regression": {
-      "kind": "skill",
-      "label": "juel:regression",
-      "install": "Ships with this plugin"
-    },
     "juel:review-and-execute": {
       "kind": "skill",
       "label": "juel:review-and-execute",
@@ -128,11 +118,6 @@
       "label": "plan file",
       "install": "An implementation plan must exist under docs/.superpowers/plans/"
     },
-    "playwright": {
-      "kind": "mcp",
-      "label": "Playwright MCP",
-      "install": "Ships as a plugin dependency"
-    },
     "pr-review-toolkit": {
       "kind": "skill",
       "label": "pr-review-toolkit",
@@ -158,10 +143,10 @@
       "label": "superpowers:brainstorming",
       "install": "Ships as part of the superpowers plugin dependency"
     },
-    "verification-criteria": {
-      "kind": "context",
-      "label": "acceptance criteria to verify",
-      "install": "Provide acceptance criteria via the work item or the spec file, or answer when this skill asks for concrete verification steps"
+    "verify": {
+      "kind": "skill",
+      "label": "verify",
+      "install": "Built-in Claude Code skill"
     },
     "work-source-list-capable": {
       "kind": "context",
@@ -199,7 +184,8 @@
         "gh",
         "git-repo",
         "juel:review-pr",
-        "open-pr"
+        "open-pr",
+        "permission-mode-auto"
       ],
       "soft": [
         "linear",
@@ -213,11 +199,11 @@
         "coreutils",
         "git-repo",
         "juel:daily-worktrees",
-        "juel:ship-ticket"
+        "juel:ship-ticket",
+        "permission-mode-auto"
       ],
       "soft": [
         "linear",
-        "permission-mode-auto",
         "resolved-install-command"
       ]
     },
@@ -270,15 +256,6 @@
         "codex"
       ]
     },
-    "regression": {
-      "hard": [
-        "app-url",
-        "playwright"
-      ],
-      "soft": [
-        "verification-criteria"
-      ]
-    },
     "review-and-execute": {
       "hard": [
         "git-repo",
@@ -312,10 +289,10 @@
         "code-simplifier",
         "codex",
         "gh",
-        "juel:regression",
         "linear",
         "pr-review-toolkit",
-        "run"
+        "run",
+        "verify"
       ]
     },
     "start": {

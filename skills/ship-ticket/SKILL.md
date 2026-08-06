@@ -51,10 +51,10 @@ metadata:
         hard: false
         why: phase 7 launches the app to verify backend behavior
         fallback: phase 7 drives commands.run directly and observes
-      - id: juel:regression
+      - id: verify
         hard: false
-        why: phase 7 offers to drive frontend verification through Playwright when the user is unavailable
-        fallback: phase 7 frontend path is manual
+        why: phase 7 frontend path drives verify to check the change in a real browser when the user is unavailable
+        fallback: phase 7 falls back to driving the resolved commands.run and asking the user to confirm in the browser, recording which acceptance criteria remain unverified
 ---
 
 # Ship Ticket
@@ -98,7 +98,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | code-simplifier | skill | SOFT | ships as a plugin dependency | phase 6 SKIPPED with a note |
 | run | skill | SOFT | built-in | phase 7 drives `commands.run` directly and observes |
-| juel:regression | skill | SOFT | ships with this plugin | phase 7 frontend path is manual |
+| verify | skill | SOFT | built-in | phase 7 falls back to driving the resolved `commands.run` and asking the user to confirm in the browser, recording which acceptance criteria remain unverified |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 8 prints a compare URL instead of opening the PR |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR |
@@ -392,7 +392,7 @@ Verify the change actually works before opening the PR. This phase is **human-in
 
 1. **Ask the user, explicitly:** "How do we test these changes manually? Do you need anything from me (test account, env var, seed data, a specific org/case, a running service)?" Wait for their answer — they may already know the exact steps.
 2. **Decide who drives, based on what changed (`git diff --stat`):**
-   - **Frontend / UI** — the user usually verifies in the browser themselves. Offer concrete steps (route, inputs, expected result) derived from the work item's acceptance criteria if it has any; otherwise from the verification steps the user gave in Phase 2 (recorded in the spec). Let them confirm. If they want automated help, or are unavailable, invoke `Skill("juel:regression", run_in_background: false)` to drive the change through Playwright and capture evidence.
+   - **Frontend / UI** — the user usually verifies in the browser themselves. Offer concrete steps (route, inputs, expected result) derived from the work item's acceptance criteria if it has any; otherwise from the verification steps the user gave in Phase 2 (recorded in the spec). Let them confirm. If they want automated help, or are unavailable, invoke `Skill("verify", run_in_background: false)` to drive the change through Playwright and capture evidence. If `verify` is unavailable, fall back to driving the resolved `commands.run` directly and asking the user to confirm in the browser, recording which acceptance criteria remain unverified.
    - **Backend / API** — Claude drives. Invoke `Skill("run", run_in_background: false)` to launch the app and observe real behavior (hit the endpoint, check the DB, exercise the background task). If `run` is unavailable, execute the `commands.run` resolved in Phase 4 directly (reuse it, do not re-derive) and observe. Ask the user only for inputs you cannot self-serve.
    - **Mixed** — split: Claude verifies the BE surface, the user confirms the FE surface.
 3. **Run the actual verification**, capturing evidence (request/response, log lines, screenshots, DB rows). Map each verification item recorded in the spec — the work item's acceptance criteria if it has any, otherwise the concrete steps the user gave in Phase 2 — to an observed result. **An empty checklist is never a pass.** If the spec has neither acceptance criteria nor recorded verification steps, stop here and ask the user for concrete verification steps before marking this phase done — a zero-item checklist must never be allowed to read as "verified".
@@ -424,7 +424,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Lint/tests fail after phase 5 | Loop back: invoke `/juel:review-and-execute` again — it will write a `-vN` plan and dispatch Codex. Do not hand-edit. |
 | Simplify introduces a regression in phase 6 | `git restore -p` the offending hunks; do not revert the whole pass blindly. |
 | Verification finds a defect in phase 7 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-verify. Do not open the PR until verification passes. |
-| User unavailable to verify a FE change in phase 7 | Offer the `juel:regression` skill (Playwright MCP) to verify in their place, or note in the PR body which AC remain manually unverified so the reviewer covers them. |
+| User unavailable to verify a FE change in phase 7 | Offer the `verify` skill (Playwright MCP) to verify in their place; if `verify` is unavailable, fall back to driving the resolved `commands.run` and asking the user to confirm in the browser, recording which acceptance criteria remain unverified. |
 | Not in a worktree | Ask user; do not auto-create one. |
 
 ## Common mistakes

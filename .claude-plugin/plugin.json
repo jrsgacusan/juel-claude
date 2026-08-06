@@ -21,6 +21,8 @@
     "linear@claude-plugins-official",
     "playwright@claude-plugins-official",
     "context7@claude-plugins-official",
-    "code-simplifier@claude-plugins-official"
+    "code-simplifier@claude-plugins-official",
+    "frontend-design@claude-plugins-official",
+    "ui-ux-pro-max@ui-ux-pro-max-skill"
   ]
 }

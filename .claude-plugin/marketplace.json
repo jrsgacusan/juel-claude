@@ -5,7 +5,7 @@
     "url": "https://github.com/jrsgacusan"
   },
   "description": "Juel's personal Claude Code workflow plugin.",
-  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official"],
+  "allowCrossMarketplaceDependenciesOn": ["claude-plugins-official", "ui-ux-pro-max-skill"],
   "plugins": [
     {
       "name": "juel",

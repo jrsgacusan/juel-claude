@@ -44,6 +44,10 @@ metadata:
       - id: juel:review-pr
         hard: true
         why: queued as the startup prompt inside the spawned workspace
+    perms:
+      - id: permission-mode-auto
+        hard: true
+        why: the spawned session must not stall on the first tool prompt — nobody is watching a spawned CMUX session to answer it
 ---
 
 # Juel CMUX Review PR
@@ -85,6 +89,7 @@ Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspa
 | git repo matching the PR remote | context | HARD | `git remote get-url <remote>` | STOP |
 | resolvable PR or branch | context | HARD | `gh pr view <N> --json number` | STOP |
 | juel:review-pr | skill | HARD | ships with this plugin | STOP |
+| `--permission-mode auto` | perm | HARD | none — render as `?` | STOP → tell the user the account is not entitled to `--permission-mode auto`; never spawn a session nobody is watching on a lesser mode |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the alignment section is omitted |
 | resolved install command | cli | SOFT | see resolution layer | skip the second surface; install deps yourself |
 
@@ -404,7 +409,7 @@ actually needs.
 ```bash
 # 1. Create workspace; --command launches claude with Enter pressed automatically.
 #    Pass the ABSOLUTE $CLAUDE_BIN — PATH may not resolve inside the workspace shell.
-raw=$("$CMUX" new-workspace --cwd "$abs_worktree" --command "$CLAUDE_BIN --session-id $session_id")
+raw=$("$CMUX" new-workspace --cwd "$abs_worktree" --command "$CLAUDE_BIN --session-id $session_id --permission-mode auto")
 ws_id=$(echo "$raw" | "$GREP" -oE 'workspace:[0-9]+' | "$HEAD" -1)
 
 # 2. Guard: abort if ws_id is empty or malformed. A blank --workspace silently
@@ -551,6 +556,7 @@ Workspace ready for review:
 | Install second tab not created despite `INSTALL_CMD` being non-empty | `new-surface` output parse failed; review still proceeds in tab 1. Re-run `"$CMUX" new-surface --type terminal --workspace "$ws_id"` and send `$INSTALL_CMD` to the returned surface. |
 | No install command resolves for this repo | Not an error — skip the second surface entirely (per "Resolve the install command once" above) and note "none resolved" in the Step 5 report. Never invent `npm install`/`make install` for a repo where nothing verified. |
 | `claude --session-id` rejects uuid | Launch `claude` without session id; warn that resume needs picker. |
+| `claude` rejects `--permission-mode auto` (unknown value / not entitled) | STOP. Do not spawn the workspace. Tell the user their account is not entitled to `--permission-mode auto` (or the `claude` build is too old). Never fall back to `acceptEdits` or `bypassPermissions` |
 | User gave a forked-PR url and `gh pr checkout` fails auth | Surface `gh` error verbatim, do not retry blindly. |
 
 ## QA checklist
@@ -563,7 +569,7 @@ Workspace ready for review:
 - [ ] CMUX workspace cwd = worktree absolute path
 - [ ] `ws_id` parsed and matches `workspace:[0-9]+` before any `send` / `send-key` / `rename-workspace`
 - [ ] Workspace tab renamed via POSITIONAL title (NOT `--name`) — verify the sidebar shows just `<label>`, not `--name <label>`
-- [ ] `"$CLAUDE_BIN" --session-id <uuid>` launched in the workspace (absolute path, not bare `claude`)
+- [ ] `"$CLAUDE_BIN" --session-id <uuid> --permission-mode auto` launched in the workspace (absolute path, not bare `claude`) — no `acceptEdits`/`bypassPermissions` fallback attempted
 - [ ] `read-screen` readiness poll (wait for ANY of `❯`, `>` at line start, or `for shortcuts`) used before `send` — NOT a blind `sleep`, NOT a poll for `❯` alone
 - [ ] Prompt (`/juel:review-pr` plus the resolved `$REF`, if any) sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Prompt string built from `${REF:+ $REF}` only — no `docsRoot`, `base_branch`, or review-procedure prose embedded in it; `juel:review-pr` resolves and does all of that itself once running in the workspace

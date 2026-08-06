@@ -157,11 +157,7 @@ const DEFINITIONS = {
     install: 'Ships as a plugin dependency',
   },
   run: { kind: 'skill', label: 'run', install: 'Built-in Claude Code skill' },
-  'juel:regression': {
-    kind: 'skill',
-    label: 'juel:regression',
-    install: 'Ships with this plugin',
-  },
+  verify: { kind: 'skill', label: 'verify', install: 'Built-in Claude Code skill' },
 
   // --- context (closed vocabulary — every member documented even if unused) --
   'git-repo': {

@@ -72,9 +72,8 @@ your machine. The plugin cannot install these for you:
 | `cmux-review-pr` | Workspace plumbing for a PR review: worktree, PR-derived session id, linked work-item ref, then auto-launch `claude` running `/juel:review-pr` inside an isolated CMUX workspace. |
 | `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
 | `cmux-babysit` | Turn the current session into a manager that monitors N CMUX workspaces, reports which need your input, and relays your replies — so you never switch tabs. |
-| `regression` | Drive Playwright MCP through a work item's acceptance criteria in a real browser, screenshotting each step as evidence, and report pass/fail/unverifiable per criterion. |
 
-13 skills.
+12 skills.
 
 ## Commands
 

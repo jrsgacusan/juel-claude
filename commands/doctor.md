@@ -76,7 +76,7 @@ settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
 [ -f "$settings" ] && grep -q 'cmux wait-for' "$settings" 2>/dev/null && echo "CMUX_HOOKS=yes" || echo "CMUX_HOOKS=no"
 
 # --- skill-kind deps: juel:* ship in this very bundle; the rest are marketplace plugin deps ---
-for s in daily-worktrees regression review-and-execute ship-ticket start; do
+for s in daily-worktrees review-and-execute ship-ticket start; do
   test -f "${CLAUDE_PLUGIN_ROOT}/skills/${s}/SKILL.md" && echo "JUEL_${s}=present" || echo "JUEL_${s}=absent"
 done
 cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -168,10 +168,10 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `permission-mode-auto` | perm | — | — | yes — depends on the flag this *session* was launched with; no reliable check from inside a running command |
 | `linear` | mcp | `LINEAR_STATE == working` | `LINEAR_STATE` is `auth_needed` or `absent` (see Step 2 — these render with different messages, never the same one) | |
 | `playwright` | mcp | `plugin:playwright:playwright` shows `Connected` | no such line | when the line exists but shows an unexpected status — report the raw text |
-| `juel:daily-worktrees`, `juel:regression`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
+| `juel:daily-worktrees`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${CLAUDE_PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
 | `pr-review-toolkit`, `superpowers`, `code-simplifier` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
 | `superpowers:brainstorming` | skill | the `superpowers` plugin cache dir exists **and** contains a `skills/brainstorming/SKILL.md` | the plugin dir is missing, or it's present without that skill | |
-| `run` | skill | — | — | yes, always — a harness built-in this plugin cannot install or query. Report plainly: "cannot determine; assume present unless a skill actually fails to invoke it" |
+| `run`, `verify` | skill | — | — | yes, always — harness built-ins this plugin cannot install or query. Report plainly: "cannot determine; assume present unless a skill actually fails to invoke it" |
 
 ## Step 4 — Per-skill verdict
 
