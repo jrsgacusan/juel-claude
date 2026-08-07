@@ -54,10 +54,12 @@ metadata:
 
 ## Phases
 
-[ ] 1. Detect the work-item reference (worktree, then branch)
-[ ] 2. Fetch the work item from the resolved source
-[ ] 3. Analyze requirements and present the summary
-[ ] 4. Brainstorm via superpowers:brainstorming
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Detect the work-item reference (worktree, then branch)
+2. Fetch the work item from the resolved source
+3. Analyze requirements and present the summary
+4. Brainstorm via superpowers:brainstorming
 
 ## Overview
 

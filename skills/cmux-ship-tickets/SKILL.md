@@ -88,15 +88,17 @@ End-to-end daily kickoff: fetch open work items from the resolved work source, c
 
 ## Phases
 
-[ ] 1. Preflight — resolve every binary via resolve_bin, persist to BINS
-[ ] 2. Run juel:daily-worktrees, declining its planning offer
-[ ] 3. Confirm the CMUX launch with the user
-[ ] 4. Per item: create the workspace and launch claude
-[ ] 5. Per item: guard the workspace id, rename it, set the status pill
-[ ] 6. Per item: wait for the TUI, send /juel:ship-ticket <REF> + Enter
-[ ] 7. Per item: open the second surface and start the resolved install command
-[ ] 8. Report the item → worktree → workspace table
-[ ] 9. Verify the QA checklist
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Preflight — resolve every binary via resolve_bin, persist to BINS
+2. Run juel:daily-worktrees, declining its planning offer
+3. Confirm the CMUX launch with the user
+4. Per item: create the workspace and launch claude
+5. Per item: guard the workspace id, rename it, set the status pill
+6. Per item: wait for the TUI, send /juel:ship-ticket <REF> + Enter
+7. Per item: open the second surface and start the resolved install command
+8. Report the item → worktree → workspace table
+9. Verify the QA checklist
 
 ## Prerequisites
 

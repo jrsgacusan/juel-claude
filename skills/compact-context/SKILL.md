@@ -56,11 +56,13 @@ All satisfied renders as: `Preflight: 2/2 OK (git, git repo)` / `→ PROCEED: al
 
 ## Phases
 
-[ ] 1. Resolve the output directory (docsRoot)
-[ ] 2. Derive the filename, bumping to -vN on collision
-[ ] 3. Write the summary covering the entire conversation
-[ ] 4. Confirm — report the path and a one-line summary
-[ ] 5. Verify the QA checklist
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Resolve the output directory (docsRoot)
+2. Derive the filename, bumping to -vN on collision
+3. Write the summary covering the entire conversation
+4. Confirm — report the path and a one-line summary
+5. Verify the QA checklist
 
 ## Why this exists
 

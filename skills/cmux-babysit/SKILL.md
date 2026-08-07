@@ -67,12 +67,14 @@ Turn the current session into a manager for N CMUX workspaces each running a `cl
 
 ## Phases
 
-[ ] 1. Setup — resolve binaries via resolve_bin, persist to BINS, discover target workspaces, confirm the list
-[ ] 2. Poll — list notifications, read the screens of flagged workspaces
-[ ] 3. Classify — assign state per the marker table, set sidebar pills
-[ ] 4. Triage — present pending workspaces one at a time, approvals first
-[ ] 5. Relay — send the answer, verify it landed, update the pill
-[ ] 6. Summarize + rearm — one line per workspace, restart the waiter, return to phase 2
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Setup — resolve binaries via resolve_bin, persist to BINS, discover target workspaces, confirm the list
+2. Poll — list notifications, read the screens of flagged workspaces
+3. Classify — assign state per the marker table, set sidebar pills
+4. Triage — present pending workspaces one at a time, approvals first
+5. Relay — send the answer, verify it landed, update the pill
+6. Summarize + rearm — one line per workspace, restart the waiter, return to phase 2
 
 Phases 2–6 loop: after phase 6, control returns to phase 2 for the next wake/poll cycle. This is intentional re-entry, not a violation of protocol rule 2 ("no skipping, reordering, or merging") — the phases still run in order on each pass through the loop; only the loop's repeat is exempt from the "never begin phase N+1 before phase N" one-way reading.
 

@@ -75,15 +75,17 @@ Fetch open work items from the resolved work source and create git worktrees for
 
 ## Phases
 
-[ ] 1. Detect the project
-[ ] 2. Fetch open work items from the resolved source
-[ ] 3. Generate branch and worktree names
-[ ] 4. Check for existing branches and worktrees
-[ ] 5. Present for confirmation and let the user select
-[ ] 6. Handle existing work — reuse or start fresh
-[ ] 7. Create worktrees, copy untracked files, set status to in_progress
-[ ] 8. Report and offer planning (SKIPPED if declined)
-[ ] 9. Final report
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Detect the project
+2. Fetch open work items from the resolved source
+3. Generate branch and worktree names
+4. Check for existing branches and worktrees
+5. Present for confirmation and let the user select
+6. Handle existing work — reuse or start fresh
+7. Create worktrees, copy untracked files, set status to in_progress
+8. Report and offer planning (SKIPPED if declined)
+9. Final report
 
 ## Prerequisites
 

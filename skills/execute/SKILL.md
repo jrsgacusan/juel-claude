@@ -60,11 +60,13 @@ Takes an existing implementation plan and dispatches Codex (sandboxed `workspace
 
 ## Phases
 
-[ ] 1. Find the plan
-[ ] 2. Confirm the plan path with the user
-[ ] 3. Scan the plan for commit conventions and fold them into the executor prompt
-[ ] 4. Run the executor in the BACKGROUND (watched, waited-on) and report the outcome
-[ ] 5. Report the result
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Find the plan
+2. Confirm the plan path with the user
+3. Scan the plan for commit conventions and fold them into the executor prompt
+4. Run the executor in the BACKGROUND (watched, waited-on) and report the outcome
+5. Report the result
 
 ## Arguments
 

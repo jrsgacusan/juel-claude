@@ -363,6 +363,77 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 9: Phases section must be a plain numbered list mapped to TaskCreate --
+// Root-caused defect (v1.4.1): v1.1.0 rewrote the shared protocol block's
+// rules 1-3 from "print a phase checklist" to "create one task per phase via
+// TaskCreate, update status via TaskUpdate, never re-print the checklist as
+// text" — but the 12 per-skill `## Phases` sections were never updated to
+// match. They still read as literal `[ ] N. ...` markdown checkboxes, which
+// reads as an instruction to render the list as text, not to enumerate it
+// into TaskCreate calls — and printing wins. TaskCreate itself appeared only
+// in the shared protocol block, never once in a skill's own Phases text.
+// This check enforces the agreed replacement shape: a plain numbered list,
+// with one line directly under the heading stating the TaskCreate mapping,
+// byte-identical across every skill — like the protocol and docsRoot blocks.
+//
+// Like checks 7 and 8, this is a closed-set heuristic tuned to the current
+// phrasing of the Phases section and the mapping line, not a general
+// markdown/task parser. A future rewrite of the mapping sentence must update
+// TASKCREATE_MAPPING_LINE here too, in lockstep with all 12 skills.
+//
+// Same strictness as checks 7 and 8: a Phases section this check cannot
+// positively confirm as a clean numbered list with the mapping line present
+// is a FAIL, not a skip — a silently-exempted skill is this plugin's most
+// recurrent defect class (eleven confirmed instances before this one).
+{
+  const PHASES_HEADING_RE = /^## Phases\s*$/;
+  const HEADING_RE = /^#{1,6}\s/;
+  const CHECKBOX_RE = /\[[ xX-]\]/;
+  const NUMBERED_ITEM_RE = /^\s*\d+\.\s+\S/;
+  const TASKCREATE_MAPPING_LINE =
+    'This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.';
+
+  for (const [name, text] of skillBodies) {
+    const lines = text.split(/\r?\n/);
+    const headingIdx = lines.findIndex((l) => PHASES_HEADING_RE.test(l));
+    if (headingIdx === -1) {
+      fail('phases', `skills/${name}/SKILL.md: no '## Phases' section found`);
+      continue;
+    }
+    let sectionEnd = headingIdx + 1;
+    while (sectionEnd < lines.length && !HEADING_RE.test(lines[sectionEnd])) sectionEnd++;
+    const section = lines.slice(headingIdx + 1, sectionEnd);
+
+    // Checkbox syntax anywhere in the section — including inline/backticked
+    // examples, not just list-item starts — is an immediate fail.
+    section.forEach((line, i) => {
+      if (CHECKBOX_RE.test(line))
+        fail('phases',
+          `skills/${name}/SKILL.md:${headingIdx + 2 + i}: Phases section still has checkbox syntax ` +
+          '([ ]/[x]/[-]) — convert to a plain numbered list; TaskCreate/TaskUpdate is the checklist now, ' +
+          `not printed text — "${line.trim().slice(0, 100)}"`);
+    });
+
+    // The TaskCreate-mapping line must be the first non-blank line under the
+    // heading, and byte-identical to the canonical text.
+    const firstContentIdx = section.findIndex((l) => l.trim() !== '');
+    if (firstContentIdx === -1 || section[firstContentIdx] !== TASKCREATE_MAPPING_LINE) {
+      fail('phases',
+        `skills/${name}/SKILL.md: '## Phases' section is missing the TaskCreate-mapping line, or it is not ` +
+        `byte-identical to the canonical text — it must read exactly: "${TASKCREATE_MAPPING_LINE}"`);
+    }
+
+    // Confidence check: a real numbered list must be present, or this check
+    // cannot confirm the shape and fails rather than silently passing.
+    const numberedLines = section.filter((l) => NUMBERED_ITEM_RE.test(l));
+    if (numberedLines.length === 0) {
+      fail('phases',
+        `skills/${name}/SKILL.md: '## Phases' section has no parsable numbered list (expected '1. ...', ` +
+        `'2. ...' lines) — cannot confirm shape, failing rather than silently passing`);
+    }
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 

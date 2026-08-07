@@ -74,11 +74,13 @@ Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree an
 
 ## Phases
 
-[ ] 1. Resolve the work-item ref and fetch it, or record that there is none and skip grading
-[ ] 2. Run pr-review-toolkit:review-pr, all parallel, FOREGROUND, read the complete output
-[ ] 3. Assess requirement alignment against the fetched work item
-[ ] 4. Validate every finding via superpowers:receiving-code-review
-[ ] 5. Write the consolidated report
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Resolve the work-item ref and fetch it, or record that there is none and skip grading
+2. Run pr-review-toolkit:review-pr, all parallel, FOREGROUND, read the complete output
+3. Assess requirement alignment against the fetched work item
+4. Validate every finding via superpowers:receiving-code-review
+5. Write the consolidated report
 
 ## Arguments
 

@@ -76,14 +76,16 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 
 ## Phases
 
-[ ] 1. Ensure a PR number, asking if it was not supplied
-[ ] 2. Read every review thread and deliver the summary before forming an opinion
-[ ] 3. Fetch structured data — inline comments, reviews, issue comments, diff
-[ ] 4. Validate findings into actionable / rejected / ambiguous
-[ ] 5. Clarify ambiguous findings (SKIPPED if none were ambiguous)
-[ ] 6. Write the remediation plan, or stop here if there are zero actionable findings
-[ ] 7. Run the executor on the plan, BACKGROUND (watched, waited-on)
-[ ] 8. Report the result
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Ensure a PR number, asking if it was not supplied
+2. Read every review thread and deliver the summary before forming an opinion
+3. Fetch structured data — inline comments, reviews, issue comments, diff
+4. Validate findings into actionable / rejected / ambiguous
+5. Clarify ambiguous findings (SKIPPED if none were ambiguous)
+6. Write the remediation plan, or stop here if there are zero actionable findings
+7. Run the executor on the plan, BACKGROUND (watched, waited-on)
+8. Report the result
 
 ## First action (non-negotiable)
 

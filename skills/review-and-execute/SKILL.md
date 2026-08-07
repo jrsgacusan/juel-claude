@@ -65,11 +65,13 @@ Orchestrates a full review-to-fix cycle: PR review → validate findings → wri
 
 ## Phases
 
-[ ] 1. PR review — pr-review-toolkit:review-pr against the base branch, FOREGROUND, output read in full
-[ ] 2. Validate findings via superpowers:receiving-code-review
-[ ] 3. Write the remediation plan, or stop here if there are zero actionable findings
-[ ] 4. Run the executor on that plan, BACKGROUND (watched, waited-on)
-[ ] 5. Report the plan path, the command run, and the result
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. PR review — pr-review-toolkit:review-pr against the base branch, FOREGROUND, output read in full
+2. Validate findings via superpowers:receiving-code-review
+3. Write the remediation plan, or stop here if there are zero actionable findings
+4. Run the executor on that plan, BACKGROUND (watched, waited-on)
+5. Report the plan path, the command run, and the result
 
 ## Arguments
 

@@ -105,16 +105,18 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 
 ## Phases
 
-[ ] 1. Start — juel:start: detect, fetch, brainstorm
-[ ] 2. Spec — write the spec doc
-[ ] 3. Plan — superpowers:writing-plans
-[ ] 4. Execute — run the executor from the worktree root, BACKGROUND (watched, waited-on)
-[ ] 5. Review + remediation — juel:review-and-execute
-[ ] 6. Simplify (final polish) — code-simplifier agent, FOREGROUND
-[ ] 7. Manual verification — decide FE/BE, verify real behavior
-[ ] 8. Open PR — with QA instructions, update the work-item status
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
-Note phase 6's preflight row is SOFT while its phase is not optional: if `code-simplifier` is genuinely unavailable the phase is marked `[-] SKIPPED`, which protocol rule 2 requires be announced rather than dropped.
+1. Start — juel:start: detect, fetch, brainstorm
+2. Spec — write the spec doc
+3. Plan — superpowers:writing-plans
+4. Execute — run the executor from the worktree root, BACKGROUND (watched, waited-on)
+5. Review + remediation — juel:review-and-execute
+6. Simplify (final polish) — code-simplifier agent, FOREGROUND
+7. Manual verification — decide FE/BE, verify real behavior
+8. Open PR — with QA instructions, update the work-item status
+
+Note phase 6's preflight row is SOFT while its phase is not optional: if `code-simplifier` is genuinely unavailable, that phase's task is still marked `completed` via `TaskUpdate` with a `SKIPPED` evidence line, which protocol rule 2 requires be announced rather than dropped.
 
 ## Arguments
 

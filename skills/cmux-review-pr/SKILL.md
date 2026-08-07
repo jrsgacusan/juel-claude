@@ -95,15 +95,17 @@ Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspa
 
 ## Phases
 
-[ ] 1. Preflight — resolve binaries via resolve_bin, persist to BINS, set CMUX_QUIET
-[ ] 2. Resolve the PR to a branch and label
-[ ] 3. Extract the work-item ref from the branch, falling back to the PR title
-[ ] 4. Create the worktree and copy untracked env files
-[ ] 5. Compute the deterministic session id
-[ ] 6. Spawn the workspace, rename it, poll for the prompt, send the review prompt + Enter
-[ ] 7. Open the second surface and start the resolved install command
-[ ] 8. Report PR, work item, worktree, session, workspace, surface
-[ ] 9. Verify the QA checklist
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
+
+1. Preflight — resolve binaries via resolve_bin, persist to BINS, set CMUX_QUIET
+2. Resolve the PR to a branch and label
+3. Extract the work-item ref from the branch, falling back to the PR title
+4. Create the worktree and copy untracked env files
+5. Compute the deterministic session id
+6. Spawn the workspace, rename it, poll for the prompt, send the review prompt + Enter
+7. Open the second surface and start the resolved install command
+8. Report PR, work item, worktree, session, workspace, surface
+9. Verify the QA checklist
 
 ## Arguments
 

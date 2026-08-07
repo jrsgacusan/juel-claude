@@ -59,16 +59,18 @@ Creates Linear tickets from conversational input or code context. Always preview
 
 ## Phases
 
-[ ] 1. Gather input — parent, blockers, assignee, deadline, cycle, links
-[ ] 2. Project selection (MANDATORY — never skipped)
-[ ] 3. Fetch team data — labels and statuses
-[ ] 4. Codebase scan (conditional)
-[ ] 5. Draft the ticket — title, description, defaults, labels
-[ ] 6. Preview (MANDATORY — never skipped): Yes / Edit / Cancel
-[ ] 7. Create and report the ticket identifier
+This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
-Phase 4 is the canonical rule-2 case: it is never silently dropped. Not in a git repo, or the ticket type doesn't warrant it (feature request, design task, research spike — see Step 4 below), it is still announced. For a feature request it renders:
-`[-] 4. Codebase scan — SKIPPED: feature request, code context would prescribe implementation`
+1. Gather input — parent, blockers, assignee, deadline, cycle, links
+2. Project selection (MANDATORY — never skipped)
+3. Fetch team data — labels and statuses
+4. Codebase scan (conditional)
+5. Draft the ticket — title, description, defaults, labels
+6. Preview (MANDATORY — never skipped): Yes / Edit / Cancel
+7. Create and report the ticket identifier
+
+Phase 4 is the canonical rule-2 case: it is never silently dropped. Not in a git repo, or the ticket type doesn't warrant it (feature request, design task, research spike — see Step 4 below), it is still announced: mark its task `completed` via `TaskUpdate` with the one-line evidence stating the skip reason. For a feature request that evidence reads:
+`SKIPPED: feature request, code context would prescribe implementation`
 
 **Steps marked MANDATORY must never be skipped.**
 
@@ -120,8 +122,8 @@ From the selected project, resolve the team (use `<LINEAR_PREFIX>list_teams` if 
 | Design task | **No** | Code context is irrelevant |
 | Research spike | **No** | Let the investigator discover the codebase |
 
-**Never drop this phase silently when it doesn't apply — announce the skip in the checklist re-emit (protocol rule 2), e.g. for a feature request:**
-`[-] 4. Codebase scan — SKIPPED: feature request, code context would prescribe implementation`
+**Never drop this phase silently when it doesn't apply — mark its task `completed` via `TaskUpdate` with the one-line evidence stating the skip reason (protocol rule 2), e.g. for a feature request:**
+`SKIPPED: feature request, code context would prescribe implementation`
 
 **When scanning, match input to action:**
 
