@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel:protocol v3 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v4 -->';
 for (const [name, text] of skillBodies) {
   if (!text.includes(PROTOCOL_MARKER))
     fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
@@ -303,19 +303,30 @@ for (const [name, text] of skillBodies) {
 //      — backgrounding must never become fire-and-forget.
 //   3. An outcome-reporting phrase (exit status / files changed) — the
 //      phase is marked done from the *outcome*, not a printed transcript.
+//   4. `< /dev/null` on the invocation line itself. Root-caused defect
+//      (v1.4.1, reproduced live): `codex exec --help` states that if stdin
+//      is piped and a prompt is also given as an argument, stdin is
+//      appended as a `<stdin>` block — and the Bash tool pipes stdin and
+//      never closes it. Every real site omitted stdin redirection, so
+//      `codex exec 'prompt'` printed "Reading additional input from
+//      stdin..." and hung forever waiting for an EOF that never arrives —
+//      the prompt argument is never processed. It looks exactly like a
+//      working executor running quietly, which is what makes it dangerous.
+//      `< /dev/null` gives codex an immediate EOF so it proceeds instead.
 // A site whose section shows none of this — no true, no false, no wait, no
-// outcome language — is a FAIL, not a skip: a codex site this check cannot
-// positively confirm as backgrounded-and-waited-on is exactly the
-// silently-exempted-site failure mode this plugin keeps producing (eleven
-// confirmed instances across prior checks). There is no "can't tell, pass
-// it" branch here.
+// outcome language, no `< /dev/null` — is a FAIL, not a skip: a codex site
+// this check cannot positively confirm as backgrounded-and-waited-on-and-
+// unblocked-on-stdin is exactly the silently-exempted-site failure mode
+// this plugin keeps producing (eleven confirmed instances across prior
+// checks). There is no "can't tell, pass it" branch here.
 //
 // Like check 7, this is a closed-set heuristic tuned to the phrasing this
 // codebase currently uses ("Run this in the **background**
 // (`run_in_background: true`)", "wait for it to exit", "state the exit
-// status and files changed"). A future rewrite that says the same thing in
-// different words can defeat it; a human touching rule 4's prose again is
-// expected to re-tune these patterns, not trust them blindly.
+// status and files changed", "< /dev/null"). A future rewrite that says the
+// same thing in different words can defeat it; a human touching rule 4's
+// prose again is expected to re-tune these patterns, not trust them
+// blindly.
 {
   const CODEX_EXEC_LINE_RE = /^codex exec\s+--sandbox\b/;
   const HEADING_RE = /^#{1,6}\s/;
@@ -323,6 +334,7 @@ for (const [name, text] of skillBodies) {
   const BG_FALSE_RE = /run_in_background:\s*false/i;
   const WAIT_EXIT_RE = /\bwait(?:ing)?\s+for\s+(?:it|codex)\s+to\s+(?:exit|complete|finish)\b/i;
   const OUTCOME_RE = /\b(exit status|files changed)\b/i;
+  const DEVNULL_STDIN_RE = /<\s*\/dev\/null\b/;
 
   for (const [name, text] of skillBodies) {
     const lines = text.split(/\r?\n/);
@@ -358,6 +370,13 @@ for (const [name, text] of skillBodies) {
         fail('codex-bg',
           `skills/${name}/SKILL.md:${lineNo}: codex exec site does not state outcome reporting (exit status / ` +
           'files changed) — report the outcome at exit, not a transcript');
+      }
+      if (!DEVNULL_STDIN_RE.test(line)) {
+        fail('codex-bg',
+          `skills/${name}/SKILL.md:${lineNo}: codex exec invocation is missing '< /dev/null' — the Bash tool ` +
+          'pipes stdin and never closes it, and codex appends piped stdin (waiting for EOF) when a prompt is ' +
+          'also given as an argument, so without this redirect codex hangs forever and the prompt is never ' +
+          'processed — see rule 4');
       }
     });
   }
