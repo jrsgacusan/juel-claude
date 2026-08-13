@@ -56,6 +56,18 @@ your machine. The plugin cannot install these for you:
 - [`codex`](https://github.com/openai/codex) — dispatched as a sandboxed executor for plan
   implementation and remediation.
 
+### Bundled MCP server (requires your own Mobbin plan)
+
+This plugin's `.mcp.json` registers the [Mobbin MCP server](https://mobbin.com/mcp)
+(`search_screens` / `search_flows` / `search_sections` over Mobbin's library of real shipped UI)
+so it's available for design-reference lookups during UI work — no skill here depends on it, it's
+just there to use ad hoc. It starts automatically when the plugin is enabled, but two things are
+on you:
+
+- **A Mobbin Pro, Team, or Enterprise plan** — the server is gated behind a paid subscription.
+- **One-time OAuth** — run `/mcp`, select `mobbin`, choose Authenticate, and sign in when the
+  browser opens.
+
 ## Skills
 
 | Skill | Description |
