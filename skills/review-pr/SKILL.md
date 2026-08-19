@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Use to review the current diff (branch or open PR) in this repo, grading it against a linked work item when one resolves - runs pr-review-toolkit:review-pr in parallel, assesses requirement alignment, validates every finding with technical rigor, then writes a consolidated report with nothing silently dropped. Runs in the current working tree; use juel:cmux-review-pr instead when you want an isolated CMUX worktree/workspace. Triggers "review this PR", "review pr", "/juel:review-pr".
+description: Use to review the current diff (branch or open PR) in this repo, grading it against a linked work item when one resolves - runs pr-review-toolkit:review-pr in parallel, assesses requirement alignment, validates every finding with technical rigor, then writes a consolidated report with nothing silently dropped, and assesses whether the PR is approvable, triaging findings into inline-comment vs. summary-comment candidates. Runs in the current working tree; use juel:cmux-review-pr instead when you want an isolated CMUX worktree/workspace. Triggers "review this PR", "review pr", "/juel:review-pr".
 metadata:
   requires:
     mcp:
@@ -34,7 +34,7 @@ metadata:
 
 ## Overview
 
-Reviews the current diff in this repo — a fresh, self-contained review cycle: resolve and fetch the linked work item (if any) → run `pr-review-toolkit:review-pr` → assess requirement alignment → validate every finding → write a consolidated report. Everything the review needs lives in this skill, not in a prompt string handed to another session.
+Reviews the current diff in this repo — a fresh, self-contained review cycle: resolve and fetch the linked work item (if any) → run `pr-review-toolkit:review-pr` → assess requirement alignment → validate every finding → write a consolidated report → assess approvability and triage findings into inline vs. summary-comment candidates. Everything the review needs lives in this skill, not in a prompt string handed to another session.
 
 Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree and CMUX workspace and queues this skill as the startup prompt inside it. This skill does the actual reviewing, wherever it runs.
 
@@ -82,6 +82,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 3. Assess requirement alignment against the fetched work item
 4. Validate every finding via superpowers:receiving-code-review
 5. Write the consolidated report
+6. Assess approval readiness and triage findings for posting
 
 ## Arguments
 
@@ -103,11 +104,13 @@ digraph flow {
     align [label="3. Requirement alignment\n(met/partial/unmet + scope-creep)"];
     validate [label="4. Validate findings\n(receiving-code-review)"];
     report [label="5. Write consolidated report\n(findings-review.md)"];
+    triage [label="6. Assess approvability\n(verdict + inline/summary triage)"];
 
     ref -> review;
     review -> align;
     align -> validate;
     validate -> report;
+    report -> triage;
 }
 ```
 
@@ -277,7 +280,7 @@ the extension; if `-v2` exists too, use `-v3`, and so on. This applies to every 
 under `${docsRoot}`, not only the one this skill produces.
 
 Write the report to `${docsRoot}/findings/findings-review.md` with exactly four sections, in this
-order:
+order (Step 6 appends a fifth once triage runs):
 
 1. **Requirement-alignment** — each requirement/acceptance criterion from Step 3, marked met /
    partial / unmet with evidence, plus any scope-creep beyond the work item. Omit this section
@@ -293,6 +296,62 @@ state this explicitly in the report.** Silently dropping a finding between Step 
 this plugin's most recurrent defect class; a reader of the report must be able to verify the count
 in equals the count out.
 
+### Step 6: Assess approval readiness and triage postable findings
+
+Using the Requirement-alignment, Confirmed, and Ambiguous sections written in Step 5, decide a
+**verdict** and split the postable content into an **inline** list and a **summary body**. This
+step never touches GitHub — it only produces the draft that Step 7 later posts, or that stays in
+the report for manual posting.
+
+**Verdict** — apply these rules in order, stop at the first match:
+
+1. Any Requirement-alignment item is **unmet** → `REQUEST_CHANGES`.
+2. Any Confirmed finding is a correctness or security defect (not a style/simplification nit) →
+   `REQUEST_CHANGES`.
+3. Any Ambiguous finding remains, or any Requirement-alignment item is **partial** → `COMMENT`.
+4. Otherwise → `APPROVE`.
+
+State the one-line rule that produced the verdict (e.g. "REQUEST_CHANGES: Confirmed finding at
+`src/auth.py:42` is a correctness defect").
+
+**Inline vs. summary triage** — for every Confirmed finding:
+
+- **Inline** when it has a concrete `file` and `line`, and that line falls within the PR's diff
+  (a line that changed, or sits inside a diff hunk). GitHub's review API rejects comments anchored
+  outside the diff, so a finding that cannot be placed this way is never queued as inline — route
+  it to the summary instead.
+- **Summary** when it lacks a precise `file`/`line` anchor, references a line outside the diff, or
+  is a cross-cutting/architectural observation that reads better as prose than as a line comment.
+
+Every Ambiguous finding goes into the summary as an open question for the human to resolve — never
+posted inline, since it is by definition unresolved. Note the count of Rejected findings in one
+summary line (not their detail) so nothing is silently dropped from the record, without spamming
+the PR with dismissed nitpicks.
+
+Append a fifth section to the **same** `findings-review.md` written in Step 5 — do not create a
+second file:
+
+```markdown
+## Verdict & posting plan
+
+**Verdict:** APPROVE | REQUEST_CHANGES | COMMENT — <the one-line rule that produced it>
+
+**Summary body** (goes into the GitHub review's `body` field):
+
+<markdown text: verdict rationale, requirement-alignment recap if graded, non-inline Confirmed
+findings, Ambiguous findings as open questions, one-line Rejected-count footer>
+
+**Inline comments** (goes into the GitHub review's `comments[]` field):
+
+| File | Line | Body |
+|---|---|---|
+| path/to/file.py | 42 | <finding claim + suggested fix> |
+```
+
+If there are zero inline-worthy findings, the table has a header and no rows — never omit the
+table itself. If Confirmed is empty and no work item was graded, or every requirement is met with
+no blocking findings, the verdict is `APPROVE` with an empty inline table.
+
 ## Edge cases
 
 | Situation | Action |
@@ -307,3 +366,6 @@ in equals the count out.
 | All findings rejected | Still write the report with an empty Confirmed section; do not suppress the file |
 | `${docsRoot}/findings/` does not exist yet | Create it (`mkdir -p`) before writing the report |
 | Existing `findings-review.md` from a prior run | Never overwrite it. Write `findings-review-v2.md` instead; if that exists too, `-v3`, and so on — same versioning rule as every other file under `${docsRoot}` |
+| Confirmed finding has no `file`/`line`, or references a line outside the PR's diff | Goes to the summary body, never the inline table — GitHub rejects inline comments anchored outside the diff |
+| No Confirmed or Ambiguous findings, and all graded requirements are met (or ungraded) | Verdict is `APPROVE` with an empty inline table |
+| Zero inline-worthy findings but a non-empty summary | Still post — `comments: []` with a populated `body` is valid |
