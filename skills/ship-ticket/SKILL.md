@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, a final code-simplifier polish, then manual verification, then opens the PR. Pauses for confirmation between phases.
+description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, a final code-simplifier polish, then exhaustive end-to-end verification (every acceptance criterion individually confirmed, Claude driving the real flow itself, a full test/lint/typecheck/build regression gate), then opens the PR. Pauses for confirmation between phases.
 metadata:
   requires:
     mcp:
@@ -49,12 +49,12 @@ metadata:
         fallback: phase 6 SKIPPED with a note
       - id: run
         hard: false
-        why: phase 7 launches the app to verify backend behavior
-        fallback: phase 7 drives commands.run directly and observes
+        why: phase 7 launches the app to drive and observe backend behavior directly, including the backend leg of full-stack traces
+        fallback: phase 7 executes the resolved commands.run directly and observes
       - id: verify
         hard: false
-        why: phase 7 frontend path drives verify to check the change in a real browser when the user is unavailable
-        fallback: phase 7 falls back to driving the resolved commands.run and asking the user to confirm in the browser, recording which acceptance criteria remain unverified
+        why: phase 7 drives the real browser flow for every checklist item with a UI surface, as Claude's default end-to-end verifier
+        fallback: phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly
 ---
 
 # Ship Ticket
@@ -98,8 +98,8 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | juel:start, juel:review-and-execute | skill | HARD | ship with this plugin | STOP |
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | code-simplifier | skill | SOFT | ships as a plugin dependency | phase 6 SKIPPED with a note |
-| run | skill | SOFT | built-in | phase 7 drives `commands.run` directly and observes |
-| verify | skill | SOFT | built-in | phase 7 falls back to driving the resolved `commands.run` and asking the user to confirm in the browser, recording which acceptance criteria remain unverified |
+| run | skill | SOFT | built-in | phase 7 executes the resolved `commands.run` directly and observes |
+| verify | skill | SOFT | built-in | phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 8 prints a compare URL instead of opening the PR |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR |
@@ -114,7 +114,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 4. Execute — run the executor from the worktree root, BACKGROUND (watched, waited-on)
 5. Review + remediation — juel:review-and-execute
 6. Simplify (final polish) — code-simplifier agent, FOREGROUND
-7. Manual verification — decide FE/BE, verify real behavior
+7. End-to-end verification — exhaustive per-item checklist, Claude drives the real flow, full regression gate before PR
 8. Open PR — with QA instructions, update the work-item status
 
 Note phase 6's preflight row is SOFT while its phase is not optional: if `code-simplifier` is genuinely unavailable, that phase's task is still marked `completed` via `TaskUpdate` with a `SKIPPED` evidence line, which protocol rule 2 requires be announced rather than dropped.
@@ -258,7 +258,7 @@ digraph flow {
     p4 [label="4. Execute\n(codex exec from worktree root)"];
     p5 [label="5. Review + remediation\n(juel:review-and-execute)"];
     p6 [label="6. Simplify (final polish)\n(code-simplifier agent)"];
-    p7 [label="7. Manual verification\n(decide FE/BE, verify behavior)"];
+    p7 [label="7. End-to-end verification\n(per-item checklist + full regression gate)"];
     p8 [label="8. Open PR\n(gh pr create, or push + compare URL if gh is absent)"];
     p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8;
 }
@@ -392,19 +392,61 @@ This is the last **planned** code-change phase (phase 7 verification may still l
 
 **Checkpoint:** show diff summary post-simplify. Ask to proceed to manual verification.
 
-### Phase 7 — Manual verification
+### Phase 7 — End-to-end verification
 
-Verify the change actually works before opening the PR. This phase is **human-in-the-loop**: do not open the PR on the strength of passing unit tests alone.
+Verify the change actually works, exhaustively, before opening the PR. This phase is
+**human-in-the-loop only where Claude genuinely cannot self-serve**: do not open the PR on the
+strength of passing unit tests alone, and do not treat "the user will check it" as a substitute
+for Claude driving the real flow itself.
 
-1. **Ask the user, explicitly:** "How do we test these changes manually? Do you need anything from me (test account, env var, seed data, a specific org/case, a running service)?" Wait for their answer — they may already know the exact steps.
-2. **Decide who drives, based on what changed (`git diff --stat`):**
-   - **Frontend / UI** — the user usually verifies in the browser themselves. Offer concrete steps (route, inputs, expected result) derived from the work item's acceptance criteria if it has any; otherwise from the verification steps the user gave in Phase 2 (recorded in the spec). Let them confirm. If they want automated help, or are unavailable, invoke `Skill("verify", run_in_background: false)` to drive the change through Playwright and capture evidence. If `verify` is unavailable, fall back to driving the resolved `commands.run` directly and asking the user to confirm in the browser, recording which acceptance criteria remain unverified.
-   - **Backend / API** — Claude drives. Invoke `Skill("run", run_in_background: false)` to launch the app and observe real behavior (hit the endpoint, check the DB, exercise the background task). If `run` is unavailable, execute the `commands.run` resolved in Phase 4 directly (reuse it, do not re-derive) and observe. Ask the user only for inputs you cannot self-serve.
-   - **Mixed** — split: Claude verifies the BE surface, the user confirms the FE surface.
-3. **Run the actual verification**, capturing evidence (request/response, log lines, screenshots, DB rows). Map each verification item recorded in the spec — the work item's acceptance criteria if it has any, otherwise the concrete steps the user gave in Phase 2 — to an observed result. **An empty checklist is never a pass.** If the spec has neither acceptance criteria nor recorded verification steps, stop here and ask the user for concrete verification steps before marking this phase done — a zero-item checklist must never be allowed to read as "verified".
-4. If verification surfaces a defect, **do not patch by hand** — loop back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-verify after the fix.
+1. **Build the exhaustive verification checklist.** Enumerate, as individually numbered items:
+   - Every acceptance criterion from the work item, if it has any.
+   - Every concrete verification step the user gave in Phase 2 (recorded in the spec), if the work
+     item had none.
+   - Every edge/negative case the ticket or spec explicitly calls out (error states, empty/invalid
+     input, permission boundaries, concurrency notes).
+   - Every edge/negative case directly implied by the diff itself — e.g. a new validation gets an
+     invalid-input check, a new endpoint gets a missing/malformed-payload check, a new permission
+     gate gets a denied-access check. Bounded to what the diff actually touches — this is not
+     open-ended fuzzing.
 
-**Checkpoint:** summarize what was verified, who verified it, and the evidence. Ask to proceed to PR.
+   **An empty checklist is never a pass.** If this step yields zero items (no acceptance criteria,
+   no recorded verification steps, no diff-implied edge cases), stop here and ask the user for
+   concrete verification steps before marking this phase done.
+2. **Ask the user only what Claude cannot self-serve:** "Do you need anything from me (test
+   account, env var, seed data, a specific org/case, a running service)?" Wait for their answer
+   before driving anything that needs it.
+3. **Claude drives the real flow itself, end-to-end, for every checklist item:**
+   - **Any item with a UI surface:** invoke `Skill("verify", run_in_background: false)` to drive
+     the actual browser flow through Playwright — the real user action, not a mock. The same
+     driven session should also observe the resulting backend effect (network request/response, DB
+     row, log line) so one pass traces the full path: UI action → network → backend → DB/state →
+     UI feedback. This is Claude's default for every UI-surfaced item, not a fallback offered only
+     when the user is unavailable.
+   - **Any item with a backend/API surface and no UI leg:** invoke `Skill("run",
+     run_in_background: false)` to launch the app and observe real behavior directly (hit the
+     endpoint, check the DB, exercise the background task).
+   - **If `verify` is unavailable:** fall back to driving the resolved `commands.run` (from Phase 4
+     — reuse it, do not re-derive) directly, and ask the user to drive the browser themselves and
+     confirm each affected checklist item, recording which items were not verified by Claude
+     directly.
+   - **If `run` is unavailable:** execute the `commands.run` resolved in Phase 4 directly and
+     observe.
+4. **Record evidence per item, not in aggregate.** For every numbered item from Step 1, record:
+   method (`verify` / `run` / user-confirmed), the evidence (request/response, log lines,
+   screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
+   items may be collapsed into one "looks good" line.
+5. **Run the final regression gate.** Re-run every toolchain command resolved in Phase 4 that is
+   non-null — `test`, `lint`, `typecheck`, and `build` (reuse the resolved set; do not re-derive).
+   All must be green. A command that resolved to `null` in Phase 4 reports its one-line skip note
+   and does not block the gate — including `build` resolving `null` on ecosystems where `install`
+   or `typecheck` already performs it (see "Toolchain commands").
+6. If any checklist item is FAIL, or the regression gate fails, **do not patch by hand** — loop
+   back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-run this
+   entire phase after the fix — a partial re-verify is not sufficient.
+
+**Checkpoint:** show the full per-item checklist (all PASS) and the regression-gate result. Ask to
+proceed to PR.
 
 ### Phase 8 — Open PR
 
@@ -429,8 +471,8 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Zero actionable findings in phase 5 | `/juel:review-and-execute` handles this internally; still run phase 6 (code-simplifier), phase 7 (verification), and phase 8 (PR). |
 | Lint/tests fail after phase 5 | Loop back: invoke `/juel:review-and-execute` again — it will write a `-vN` plan and dispatch Codex. Do not hand-edit. |
 | Simplify introduces a regression in phase 6 | `git restore -p` the offending hunks; do not revert the whole pass blindly. |
-| Verification finds a defect in phase 7 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-verify. Do not open the PR until verification passes. |
-| User unavailable to verify a FE change in phase 7 | Offer the `verify` skill (Playwright MCP) to verify in their place; if `verify` is unavailable, fall back to driving the resolved `commands.run` and asking the user to confirm in the browser, recording which acceptance criteria remain unverified. |
+| Verification finds a defect in phase 7 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 7 in full. Do not open the PR until every checklist item is PASS and the regression gate is green. |
+| Claude cannot self-verify a FE item in phase 7 (`verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
 | Not in a worktree | Ask user; do not auto-create one. |
 
 ## Common mistakes
@@ -443,10 +485,13 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Hand-editing instead of delegating remediation | Never. Phase 5 delegates to `/juel:review-and-execute`; do not bypass it. |
 | Dispatching Codex from `frontend/` or another subdir | Always cd to worktree root first. |
 | Skipping `git status` review between phases | Each checkpoint must show what changed. |
-| Opening the PR on green unit tests alone | Phase 7 requires observed behavior, not just passing tests. Verify the real surface first. |
+| Opening the PR on green unit tests alone | Phase 7 requires observed behavior for every checklist item plus a full test/lint/typecheck/build regression gate — passing unit tests alone is never sufficient. |
 | Posting PR review-style summary instead of QA-oriented body | Phase 8 PR body is for the reviewer, not a changelog. |
 | Forgetting to update the work item's status | Phase 8 step 4 — but a provider with no `update_status` capability (including "no tracker resolved at all") is a legitimate skip printed as one line, not a forgotten step; only flag this when the provider does support `update_status` and the call was simply never made. |
 | Overwriting an existing spec or plan file on a re-run (e.g. after a failed prior attempt for the same ticket, same day) | Always bump to `-v2`, `-v3`, etc. — specs and plans are immutable history, same as `review-plan.md`. |
+| Splitting FE/BE verification without tracing one real request end-to-end | Phase 7 traces a single real user action through the whole stack (UI → network → backend → DB/state → UI feedback) for UI-surfaced items — verifying each side in isolation is not equivalent. |
+| Aggregating acceptance criteria into one "looks good" checkmark | Every acceptance criterion and every diff-implied edge/negative case gets its own numbered line with its own evidence and PASS/FAIL verdict — an aggregate pass is not sufficient. |
+| Skipping typecheck/build in the final gate because test+lint passed | Phase 7's regression gate re-runs every resolved command — test, lint, typecheck, and build — not just test and lint. |
 
 ## Notes
 
