@@ -273,7 +273,9 @@
       ],
       "soft": [
         "gh",
+        "interactive-user",
         "linear",
+        "open-pr",
         "pr-review-toolkit"
       ]
     },

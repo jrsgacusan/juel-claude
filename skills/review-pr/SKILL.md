@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Use to review the current diff (branch or open PR) in this repo, grading it against a linked work item when one resolves - runs pr-review-toolkit:review-pr in parallel, assesses requirement alignment, validates every finding with technical rigor, then writes a consolidated report with nothing silently dropped, and assesses whether the PR is approvable, triaging findings into inline-comment vs. summary-comment candidates. Runs in the current working tree; use juel:cmux-review-pr instead when you want an isolated CMUX worktree/workspace. Triggers "review this PR", "review pr", "/juel:review-pr".
+description: Use to review the current diff (branch or open PR) in this repo, grading it against a linked work item when one resolves - runs pr-review-toolkit:review-pr in parallel, assesses requirement alignment, validates every finding with technical rigor, then writes a consolidated report with nothing silently dropped, and assesses whether the PR is approvable, triaging findings into inline-comment vs. summary-comment candidates, optionally posting the review to GitHub gated behind explicit human confirmation. Runs in the current working tree; use juel:cmux-review-pr instead when you want an isolated CMUX worktree/workspace. Triggers "review this PR", "review pr", "/juel:review-pr".
 metadata:
   requires:
     mcp:
@@ -12,14 +12,24 @@ metadata:
     cli:
       - id: gh
         hard: false
-        why: phase 1 falls back to the current branch's open PR title when the branch name alone does not carry a ref
+        why: phase 1 falls back to the current branch's open PR title when the branch name alone does not carry a ref; phase 7 posts the review via gh api
         check: "command -v gh"
-        fallback: ref resolution relies on the branch name alone; review proceeds ungraded if that alone yields nothing
+        fallback: ref resolution relies on the branch name alone; review proceeds ungraded if that alone yields nothing. Phase 7 is skipped — the verdict and posting plan from phase 6 are left in the report for manual posting.
     context:
       - id: git-repo
         hard: true
         why: phase 1 detects the work-item ref from the current branch name; phase 5 writes the report under the repo's docsRoot
         check: "git rev-parse --show-toplevel"
+      - id: open-pr
+        hard: false
+        why: phase 7 posts the review to the current branch's open PR
+        check: "gh pr view --json number"
+        fallback: phase 7 is skipped — there is no open PR to post to
+      - id: interactive-user
+        hard: false
+        why: phase 7 always confirms the draft review with the user via AskUserQuestion before posting
+        check: none
+        fallback: phase 7 is skipped — posting never proceeds without interactive confirmation
     skills:
       - id: pr-review-toolkit
         hard: false
@@ -34,7 +44,7 @@ metadata:
 
 ## Overview
 
-Reviews the current diff in this repo — a fresh, self-contained review cycle: resolve and fetch the linked work item (if any) → run `pr-review-toolkit:review-pr` → assess requirement alignment → validate every finding → write a consolidated report → assess approvability and triage findings into inline vs. summary-comment candidates. Everything the review needs lives in this skill, not in a prompt string handed to another session.
+Reviews the current diff in this repo — a fresh, self-contained review cycle: resolve and fetch the linked work item (if any) → run `pr-review-toolkit:review-pr` → assess requirement alignment → validate every finding → write a consolidated report → assess approvability and triage findings into inline vs. summary-comment candidates → post the review to GitHub, gated behind your explicit confirmation. Everything the review needs lives in this skill, not in a prompt string handed to another session.
 
 Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree and CMUX workspace and queues this skill as the startup prompt inside it. This skill does the actual reviewing, wherever it runs.
 
@@ -70,8 +80,10 @@ Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree an
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | fall back to `/review`, or an inline review of `git diff <base>...HEAD` |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the Requirement-alignment section is omitted |
-| gh | cli | SOFT | `command -v gh` | ref resolution relies on the branch name alone; review proceeds ungraded if that alone yields nothing |
+| gh | cli | SOFT | `command -v gh` | ref resolution relies on the branch name alone; review proceeds ungraded if that alone yields nothing. Phase 7 is skipped — the verdict and posting plan from phase 6 are left in the report for manual posting. |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
+| open PR | context | SOFT | `gh pr view --json number` | phase 7 is skipped — there is no open PR to post to |
+| AskUserQuestion | context | SOFT | **none — render as `?`** | phase 7 is skipped — posting never proceeds without interactive confirmation |
 
 ## Phases
 
@@ -83,6 +95,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 4. Validate every finding via superpowers:receiving-code-review
 5. Write the consolidated report
 6. Assess approval readiness and triage findings for posting
+7. Post the review to GitHub, gated behind explicit human confirmation
 
 ## Arguments
 
@@ -105,12 +118,14 @@ digraph flow {
     validate [label="4. Validate findings\n(receiving-code-review)"];
     report [label="5. Write consolidated report\n(findings-review.md)"];
     triage [label="6. Assess approvability\n(verdict + inline/summary triage)"];
+    post [label="7. Post to GitHub\n(gh api pulls/reviews, human-gated)"];
 
     ref -> review;
     review -> align;
     align -> validate;
     validate -> report;
     report -> triage;
+    triage -> post;
 }
 ```
 
@@ -352,6 +367,104 @@ If there are zero inline-worthy findings, the table has a header and no rows —
 table itself. If Confirmed is empty and no work item was graded, or every requirement is met with
 no blocking findings, the verdict is `APPROVE` with an empty inline table.
 
+### Step 7: Post the review to GitHub (human-gated)
+
+**This step never posts without an explicit "yes" from the user in this turn.** No prior
+confirmation (from an earlier phase, an earlier run, or an argument) satisfies this — the gate is
+per-invocation.
+
+Skip this step entirely, marking its task `completed` with a one-line "SKIPPED: <reason>", when
+any of the following hold — check in order:
+
+1. `gh` is not installed → "SKIPPED: gh not installed".
+2. The current branch has no open PR (`gh pr view --json number` fails) → "SKIPPED: no open PR".
+3. This session cannot ask the user anything (no interactive user) → "SKIPPED: non-interactive session".
+
+None of these block the skill overall — Step 6's verdict and posting plan already live in
+`findings-review.md` for the user to post by hand.
+
+Otherwise, resolve the repo, PR number, and head commit:
+
+```bash
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+PR=$(gh pr view --json number --jq '.number')
+COMMIT=$(gh pr view --json headRefOid --jq '.headRefOid')
+```
+
+Present the full draft to the user — verdict, summary body, and the inline comment table from
+Step 6 — then ask:
+
+```
+AskUserQuestion({questions: [{
+  question: "Post this review to the PR?",
+  header: "Post review",
+  options: [
+    {label: "Post now", description: "Submit the verdict, summary, and inline comments above to GitHub as-is."},
+    {label: "Edit first", description: "Revise the verdict, summary, or inline comments before posting."},
+    {label: "Don't post", description: "Leave the draft in the report; nothing is sent to GitHub."}
+  ]
+}]})
+```
+
+- **"Edit first"** — revise the verdict/summary/inline list per the user's feedback, update the
+  `## Verdict & posting plan` section written in Step 6 to match, then re-present and ask again.
+  Never posts on this branch without a subsequent "Post now".
+- **"Don't post"** — mark the task `completed` with "SKIPPED: user declined to post". Stop.
+- **"Post now"** — continue below.
+
+Build the request body and write it to a temp file with the **Write tool — never a HEREDOC**
+(same rule as `ship-ticket`'s PR body: AI-generated text in a shell heredoc risks breaking on
+backticks/`$`/quotes in the finding text):
+
+```json
+{
+  "commit_id": "<COMMIT>",
+  "body": "<the summary body from Step 6>",
+  "event": "<the verdict from Step 6: APPROVE | REQUEST_CHANGES | COMMENT>",
+  "comments": [
+    { "path": "<file>", "line": <line>, "side": "RIGHT", "body": "<finding text>" }
+  ]
+}
+```
+
+`comments` is `[]` when Step 6's inline table has no rows — GitHub accepts an empty array with a
+populated `body`.
+
+Submit it:
+
+```bash
+PAYLOAD=/path/to/temp/file.json   # written via the Write tool above
+RESPONSE=$(gh api "repos/$REPO/pulls/$PR/reviews" --input "$PAYLOAD" 2>&1)
+STATUS=$?
+```
+
+**Self-approval:** if `STATUS` is non-zero, the verdict was `APPROVE`, and `$RESPONSE` contains
+"own pull request" — GitHub blocks approving your own PR. Rewrite the payload with
+`"event": "COMMENT"` and prefix `body` with `**Verdict: would APPROVE** (GitHub blocks
+self-approval on your own PR — posted as a comment instead)\n\n`, then retry the same `gh api`
+call **once**. Never silently downgrade the verdict without saying so in the posted body.
+
+**Any other failure:** do not retry. Report the exact `gh api` error and the payload file's path
+in the phase's evidence line, mark the task `completed` with that evidence, and stop — the draft
+remains in `findings-review.md` for the user to post by hand or hand back to this step. This is a
+GitHub API boundary; swallowing the error here would hide exactly the kind of failure (a line
+outside the diff, an expired token, a closed PR) the user needs to see.
+
+**On success:** extract the review URL from `$RESPONSE`:
+
+```bash
+REVIEW_URL=$(printf '%s' "$RESPONSE" | sed -n 's/.*"html_url" *: *"\([^"]*\)".*/\1/p' | head -1)
+```
+
+Append one line to the `## Verdict & posting plan` section already written in Step 6 — edit the
+existing file, never create a second one:
+
+```markdown
+**Posted:** <REVIEW_URL>
+```
+
+State the review URL and verdict back to the user as the phase's evidence.
+
 ## Edge cases
 
 | Situation | Action |
@@ -369,3 +482,9 @@ no blocking findings, the verdict is `APPROVE` with an empty inline table.
 | Confirmed finding has no `file`/`line`, or references a line outside the PR's diff | Goes to the summary body, never the inline table — GitHub rejects inline comments anchored outside the diff |
 | No Confirmed or Ambiguous findings, and all graded requirements are met (or ungraded) | Verdict is `APPROVE` with an empty inline table |
 | Zero inline-worthy findings but a non-empty summary | Still post — `comments: []` with a populated `body` is valid |
+| `gh` not installed when Step 7 runs | Step 7 is skipped; the verdict and posting plan stay in the report for manual posting |
+| No open PR for the current branch when Step 7 runs | Step 7 is skipped; note "no PR to post to" |
+| Non-interactive session (no way to ask the user) | Step 7 is skipped; posting never proceeds without confirmation |
+| User chooses "Don't post" | Step 7 task is completed as "SKIPPED: user declined to post"; nothing is sent to GitHub |
+| `event: APPROVE` rejected because it is the user's own PR | Retry once as `COMMENT`, with the body prefixed noting GitHub blocked self-approval |
+| Any other `gh api` failure (e.g. a line outside the diff) | Do not retry; report the exact error and the payload file path; nothing is silently swallowed |
