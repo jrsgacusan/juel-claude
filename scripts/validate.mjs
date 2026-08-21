@@ -453,6 +453,36 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 10: rule 6 (Idling verification) must be present in the shared
+// protocol block --------------------------------------------------------
+// Root-caused defect (this task): a background subagent dispatch (this
+// plugin's `pr-review-toolkit:review-pr`/`code-simplifier`) can sit at an
+// `Idling` status that looks identical whether the agent is still working or
+// has already finished and is simply waiting to be read — three separate
+// Anthropic-acknowledged, closed-as-not-planned bugs (GitHub #21048, #17011,
+// #54323) confirm this is a real, unfixed gap in the harness's own
+// notification pipeline, not a hypothetical. Rule 6 fixes this by requiring
+// a `ListAgents` check before a skill concludes "no output" or re-dispatches
+// — but since the shared protocol block is duplicated by hand across all 12
+// skills with no automated identity check (see Task 1's Global Constraints),
+// rule 6 could silently go missing from one skill on a future edit exactly
+// like the eleven prior instances of this defect class (see checks 8 and 9's
+// own comments). This check closes that gap for rule 6 specifically: every
+// skill must carry both the v5 marker and rule 6's canonical lead sentence,
+// byte-identical.
+{
+  const PROTOCOL_MARKER_V5 = '<!-- juel:protocol v5 -->';
+  const RULE6_LEAD =
+    '**6. `Idling` is a status, not a verdict — never read it as "returned nothing."**';
+
+  for (const [name, text] of skillBodies) {
+    if (!text.includes(PROTOCOL_MARKER_V5))
+      fail('protocol-v5', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V5} — rule 6 requires the v5 marker`);
+    if (!text.includes(RULE6_LEAD))
+      fail('protocol-v5', `skills/${name}/SKILL.md: missing rule 6's canonical lead sentence — it must read exactly: ${RULE6_LEAD}`);
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
