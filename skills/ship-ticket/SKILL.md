@@ -440,9 +440,18 @@ sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations to
    **An empty checklist is never a pass.** If this step yields zero items (no acceptance criteria,
    no recorded verification steps, no diff-implied edge cases), stop here and ask the user for
    concrete verification steps before marking this phase done.
-2. **Ask the user only what Claude cannot self-serve:** "Do you need anything from me (test
-   account, env var, seed data, a specific org/case, a running service)?" Wait for their answer
-   before driving anything that needs it.
+2. **Construct self-servable fixtures first, then ask only what remains.** For every checklist item
+   whose data-state need is a self-servable edge case — NULL/empty fields, a 403/permission-denied
+   state, a boundary value, or a pattern the repo already uses elsewhere (an existing seed script,
+   test factory, or fixture) — construct it directly: via the repo's own seed tooling, or a direct
+   insert/API call against the `commands.run` stack (from Phase 4). Do this before asking the user.
+
+   Then **ask the user only what Claude genuinely cannot self-serve:** "Do you need anything from
+   me (an external paid service, a real org membership, a secret, or anything else I can't
+   construct myself)?" Wait for their answer before driving anything that needs it.
+
+   This does not weaken step 1's "an empty checklist is never a pass" rule — it only changes who
+   usually satisfies a data-state requirement once the checklist already exists.
 3. **Claude drives the real flow itself, end-to-end, for every checklist item:**
    - **Any item with a UI surface:** invoke `Skill("verify", run_in_background: false)` to drive
      the actual browser flow through Playwright — the real user action, not a mock. The same
