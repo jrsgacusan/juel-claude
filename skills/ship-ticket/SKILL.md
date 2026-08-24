@@ -405,6 +405,27 @@ Verify the change actually works, exhaustively, before opening the PR. This phas
 strength of passing unit tests alone, and do not treat "the user will check it" as a substitute
 for Claude driving the real flow itself.
 
+**Environment sanity check, before anything else in this phase.** A stack that looks ready can be
+a false positive — a stale container already squatting on the port `commands.run` (resolved in
+Phase 4) needs, or a target repo with unresolved migration state. Fail loudly here rather than
+letting a later step misread a broken environment as a broken change:
+
+- **Port conflicts.** Identify the port(s) `commands.run` binds (a `PORT`/`.env` value, a
+  `docker-compose.yml` port mapping, or the framework's stated default — whichever the repo's own
+  evidence gives). Run `docker ps` and a port check (`lsof -i :<port>` or equivalent) against those
+  specific ports only — never every port in use on the machine, which would false-positive on an
+  unrelated service the user runs long-lived on purpose. A container already holding one of those
+  ports is torn down, not trusted to mean the stack is ready.
+- **Migration-head conflicts.** If Phase 4's toolchain-detection evidence shows a migrations tool
+  (e.g. an `alembic/` directory, a `migrations/` directory with a head-tracking file), run that
+  ecosystem's head-check (`alembic heads` or equivalent). More than one head resolving is a hard
+  stop — print every conflicting head. A repo with no migrations tool detected reports "SKIPPED: no
+  migrations tool detected" and continues; this is conditional on target-repo evidence, never
+  universal.
+
+State one line of evidence before continuing to the checklist below — "env sanity: clear", "env
+sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations tool detected".
+
 1. **Build the exhaustive verification checklist.** Enumerate, as individually numbered items:
    - Every acceptance criterion from the work item, if it has any.
    - Every concrete verification step the user gave in Phase 2 (recorded in the spec), if the work
