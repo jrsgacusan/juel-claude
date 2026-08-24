@@ -277,6 +277,15 @@ This filters every finding from Step 2 with technical rigor:
 - Verify each finding against the actual code before accepting
 - Do NOT blindly implement all suggestions
 
+**Reproduce or sabotage-test each finding wherever a running stack makes it feasible** — run the
+flagged code path, apply the suggested fix, and confirm behavior actually changes — rather than
+confirming by reasoned reading alone. Record the exact command or method used; this becomes the
+`Verified via` field Step 5 writes for every Confirmed/Rejected finding. When reproduction genuinely
+isn't feasible (no running stack available, or it requires data that can't be constructed), fall
+back to reasoned code-reading validation and **say so explicitly** in that finding's `Verified via`
+field (e.g. "code reading — no running stack available") — the fallback must be visible, never
+indistinguishable from an executed check.
+
 Sort every finding from Step 2 into exactly one of three buckets — **Confirmed**, **Rejected**, or
 **Ambiguous** (defined in Step 5). A finding whose validation outcome is unclear is Ambiguous, not
 dropped. No finding may go unaccounted for.
@@ -332,10 +341,13 @@ order (Step 6 appends a fifth once triage runs):
    partial / unmet with evidence, plus any scope-creep beyond the work item. Omit this section
    entirely (with a one-line note explaining why — no ref, fetch failed, or not found) when there
    is no work item.
-2. **Confirmed** — findings from Step 4 that survived validation and are actionable.
-3. **Rejected** — findings validation found incorrect or unnecessary, each **with the reason**.
+2. **Confirmed** — findings from Step 4 that survived validation and are actionable. Each entry
+   carries a `Verified via:` field stating the command/method Step 4 used to confirm it (or the
+   explicit reasoned-validation fallback note when reproduction wasn't feasible).
+3. **Rejected** — findings validation found incorrect or unnecessary, each **with the reason** and
+   a `Verified via:` field alongside it, same as Confirmed.
 4. **Ambiguous** — findings that could not be settled against the diff and need the user's
-   judgment.
+   judgment. Exempt from `Verified via` by definition — nothing was settled to record a method for.
 
 **Every finding captured in Step 2 must appear in exactly one of Confirmed / Rejected / Ambiguous —
 state this explicitly in the report.** Silently dropping a finding between Step 2 and the report is
