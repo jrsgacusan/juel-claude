@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel:protocol v5 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v6 -->';
 for (const [name, text] of skillBodies) {
   if (!text.includes(PROTOCOL_MARKER))
     fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
@@ -453,33 +453,32 @@ for (const [name, text] of skillBodies) {
   }
 }
 
-// --- Check 10: rule 6 (Idling verification) must be present in the shared
-// protocol block --------------------------------------------------------
-// Root-caused defect (this task): a background subagent dispatch (this
-// plugin's `pr-review-toolkit:review-pr`/`code-simplifier`) can sit at an
-// `Idling` status that looks identical whether the agent is still working or
-// has already finished and is simply waiting to be read — three separate
-// Anthropic-acknowledged, closed-as-not-planned bugs (GitHub #21048, #17011,
-// #54323) confirm this is a real, unfixed gap in the harness's own
-// notification pipeline, not a hypothetical. Rule 6 fixes this by requiring
-// a `ListAgents` check before a skill concludes "no output" or re-dispatches
-// — but since the shared protocol block is duplicated by hand across all 12
-// skills with no automated identity check (see Task 1's Global Constraints),
-// rule 6 could silently go missing from one skill on a future edit exactly
-// like the eleven prior instances of this defect class (see checks 8 and 9's
-// own comments). This check closes that gap for rule 6 specifically: every
-// skill must carry both the v5 marker and rule 6's canonical lead sentence,
+// --- Check 10: rule 1's TaskCreate/TaskUpdate fallback clause must be
+// present in the shared protocol block -----------------------------------
+// Root-caused defect (this task): TaskCreate/TaskUpdate can genuinely fail
+// (this plugin's own commit history and usage reports show it happening in
+// practice), and rule 1 previously called task-list creation unconditionally
+// non-optional with no documented degradation path — so a skill hitting a
+// real TaskCreate failure had no sanctioned fallback to point to, and would
+// either stall or silently drop to prose without saying so. The fallback
+// clause fixes this. Since the shared protocol block is duplicated by hand
+// across all 12 skills with no automated full-block identity check (see this
+// task's Global Constraints), the clause could silently go missing from one
+// skill on a future edit — the same defect class checks 8, 9, and the prior
+// rule-6 check (this block, before this edit) each closed for their own
+// rule. This check closes it for rule 1's fallback clause: every skill must
+// carry both the v6 marker and the clause's canonical lead sentence,
 // byte-identical.
 {
-  const PROTOCOL_MARKER_V5 = '<!-- juel:protocol v5 -->';
-  const RULE6_LEAD =
-    '**6. `Idling` is a status, not a verdict — never read it as "returned nothing."**';
+  const PROTOCOL_MARKER_V6 = '<!-- juel:protocol v6 -->';
+  const RULE1_FALLBACK_LEAD =
+    '- **If `TaskCreate`/`TaskUpdate` genuinely fail** — one attempted call returns an error, never merely assumed unavailable in advance';
 
   for (const [name, text] of skillBodies) {
-    if (!text.includes(PROTOCOL_MARKER_V5))
-      fail('protocol-v5', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V5} — rule 6 requires the v5 marker`);
-    if (!text.includes(RULE6_LEAD))
-      fail('protocol-v5', `skills/${name}/SKILL.md: missing rule 6's canonical lead sentence — it must read exactly: ${RULE6_LEAD}`);
+    if (!text.includes(PROTOCOL_MARKER_V6))
+      fail('protocol-v6', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V6} — rule 1's fallback clause requires the v6 marker`);
+    if (!text.includes(RULE1_FALLBACK_LEAD))
+      fail('protocol-v6', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
   }
 }
 
