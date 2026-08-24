@@ -67,9 +67,10 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v5 -->
+<!-- juel:protocol v6 -->
 
 **1. Preflight, then task list, before anything else.** Before any other output and before any tool call, emit the Preflight block (below). If the preflight verdict is STOP, print the preflight block and **stop** — do not create tasks and do not begin work. Otherwise, before any other work, create one task per phase in this skill's `## Phases` list via `TaskCreate` — `subject` is the phase name, `activeForm` is its present-continuous form. This task list, rendered persistently by the harness, IS the checklist; nothing else satisfies this rule. This is not optional on re-invocation, on resume, or when the user says "just do it".
+- **If `TaskCreate`/`TaskUpdate` genuinely fail** — one attempted call returns an error, never merely assumed unavailable in advance — fall back to an explicit numbered phase log, printed after every phase transition with the same one-line evidence rule 3 already requires. State the degradation once, in one line, before continuing. Never silently swap to prose without saying so.
 
 **2. Phases run in order.** No skipping, reordering, or merging. A phase that does not apply is still announced, not dropped: mark its task `completed` via `TaskUpdate`, with the one-line evidence required by rule 3 stating the skip reason (e.g. "SKIPPED: <reason>") — the task list has no separate "skipped" status, so a skipped phase becomes `completed` too. Never begin phase N+1 before phase N's task is marked `completed`.
 
@@ -404,6 +405,27 @@ Verify the change actually works, exhaustively, before opening the PR. This phas
 strength of passing unit tests alone, and do not treat "the user will check it" as a substitute
 for Claude driving the real flow itself.
 
+**Environment sanity check, before anything else in this phase.** A stack that looks ready can be
+a false positive — a stale container already squatting on the port `commands.run` (resolved in
+Phase 4) needs, or a target repo with unresolved migration state. Fail loudly here rather than
+letting a later step misread a broken environment as a broken change:
+
+- **Port conflicts.** Identify the port(s) `commands.run` binds (a `PORT`/`.env` value, a
+  `docker-compose.yml` port mapping, or the framework's stated default — whichever the repo's own
+  evidence gives). Run `docker ps` and a port check (`lsof -i :<port>` or equivalent) against those
+  specific ports only — never every port in use on the machine, which would false-positive on an
+  unrelated service the user runs long-lived on purpose. A container already holding one of those
+  ports is torn down, not trusted to mean the stack is ready.
+- **Migration-head conflicts.** If Phase 4's toolchain-detection evidence shows a migrations tool
+  (e.g. an `alembic/` directory, a `migrations/` directory with a head-tracking file), run that
+  ecosystem's head-check (`alembic heads` or equivalent). More than one head resolving is a hard
+  stop — print every conflicting head. A repo with no migrations tool detected reports "SKIPPED: no
+  migrations tool detected" and continues; this is conditional on target-repo evidence, never
+  universal.
+
+State one line of evidence before continuing to the checklist below — "env sanity: clear", "env
+sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations tool detected".
+
 1. **Build the exhaustive verification checklist.** Enumerate, as individually numbered items:
    - Every acceptance criterion from the work item, if it has any.
    - Every concrete verification step the user gave in Phase 2 (recorded in the spec), if the work
@@ -418,9 +440,18 @@ for Claude driving the real flow itself.
    **An empty checklist is never a pass.** If this step yields zero items (no acceptance criteria,
    no recorded verification steps, no diff-implied edge cases), stop here and ask the user for
    concrete verification steps before marking this phase done.
-2. **Ask the user only what Claude cannot self-serve:** "Do you need anything from me (test
-   account, env var, seed data, a specific org/case, a running service)?" Wait for their answer
-   before driving anything that needs it.
+2. **Construct self-servable fixtures first, then ask only what remains.** For every checklist item
+   whose data-state need is a self-servable edge case — NULL/empty fields, a 403/permission-denied
+   state, a boundary value, or a pattern the repo already uses elsewhere (an existing seed script,
+   test factory, or fixture) — construct it directly: via the repo's own seed tooling, or a direct
+   insert/API call against the `commands.run` stack (from Phase 4). Do this before asking the user.
+
+   Then **ask the user only what Claude genuinely cannot self-serve:** "Do you need anything from
+   me (an external paid service, a real org membership, a secret, or anything else I can't
+   construct myself)?" Wait for their answer before driving anything that needs it.
+
+   This does not weaken step 1's "an empty checklist is never a pass" rule — it only changes who
+   usually satisfies a data-state requirement once the checklist already exists.
 3. **Claude drives the real flow itself, end-to-end, for every checklist item:**
    - **Any item with a UI surface:** invoke `Skill("verify", run_in_background: false)` to drive
      the actual browser flow through Playwright — the real user action, not a mock. The same

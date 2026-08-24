@@ -52,9 +52,10 @@ Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree an
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v5 -->
+<!-- juel:protocol v6 -->
 
 **1. Preflight, then task list, before anything else.** Before any other output and before any tool call, emit the Preflight block (below). If the preflight verdict is STOP, print the preflight block and **stop** — do not create tasks and do not begin work. Otherwise, before any other work, create one task per phase in this skill's `## Phases` list via `TaskCreate` — `subject` is the phase name, `activeForm` is its present-continuous form. This task list, rendered persistently by the harness, IS the checklist; nothing else satisfies this rule. This is not optional on re-invocation, on resume, or when the user says "just do it".
+- **If `TaskCreate`/`TaskUpdate` genuinely fail** — one attempted call returns an error, never merely assumed unavailable in advance — fall back to an explicit numbered phase log, printed after every phase transition with the same one-line evidence rule 3 already requires. State the degradation once, in one line, before continuing. Never silently swap to prose without saying so.
 
 **2. Phases run in order.** No skipping, reordering, or merging. A phase that does not apply is still announced, not dropped: mark its task `completed` via `TaskUpdate`, with the one-line evidence required by rule 3 stating the skip reason (e.g. "SKIPPED: <reason>") — the task list has no separate "skipped" status, so a skipped phase becomes `completed` too. Never begin phase N+1 before phase N's task is marked `completed`.
 
@@ -135,6 +136,11 @@ digraph flow {
 ```
 
 ### Step 1: Resolve and fetch the work-item ref
+
+**Always operate on the diff and PR state as they exist right now.** Never assume a diff or finding
+set read earlier in this conversation, or in a prior invocation, is still current — re-fetch. Step 2
+already does this by construction (it dispatches a fresh review every time); this states it
+explicitly so a future edit can't quietly reintroduce a cached-diff assumption.
 
 If `[ref]` was supplied as an argument, use it directly — skip detection entirely. Otherwise resolve
 it via `detect_ref` — anchored to whole `/`-delimited segments with a denylist of generic
@@ -237,6 +243,16 @@ Require `all parallel` mode so the review agents dispatch together instead of on
 the entire review output and state the finding count before proceeding to Step 3. Capture every
 finding — file, line, severity, claim, suggested fix — nothing summarized away yet.
 
+**Capture the head commit this review is actually reviewing:**
+
+```bash
+REVIEWED_COMMIT=$(gh pr view --json headRefOid --jq '.headRefOid' 2>/dev/null)
+```
+
+Carry `REVIEWED_COMMIT` forward — Step 5 writes it into the report, and Step 7 compares a fresh
+fetch against it before posting. If `gh` is unavailable or this returns empty (no open PR), record
+that; Step 7's guard is then a no-op (there's nothing to compare against).
+
 ### Step 3: Assess requirement alignment
 
 If a work item was fetched in Step 1, go through each requirement and acceptance criterion
@@ -260,6 +276,15 @@ This filters every finding from Step 2 with technical rigor:
 - Reject suggestions that are incorrect or unnecessary
 - Verify each finding against the actual code before accepting
 - Do NOT blindly implement all suggestions
+
+**Reproduce or sabotage-test each finding wherever a running stack makes it feasible** — run the
+flagged code path, apply the suggested fix, and confirm behavior actually changes — rather than
+confirming by reasoned reading alone. Record the exact command or method used; this becomes the
+`Verified via` field Step 5 writes for every Confirmed/Rejected finding. When reproduction genuinely
+isn't feasible (no running stack available, or it requires data that can't be constructed), fall
+back to reasoned code-reading validation and **say so explicitly** in that finding's `Verified via`
+field (e.g. "code reading — no running stack available") — the fallback must be visible, never
+indistinguishable from an executed check.
 
 Sort every finding from Step 2 into exactly one of three buckets — **Confirmed**, **Rejected**, or
 **Ambiguous** (defined in Step 5). A finding whose validation outcome is unclear is Ambiguous, not
@@ -299,6 +324,16 @@ findings report, or context file that already exists at the derived path — app
 the extension; if `-v2` exists too, use `-v3`, and so on. This applies to every file type written
 under `${docsRoot}`, not only the one this skill produces.
 
+**Record the reviewed commit at the top of the report, before the four sections below** — Step 7
+reads this line back to detect whether the PR moved since this review ran:
+
+```markdown
+**Reviewed at commit:** `<REVIEWED_COMMIT from Step 2>`
+```
+
+Omit this line only when Step 2 recorded no `REVIEWED_COMMIT` (no `gh`, no open PR) — never write an
+empty backtick pair.
+
 Write the report to `${docsRoot}/findings/findings-review.md` with exactly four sections, in this
 order (Step 6 appends a fifth once triage runs):
 
@@ -306,10 +341,13 @@ order (Step 6 appends a fifth once triage runs):
    partial / unmet with evidence, plus any scope-creep beyond the work item. Omit this section
    entirely (with a one-line note explaining why — no ref, fetch failed, or not found) when there
    is no work item.
-2. **Confirmed** — findings from Step 4 that survived validation and are actionable.
-3. **Rejected** — findings validation found incorrect or unnecessary, each **with the reason**.
+2. **Confirmed** — findings from Step 4 that survived validation and are actionable. Each entry
+   carries a `Verified via:` field stating the command/method Step 4 used to confirm it (or the
+   explicit reasoned-validation fallback note when reproduction wasn't feasible).
+3. **Rejected** — findings validation found incorrect or unnecessary, each **with the reason** and
+   a `Verified via:` field alongside it, same as Confirmed.
 4. **Ambiguous** — findings that could not be settled against the diff and need the user's
-   judgment.
+   judgment. Exempt from `Verified via` by definition — nothing was settled to record a method for.
 
 **Every finding captured in Step 2 must appear in exactly one of Confirmed / Rejected / Ambiguous —
 state this explicitly in the report.** Silently dropping a finding between Step 2 and the report is
@@ -395,6 +433,22 @@ REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
 PR=$(gh pr view --json number --jq '.number')
 COMMIT=$(gh pr view --json headRefOid --jq '.headRefOid')
 ```
+
+**Stale-head-SHA guard.** Re-read the commit this review actually reviewed from the report written
+in Step 5:
+
+```bash
+REVIEWED_COMMIT=$(sed -n 's/^\*\*Reviewed at commit:\*\* `\([^`]*\)`.*/\1/p' "${docsRoot}/findings/findings-review.md" | head -1)
+```
+
+If `REVIEWED_COMMIT` is non-empty and differs from the fresh `COMMIT` fetched above: **do not
+post.** Report to the user that the PR's head moved from `$REVIEWED_COMMIT` to `$COMMIT` since the
+review ran (state the commit count between them via `git rev-list --count
+$REVIEWED_COMMIT..$COMMIT` if the ref is locally available, otherwise state the two SHAs), and that
+findings may be anchored to lines that no longer exist in the new diff. Mark the task `completed`
+with that evidence and stop this step here — do not proceed to the confirmation question below.
+Re-running `review-pr` from Step 2 is the user's decision, never auto-triggered. If
+`REVIEWED_COMMIT` is empty (Step 2 recorded none) or matches `COMMIT`, continue below unchanged.
 
 Present the full draft to the user — verdict, summary body, and the inline comment table from
 Step 6 — then ask:
