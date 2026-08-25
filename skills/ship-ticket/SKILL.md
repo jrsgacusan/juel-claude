@@ -51,7 +51,7 @@ metadata:
         hard: false
         why: phase 7 launches the app to drive and observe backend behavior directly, including the backend leg of full-stack traces
         fallback: phase 7 executes the resolved commands.run directly and observes
-      - id: verify
+      - id: juel:verify
         hard: false
         why: phase 7 drives the real browser flow for every checklist item with a UI surface, as Claude's default end-to-end verifier
         fallback: phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly
@@ -105,7 +105,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | code-simplifier | skill | SOFT | ships as a plugin dependency | phase 6 SKIPPED with a note |
 | run | skill | SOFT | built-in | phase 7 executes the resolved `commands.run` directly and observes |
-| verify | skill | SOFT | built-in | phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
+| juel:verify | skill | SOFT | ships with this plugin | phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 8 prints a compare URL instead of opening the PR |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR |
@@ -453,7 +453,7 @@ sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations to
    This does not weaken step 1's "an empty checklist is never a pass" rule — it only changes who
    usually satisfies a data-state requirement once the checklist already exists.
 3. **Claude drives the real flow itself, end-to-end, for every checklist item:**
-   - **Any item with a UI surface:** invoke `Skill("verify", run_in_background: false)` to drive
+   - **Any item with a UI surface:** invoke `Skill("juel:verify", run_in_background: false)` to drive
      the actual browser flow through Playwright — the real user action, not a mock. The same
      driven session should also observe the resulting backend effect (network request/response, DB
      row, log line) so one pass traces the full path: UI action → network → backend → DB/state →
@@ -462,14 +462,14 @@ sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations to
    - **Any item with a backend/API surface and no UI leg:** invoke `Skill("run",
      run_in_background: false)` to launch the app and observe real behavior directly (hit the
      endpoint, check the DB, exercise the background task).
-   - **If `verify` is unavailable:** fall back to driving the resolved `commands.run` (from Phase 4
+   - **If `juel:verify` is unavailable:** fall back to driving the resolved `commands.run` (from Phase 4
      — reuse it, do not re-derive) directly, and ask the user to drive the browser themselves and
      confirm each affected checklist item, recording which items were not verified by Claude
      directly.
    - **If `run` is unavailable:** execute the `commands.run` resolved in Phase 4 directly and
      observe.
 4. **Record evidence per item, not in aggregate.** For every numbered item from Step 1, record:
-   method (`verify` / `run` / user-confirmed), the evidence (request/response, log lines,
+   method (`juel:verify` / `run` / user-confirmed), the evidence (request/response, log lines,
    screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
    items may be collapsed into one "looks good" line.
 5. **Run the final regression gate.** Re-run every toolchain command resolved in Phase 4 that is
@@ -508,7 +508,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Lint/tests fail after phase 5 | Loop back: invoke `/juel:review-and-execute` again — it will write a `-vN` plan and dispatch Codex. Do not hand-edit. |
 | Simplify introduces a regression in phase 6 | `git restore -p` the offending hunks; do not revert the whole pass blindly. |
 | Verification finds a defect in phase 7 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 7 in full. Do not open the PR until every checklist item is PASS and the regression gate is green. |
-| Claude cannot self-verify a FE item in phase 7 (`verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
+| Claude cannot self-verify a FE item in phase 7 (`juel:verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
 | Not in a worktree | Ask user; do not auto-create one. |
 
 ## Common mistakes

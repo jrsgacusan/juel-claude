@@ -76,7 +76,8 @@ on you:
 | `execute` | Dispatch Codex (sandboxed, workspace-write) to execute an existing plan, honoring any commit conventions the plan specifies. |
 | `review-and-execute` | Run PR review, validate findings, write a remediation plan, then dispatch Codex to execute the fixes. |
 | `receive-review-and-execute` | Fetch external PR review comments, validate and clarify ambiguous ones, write a plan, then dispatch Codex to execute fixes. |
-| `ship-ticket` | Ship a Linear ticket end-to-end: fetch, brainstorm, spec + plan, dispatch Codex, parallel review + remediation, a final code-simplifier pass, manual verification, then open the PR — pausing for confirmation between phases. |
+| `ship-ticket` | Ship a Linear ticket end-to-end: fetch, brainstorm, spec + plan, dispatch Codex, parallel review + remediation, a final code-simplifier pass, Claude-driven end-to-end verification (`juel:verify`), then open the PR — pausing for confirmation between phases. |
+| `verify` | Verify a change actually works by driving it live through its real runtime surface (CLI, web UI via Playwright, HTTP/RPC handler) — establishes scope from the diff, drives it end-to-end, pushes on adjacent edge cases, and reports PASS / FAIL / BLOCKED / SKIP. Invoked directly, or delegated to from `ship-ticket` Phase 7 for every checklist item with a UI surface. |
 | `create-linear-ticket` | Create a Linear ticket from a bug report, task, or a TODO discovered while reading code. |
 | `daily-worktrees` | Start the day by listing Linear tickets assigned to you and setting up a git worktree per ticket for parallel work. |
 | `compact-context` | Snapshot the current conversation into a compaction-style summary under `docs/.superpowers/context/`, so context survives a `/compact` or a fresh session. |
@@ -85,7 +86,7 @@ on you:
 | `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
 | `cmux-babysit` | Turn the current session into a manager that monitors N CMUX workspaces, reports which need your input, and relays your replies — so you never switch tabs. |
 
-12 skills.
+13 skills.
 
 ## Commands
 

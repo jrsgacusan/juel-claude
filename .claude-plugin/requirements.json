@@ -2,6 +2,11 @@
   "$schema": "https://github.com/jrsgacusan/juel-claude/blob/main/schema/requirements.schema.json",
   "version": 1,
   "definitions": {
+    "app-url": {
+      "kind": "context",
+      "label": "resolved app URL",
+      "install": "Pass an explicit URL argument, or ensure commands.run resolves and can be started in the foreground; otherwise this skill asks where the app is running"
+    },
     "claude": {
       "kind": "cli",
       "label": "Claude Code CLI",
@@ -98,6 +103,11 @@
       "label": "juel:start",
       "install": "Ships with this plugin"
     },
+    "juel:verify": {
+      "kind": "skill",
+      "label": "juel:verify",
+      "install": "Ships with this plugin"
+    },
     "linear": {
       "kind": "mcp",
       "label": "Linear MCP",
@@ -117,6 +127,11 @@
       "kind": "context",
       "label": "plan file",
       "install": "An implementation plan must exist under docs/.superpowers/plans/"
+    },
+    "playwright": {
+      "kind": "mcp",
+      "label": "Playwright MCP",
+      "install": "Ships as a plugin dependency"
     },
     "pr-review-toolkit": {
       "kind": "skill",
@@ -143,10 +158,10 @@
       "label": "superpowers:brainstorming",
       "install": "Ships as part of the superpowers plugin dependency"
     },
-    "verify": {
-      "kind": "skill",
-      "label": "verify",
-      "install": "Built-in Claude Code skill"
+    "verification-criteria": {
+      "kind": "context",
+      "label": "acceptance criteria to verify",
+      "install": "Provide acceptance criteria via the work item or the spec file, or answer when this skill asks for concrete verification steps"
     },
     "work-source-list-capable": {
       "kind": "context",
@@ -291,10 +306,10 @@
         "code-simplifier",
         "codex",
         "gh",
+        "juel:verify",
         "linear",
         "pr-review-toolkit",
-        "run",
-        "verify"
+        "run"
       ]
     },
     "start": {
@@ -304,6 +319,19 @@
       ],
       "soft": [
         "linear"
+      ]
+    },
+    "verify": {
+      "hard": [
+        "git"
+      ],
+      "soft": [
+        "app-url",
+        "gh",
+        "git-repo",
+        "playwright",
+        "run",
+        "verification-criteria"
       ]
     }
   }
