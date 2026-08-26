@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel:protocol v6 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v7 -->';
 for (const [name, text] of skillBodies) {
   if (!text.includes(PROTOCOL_MARKER))
     fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
@@ -398,7 +398,7 @@ for (const [name, text] of skillBodies) {
 // Like checks 7 and 8, this is a closed-set heuristic tuned to the current
 // phrasing of the Phases section and the mapping line, not a general
 // markdown/task parser. A future rewrite of the mapping sentence must update
-// TASKCREATE_MAPPING_LINE here too, in lockstep with all 12 skills.
+// TASKCREATE_MAPPING_LINE here too, in lockstep with all 13 skills.
 //
 // Same strictness as checks 7 and 8: a Phases section this check cannot
 // positively confirm as a clean numbered list with the mapping line present
@@ -462,23 +462,23 @@ for (const [name, text] of skillBodies) {
 // real TaskCreate failure had no sanctioned fallback to point to, and would
 // either stall or silently drop to prose without saying so. The fallback
 // clause fixes this. Since the shared protocol block is duplicated by hand
-// across all 12 skills with no automated full-block identity check (see this
+// across all 13 skills with no automated full-block identity check (see this
 // task's Global Constraints), the clause could silently go missing from one
 // skill on a future edit — the same defect class checks 8, 9, and the prior
 // rule-6 check (this block, before this edit) each closed for their own
 // rule. This check closes it for rule 1's fallback clause: every skill must
-// carry both the v6 marker and the clause's canonical lead sentence,
+// carry both the v7 marker and the clause's canonical lead sentence,
 // byte-identical.
 {
-  const PROTOCOL_MARKER_V6 = '<!-- juel:protocol v6 -->';
+  const PROTOCOL_MARKER_V7 = '<!-- juel:protocol v7 -->';
   const RULE1_FALLBACK_LEAD =
     '- **If `TaskCreate`/`TaskUpdate` genuinely fail** — one attempted call returns an error, never merely assumed unavailable in advance';
 
   for (const [name, text] of skillBodies) {
-    if (!text.includes(PROTOCOL_MARKER_V6))
-      fail('protocol-v6', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V6} — rule 1's fallback clause requires the v6 marker`);
+    if (!text.includes(PROTOCOL_MARKER_V7))
+      fail('protocol-v7', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V7} — rule 1's fallback clause requires the v7 marker`);
     if (!text.includes(RULE1_FALLBACK_LEAD))
-      fail('protocol-v6', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
+      fail('protocol-v7', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
   }
 }
 

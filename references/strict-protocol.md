@@ -13,14 +13,16 @@ Every `SKILL.md` carries a byte-for-byte copy of the block below, pasted in
 verbatim by Tasks 7–11. If the protocol ever changes, edit it here first,
 then re-sweep all 13 skills from this copy.
 
-The block below — from the `## Strict Execution Protocol` heading through
-the end of rule 5 — is `PROTOCOL_BLOCK`: the literal, exact text every skill
-carries. Copy it character-for-character. Do not paraphrase, reformat, or
-"improve" it during a paste.
+The block below — beginning at rule 0, from the `## Strict Execution Protocol`
+heading through the end of rule 6 — is `PROTOCOL_BLOCK`: the literal, exact
+text every skill carries. Copy it character-for-character. Do not paraphrase,
+reformat, or "improve" it during a paste.
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v6 -->
+<!-- juel:protocol v7 -->
+
+**0. Harness check, before every other rule.** If you do not have the `TaskCreate` tool, you are not running in Claude Code. Read `references/harness-codex.md`, resolved relative to this skill file's own location (`../../references/harness-codex.md`), and apply its construct map, corrected facts, dependency substitutions and degradation contract to every rule below and to every phase body in this skill. This single read is the one action permitted before rule 1's preflight, and only in that case. If you do have `TaskCreate`, ignore that file entirely and continue to rule 1.
 
 **1. Preflight, then task list, before anything else.** Before any other output and before any tool call, emit the Preflight block (below). If the preflight verdict is STOP, print the preflight block and **stop** — do not create tasks and do not begin work. Otherwise, before any other work, create one task per phase in this skill's `## Phases` list via `TaskCreate` — `subject` is the phase name, `activeForm` is its present-continuous form. This task list, rendered persistently by the harness, IS the checklist; nothing else satisfies this rule. This is not optional on re-invocation, on resume, or when the user says "just do it".
 - **If `TaskCreate`/`TaskUpdate` genuinely fail** — one attempted call returns an error, never merely assumed unavailable in advance — fall back to an explicit numbered phase log, printed after every phase transition with the same one-line evidence rule 3 already requires. State the degradation once, in one line, before continuing. Never silently swap to prose without saying so.
