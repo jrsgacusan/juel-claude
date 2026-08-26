@@ -482,6 +482,57 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 11: every Claude construct named in PROTOCOL_BLOCK must have a
+// row in references/harness-codex.md's construct map ------------------------
+// Approach C delivers Codex support as a translation layer: the skills stay
+// Claude-concrete and one adapter file maps them. That makes the adapter
+// load-bearing in exactly the way an unchecked file should never be — a rule
+// naming a construct with no mapping row degrades SILENTLY in a Codex session
+// (the model simply has no instruction for that tool) while every Claude Code
+// run stays green. This check makes that failure loud at CI time instead.
+{
+  // Deliberately a fixed list rather than one scraped out of the protocol
+  // prose: a regex over English sentences would both miss constructs and
+  // invent them. The cost is that ADDING a construct to PROTOCOL_BLOCK
+  // requires adding it here too — if it is not in this list, its absence
+  // from the map is not caught. Whoever edits the protocol owns this list.
+  const CONSTRUCTS = [
+    'TaskCreate', 'TaskUpdate', 'Skill', 'Agent', 'ListAgents',
+    'AskUserQuestion', 'Monitor', 'Write',
+  ];
+  const harnessPath = join(root, 'references', 'harness-codex.md');
+  if (!existsSync(harnessPath)) {
+    fail('harness-map', 'references/harness-codex.md is missing — protocol rule 0 points at it');
+  } else {
+    const text = readFileSync(harnessPath, 'utf8');
+    const lines = text.split(/\r?\n/);
+    const start = lines.findIndex((l) => /^## 1\. Construct map\s*$/.test(l));
+    if (start === -1) {
+      fail('harness-map', "references/harness-codex.md: no '## 1. Construct map' section found");
+    } else {
+      let end = start + 1;
+      while (end < lines.length && !/^## /.test(lines[end])) end++;
+      const mapped = new Set(
+        lines.slice(start, end)
+          .map((l) => /^\|\s*`([^`]+)`\s*\|/.exec(l))
+          .filter(Boolean)
+          .map((m) => m[1])
+      );
+      if (mapped.size === 0) {
+        fail('harness-map',
+          "references/harness-codex.md: '## 1. Construct map' has no parsable table rows " +
+          '(expected lines shaped `| `Construct` | ... |`) — cannot confirm shape, failing rather ' +
+          'than silently passing');
+      }
+      for (const c of CONSTRUCTS) {
+        if (!mapped.has(c))
+          fail('harness-map',
+            `references/harness-codex.md: PROTOCOL_BLOCK names \`${c}\` but the construct map has no row for it`);
+      }
+    }
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
