@@ -533,6 +533,28 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 12: the two plugin manifests must agree on version --------------
+// Releases here are tag-driven and the installed cache is version-gated, so a
+// stale version in either manifest pins that harness's installs to the wrong
+// release while the other harness updates correctly — a divergence that is
+// invisible until someone reports "my Codex copy is old".
+{
+  const codexPluginPath = join(root, '.codex-plugin', 'plugin.json');
+  if (existsSync(codexPluginPath) && plugin) {
+    const codexPlugin = readJson(codexPluginPath);
+    if (codexPlugin) {
+      if (codexPlugin.version !== plugin.version)
+        fail('manifest-parity',
+          `.codex-plugin/plugin.json version ${JSON.stringify(codexPlugin.version)} disagrees with ` +
+          `.claude-plugin/plugin.json version ${JSON.stringify(plugin.version)} — both must match`);
+      if (codexPlugin.name !== plugin.name)
+        fail('manifest-parity',
+          `.codex-plugin/plugin.json name ${JSON.stringify(codexPlugin.name)} disagrees with ` +
+          `.claude-plugin/plugin.json name ${JSON.stringify(plugin.name)}`);
+    }
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
