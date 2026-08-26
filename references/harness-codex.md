@@ -39,6 +39,23 @@ correction, not a rename.
   genuinely fails — one attempted call returning an error, never assumed in advance — fall back to
   an explicit numbered phase log and state the degradation once.
 
+- **A sandboxed executor cannot commit.** Under `--sandbox workspace-write`, `.git` is a documented
+  protected path: recursively read-only, including a worktree's `.git` pointer file and the
+  `gitdir:` target it resolves to. `writable_roots` does not override it. Any phase that runs
+  `git add`/`git commit` inside a sandboxed `codex exec` fails with
+  `Unable to create '.git/index.lock': Operation not permitted`.
+
+  This is not a bug to work around. The sandbox expects the command to be escalated: the runner
+  re-requests it with `require_escalated` and an approver decides. Who that approver is comes from
+  `approvals_reviewer` in `~/.codex/config.toml`. When it is `user`, an interactive session prompts
+  the human and the commit succeeds - but a **non-interactive `codex exec` has nobody to ask**, so
+  the denial stands and the phase dies.
+
+  Practical consequence for `juel:execute` and `juel:review-and-execute`: either the caller passes
+  `--approve-for-me` so escalations are auto-reviewed, or the executor runs author-only and the
+  commits are made outside the sandbox. Say which mode you are in, in one line, rather than
+  discovering it when a commit phase fails.
+
 ## 3. Dependency substitutions
 
 | Skill depends on | Use instead | Contract |
