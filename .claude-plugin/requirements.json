@@ -250,6 +250,15 @@
         "resolved-install-command"
       ]
     },
+    "doctor": {
+      "hard": [
+        "coreutils"
+      ],
+      "soft": [
+        "claude",
+        "git-repo"
+      ]
+    },
     "execute": {
       "hard": [
         "plan-file",
