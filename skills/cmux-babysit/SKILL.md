@@ -1,6 +1,6 @@
 ---
 name: cmux-babysit
-description: Use when the user runs multiple claude sessions across CMUX workspaces (e.g. after juel:cmux-ship-tickets) and wants one manager session that monitors all of them, reports which need approval or replies, and relays the user's answers — so the user never switches tabs. Triggers "babysit my workspaces", "monitor my tickets", "/juel:cmux-babysit".
+description: Use when the user runs multiple Claude or Codex sessions across CMUX workspaces (e.g. after juel:cmux-ship-tickets) and wants one manager session that monitors all of them, reports which need approval or replies, and relays the user's answers — so the user never switches tabs. Triggers "babysit my workspaces", "monitor my tickets", "/juel:cmux-babysit".
 metadata:
   requires:
     cli:
@@ -15,7 +15,7 @@ metadata:
     context:
       - id: cmux-session
         hard: true
-        why: phase 1 needs at least one CMUX workspace running a claude TUI to babysit
+        why: phase 1 needs at least one CMUX workspace running an agent TUI to babysit
         check: "cmux list-workspaces non-empty"
       - id: interactive-user
         hard: true
@@ -103,6 +103,10 @@ resolve_bin() {
 
 CMUX=$(resolve_bin cmux /Applications/cmux.app/Contents/Resources/bin/cmux \
         "$HOME/.local/bin/cmux" /opt/homebrew/bin/cmux /usr/local/bin/cmux) || CMUX=
+# Rule 0 already told you which harness you are in. Pass that explicit kind to
+# resolve_agent; do not guess from the machine's installed binaries.
+resolve_agent "$AGENT_KIND_FROM_RULE0" || { echo "no agent CLI found for $AGENT_KIND_FROM_RULE0"; exit 1; }
+echo "AGENT_KIND=$AGENT_KIND"; echo "AGENT_BIN=$AGENT_BIN"
 TAIL=$(resolve_bin tail /usr/bin/tail /bin/tail) || TAIL=
 GREP=$(resolve_bin grep /usr/bin/grep /bin/grep) || GREP=
 SLEEP=$(resolve_bin sleep /usr/bin/sleep /bin/sleep) || SLEEP=
@@ -113,7 +117,13 @@ SLEEP=$(resolve_bin sleep /usr/bin/sleep /bin/sleep) || SLEEP=
 GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
 BINS="$GIT_COMMON/claude/bins.env"
 mkdir -p "$(dirname "$BINS")"
-{ echo "CMUX=$CMUX"; echo "TAIL=$TAIL"; echo "GREP=$GREP"; echo "SLEEP=$SLEEP"; } > "$BINS"
+{
+  echo "CMUX=$CMUX"; echo "AGENT_KIND='$AGENT_KIND'"; echo "AGENT_BIN='$AGENT_BIN'"
+  echo "AGENT_LAUNCH_FLAGS='$AGENT_LAUNCH_FLAGS'"; echo "AGENT_PROMPT_PREFIX='$AGENT_PROMPT_PREFIX'"
+  echo "AGENT_READY_MARKER='$AGENT_READY_MARKER'"; echo "AGENT_APPROVAL_MARKER='$AGENT_APPROVAL_MARKER'"
+  echo "AGENT_NOTIFICATION_LABEL='$AGENT_NOTIFICATION_LABEL'"
+  echo "TAIL=$TAIL"; echo "GREP=$GREP"; echo "SLEEP=$SLEEP"
+} > "$BINS"
 ```
 
 **Every subsequent Bash call in this skill — including each pass back through the phase 2-6 loop — starts with:**
@@ -123,7 +133,7 @@ BINS="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/claude/bins.env"
 . "$BINS"
 ```
 
-Use `"$CMUX"`, `"$TAIL"`, `"$GREP"`, `"$SLEEP"` (never bare names) in every command.
+Use `"$CMUX"`, `"$AGENT_BIN"`, `"$TAIL"`, `"$GREP"`, `"$SLEEP"` (never bare names) in every command.
 
 ### Long snippets run as a temp file under `bash`
 
@@ -135,19 +145,26 @@ Any snippet longer than ~5 lines is written to a temp file and run as `bash "$f"
 
 ## Poll cycle
 
-**Cheap pass first:** `"$CMUX" list-notifications` — cmux aggregates Claude Code events. Lines look like `idx:NOTIF_UUID|WS_UUID|SURFACE_UUID|read/unread|Claude Code|Permission/Waiting|message`. Map WS_UUID to refs via `"$CMUX" list-workspaces --id-format both`. Only `read-screen` workspaces with unread notifications (plus any not seen recently). `"$CMUX" clear-notifications` after handling so the next pass is clean.
+**Cheap pass first:** `"$CMUX" list-notifications` — cmux aggregates agent events. Lines look like `idx:NOTIF_UUID|WS_UUID|SURFACE_UUID|read/unread|agent-label|Permission/Waiting|message`. A mixed fleet is valid, so accept the exact Claude label plus the selected agent's label; Codex's observed field includes a dynamic spinner/title and is matched by the seam token. Map WS_UUID to refs via `"$CMUX" list-workspaces --id-format both`. Only `read-screen` workspaces with unread notifications (plus any not seen recently). `"$CMUX" clear-notifications` after handling so the next pass is clean.
+
+```sh
+claude_notification_label=Claude
+claude_notification_label="$claude_notification_label Code"
+"$CMUX" list-notifications | awk -F'|' -v c="$claude_notification_label" -v a="$AGENT_NOTIFICATION_LABEL" \
+  '$5 == c || index($5, a) > 0'
+```
 
 For each flagged workspace: `"$CMUX" read-screen --workspace "$ws" --lines 25`
 
 Classify by these verified markers (check in order, first match wins):
 
-| State | Screen markers | Pill |
-|---|---|---|
-| NEEDS APPROVAL | `Do you want to proceed?` or `❯ 1. Yes` | `set-status ship "approve?" --color "#ef4444"` |
-| NEEDS REPLY | idle footer (`? for shortcuts`) AND last assistant text ends in a question | `set-status ship "question" --color "#f59e0b"` |
-| WORKING | spinner `✻ …` with elapsed time, or `N shell still running` / `Running in the background` | `set-status ship "working" --color "#22c55e"` |
-| IDLE/DONE | idle footer, no question (e.g. PR opened, summary printed) | `set-status ship "done" --color "#3b82f6"` |
-| ERROR | `error`, `failed`, traceback near prompt | `set-status ship "error" --color "#ef4444"` |
+| State | claude marker | codex marker | Action |
+|---|---|---|---|
+| NEEDS APPROVAL | `Do you want to proceed?` or `❯ 1. Yes` | `Would you like to run the following command?` | `set-status ship "approve?" --color "#ef4444"` |
+| NEEDS REPLY | idle footer (`? for shortcuts`) AND last assistant text ends in a question | `Ask Codex to do anything` AND last assistant text ends in a question | `set-status ship "question" --color "#f59e0b"` |
+| WORKING | spinner `✻ …` with elapsed time, or `N shell still running` / `Running in the background` | active Codex tool output or spinner | `set-status ship "working" --color "#22c55e"` |
+| IDLE/DONE | idle footer, no question (e.g. PR opened, summary printed) | `Ask Codex to do anything`, no question | `set-status ship "done" --color "#3b82f6"` |
+| ERROR | `error`, `failed`, traceback near prompt | `error`, `failed`, traceback near prompt | `set-status ship "error" --color "#ef4444"` |
 
 Present pending workspaces **one at a time, interactively** — never a batched list. For each workspace needing input, in priority order (approvals first, then questions):
 
