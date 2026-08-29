@@ -33,9 +33,9 @@ When invoked, the agent should:
 
 ## Model Guidance
 
-Prefer the strongest Codex model available in the environment for delegated execution. In this environment, that is `gpt-5.4`.
-
-Use higher reasoning effort when the plan is broad, cross-cutting, or risky. Use lighter reasoning only for narrow, mechanical steps.
+Use the model the session is already configured with. Do not name a specific id here; it goes
+stale. Use higher reasoning effort when the plan is broad, cross-cutting, or risky, and lighter
+effort only for narrow, mechanical steps.
 
 ## Example Prompts
 

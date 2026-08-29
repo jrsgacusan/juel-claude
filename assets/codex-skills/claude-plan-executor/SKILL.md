@@ -9,7 +9,9 @@ description: Use when executing an implementation plan authored elsewhere, espec
 
 Consume a Claude-authored plan and turn it into completed work. Read the plan artifact first, extract its concrete tasks, then execute them with Codex while preserving scope, order, and acceptance criteria.
 
-Prefer the strongest Codex model available in the current environment. In this environment, use `gpt-5.4` when explicitly choosing a model for delegated work.
+Use the model this session is already configured with. Do not pin a specific model id here - the
+strongest available model changes, and a hard-coded id silently becomes a downgrade. If a plan
+names a model explicitly, that instruction wins.
 
 This skill is self-contained. Do not require another skill to execute or verify the plan.
 
@@ -26,7 +28,12 @@ If the plan source is ambiguous, resolve the artifact first before doing impleme
 
 For the expected plan shape and invocation examples, read `references/plan-contract.md`.
 
-Before execution, also discover and load any relevant `CLAUDE.md` files in scope for the affected repo paths. Treat those files as required supplemental guidance whenever they exist. `AGENTS.md` remains the primary instruction contract.
+Before execution, discover and read every `AGENTS.md` and `CLAUDE.md` in scope for the affected
+repo paths. Precedence, highest first: a direct instruction in the request; the most deeply nested
+file covering the path being edited; then shallower files up to the repo root. `AGENTS.md` and
+`CLAUDE.md` at the same depth are read as one combined set, not ranked against each other - if
+they genuinely conflict, say so and ask rather than silently picking one. Many repos ship only one
+of the two; that is normal and not a problem to report.
 
 ## Workflow
 
@@ -61,10 +68,56 @@ Before execution, also discover and load any relevant `CLAUDE.md` files in scope
 - Prefer making progress over re-planning. Re-plan only when the plan is underspecified or blocked by new facts.
 - If the plan includes phases, execute phase by phase and verify each phase before moving on when feasible.
 - Keep the critical path local when the next decision depends on discovery, integration, or close coordination, even if other branches are delegated.
-- When delegating, give each subagent a narrow ownership boundary and use `gpt-5.4`.
+- When delegating, give each subagent a narrow ownership boundary. Let subagents inherit the
+  session's model rather than naming one; `default_subagent_model` in `~/.codex/config.toml` is
+  the place to override that, not this file.
 - Treat delegated output as input to review, not as automatically accepted work. Inspect and integrate it before validation.
 - Preserve the plan structure and validation requirements whether the work is delegated or executed directly.
 - Before claiming completion, map the implemented result back to each acceptance criterion and report any criterion that could not be verified.
+
+## Commit contract
+
+- **A plan's commit steps are instructions, not decoration.** If a task ends with a `git commit`,
+  run it. Do not batch several tasks into one commit, and do not skip a commit because the next
+  task is about to touch the same file.
+- **Use the plan's commit message verbatim** when it supplies one. If the plan states a commit
+  convention, follow it. If it states none, do not invent one.
+- **`.git` is a protected path under `--sandbox workspace-write`.** A commit only succeeds if the
+  escalation is approved, and who approves is set by `approvals_reviewer` in
+  `~/.codex/config.toml`: `user` means an interactive session prompts a human, and a
+  non-interactive run has nobody to ask, so the commit fails with
+  `Unable to create '.git/index.lock': Operation not permitted`. `auto_review` and
+  `guardian_subagent` auto-approve and commits succeed.
+- **When commits are denied, do not work around it.** Do not disable the sandbox, do not retry in
+  a loop, and do not silently continue as if the commit happened. Make the file changes, then
+  state in one line: `commits unavailable in this sandbox (approvals_reviewer=user,
+  non-interactive) - N tasks are staged but uncommitted`. The caller commits them.
+- **Never push, never tag, never bump a version** unless a plan step says to in those words.
+  Pushing a tag is irreversible and is never implied by "execute the plan".
+
+## Evidence before completion
+
+- **Run the command, read the output, then make the claim.** A criterion is verified when you have
+  fresh output in this run showing it passes. Not when the code looks right, not when it passed
+  earlier, not when a subagent reported success.
+- **Quote the evidence** - the command and the decisive line of its output - next to each criterion
+  you claim. One line each is enough; a transcript is not wanted.
+- **A subagent reporting success is not evidence.** Check the working tree or the command output
+  yourself before accepting delegated work.
+- **When a criterion cannot be verified, say so explicitly** and name what blocked it. An
+  unverifiable criterion reported as passing is worse than a failed one, because it is invisible.
+
+## Progress protocol
+
+- Plans use `- [ ]` checkbox steps. Work them **in order**, one at a time. Do not batch a task's
+  steps into a single action, and do not start task N+1 before task N's final step is done.
+- Report per task, not per plan: what changed, the evidence, and anything skipped with the reason.
+- **A plan's `## Global Constraints` section is binding on every task**, whether or not a given
+  task repeats it. A step that succeeds while violating a Global Constraint is a failed step.
+  Constraints about what must never be touched - gitignored paths, version numbers, tags - are the
+  ones most often violated by accident.
+- **A task marked BLOCKED BY TASK N does not start until task N is done.** If task N could not be
+  completed, stop and report rather than proceeding on assumed values.
 
 ## Plan Translation Heuristics
 
@@ -82,6 +135,16 @@ Before execution, also discover and load any relevant `CLAUDE.md` files in scope
 - If the plan conflicts with the codebase or runtime reality, explain the conflict and propose the narrowest correction.
 - If the plan cannot be completed in one pass, finish the highest-value subset and state what remains.
 - If the requested execution pattern conflicts with repository instructions or available tools, call out the conflict and use the narrowest compliant alternative.
+
+## Non-goals
+
+- **Do not expand scope.** Implement what the plan's acceptance criteria require and nothing else.
+  A migration, a config change, or a cap that the plan did not ask for is out of scope even when it
+  looks obviously needed. Propose it in the report instead.
+- **Do not re-plan.** Refine a step that is vague, technically wrong, or missing a dependency; do
+  not redesign the approach because a different one seems better.
+- **Do not touch files the plan marks as out of scope**, including gitignored scratch directories
+  that hold the plan and spec themselves.
 
 ## Output Style
 
