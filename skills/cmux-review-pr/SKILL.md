@@ -467,6 +467,8 @@ if [ "$AGENT_KIND" = codex ] && [ -n "$pr_number" ]; then
   codex_session_name="${codex_session_name}-pr-$pr_number"
   "$CMUX" send --workspace "$ws_id" "/rename $codex_session_name"
   "$SLEEP" 1
+  "$CMUX" send-key --workspace "$ws_id" Enter
+  "$SLEEP" 1
 fi
 ```
 
