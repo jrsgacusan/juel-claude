@@ -55,6 +55,9 @@ metadata:
         hard: false
         why: phase 7 drives the real browser flow for every checklist item with a UI surface, as Claude's default end-to-end verifier
         fallback: phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly
+      - id: claude-plan-executor
+        hard: true
+        why: phase 4 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
 ---
 
 # Ship Ticket
@@ -108,6 +111,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | code-simplifier | skill | SOFT | ships as a plugin dependency | phase 6 SKIPPED with a note |
 | run | skill | SOFT | built-in | phase 7 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
+| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 8 prints a compare URL instead of opening the PR |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR |

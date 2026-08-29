@@ -29,6 +29,9 @@ metadata:
       - id: superpowers
         hard: true
         why: phases 4 and 6 delegate to superpowers:receiving-code-review and superpowers:writing-plans
+      - id: claude-plan-executor
+        hard: true
+        why: phase 7 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
 ---
 
 # Receive Review and Execute
@@ -80,6 +83,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | open PR + number | context | HARD | `gh pr view <N> --json number` | STOP → this skill consumes an existing PR |
 | GitHub remote | context | HARD | `git remote get-url <remote>` matches github.com | STOP → non-GitHub remotes are unsupported here |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
+| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
 | AskUserQuestion | context | HARD | always available interactively | STOP in headless sessions |
 

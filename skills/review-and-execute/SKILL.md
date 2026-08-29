@@ -22,6 +22,9 @@ metadata:
       - id: superpowers
         hard: true
         why: phases 2 and 3 delegate to superpowers:receiving-code-review and superpowers:writing-plans
+      - id: claude-plan-executor
+        hard: true
+        why: phase 4 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
 ---
 
 # Review and Execute
@@ -69,6 +72,7 @@ Orchestrates a full review-to-fix cycle: PR review → validate findings → wri
 |---|---|---|---|---|
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | fall back to `/review`, or an inline review of `git diff <base>...HEAD` |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
+| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
 | git repo with a diffable base | context | HARD | `git rev-parse --show-toplevel` | STOP |
 

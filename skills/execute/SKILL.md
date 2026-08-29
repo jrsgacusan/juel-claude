@@ -9,6 +9,10 @@ metadata:
         why: phase 4 dispatches codex to execute the plan
         check: "command -v codex"
         fallback: execute the plan in-session via superpowers:executing-plans
+    skills:
+      - id: claude-plan-executor
+        hard: true
+        why: phase 4 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
     context:
       - id: plan-file
         hard: true
@@ -64,6 +68,7 @@ Takes an existing implementation plan and dispatches Codex (sandboxed `workspace
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
+| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | plan file | context | HARD | newest `${docsRoot}/plans/*.md` | STOP → no plan to execute |
 | writable workspace | context | HARD | `test -w .` | STOP |
 

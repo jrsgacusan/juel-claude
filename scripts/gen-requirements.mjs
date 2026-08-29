@@ -129,6 +129,11 @@ const DEFINITIONS = {
     label: 'superpowers',
     install: '/plugin install superpowers@claude-plugins-official',
   },
+  'claude-plan-executor': {
+    kind: 'skill',
+    label: 'claude-plan-executor (Codex skill)',
+    install: 'Vendored by this plugin; run `node scripts/link-agent-skills.mjs`',
+  },
   'superpowers:brainstorming': {
     kind: 'skill',
     label: 'superpowers:brainstorming',
