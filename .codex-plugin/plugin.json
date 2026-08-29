@@ -1,6 +1,6 @@
 {
   "name": "juel",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Ticket-to-PR workflow skills: plan, execute, review, remediate, verify, ship.",
   "author": {
     "name": "Juel Rei Solomon Gacusan"
@@ -23,7 +23,10 @@
     "longDescription": "Wires work items, git worktrees, sandboxed execution and PR review into one ticket-to-PR workflow: fetch a ticket, brainstorm and plan, dispatch execution, review and remediate, verify against the real runtime surface, and ship a PR.",
     "developerName": "Juel Rei Solomon Gacusan",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": [
       "Start work on my current ticket.",
       "Review this PR against its work item.",
