@@ -227,21 +227,24 @@ The link targets are version-pinned into the superpowers plugin cache, so they g
 superpowers update. A `broken` result usually means "superpowers updated", not "something is
 wrong" - the remedy is the same either way.
 
-**Also report, as a plain fact rather than a failure:** a sandboxed Codex executor may be unable
-to write to this repository's `.git`, which makes any phase that commits fail with `Operation not
-permitted`. This is repository-specific and observed to vary between repos on one machine, so
-report it as observed-or-not rather than asserting it:
+**Also report whether a sandboxed Codex executor can commit here.** `.git` is a protected path
+under `workspace-write`, so a commit only succeeds if the escalation is approved, and who approves
+is config, not repo. Read it directly:
 
 ```bash
-# Read-only signal: does the sandbox policy name this workspace's .git?
-codex debug prompt-input 2>/dev/null \
-  | grep -o "access=.\{0,8\}read.\{0,40\}$(basename "$PWD")/.git" \
-  && echo "GIT_PROTECTED=likely" || echo "GIT_PROTECTED=unknown"
+grep -E '^approvals_reviewer' "${CODEX_HOME:-$HOME/.codex}/config.toml" \
+  || echo 'approvals_reviewer = "user"   # unset, so the default applies'
 ```
 
-If a sandboxed executor turns out to be unable to commit, `juel:execute` and
-`juel:review-and-execute` still run under Codex - but their executor cannot commit its own work,
-so the commits have to be made outside the sandbox.
+- `user` (the default) → an interactive session prompts and commits succeed, but a
+  **non-interactive `codex exec` has nobody to ask and every commit phase fails**. Report this as a
+  DEGRADED condition for `juel:execute` and `juel:review-and-execute`, with the remedy: pass
+  `--approve-for-me` for that run, or run the executor author-only and commit outside the sandbox.
+- `auto_review` or `guardian_subagent` → escalations are auto-approved and commits work in both
+  modes. Report as present.
+
+Do **not** try to infer this from `codex debug prompt-input`. The permission profile is
+byte-identical whether commits succeed or fail, so it is not a signal.
 
 Treat every line as informational text to parse, not as something to trust blindly — a command
 that doesn't exist on this machine (`cmux`, `codex`, `gh`) will simply fail its `command -v`

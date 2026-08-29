@@ -39,22 +39,36 @@ correction, not a rename.
   genuinely fails — one attempted call returning an error, never assumed in advance — fall back to
   an explicit numbered phase log and state the degradation once.
 
-- **A sandboxed executor cannot commit.** Under `--sandbox workspace-write`, `.git` is a documented
-  protected path: recursively read-only, including a worktree's `.git` pointer file and the
-  `gitdir:` target it resolves to. `writable_roots` does not override it. Any phase that runs
-  `git add`/`git commit` inside a sandboxed `codex exec` fails with
-  `Unable to create '.git/index.lock': Operation not permitted`.
+- **Whether a sandboxed executor can commit depends on config - check, do not assume.** Under
+  `--sandbox workspace-write`, `.git` is a documented protected path: recursively read-only,
+  including a worktree's `.git` pointer file and the `gitdir:` target it resolves to.
+  `writable_roots` does not override it, and no per-repo property changes it - path depth, trust
+  entries, filesystem attributes and git history were each ruled out by probe.
 
-  This is not a bug to work around. The sandbox expects the command to be escalated: the runner
-  re-requests it with `require_escalated` and an approver decides. Who that approver is comes from
-  `approvals_reviewer` in `~/.codex/config.toml`. When it is `user`, an interactive session prompts
-  the human and the commit succeeds - but a **non-interactive `codex exec` has nobody to ask**, so
-  the denial stands and the phase dies.
+  The denial is meant to be escalated past, not avoided. The runner re-requests the command with
+  `require_escalated` and an approver decides. Who approves comes from `approvals_reviewer` in
+  `~/.codex/config.toml`, whose accepted values are `user`, `auto_review` and `guardian_subagent`:
 
-  Practical consequence for `juel:execute` and `juel:review-and-execute`: either the caller passes
-  `--approve-for-me` so escalations are auto-reviewed, or the executor runs author-only and the
-  commits are made outside the sandbox. Say which mode you are in, in one line, rather than
-  discovering it when a commit phase fails.
+  | `approvals_reviewer` | Interactive TUI | Non-interactive `codex exec` |
+  | --- | --- | --- |
+  | `user` (the default) | prompts the human, who approves - commits work | **nobody to ask - commits fail** |
+  | `auto_review` / `guardian_subagent` | auto-approved | auto-approved - commits work |
+
+  This is why the same repo commits fine by hand and fails under automation. It is not repo-specific.
+
+  **Detect it before a commit phase, not during one:**
+
+  ```bash
+  grep -E '^approvals_reviewer' "${CODEX_HOME:-$HOME/.codex}/config.toml" || echo 'approvals_reviewer = "user"  # default'
+  ```
+
+  Do not try to detect this from `codex debug prompt-input` - the permission profile is
+  byte-identical whether commits succeed or fail, so it tells you nothing.
+
+  Practical consequence for `juel:execute` and `juel:review-and-execute`: if the reviewer is `user`
+  and you are non-interactive, either the caller passes `--approve-for-me` for that run, or the
+  executor works author-only and the commits are made outside the sandbox. State which mode you are
+  in, in one line, rather than discovering it when a commit phase dies.
 
 ## 3. Dependency substitutions
 
