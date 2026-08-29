@@ -44,9 +44,12 @@ Start a new thread afterwards — that is the boundary at which Codex picks up n
 
 The third command is not optional. Codex has no cross-marketplace dependency resolution, so the
 `dependencies` in `.claude-plugin/plugin.json` are ignored and superpowers never arrives on its own.
-`juel:start`, `juel:review-pr`, `juel:review-and-execute`, `juel:receive-review-and-execute` and
-`juel:ship-ticket` all hard-depend on it and will STOP without it. Re-run the script after a
-superpowers update; `juel:doctor` reports stale links.
+The script links the superpowers skills and installs the vendored `claude-plan-executor` into
+`~/.codex/skills/` as well. `juel:execute`, `juel:review-and-execute`,
+`juel:receive-review-and-execute` and `juel:ship-ticket` all hard-depend on the plan executor in
+both harnesses and will STOP without it. A pre-existing personal copy at that path is left alone
+rather than overwritten; move it aside if you want the vendored symlink. Re-run the script after a
+superpowers update; `juel:doctor` reports stale links and an unmanaged plan-executor copy.
 
 The bundled Mobbin MCP server registers automatically on install — it appears in `codex mcp list`
 without touching `config.toml`. You still need your own Mobbin plan and a one-time authorization.

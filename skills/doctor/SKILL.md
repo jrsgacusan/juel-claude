@@ -214,6 +214,15 @@ for s in brainstorming writing-plans receiving-code-review; do
   fi
 done
 
+# the vendored Codex skill four juel skills dispatch as $claude-plan-executor
+if [ -L "$HOME/.codex/skills/claude-plan-executor" ] && [ -f "$HOME/.codex/skills/claude-plan-executor/SKILL.md" ]; then
+  echo "CODEXSKILL_claude-plan-executor=ok"
+elif [ -e "$HOME/.codex/skills/claude-plan-executor" ]; then
+  echo "CODEXSKILL_claude-plan-executor=unmanaged (not the vendored symlink)"
+else
+  echo "CODEXSKILL_claude-plan-executor=absent"
+fi
+
 # Codex's installed plugin cache - the analogue of Claude's version-gated cache
 ls -1 "$HOME"/.codex/plugins/cache/*/juel 2>/dev/null || echo "juel not installed in Codex"
 ```
@@ -226,6 +235,12 @@ is silent until a skill actually reaches for one.
 The link targets are version-pinned into the superpowers plugin cache, so they go stale on every
 superpowers update. A `broken` result usually means "superpowers updated", not "something is
 wrong" - the remedy is the same either way.
+
+Report `absent` for `CODEXSKILL_claude-plan-executor` as a **HARD** failure for
+`juel:execute`, `juel:review-and-execute`, `juel:receive-review-and-execute` and
+`juel:ship-ticket`, with the remedy `node scripts/link-agent-skills.mjs`. Report `unmanaged` as
+DEGRADED, not a failure: a personal copy still works, it just is not the version this plugin
+ships, so its contract may differ.
 
 **Also report whether a sandboxed Codex executor can commit here.** `.git` is a protected path
 under `workspace-write`, so a commit only succeeds if the escalation is approved, and who approves
@@ -326,6 +341,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `playwright` | mcp | `plugin:playwright:playwright` shows `Connected` | no such line | when the line exists but shows an unexpected status — report the raw text |
 | `juel:daily-worktrees`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
 | `pr-review-toolkit`, `superpowers`, `code-simplifier` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
+| `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves | it does not | when running under Claude Code — the Claude path still dispatches `codex exec`, so it is required there too; report it in both harnesses |
 | `superpowers:brainstorming` | skill | the `superpowers` plugin cache dir exists **and** contains a `skills/brainstorming/SKILL.md` | the plugin dir is missing, or it's present without that skill | |
 | `run`, `verify` | skill | — | — | yes, always — harness built-ins this plugin cannot install or query. Report plainly: "cannot determine; assume present unless a skill actually fails to invoke it" |
 
