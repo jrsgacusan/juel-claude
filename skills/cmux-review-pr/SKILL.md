@@ -1,6 +1,6 @@
 ---
 name: cmux-review-pr
-description: Use to review a GitHub PR (or arbitrary branch) inside an isolated CMUX workspace. Creates a git worktree for the PR branch, spawns a CMUX workspace, auto-launches `claude` with a deterministic session id derived from the PR id, resolves the linked work-item ref, then runs `/juel:review-pr` inside that workspace. Triggers "review pr", "/juel:cmux-review-pr".
+description: Use to review a GitHub PR (or arbitrary branch) inside an isolated CMUX workspace. Creates a git worktree for the PR branch, spawns a CMUX workspace, auto-launches the resolved agent with deterministic Claude/Codex session handling, resolves the linked work-item ref, then runs the review skill inside that workspace. Triggers "review pr", "/juel:cmux-review-pr".
 metadata:
   requires:
     mcp:
@@ -16,8 +16,8 @@ metadata:
         check: "resolve_bin cmux against PATH, then GUI/Homebrew candidates"
       - id: claude
         hard: true
-        why: phase 6 launches claude inside the review workspace
-        check: "resolve_bin claude against PATH, then GUI/Homebrew candidates"
+        why: phase 6 launches the selected agent inside the review workspace
+        check: "resolve_agent from rule 0; it calls resolve_bin against PATH, then GUI/Homebrew candidates"
       - id: gh
         hard: true
         why: phase 2 resolves the PR argument to a branch and label
@@ -92,13 +92,13 @@ Sister skill of `juel:cmux-ship-tickets`. Same plumbing (worktree + CMUX workspa
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | cmux | cli | HARD | `resolve_bin cmux` against PATH, then GUI/Homebrew candidates | STOP → https://github.com/manaflow-ai/cmux |
-| claude | cli | HARD | `resolve_bin claude` against PATH, then GUI/Homebrew candidates | STOP |
+| claude | cli | HARD | `resolve_agent` from rule 0 | STOP → install the selected agent CLI |
 | gh (authenticated) | cli | HARD | `gh auth status` | STOP → `gh auth login` |
 | coreutils | cli | HARD | `resolve_bin` per binary (sleep/grep/head) against PATH, then `/usr/bin`,`/bin` candidates | STOP |
 | git repo matching the PR remote | context | HARD | `git remote get-url <remote>` | STOP |
 | resolvable PR or branch | context | HARD | `gh pr view <N> --json number` | STOP |
 | juel:review-pr | skill | HARD | ships with this plugin | STOP |
-| `--permission-mode auto` | perm | HARD | none — render as `?` | STOP → tell the user the account is not entitled to `--permission-mode auto`; never spawn a session nobody is watching on a lesser mode |
+| `--permission-mode auto` | perm | HARD | none — render as `?` | STOP → under Claude, the account is not entitled to `--permission-mode auto`; under Codex, `--approve-for-me` is required or a spawned session stalls at its first commit. Never spawn a session nobody is watching without one of them. |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the alignment section is omitted |
 | resolved install command | cli | SOFT | see resolution layer | skip the second surface; install deps yourself |
 
@@ -127,7 +127,7 @@ Usage: `/juel:cmux-review-pr 1234` or `/juel:cmux-review-pr feat/savi-1162-foo`.
 ## Prerequisites
 
 - `cmux` CLI installed — resolved via `resolve_bin` (PATH first, then the GUI install at `/Applications/cmux.app/Contents/Resources/bin/cmux` and Homebrew paths as candidates, not the sole fallback).
-- `claude` CLI installed (same `resolve_bin` rule; GUI path and Homebrew paths are candidates).
+- The selected agent CLI installed and resolved through `resolve_agent`.
 - `gh` CLI on PATH and authenticated. `gh` embeds its own `jq` — a standalone `jq` binary is never required, see "Resolve the PR" below.
 - Inside a git repo whose remote matches the PR.
 - `juel:review-pr` skill available (ships with this plugin) — it runs `/pr-review-toolkit:review-pr` itself.
@@ -146,16 +146,16 @@ resolve_bin() {
 
 CMUX=$(resolve_bin cmux /Applications/cmux.app/Contents/Resources/bin/cmux \
         "$HOME/.local/bin/cmux" /opt/homebrew/bin/cmux /usr/local/bin/cmux) || CMUX=
-CLAUDE_BIN=$(resolve_bin claude "$HOME/.claude/local/claude" "$HOME/.local/bin/claude" \
-        /Applications/cmux.app/Contents/Resources/bin/claude \
-        /opt/homebrew/bin/claude /usr/local/bin/claude) || CLAUDE_BIN=
+# Rule 0 already told you which harness you are in. Pass that explicit kind to
+# resolve_agent; do not guess from the machine's installed binaries.
+resolve_agent "$AGENT_KIND_FROM_RULE0" || { echo "no agent CLI found for $AGENT_KIND_FROM_RULE0"; exit 1; }
+echo "AGENT_KIND=$AGENT_KIND"; echo "AGENT_BIN=$AGENT_BIN"
 GH=$(resolve_bin gh /opt/homebrew/bin/gh /usr/local/bin/gh /usr/bin/gh) || GH=
 SLEEP=$(resolve_bin sleep /usr/bin/sleep /bin/sleep) || SLEEP=
 GREP=$(resolve_bin grep /usr/bin/grep /bin/grep) || GREP=
 HEAD=$(resolve_bin head /usr/bin/head /bin/head) || HEAD=
 
 [ -n "$CMUX" ] || { echo "cmux not found on PATH or any candidate location"; exit 1; }
-[ -n "$CLAUDE_BIN" ] || { echo "claude not found on PATH or any candidate location"; exit 1; }
 [ -n "$GH" ] || { echo "gh not found on PATH or any candidate location"; exit 1; }
 [ -n "$SLEEP" ] && [ -n "$GREP" ] && [ -n "$HEAD" ] || { echo "missing coreutils"; exit 1; }
 
@@ -164,7 +164,10 @@ GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)   # normalized �
 BINS="$GIT_COMMON/claude/bins.env"
 mkdir -p "$(dirname "$BINS")"
 {
-  echo "CMUX=$CMUX"; echo "CLAUDE_BIN=$CLAUDE_BIN"; echo "GH=$GH"
+  echo "CMUX=$CMUX"; echo "AGENT_KIND='$AGENT_KIND'"; echo "AGENT_BIN='$AGENT_BIN'"
+  echo "AGENT_LAUNCH_FLAGS='$AGENT_LAUNCH_FLAGS'"; echo "AGENT_PROMPT_PREFIX='$AGENT_PROMPT_PREFIX'"
+  echo "AGENT_READY_MARKER='$AGENT_READY_MARKER'"; echo "AGENT_APPROVAL_MARKER='$AGENT_APPROVAL_MARKER'"
+  echo "AGENT_NOTIFICATION_LABEL='$AGENT_NOTIFICATION_LABEL'"; echo "GH=$GH"
   echo "SLEEP=$SLEEP"; echo "GREP=$GREP"; echo "HEAD=$HEAD"
   echo "export CMUX_QUIET=1"   # silence cmux's "X is now an alias for Y" deprecation notices —
                                 # exported here too since env vars don't survive across calls either
@@ -179,7 +182,7 @@ BINS="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/claude/bins.env"
 . "$BINS"
 ```
 
-(`BINS` itself is a shell variable and does not survive either — recompute the path fresh, then source. Recomputing the path is cheap; re-running the `resolve_bin` candidate search every call is what this pattern avoids.) Use `"$CMUX"`, `"$CLAUDE_BIN"`, `"$GH"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"` (never bare names) in every command.
+(`BINS` itself is a shell variable and does not survive either — recompute the path fresh, then source. Recomputing the path is cheap; re-running the `resolve_bin` candidate search every call is what this pattern avoids.) Use `"$CMUX"`, `"$AGENT_BIN"`, `"$GH"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"` (never bare names) in every command.
 
 ### Long snippets run as a temp file under `bash`
 
@@ -387,7 +390,7 @@ copy_untracked "$MAIN_ROOT" "$abs_worktree"
 
 ### Step 3: Compute session id
 
-Deterministic, uuid-shaped id from the label so `claude --resume` is repeatable — no `python3`
+Deterministic, uuid-shaped id from the label so Claude's `--resume` path is repeatable — no `python3`
 dependency. `shasum` (a Perl wrapper around `Digest::SHA`, widely available on macOS and Linux)
 gives the SHA-1 hex digest of the label directly; the first 32 hex chars are reformatted `8-4-4-4-12` with
 the version nibble forced to `5` and the variant nibble forced into the RFC4122 range (`8`/`9`/`a`/`b`)
@@ -412,15 +415,20 @@ session_id=$(printf '%s-%s-%s-%s-%s\n' "$p1" "$p2" "$p3" "$p4" "$p5" | tr '[:upp
 
 This is not a byte-for-byte RFC4122 uuid5 (that hashes namespace-UUID bytes + name; this hashes the
 label alone), but it is **stable per label** — the same `$label` always produces the same
-`$session_id`, in `sh`, `bash` and `zsh` alike, which is the only property `claude --resume`
+`$session_id`, in `sh`, `bash` and `zsh` alike, which is the only property the Claude resume path
 actually needs.
 
 ### Step 4: Spawn CMUX workspace and queue the review
 
 ```bash
-# 1. Create workspace; --command launches claude with Enter pressed automatically.
-#    Pass the ABSOLUTE $CLAUDE_BIN — PATH may not resolve inside the workspace shell.
-raw=$("$CMUX" new-workspace --cwd "$abs_worktree" --command "$CLAUDE_BIN --session-id $session_id --permission-mode auto")
+# 1. Create workspace; --command launches the selected agent with Enter pressed automatically.
+#    Pass the ABSOLUTE $AGENT_BIN — PATH may not resolve inside the workspace shell.
+case "$AGENT_KIND" in
+  claude) launch="$AGENT_BIN --session-id $session_id $AGENT_LAUNCH_FLAGS" ;;
+  codex)  launch="$AGENT_BIN $AGENT_LAUNCH_FLAGS" ;;
+  *) echo "unsupported agent kind: $AGENT_KIND"; exit 1 ;;
+esac
+raw=$("$CMUX" new-workspace --cwd "$abs_worktree" --command "$launch")
 ws_id=$(echo "$raw" | "$GREP" -oE 'workspace:[0-9]+' | "$HEAD" -1)
 
 # 2. Guard: abort if ws_id is empty or malformed. A blank --workspace silently
@@ -435,25 +443,34 @@ esac
 #    literal string "--name <label>"). Re-check ws_id is non-empty + well-formed first.
 "$CMUX" rename-workspace --workspace "$ws_id" "$label"
 
-# 4. Wait for the claude TUI to actually be ready, then queue the composite prompt.
+# 4. Wait for the agent TUI to actually be ready, then queue the composite prompt.
 #    Do NOT use a blind `sleep N` — boot time varies (plugins/banners can push it
 #    past 10s, and a send to a not-yet-ready input silently vanishes). Poll the live
 #    screen with `read-screen` until a readiness marker appears, with a hard cap.
 #    A single literal `❯` is fragile across Claude CLI versions/themes (glyph or
 #    color can change) — match ANY of: the `❯` glyph, a `>` at the start of a
-#    line, or the idle-footer string "for shortcuts". Any one of the three is
+#    line, or the agent's configured idle-footer marker. The configured marker is
 #    sufficient evidence the TUI is accepting input.
 ready=0
 for _ in $(seq 1 30); do          # up to ~30s
-  if "$CMUX" read-screen --workspace "$ws_id" --lines 40 | "$GREP" -qE '❯|^>|for shortcuts'; then
+  if "$CMUX" read-screen --workspace "$ws_id" --lines 40 | "$GREP" -qF "$AGENT_READY_MARKER"; then
     ready=1; break
   fi
   "$SLEEP" 1
 done
-[ "$ready" = 1 ] || echo "WARN: claude input prompt not detected after 30s; sending anyway"
+[ "$ready" = 1 ] || echo "WARN: agent input prompt not detected after 30s; sending anyway"
+
+# Codex has no launch-time --session-id. Its live session can be named after the
+# prompt is ready so `codex resume <name>` remains deterministic.
+if [ "$AGENT_KIND" = codex ] && [ -n "$pr_number" ]; then
+  codex_session_name=juel
+  codex_session_name="${codex_session_name}-pr-$pr_number"
+  "$CMUX" send --workspace "$ws_id" "/rename $codex_session_name"
+  "$SLEEP" 1
+fi
 ```
 
-This skill does not resolve `docsRoot` or a base branch itself — `/juel:review-pr`, queued into the
+This skill does not resolve `docsRoot` or a base branch itself — the review skill, queued into the
 workspace below, resolves both of those for itself once it is running inside the worktree.
 
 **Resolve the install command once, then reuse it.** Same resolution layer as
@@ -494,7 +511,7 @@ INSTALL_CMD=""   # resolved once here against "$CWD_ROOT"; the "open second tab"
 skips itself entirely for this review rather than opening a tab that runs nothing.
 
 **`REF` must be resolved here, in THIS shell (Step 1b, above), before the prompt string below is
-built.** The spawned inner `claude` session inherits nothing from this script — it cannot resolve a
+built.** The spawned inner agent session inherits nothing from this script — it cannot resolve a
 `${REF}` placeholder itself. The `prompt=` assignment below is a double-quoted bash string, so
 `${REF}` inside it expands to the literal resolved ref (or nothing, if none resolved) at the moment
 the string is built.
@@ -503,10 +520,10 @@ the string is built.
 # Prompt — ONE LINE (real newlines submit prematurely). Everything the review needs to
 # know — grading against the work item, dispatching pr-review-toolkit:review-pr,
 # validating findings, writing the consolidated report — lives inside juel:review-pr
-# itself; this orchestrator only queues the slash command and, if one resolved, the ref.
+# itself; this orchestrator only queues the command and, if one resolved, the ref.
 # ${REF:+ $REF} expands to " <REF>" when REF is non-empty, or nothing at all when it
 # isn't — juel:review-pr resolves its own ref in that case rather than blocking.
-prompt="/juel:review-pr${REF:+ $REF}"
+prompt="${AGENT_PROMPT_PREFIX}juel:review-pr${REF:+ $REF}"
 
 "$CMUX" send --workspace "$ws_id" "$prompt"
 "$SLEEP" 1
@@ -542,7 +559,7 @@ Workspace ready for review:
   PR/branch : <pr or branch>
   Work item : <SAVI-XXX or "none — ungraded">
   Worktree  : <abs path>
-  Session   : <uuid>   (resume: `claude --resume <uuid>`)
+  Session   : <uuid>   (Claude: `claude --resume <uuid>`; Codex: `codex resume <name derived from PR>`)
   CMUX ws   : workspace:<N> (renamed to <label>)
   Deps      : <resolved install command> running in tab 2 (surface:<M>), or "none resolved — skipped, install deps yourself"
 ```
@@ -558,21 +575,21 @@ Workspace ready for review:
 | Local branch with same name already checked out elsewhere | Use `git worktree add --detach` + `gh pr checkout` style instead of duplicate branch |
 | `.worktrees/review-<slug>` already exists | Reuse; do not re-fetch unless user asks |
 | `juel:review-pr` not installed | Stop and instruct user to install/update the plugin |
-| `command not found: cmux` (or claude/sleep/head/grep/gh) mid-script after earlier resolution succeeded | Not a PATH drop — this is a fresh non-login shell that never had the earlier call's variables. Source `$BINS` (see "Resolve binaries once, persist, then source every call") and use the absolute-path variables everywhere. Do not retry with bare names. |
+| `command not found: cmux` (or the selected agent/sleep/head/grep/gh) mid-script after earlier resolution succeeded | Not a PATH drop — this is a fresh non-login shell that never had the earlier call's variables. Source `$BINS` (see "Resolve binaries once, persist, then source every call") and use the absolute-path variables everywhere. Do not retry with bare names. |
 | `cmux <subcmd>` rejects a flag (CLI version drift) | Run `cmux <subcmd> --help`, adapt once, continue. Do NOT loop on broken flags. |
 | Workspace creation succeeds but `ws_id` parse fails | Fall back to `cmux list-workspaces`, match by cwd. Never call `rename-workspace` / `send` / `send-key` with an empty `--workspace` — silently targets the orchestrator. |
-| Prompt never appears / input box empty after send | Send hit the TUI before it was ready (blind `sleep` too short; plugins/banners delay boot). Use the `read-screen` readiness poll (wait for `❯`, `>` at line start, or `for shortcuts`) before sending. To recover: `read-screen` to confirm the empty input, then re-`send` the single-line prompt and `send-key Enter`. |
+| Prompt never appears / input box empty after send | Send hit the TUI before it was ready (blind `sleep` too short; plugins/banners delay boot). Use the `read-screen` readiness poll for `$AGENT_READY_MARKER` before sending. To recover: `read-screen` to confirm the empty input, then re-`send` the single-line prompt and `send-key Enter`. |
 | Slash command typed but not submitted (sits as a draft) | `send-key Enter` was not invoked after `send`. Re-send Enter via `"$CMUX" send-key --workspace "$ws_id" Enter`. |
 | Multi-line prompt submitted in fragments | Real newlines in a `cmux send` payload each act as Enter. Send the prompt as a SINGLE LINE. |
 | Install second tab not created despite `INSTALL_CMD` being non-empty | `new-surface` output parse failed; review still proceeds in tab 1. Re-run `"$CMUX" new-surface --type terminal --workspace "$ws_id"` and send `$INSTALL_CMD` to the returned surface. |
 | No install command resolves for this repo | Not an error — skip the second surface entirely (per "Resolve the install command once" above) and note "none resolved" in the Step 5 report. Never invent `npm install`/`make install` for a repo where nothing verified. |
-| `claude --session-id` rejects uuid | Launch `claude` without session id; warn that resume needs picker. |
-| `claude` rejects `--permission-mode auto` (unknown value / not entitled) | STOP. Do not spawn the workspace. Tell the user their account is not entitled to `--permission-mode auto` (or the `claude` build is too old). Never fall back to `acceptEdits` or `bypassPermissions` |
+| Claude rejects `--session-id` or Codex cannot name a session | Continue with the selected agent without deterministic launch-time naming; report that resume uses the picker or cmux workspace handle. |
+| Selected agent rejects `$AGENT_LAUNCH_FLAGS` | STOP. Do not spawn the workspace. Tell the user the selected agent cannot run unattended. Never fall back to a lesser permission mode or `--dangerously-bypass-approvals-and-sandbox`. |
 | User gave a forked-PR url and `gh pr checkout` fails auth | Surface `gh` error verbatim, do not retry blindly. |
 
 ## QA checklist
 
-- [ ] All binaries resolved once via `resolve_bin`, persisted to `$BINS`, and sourced (not re-resolved) at the top of every subsequent call (cmux, claude, gh, sleep, grep, head) — `python3` and `jq` are never resolved, both dependencies removed
+- [ ] All binaries resolved once via `resolve_bin`/`resolve_agent`, persisted to `$BINS`, and sourced (not re-resolved) at the top of every subsequent call (cmux, selected agent, gh, sleep, grep, head) — `python3` and `jq` are never resolved, both dependencies removed
 - [ ] No `cd` in the orchestrator script (only inside subshells `( cd ... && ... )`)
 - [ ] PR/branch resolved correctly (right repo, right head ref)
 - [ ] Ref extracted from branch via `detect_ref` (fallback: PR title, but ONLY the `[...]`/`type(...)` tag span is fed to `detect_ref` — never the whole title, which would leak phantom refs from ordinary prose), uppercased; empty → review proceeds ungraded (not blocked). `DENY` byte-identical to `references/resolution.md` §5 / `skills/start/SKILL.md`
@@ -580,9 +597,9 @@ Workspace ready for review:
 - [ ] CMUX workspace cwd = worktree absolute path
 - [ ] `ws_id` parsed and matches `workspace:[0-9]+` before any `send` / `send-key` / `rename-workspace`
 - [ ] Workspace tab renamed via POSITIONAL title (NOT `--name`) — verify the sidebar shows just `<label>`, not `--name <label>`
-- [ ] `"$CLAUDE_BIN" --session-id <uuid> --permission-mode auto` launched in the workspace (absolute path, not bare `claude`) — no `acceptEdits`/`bypassPermissions` fallback attempted
-- [ ] `read-screen` readiness poll (wait for ANY of `❯`, `>` at line start, or `for shortcuts`) used before `send` — NOT a blind `sleep`, NOT a poll for `❯` alone
-- [ ] Prompt (`/juel:review-pr` plus the resolved `$REF`, if any) sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
+- [ ] `$AGENT_BIN` launched in the workspace with the appropriate session naming and `$AGENT_LAUNCH_FLAGS` (absolute path, not a bare binary) — no lesser-permission fallback attempted
+- [ ] `read-screen` readiness poll waits for `$AGENT_READY_MARKER` before `send` — NOT a blind `sleep`
+- [ ] Prompt (`${AGENT_PROMPT_PREFIX}juel:review-pr` plus the resolved `$REF`, if any) sent as a SINGLE LINE (no real newlines), typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Prompt string built from `${REF:+ $REF}` only — no `docsRoot`, `base_branch`, or review-procedure prose embedded in it; `juel:review-pr` resolves and does all of that itself once running in the workspace
 - [ ] `INSTALL_CMD` resolved once (against `$CWD_ROOT`, before Step 4's second-tab step) via the tiered detection layer; if non-empty, a second tab (surface) opened with it running (sent to the new surface, NOT the claude tab); if empty, the second surface is skipped entirely (no error, no empty tab)
 - [ ] `export CMUX_QUIET=1` set so alias-deprecation notices are silenced
