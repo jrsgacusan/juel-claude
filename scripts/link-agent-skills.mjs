@@ -18,7 +18,8 @@
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, symlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const SKILLS = ['brainstorming', 'writing-plans', 'receiving-code-review'];
@@ -105,6 +106,52 @@ for (const name of SKILLS) {
     if (isLink) rmSync(link);
     symlinkSync(target, link);
   }
+  changed++;
+}
+
+// --- Codex skills vendored by this plugin -----------------------------------
+// claude-plan-executor is dispatched by execute, review-and-execute,
+// receive-review-and-execute and ship-ticket as `$claude-plan-executor`. It must
+// live at ~/.codex/skills/<name>/ to keep that bare id: a plugin skill would be
+// namespaced juel:<name> and the four call sites would stop resolving.
+//
+// Symlinked rather than copied so the installed copy cannot drift from the
+// vendored one. The link points into the version-pinned plugin root, so it goes
+// stale on a plugin update exactly like the superpowers links do, and doctor
+// reports it the same way.
+const CODEX_SKILLS = ['claude-plan-executor'];
+const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const codexSkills = join(homedir(), '.codex', 'skills');
+
+if (!DRY_RUN) mkdirSync(codexSkills, { recursive: true });
+
+for (const name of CODEX_SKILLS) {
+  const target = join(pluginRoot, 'assets', 'codex-skills', name);
+  const link = join(codexSkills, name);
+
+  if (!existsSync(join(target, 'SKILL.md'))) {
+    console.error(`error: vendored skill missing at ${target}`);
+    process.exitCode = 1;
+    continue;
+  }
+
+  let current = null;
+  let isLink = false;
+  try {
+    isLink = lstatSync(link).isSymbolicLink();
+    if (isLink) current = readlinkSync(link);
+  } catch { /* absent */ }
+
+  if (current === target) { console.log(`ok      ${name}`); ok++; continue; }
+  if (!isLink && existsSync(link)) {
+    console.error(
+      `error: ${link} exists and is not a symlink — refusing to replace it. ` +
+      `If that is your own copy, move it aside and re-run to adopt the vendored one.`);
+    process.exitCode = 1;
+    continue;
+  }
+  console.log(`${isLink ? 'relink' : 'link  '}  ${name} -> ${target}`);
+  if (!DRY_RUN) { if (isLink) rmSync(link); symlinkSync(target, link); }
   changed++;
 }
 
