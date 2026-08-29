@@ -587,6 +587,43 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 14: the vendored Codex plan executor keeps its contract ----------
+// Four skills dispatch this file by the bare id `$claude-plan-executor`. It is
+// not under skills/, so no per-skill check reaches it, and it is the one file
+// here that a Codex run executes as instructions. Two things must hold: the
+// sections that make it safe to run unattended, and no resurrected model pin.
+{
+  const execPath = join(root, 'assets', 'codex-skills', 'claude-plan-executor', 'SKILL.md');
+  if (!existsSync(execPath)) {
+    fail('plan-executor', 'assets/codex-skills/claude-plan-executor/SKILL.md is missing — four skills dispatch it');
+  } else {
+    const text = readFileSync(execPath, 'utf8');
+    for (const heading of ['## Commit contract', '## Evidence before completion', '## Progress protocol', '## Non-goals']) {
+      if (!text.includes(heading))
+        fail('plan-executor', `assets/codex-skills/claude-plan-executor/SKILL.md: missing required section "${heading}"`);
+    }
+    if (!/^name:\s*claude-plan-executor\s*$/m.test(text))
+      fail('plan-executor',
+        'assets/codex-skills/claude-plan-executor/SKILL.md: frontmatter name must stay `claude-plan-executor` — ' +
+        'four skills dispatch it by that exact id');
+  }
+
+  // The pin appears in two files today (SKILL.md twice, plan-contract.md once).
+  // Scan both, or removing it from one and not the other still passes.
+  for (const rel of [
+    ['assets', 'codex-skills', 'claude-plan-executor', 'SKILL.md'],
+    ['assets', 'codex-skills', 'claude-plan-executor', 'references', 'plan-contract.md'],
+  ]) {
+    const f = join(root, ...rel);
+    if (!existsSync(f)) continue;
+    const pin = /\bgpt-[0-9]+(\.[0-9]+)*(-[a-z]+)?\b/.exec(readFileSync(f, 'utf8'));
+    if (pin)
+      fail('plan-executor',
+        `${rel.join('/')}: hard-coded model id "${pin[0]}" — ` +
+        'model pins go stale; describe the selection rule instead');
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
