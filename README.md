@@ -61,8 +61,10 @@ Two things are genuinely weaker, by design rather than oversight:
 - **PR review is thinner.** `pr-review-toolkit:review-pr` dispatches six specialist agents in
   parallel; its Codex substitute, `codex review`, is a single pass. `juel:review-pr` says so in its
   report rather than presenting the two as equivalent.
-- **The three `cmux-*` skills do not work.** They spawn and screen-scrape `claude` TUIs by design.
-  They load in Codex and are expected to be unusable there.
+- **The three `cmux-*` skills work under both agents.** They resolve the active agent through
+  `resolve_agent`, which supplies the binary, launch flags, prompt syntax and TUI markers. Under
+  Codex, `--approve-for-me` is required; without it, an unattended spawned session stalls at its
+  first commit.
 
 ## Prerequisites
 
@@ -114,8 +116,8 @@ on you:
 | `create-linear-ticket` | Create a Linear ticket from a bug report, task, or a TODO discovered while reading code. |
 | `daily-worktrees` | Start the day by listing Linear tickets assigned to you and setting up a git worktree per ticket for parallel work. |
 | `compact-context` | Snapshot the current conversation into a compaction-style summary under `docs/.superpowers/context/`, so context survives a `/compact` or a fresh session. |
-| `cmux-ship-tickets` | Daily kickoff in CMUX: fetch Linear todos, create worktrees, spawn one CMUX workspace per ticket, and auto-launch `claude` running `/juel:ship-ticket` in each. |
-| `cmux-review-pr` | Workspace plumbing for a PR review: worktree, PR-derived session id, linked work-item ref, then auto-launch `claude` running `/juel:review-pr` inside an isolated CMUX workspace. |
+| `cmux-ship-tickets` | Daily kickoff in CMUX: fetch Linear todos, create worktrees, spawn one CMUX workspace per ticket, and auto-launch the resolved agent running the ticket skill in each. |
+| `cmux-review-pr` | Workspace plumbing for a PR review: worktree, agent-aware session naming, linked work-item ref, then auto-launch the resolved agent running the review skill inside an isolated CMUX workspace. |
 | `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
 | `cmux-babysit` | Turn the current session into a manager that monitors N CMUX workspaces, reports which need your input, and relays your replies — so you never switch tabs. |
 
