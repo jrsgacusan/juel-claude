@@ -1,6 +1,6 @@
 ---
-name: verify
-description: Use to verify that a change actually works by driving it live, not by reading it. Establishes the diff's scope, identifies the runtime surface it reaches (CLI, TUI, web UI, HTTP/RPC handler, background job), drives the change end-to-end through that real surface, pushes on adjacent edge cases, captures the evidence, and reports PASS/FAIL/BLOCKED/SKIP. Never runs the test suite or a typecheck as verification, and never calls the changed function directly in isolation - only the real interface counts. Invoked directly as /juel:verify, or delegated to from juel:ship-ticket's Phase 7 for every checklist item with a runtime surface.
+name: stale
+description: Use to verify that a change actually works by driving it live, not by reading it. Establishes the diff's scope, identifies the runtime surface it reaches (CLI, TUI, web UI, HTTP/RPC handler, background job), drives the change end-to-end through that real surface, pushes on adjacent edge cases, captures the evidence, and reports PASS/FAIL/BLOCKED/SKIP. Never runs the test suite or a typecheck as verification, and never calls the changed function directly in isolation - only the real interface counts. Invoked directly as the verify skill, or delegated to from the ship-ticket skill's Phase 7 for every checklist item with a runtime surface.
 metadata:
   requires:
     mcp:
@@ -53,7 +53,7 @@ executes, and capture what actually happens. That capture is the evidence. Nothi
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v7 -->
+<!-- juel:protocol v6 -->
 
 **0. Harness check, before every other rule.** If you do not have the `TaskCreate` tool, you are not running in Claude Code. Read `references/harness-codex.md`, resolved relative to this skill file's own location (`../../references/harness-codex.md`), and apply its construct map, corrected facts, dependency substitutions and degradation contract to every rule below and to every phase body in this skill. This single read is the one action permitted before rule 1's preflight, and only in that case. If you do have `TaskCreate`, ignore that file entirely and continue to rule 1.
 
@@ -300,5 +300,5 @@ costs one more look by a human. Ambiguous output is reported as FAIL with the ra
 | Change touches only docs/types/tests, no runtime surface | SKIP, with a one-line reason. |
 | Change is destructive (delete/publish/send) with no dry-run or safe target | Verify everything else; state plainly which path was not exercised and why. Never drive it live. |
 | A discovered `verifier-*` project skill fails on mechanics unrelated to the change | Ask the user whether to patch it. Never FAIL the change for verifier rot. |
-| Invoked from `juel:ship-ticket` Phase 7 and Playwright MCP is unavailable | Ask the user to drive the browser themselves and confirm the affected checklist item(s), recording which were not verified directly. |
+| Invoked from `the ship-ticket skill` Phase 7 and Playwright MCP is unavailable | Ask the user to drive the browser themselves and confirm the affected checklist item(s), recording which were not verified directly. |
 | Cold start (Step 3) exceeds the ~15-minute timebox | Report BLOCKED with exactly where it stopped, after checking every skill under the touched subtree's `.claude/skills/` for one that unlocks the environment. |

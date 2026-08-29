@@ -31,6 +31,39 @@ count you expect; if it's stale, force a fresh pull with:
     /plugin uninstall juel@juel-claude
     /plugin install juel@juel-claude
 
+## Install (Codex CLI)
+
+This plugin runs under [Codex CLI](https://developers.openai.com/codex) 0.148.0+ as well as Claude
+Code. Codex reads `.codex-plugin/plugin.json` and the same `skills/` tree.
+
+    codex plugin marketplace add jrsgacusan/juel-claude --ref main
+    codex plugin add juel@juel-claude
+    node scripts/link-agent-skills.mjs
+
+Start a new thread afterwards — that is the boundary at which Codex picks up new skills.
+
+The third command is not optional. Codex has no cross-marketplace dependency resolution, so the
+`dependencies` in `.claude-plugin/plugin.json` are ignored and superpowers never arrives on its own.
+`juel:start`, `juel:review-pr`, `juel:review-and-execute`, `juel:receive-review-and-execute` and
+`juel:ship-ticket` all hard-depend on it and will STOP without it. Re-run the script after a
+superpowers update; `juel:doctor` reports stale links.
+
+The bundled Mobbin MCP server registers automatically on install — it appears in `codex mcp list`
+without touching `config.toml`. You still need your own Mobbin plan and a one-time authorization.
+
+### What differs under Codex
+
+Skills are invoked as `$juel:<skill>`, not `/juel:<skill>`. Protocol rule 0 detects the harness and
+applies `references/harness-codex.md`, which maps every Claude construct the skills use.
+
+Two things are genuinely weaker, by design rather than oversight:
+
+- **PR review is thinner.** `pr-review-toolkit:review-pr` dispatches six specialist agents in
+  parallel; its Codex substitute, `codex review`, is a single pass. `juel:review-pr` says so in its
+  report rather than presenting the two as equivalent.
+- **The three `cmux-*` skills do not work.** They spawn and screen-scrape `claude` TUIs by design.
+  They load in Codex and are expected to be unusable there.
+
 ## Prerequisites
 
 ### Install automatically

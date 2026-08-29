@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel:protocol v6 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v7 -->';
 for (const [name, text] of skillBodies) {
   if (!text.includes(PROTOCOL_MARKER))
     fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
@@ -398,7 +398,7 @@ for (const [name, text] of skillBodies) {
 // Like checks 7 and 8, this is a closed-set heuristic tuned to the current
 // phrasing of the Phases section and the mapping line, not a general
 // markdown/task parser. A future rewrite of the mapping sentence must update
-// TASKCREATE_MAPPING_LINE here too, in lockstep with all 12 skills.
+// TASKCREATE_MAPPING_LINE here too, in lockstep with all 13 skills.
 //
 // Same strictness as checks 7 and 8: a Phases section this check cannot
 // positively confirm as a clean numbered list with the mapping line present
@@ -462,23 +462,96 @@ for (const [name, text] of skillBodies) {
 // real TaskCreate failure had no sanctioned fallback to point to, and would
 // either stall or silently drop to prose without saying so. The fallback
 // clause fixes this. Since the shared protocol block is duplicated by hand
-// across all 12 skills with no automated full-block identity check (see this
+// across all 13 skills with no automated full-block identity check (see this
 // task's Global Constraints), the clause could silently go missing from one
 // skill on a future edit — the same defect class checks 8, 9, and the prior
 // rule-6 check (this block, before this edit) each closed for their own
 // rule. This check closes it for rule 1's fallback clause: every skill must
-// carry both the v6 marker and the clause's canonical lead sentence,
+// carry both the v7 marker and the clause's canonical lead sentence,
 // byte-identical.
 {
-  const PROTOCOL_MARKER_V6 = '<!-- juel:protocol v6 -->';
+  const PROTOCOL_MARKER_V7 = '<!-- juel:protocol v7 -->';
   const RULE1_FALLBACK_LEAD =
     '- **If `TaskCreate`/`TaskUpdate` genuinely fail** — one attempted call returns an error, never merely assumed unavailable in advance';
 
   for (const [name, text] of skillBodies) {
-    if (!text.includes(PROTOCOL_MARKER_V6))
-      fail('protocol-v6', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V6} — rule 1's fallback clause requires the v6 marker`);
+    if (!text.includes(PROTOCOL_MARKER_V7))
+      fail('protocol-v7', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V7} — rule 1's fallback clause requires the v7 marker`);
     if (!text.includes(RULE1_FALLBACK_LEAD))
-      fail('protocol-v6', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
+      fail('protocol-v7', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
+  }
+}
+
+// --- Check 11: every Claude construct named in PROTOCOL_BLOCK must have a
+// row in references/harness-codex.md's construct map ------------------------
+// Approach C delivers Codex support as a translation layer: the skills stay
+// Claude-concrete and one adapter file maps them. That makes the adapter
+// load-bearing in exactly the way an unchecked file should never be — a rule
+// naming a construct with no mapping row degrades SILENTLY in a Codex session
+// (the model simply has no instruction for that tool) while every Claude Code
+// run stays green. This check makes that failure loud at CI time instead.
+{
+  // Deliberately a fixed list rather than one scraped out of the protocol
+  // prose: a regex over English sentences would both miss constructs and
+  // invent them. The cost is that ADDING a construct to PROTOCOL_BLOCK
+  // requires adding it here too — if it is not in this list, its absence
+  // from the map is not caught. Whoever edits the protocol owns this list.
+  const CONSTRUCTS = [
+    'TaskCreate', 'TaskUpdate', 'Skill', 'Agent', 'ListAgents',
+    'AskUserQuestion', 'Monitor', 'Write',
+  ];
+  const harnessPath = join(root, 'references', 'harness-codex.md');
+  if (!existsSync(harnessPath)) {
+    fail('harness-map', 'references/harness-codex.md is missing — protocol rule 0 points at it');
+  } else {
+    const text = readFileSync(harnessPath, 'utf8');
+    const lines = text.split(/\r?\n/);
+    const start = lines.findIndex((l) => /^## 1\. Construct map\s*$/.test(l));
+    if (start === -1) {
+      fail('harness-map', "references/harness-codex.md: no '## 1. Construct map' section found");
+    } else {
+      let end = start + 1;
+      while (end < lines.length && !/^## /.test(lines[end])) end++;
+      const mapped = new Set(
+        lines.slice(start, end)
+          .map((l) => /^\|\s*`([^`]+)`\s*\|/.exec(l))
+          .filter(Boolean)
+          .map((m) => m[1])
+      );
+      if (mapped.size === 0) {
+        fail('harness-map',
+          "references/harness-codex.md: '## 1. Construct map' has no parsable table rows " +
+          '(expected lines shaped `| `Construct` | ... |`) — cannot confirm shape, failing rather ' +
+          'than silently passing');
+      }
+      for (const c of CONSTRUCTS) {
+        if (!mapped.has(c))
+          fail('harness-map',
+            `references/harness-codex.md: PROTOCOL_BLOCK names \`${c}\` but the construct map has no row for it`);
+      }
+    }
+  }
+}
+
+// --- Check 12: the two plugin manifests must agree on version --------------
+// Releases here are tag-driven and the installed cache is version-gated, so a
+// stale version in either manifest pins that harness's installs to the wrong
+// release while the other harness updates correctly — a divergence that is
+// invisible until someone reports "my Codex copy is old".
+{
+  const codexPluginPath = join(root, '.codex-plugin', 'plugin.json');
+  if (existsSync(codexPluginPath) && plugin) {
+    const codexPlugin = readJson(codexPluginPath);
+    if (codexPlugin) {
+      if (codexPlugin.version !== plugin.version)
+        fail('manifest-parity',
+          `.codex-plugin/plugin.json version ${JSON.stringify(codexPlugin.version)} disagrees with ` +
+          `.claude-plugin/plugin.json version ${JSON.stringify(plugin.version)} — both must match`);
+      if (codexPlugin.name !== plugin.name)
+        fail('manifest-parity',
+          `.codex-plugin/plugin.json name ${JSON.stringify(codexPlugin.name)} disagrees with ` +
+          `.claude-plugin/plugin.json name ${JSON.stringify(plugin.name)}`);
+    }
   }
 }
 

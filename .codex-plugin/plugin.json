@@ -1,0 +1,36 @@
+{
+  "name": "juel",
+  "version": "1.9.0",
+  "description": "Ticket-to-PR workflow skills: plan, execute, review, remediate, verify, ship.",
+  "author": {
+    "name": "Juel Rei Solomon Gacusan"
+  },
+  "homepage": "https://github.com/jrsgacusan/juel-claude",
+  "repository": "https://github.com/jrsgacusan/juel-claude",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "linear",
+    "code-review",
+    "worktrees",
+    "cmux"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "juel",
+    "shortDescription": "Ticket-to-PR workflow skills for planning and shipping",
+    "longDescription": "Wires work items, git worktrees, sandboxed execution and PR review into one ticket-to-PR workflow: fetch a ticket, brainstorm and plan, dispatch execution, review and remediate, verify against the real runtime surface, and ship a PR.",
+    "developerName": "Juel Rei Solomon Gacusan",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Start work on my current ticket.",
+      "Review this PR against its work item.",
+      "Verify this change actually works."
+    ]
+  }
+}

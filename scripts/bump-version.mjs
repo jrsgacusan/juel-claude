@@ -13,7 +13,7 @@
 //   5. If either validator fails, OR the process receives SIGINT/SIGTERM,
 //      OR an uncaught exception is thrown — any of that, ANY TIME before
 //      `git add` succeeds at the start of Step 6 — kill whatever subprocess
-//      is currently running, restore plugin.json AND requirements.json to
+//      is currently running, restore both plugin manifests AND requirements.json to
 //      their exact pre-bump bytes, and exit non-zero. Restore is
 //      idempotent and safe to call with nothing yet written.
 //      Once `git add` succeeds, the script stops rewriting files on
@@ -66,6 +66,7 @@ import { spawn } from 'node:child_process';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const pluginPath = join(root, '.claude-plugin', 'plugin.json');
 const reqPath = join(root, '.claude-plugin', 'requirements.json');
+const codexPluginPath = join(root, '.codex-plugin', 'plugin.json');
 
 const BUMP_KINDS = new Set(['patch', 'minor', 'major']);
 
@@ -130,6 +131,7 @@ if (!existsSync(pluginPath)) {
 }
 const originalPluginText = readFileSync(pluginPath, 'utf8');
 const originalReqText = existsSync(reqPath) ? readFileSync(reqPath, 'utf8') : null;
+const originalCodexPluginText = existsSync(codexPluginPath) ? readFileSync(codexPluginPath, 'utf8') : null;
 
 let plugin;
 try {
@@ -158,7 +160,7 @@ try {
 let restorable = true;
 
 /**
- * Restores plugin.json and requirements.json to their exact pre-bump bytes.
+ * Restores both plugin manifests and requirements.json to their exact pre-bump bytes.
  * Idempotent and safe to call any number of times, including before Step 1
  * has written anything (writing back identical bytes is a no-op) and after
  * `restorable` has flipped to false (a no-op by design — see above).
@@ -167,6 +169,7 @@ function restore() {
   if (!restorable) return;
   writeFileSync(pluginPath, originalPluginText);
   if (originalReqText !== null) writeFileSync(reqPath, originalReqText);
+  if (originalCodexPluginText !== null) writeFileSync(codexPluginPath, originalCodexPluginText);
   // requirements.json did not exist before the bump — leave it as
   // gen-requirements.mjs left it only if nothing was written at all;
   // since we always ran gen-requirements.mjs in step 2, and it always
@@ -191,10 +194,10 @@ function handleTermination(label, detail) {
   }
   if (restorable) {
     restore();
-    console.error('Restored plugin.json and requirements.json to their pre-bump state. Nothing was committed or tagged.');
+    console.error('Restored both plugin manifests and requirements.json to their pre-bump state. Nothing was committed or tagged.');
   } else {
     console.error(
-      'This happened after `git add` began the release commit — plugin.json and requirements.json were NOT ' +
+      'This happened after `git add` began the release commit — plugin manifests and requirements.json were NOT ' +
         'reverted (they may already be staged or committed at the new version). Run `git status` and `git log -1` ' +
         'to see exactly where this left off before retrying.'
     );
@@ -215,11 +218,16 @@ process.on('uncaughtException', (err) => {
 console.log(`Bumping plugin.json version: ${fromVersion} -> ${toVersion} (${kind})`);
 plugin.version = toVersion;
 writeFileSync(pluginPath, JSON.stringify(plugin, null, 2) + '\n');
+if (originalCodexPluginText !== null) {
+  const codexPlugin = JSON.parse(originalCodexPluginText);
+  codexPlugin.version = toVersion;
+  writeFileSync(codexPluginPath, JSON.stringify(codexPlugin, null, 2) + '\n');
+}
 
 // --- Step 2: regenerate requirements.json ----------------------------------
 const genOk = await run(process.execPath, [join(root, 'scripts', 'gen-requirements.mjs')]);
 if (!genOk) {
-  console.error('\n✘ gen-requirements.mjs failed — restoring plugin.json and requirements.json, nothing committed.');
+  console.error('\n✘ gen-requirements.mjs failed — restoring both plugin manifests and requirements.json, nothing committed.');
   restore();
   process.exit(1);
 }
@@ -234,16 +242,16 @@ const claudeValidateOk = validateOk && (await run('claude', ['plugin', 'validate
 if (!validateOk || !claudeValidateOk) {
   console.error(
     `\n✘ Validation failed (${!validateOk ? 'node scripts/validate.mjs' : 'claude plugin validate . --strict'})` +
-      ' — restoring plugin.json and requirements.json to their pre-bump state. Nothing committed, nothing tagged.'
+      ' — restoring both plugin manifests and requirements.json to their pre-bump state. Nothing committed, nothing tagged.'
   );
   restore();
   process.exit(1);
 }
 
 // --- Step 6: commit ----------------------------------------------------------
-const addOk = await run('git', ['add', '.claude-plugin/plugin.json', '.claude-plugin/requirements.json']);
+const addOk = await run('git', ['add', '.claude-plugin/plugin.json', '.claude-plugin/requirements.json', '.codex-plugin/plugin.json']);
 if (!addOk) {
-  console.error('\n✘ git add failed — restoring plugin.json and requirements.json.');
+  console.error('\n✘ git add failed — restoring both plugin manifests and requirements.json.');
   restore();
   process.exit(1);
 }
@@ -255,7 +263,7 @@ const commitMessage = `chore: release v${toVersion}`;
 const commitOk = await run('git', ['commit', '-m', commitMessage]);
 if (!commitOk) {
   console.error(
-    '\n✘ git commit failed. plugin.json and requirements.json were staged but the working tree state is now ' +
+    '\n✘ git commit failed. Both plugin manifests and requirements.json were staged but the working tree state is now ' +
       'ambiguous (git add already ran) — inspect `git status` and `git diff --cached` before retrying; ' +
       'this script will not attempt to unstage or restore past this point.'
   );
