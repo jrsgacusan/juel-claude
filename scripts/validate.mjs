@@ -555,6 +555,38 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 13: cmux-* skills must drive sessions through resolve_agent ------
+// The cmux skills spawn and screen-scrape agent TUIs. Every hard-coded `claude`
+// binary, `--permission-mode auto` flag, or Claude TUI marker in an executable
+// line is a skill that silently only works under one agent. The seam exists so
+// that is a build failure rather than a discovery made from Codex.
+{
+  const BANNED = [
+    { re: /CLAUDE_BIN/,                       why: 'use $AGENT_BIN from resolve_agent' },
+    { re: /resolve_bin\s+claude/,             why: 'use resolve_agent, not resolve_bin claude' },
+    { re: /--permission-mode\s+auto/,         why: 'use $AGENT_LAUNCH_FLAGS' },
+  ];
+  for (const [name, text] of skillBodies) {
+    if (!name.startsWith('cmux-')) continue;
+    let reported = false;
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (reported) return;
+      // Only executable-looking lines. Prose and table cells may name either agent.
+      if (line.trimStart().startsWith('|') || line.trimStart().startsWith('>')) return;
+      if (/AGENT_(BIN|LAUNCH_FLAGS|KIND|PROMPT_PREFIX)/.test(line)) return;
+      for (const b of BANNED) {
+        if (b.re.test(line)) {
+          fail('agent-driver',
+            `skills/${name}/SKILL.md:${i + 1}: hard-coded agent driver — ${b.why} — ` +
+            `"${line.trim().slice(0, 80)}"`);
+          reported = true;
+          break;
+        }
+      }
+    });
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 
