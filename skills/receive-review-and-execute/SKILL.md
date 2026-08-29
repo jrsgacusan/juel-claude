@@ -29,6 +29,9 @@ metadata:
       - id: superpowers
         hard: true
         why: phases 4 and 6 delegate to superpowers:receiving-code-review and superpowers:writing-plans
+      - id: claude-plan-executor
+        hard: true
+        why: phase 7 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
 ---
 
 # Receive Review and Execute
@@ -80,6 +83,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | open PR + number | context | HARD | `gh pr view <N> --json number` | STOP → this skill consumes an existing PR |
 | GitHub remote | context | HARD | `git remote get-url <remote>` matches github.com | STOP → non-GitHub remotes are unsupported here |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
+| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
 | AskUserQuestion | context | HARD | always available interactively | STOP in headless sessions |
 
@@ -280,6 +284,12 @@ The harness pipes stdin and never closes it, so codex waits for an EOF that neve
 ```bash
 codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/receive-review-plan<-vN if applicable>.md' < /dev/null
 ```
+
+**Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
+session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
+it. Report the same outcome the Claude path reports: exit status and files changed, never a
+transcript. If `spawn_agent` is unavailable (the `multi_agent` feature is off), say so in one
+line and apply the plan in this session directly rather than falling back to `codex exec`.
 
 Always run this in the **background** (`run_in_background: true`) — `codex exec` runs through the Bash tool, whose 600s timeout cap would otherwise silently detach it mid-run. Do not redirect its output to a file — the user watches the executor run in the shell. Announce to the user that Codex has been dispatched and surface the command.
 

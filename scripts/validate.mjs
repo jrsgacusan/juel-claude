@@ -555,6 +555,75 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 13: cmux-* skills must drive sessions through resolve_agent ------
+// The cmux skills spawn and screen-scrape agent TUIs. Every hard-coded `claude`
+// binary, `--permission-mode auto` flag, or Claude TUI marker in an executable
+// line is a skill that silently only works under one agent. The seam exists so
+// that is a build failure rather than a discovery made from Codex.
+{
+  const BANNED = [
+    { re: /CLAUDE_BIN/,                       why: 'use $AGENT_BIN from resolve_agent' },
+    { re: /resolve_bin\s+claude/,             why: 'use resolve_agent, not resolve_bin claude' },
+    { re: /--permission-mode\s+auto/,         why: 'use $AGENT_LAUNCH_FLAGS' },
+  ];
+  for (const [name, text] of skillBodies) {
+    if (!name.startsWith('cmux-')) continue;
+    let reported = false;
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (reported) return;
+      // Only executable-looking lines. Prose and table cells may name either agent.
+      if (line.trimStart().startsWith('|') || line.trimStart().startsWith('>')) return;
+      if (/AGENT_(BIN|LAUNCH_FLAGS|KIND|PROMPT_PREFIX)/.test(line)) return;
+      for (const b of BANNED) {
+        if (b.re.test(line)) {
+          fail('agent-driver',
+            `skills/${name}/SKILL.md:${i + 1}: hard-coded agent driver — ${b.why} — ` +
+            `"${line.trim().slice(0, 80)}"`);
+          reported = true;
+          break;
+        }
+      }
+    });
+  }
+}
+
+// --- Check 14: the vendored Codex plan executor keeps its contract ----------
+// Four skills dispatch this file by the bare id `$claude-plan-executor`. It is
+// not under skills/, so no per-skill check reaches it, and it is the one file
+// here that a Codex run executes as instructions. Two things must hold: the
+// sections that make it safe to run unattended, and no resurrected model pin.
+{
+  const execPath = join(root, 'assets', 'codex-skills', 'claude-plan-executor', 'SKILL.md');
+  if (!existsSync(execPath)) {
+    fail('plan-executor', 'assets/codex-skills/claude-plan-executor/SKILL.md is missing — four skills dispatch it');
+  } else {
+    const text = readFileSync(execPath, 'utf8');
+    for (const heading of ['## Commit contract', '## Evidence before completion', '## Progress protocol', '## Non-goals']) {
+      if (!text.includes(heading))
+        fail('plan-executor', `assets/codex-skills/claude-plan-executor/SKILL.md: missing required section "${heading}"`);
+    }
+    if (!/^name:\s*claude-plan-executor\s*$/m.test(text))
+      fail('plan-executor',
+        'assets/codex-skills/claude-plan-executor/SKILL.md: frontmatter name must stay `claude-plan-executor` — ' +
+        'four skills dispatch it by that exact id');
+  }
+
+  // The pin appears in two files today (SKILL.md twice, plan-contract.md once).
+  // Scan both, or removing it from one and not the other still passes.
+  for (const rel of [
+    ['assets', 'codex-skills', 'claude-plan-executor', 'SKILL.md'],
+    ['assets', 'codex-skills', 'claude-plan-executor', 'references', 'plan-contract.md'],
+  ]) {
+    const f = join(root, ...rel);
+    if (!existsSync(f)) continue;
+    const pin = /\bgpt-[0-9]+(\.[0-9]+)*(-[a-z]+)?\b/.exec(readFileSync(f, 'utf8'));
+    if (pin)
+      fail('plan-executor',
+        `${rel.join('/')}: hard-coded model id "${pin[0]}" — ` +
+        'model pins go stale; describe the selection rule instead');
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 

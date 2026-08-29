@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Plan Executor"
+  short_description: "Execute Claude plans with Codex guidance"
+  default_prompt: "Use $claude-plan-executor with the attached Claude plan resource and execute it end to end."

@@ -183,6 +183,57 @@ binary resolved in call N is gone by call N+1. Persist resolved paths to
 `. "$BINS"` at the top of every subsequent call that needs them, rather than re-resolving or — worse
 — assuming the previous call's `PATH` still applies.
 
+## Agent driver
+
+```sh
+# Resolves which agent CLI drives spawned sessions, and everything that differs
+# between them. Callers use the variables, never a bare binary name.
+#
+#   $1 - preferred agent kind: "claude", "codex", or "" to auto-detect.
+#
+# Auto-detection prefers the agent this session is itself running under, since a
+# user in Codex asking to ship tickets means Codex workspaces. AGENT_KIND is the
+# caller's explicit choice when given; otherwise CODEX_HOME being set is the
+# signal, and claude is the fallback.
+resolve_agent() {
+  want=$1
+
+  # No auto-detection on purpose. A machine with both agents installed cannot be
+  # sniffed reliably - ~/.codex exists during Claude Code sessions too. The caller
+  # already knows its harness from protocol rule 0 (do you have TaskCreate?) and
+  # passes it explicitly. An empty argument is a caller bug, not a default.
+  [ -n "$want" ] || { echo "resolve_agent: agent kind required (claude|codex)" >&2; return 2; }
+
+  case "$want" in
+    codex)
+      AGENT_BIN=$(resolve_bin codex "$HOME/.local/bin/codex" /opt/homebrew/bin/codex /usr/local/bin/codex) || return 1
+      AGENT_KIND=codex
+      AGENT_LAUNCH_FLAGS="--approve-for-me"
+      AGENT_PROMPT_PREFIX='$'
+      AGENT_READY_MARKER='Ask Codex to do anything'
+      AGENT_APPROVAL_MARKER='Would you like to run the following command?'
+      AGENT_NOTIFICATION_LABEL='codex'
+      ;;
+    claude)
+      AGENT_BIN=$(resolve_bin claude "$HOME/.claude/local/claude" "$HOME/.local/bin/claude" \
+                  /Applications/cmux.app/Contents/Resources/bin/claude \
+                  /opt/homebrew/bin/claude /usr/local/bin/claude) || return 1
+      AGENT_KIND=claude
+      AGENT_LAUNCH_FLAGS="--permission-mode auto"
+      AGENT_PROMPT_PREFIX='/'
+      AGENT_READY_MARKER='? for shortcuts'
+      AGENT_APPROVAL_MARKER='Do you want to proceed?'
+      AGENT_NOTIFICATION_LABEL='Claude Code'
+      ;;
+    *) return 1 ;;
+  esac
+
+  export AGENT_KIND AGENT_BIN AGENT_LAUNCH_FLAGS AGENT_PROMPT_PREFIX \
+         AGENT_READY_MARKER AGENT_APPROVAL_MARKER AGENT_NOTIFICATION_LABEL
+  return 0
+}
+```
+
 ### 4.2 `copy_untracked`
 
 ```sh

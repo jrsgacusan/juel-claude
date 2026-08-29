@@ -15,6 +15,7 @@ you are running.
 | `TaskUpdate` | `update_plan` | Rewrite the plan with the item's new status; there is no separate update call. |
 | `Skill` | `$<skill-name>` | Explicit invocation. Plugin skills are namespaced `juel:<skill>`; skills under `~/.agents/skills/` are not namespaced. |
 | `Agent` | `spawn_agent` | Then `wait` for the result. `list_agents` enumerates in-flight agents. |
+| `codex exec (as executor)` | `spawn_agent` + `wait` | A Codex session must not shell out to another Codex session. Spawn a subagent, then `wait` for it. `multi_agent` is stable; `max_threads` and `max_depth` come from `[agents]` in `~/.codex/config.toml`. |
 | `ListAgents` | `list_agents` | Same purpose: confirm whether a dispatch produced a result before concluding it returned nothing. |
 | `AskUserQuestion` | prose question | Ask in prose, one question at a time, and wait for the answer. Do not fabricate an answer to keep going. |
 | `Monitor` | none | Rule 4 already forbids attaching one to `codex exec`, so there is nothing to translate. |
@@ -38,6 +39,17 @@ correction, not a rename.
 - **Rule 1's `TaskCreate` fallback still applies**, keyed on `update_plan` instead. If `update_plan`
   genuinely fails — one attempted call returning an error, never assumed in advance — fall back to
   an explicit numbered phase log and state the degradation once.
+
+- **Do not run `codex exec` as the executor.** Four skills dispatch
+  `codex exec --sandbox workspace-write '$claude-plan-executor <plan>'`. That is correct in
+  Claude Code, where `codex` is a genuinely separate agent. Inside Codex it spawns a second
+  Codex process that duplicates the whole context for no benefit. Use `spawn_agent` with the
+  plan path as the task, then `wait` for it, and report its outcome exactly as rule 4 requires:
+  exit status and files changed, never a transcript.
+
+  Rule 4's backgrounding requirement does not apply, because it exists solely to dodge the
+  Bash tool's 600s cap, which Codex does not have. `spawn_agent` is already asynchronous and
+  `wait` is the join point.
 
 - **Whether a sandboxed executor can commit depends on config - check, do not assume.** Under
   `--sandbox workspace-write`, `.git` is a documented protected path: recursively read-only,
