@@ -1,7 +1,7 @@
 {
   "name": "juel",
   "description": "Ticket-to-PR workflow skills: plan, execute, review, remediate, verify, ship.",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "author": {
     "name": "Juel Rei Solomon Gacusan"
   },
