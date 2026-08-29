@@ -76,9 +76,9 @@ correction, not a rename.
 | --- | --- | --- |
 | `code-simplifier` | `$simplify` | SOFT. Present in `~/.agents/skills/`. If absent, skip the polish phase and say so. |
 | `pr-review-toolkit:review-pr` | `codex review` | SOFT, **and a downgrade.** See below. |
-| `superpowers:brainstorming` | `$brainstorming` | HARD. Unnamespaced. If absent, STOP and point at `scripts/link-agent-skills.mjs`. |
-| `superpowers:writing-plans` | `$writing-plans` | HARD. Unnamespaced. Same remedy. |
-| `superpowers:receiving-code-review` | `$receiving-code-review` | HARD. Unnamespaced. Same remedy. |
+| `superpowers:brainstorming` | `$superpowers:brainstorming` | HARD. Same id as Claude Code. If absent, STOP and point at `scripts/link-agent-skills.mjs`. |
+| `superpowers:writing-plans` | `$superpowers:writing-plans` | HARD. Same id as Claude Code. Same remedy. |
+| `superpowers:receiving-code-review` | `$superpowers:receiving-code-review` | HARD. Same id as Claude Code. Same remedy. |
 
 **The reviewer substitution is a genuine downgrade, and you must say so in your report.**
 `pr-review-toolkit:review-pr` dispatches six specialist agents in parallel. `codex review` is a
@@ -86,8 +86,18 @@ single-pass reviewer. A Codex review of a diff is thinner than a Claude Code rev
 diff. State this in the findings report rather than presenting the result as equivalent coverage.
 Rule 4's PARALLEL requirement has nothing to dispatch in parallel here; it does not apply.
 
-The superpowers skills are unnamespaced because Codex treats each direct child of
-`~/.agents/skills/` as one skill and does not recurse into a directory of skills.
+**How `~/.agents/skills/` entries get their id.** Codex treats each direct child as one skill and
+does not recurse, but the id is not the directory name - it resolves symlinks first:
+
+- a **real directory** is exposed bare, so `~/.agents/skills/simplify/` is `$simplify`;
+- a **symlink into a plugin** is namespaced by the plugin that owns the target, so
+  `~/.agents/skills/brainstorming -> .../superpowers/6.3.0/skills/brainstorming` is
+  `$superpowers:brainstorming`, not `$brainstorming`, even though its frontmatter says
+  `name: brainstorming`.
+
+`scripts/link-agent-skills.mjs` creates symlinks, so the three superpowers skills keep their
+`superpowers:` prefix and the ids are identical in both harnesses. Verify against
+`codex debug prompt-input` rather than inferring from the link name.
 
 ## 4. Degradation contract
 
