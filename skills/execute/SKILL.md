@@ -165,6 +165,12 @@ The harness pipes stdin and never closes it, so codex waits for an EOF that neve
 codex exec --sandbox workspace-write '$claude-plan-executor <plan-path>' < /dev/null
 ```
 
+**Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
+session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
+it. Report the same outcome the Claude path reports: exit status and files changed, never a
+transcript. If `spawn_agent` is unavailable (the `multi_agent` feature is off), say so in one
+line and apply the plan in this session directly rather than falling back to `codex exec`.
+
 Before dispatching, scan the plan for commit-convention guidance (e.g., Conventional Commits, ticket-scoped messages like `feat(MSTR-1234): ...`, branch naming rules). If found, append an explicit instruction to the Codex prompt:
 
 > Follow the commit conventions specified in the plan: `<quote the relevant rule>`.
