@@ -1,6 +1,6 @@
 ---
 name: cmux-ship-tickets
-description: Use when starting your workday in CMUX to ship multiple Linear tickets in parallel. Wraps juel:daily-worktrees + per-item CMUX workspace creation + auto-launch of `claude` running `/juel:ship-ticket`. Triggers "ship my tickets", "start my day", "/juel:cmux-ship-tickets".
+description: Use when starting your workday in CMUX to ship multiple Linear tickets in parallel. Wraps juel:daily-worktrees + per-item CMUX workspace creation + auto-launch of the resolved agent running `/juel:ship-ticket`. Triggers "ship my tickets", "start my day", "/juel:cmux-ship-tickets".
 metadata:
   requires:
     mcp:
@@ -16,8 +16,8 @@ metadata:
         check: "resolve_bin cmux against PATH, then GUI/Homebrew candidates"
       - id: claude
         hard: true
-        why: phase 4 launches claude inside each workspace
-        check: "resolve_bin claude against PATH, then GUI/Homebrew candidates"
+        why: phase 4 launches the selected agent inside each workspace
+        check: "resolve_agent from rule 0; it calls resolve_bin against PATH, then GUI/Homebrew candidates"
       - id: coreutils
         hard: true
         why: sleep/grep/head/cat are resolved once per session via resolve_bin and sourced from BINS every call, since each Bash call is an independent non-login shell
@@ -87,13 +87,13 @@ End-to-end daily kickoff: fetch open work items from the resolved work source, c
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | cmux | cli | HARD | `resolve_bin cmux` against PATH, then GUI/Homebrew candidates | STOP → https://github.com/manaflow-ai/cmux |
-| claude | cli | HARD | `resolve_bin claude` against PATH, then GUI/Homebrew candidates | STOP → install the Claude Code CLI |
+| claude | cli | HARD | `resolve_agent` from rule 0 | STOP → install the selected agent CLI |
 | coreutils | cli | HARD | `resolve_bin` per binary (sleep/grep/head/cat) against PATH, then `/usr/bin`,`/bin` candidates | STOP |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
 | juel:daily-worktrees, juel:ship-ticket | skill | HARD | ship with this plugin | STOP |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 2 relies on juel:daily-worktrees' own provider fallback / no-list handling — CMUX workspaces still spawn for whatever refs it resolves |
 | resolved install command | cli | SOFT | see resolution layer | skip the second surface; install deps yourself |
-| `--permission-mode auto` | perm | HARD | none — render as `?` | STOP → tell the user the account is not entitled to `--permission-mode auto`; never spawn a session nobody is watching on a lesser mode |
+| `--permission-mode auto` | perm | HARD | none — render as `?` | STOP → under Claude, the account is not entitled to `--permission-mode auto`; under Codex, `--approve-for-me` is required or a spawned session stalls at its first commit. Never spawn a session nobody is watching without one of them. |
 
 ## Phases
 
@@ -112,7 +112,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 ## Prerequisites
 
 - `cmux` CLI installed — resolved via `resolve_bin` (PATH first, then the GUI install at `/Applications/cmux.app/Contents/Resources/bin/cmux` and Homebrew paths as candidates, not the sole fallback). If nothing resolves, abort with install hint.
-- `claude` CLI installed (same `resolve_bin` rule; GUI path and Homebrew paths are candidates).
+- The selected agent CLI installed and resolved through `resolve_agent`.
 - Inside a git repo with `juel:daily-worktrees` skill available.
 - A work source resolved (Linear/Jira/GitHub/file) — `juel:daily-worktrees` handles provider
   fallback if none resolves.
@@ -131,16 +131,16 @@ resolve_bin() {
 
 CMUX=$(resolve_bin cmux /Applications/cmux.app/Contents/Resources/bin/cmux \
         "$HOME/.local/bin/cmux" /opt/homebrew/bin/cmux /usr/local/bin/cmux) || CMUX=
-CLAUDE_BIN=$(resolve_bin claude "$HOME/.claude/local/claude" "$HOME/.local/bin/claude" \
-        /Applications/cmux.app/Contents/Resources/bin/claude \
-        /opt/homebrew/bin/claude /usr/local/bin/claude) || CLAUDE_BIN=
+# Rule 0 already told you which harness you are in. Pass that explicit kind to
+# resolve_agent; do not guess from the machine's installed binaries.
+resolve_agent "$AGENT_KIND_FROM_RULE0" || { echo "no agent CLI found for $AGENT_KIND_FROM_RULE0"; exit 1; }
+echo "AGENT_KIND=$AGENT_KIND"; echo "AGENT_BIN=$AGENT_BIN"
 SLEEP=$(resolve_bin sleep /usr/bin/sleep /bin/sleep) || SLEEP=
 GREP=$(resolve_bin grep /usr/bin/grep /bin/grep) || GREP=
 HEAD=$(resolve_bin head /usr/bin/head /bin/head) || HEAD=
 CAT=$(resolve_bin cat /usr/bin/cat /bin/cat) || CAT=
 
 [ -n "$CMUX" ] || { echo "cmux not found on PATH or any candidate location"; exit 1; }
-[ -n "$CLAUDE_BIN" ] || { echo "claude not found on PATH or any candidate location"; exit 1; }
 [ -n "$SLEEP" ] && [ -n "$GREP" ] && [ -n "$HEAD" ] && [ -n "$CAT" ] || { echo "missing coreutils"; exit 1; }
 
 GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)   # normalized — --git-common-dir
@@ -152,7 +152,10 @@ MAIN_ROOT=$(dirname "$GIT_COMMON")                                # main checkou
 BINS="$GIT_COMMON/claude/bins.env"
 mkdir -p "$(dirname "$BINS")"
 {
-  echo "CMUX=$CMUX"; echo "CLAUDE_BIN=$CLAUDE_BIN"
+  echo "CMUX=$CMUX"; echo "AGENT_KIND='$AGENT_KIND'"; echo "AGENT_BIN='$AGENT_BIN'"
+  echo "AGENT_LAUNCH_FLAGS='$AGENT_LAUNCH_FLAGS'"; echo "AGENT_PROMPT_PREFIX='$AGENT_PROMPT_PREFIX'"
+  echo "AGENT_READY_MARKER='$AGENT_READY_MARKER'"; echo "AGENT_APPROVAL_MARKER='$AGENT_APPROVAL_MARKER'"
+  echo "AGENT_NOTIFICATION_LABEL='$AGENT_NOTIFICATION_LABEL'"
   echo "SLEEP=$SLEEP"; echo "GREP=$GREP"; echo "HEAD=$HEAD"; echo "CAT=$CAT"
 } > "$BINS"
 ```
@@ -168,7 +171,7 @@ BINS="$GIT_COMMON/claude/bins.env"
 
 (`MAIN_ROOT` is cheap to recompute — two `git`/`dirname` calls — so it is rederived fresh every call rather than persisted to `$BINS`; only the `resolve_bin` candidate search, which is the expensive/fragile part, is persisted.)
 
-(`BINS` itself is a shell variable and does not survive either — recompute the path fresh, then source. Recomputing the path is cheap; re-running the `resolve_bin` candidate search every call is what this pattern avoids.) Use `"$CMUX"`, `"$CLAUDE_BIN"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"`, `"$CAT"` (never bare names) in every command — including within this same call, since `.` (source) does not export the values as bare command names, just as shell variables.
+(`BINS` itself is a shell variable and does not survive either — recompute the path fresh, then source. Recomputing the path is cheap; re-running the `resolve_bin` candidate search every call is what this pattern avoids.) Use `"$CMUX"`, `"$AGENT_BIN"`, `"$SLEEP"`, `"$GREP"`, `"$HEAD"`, `"$CAT"` (never bare names) in every command — including within this same call, since `.` (source) does not export the values as bare command names, just as shell variables.
 
 ### Long snippets run as a temp file under `bash`
 
@@ -298,7 +301,7 @@ ref-optional naming table), never a placeholder like `none`/`NOREF`.
 
 ### Step 2: Confirm CMUX launch
 
-Show the user the list and ask: "Spawn a CMUX workspace + claude session for each? [Y/n]"
+Show the user the list and ask: "Spawn a CMUX workspace + agent session for each? [Y/n]"
 
 If declined, stop and report worktree paths only.
 
@@ -306,17 +309,17 @@ If declined, stop and report worktree paths only.
 
 For each `{ref, path}`:
 
-1. **Create workspace and launch claude in one call.** The `--command` flag runs the command in the new workspace's terminal and presses Enter automatically. Pass the absolute `$CLAUDE_BIN`, and start it in **auto permission mode** so the session works through `/juel:ship-ticket` without stopping at every tool prompt:
+1. **Create workspace and launch the resolved agent in one call.** The `--command` flag runs the command in the new workspace's terminal and presses Enter automatically. Pass the absolute `$AGENT_BIN` with `$AGENT_LAUNCH_FLAGS` so the session works through the prompt without stopping at every tool prompt:
 
    ```bash
-   raw=$("$CMUX" new-workspace --cwd "$path" --command "$CLAUDE_BIN --permission-mode auto")
+   raw=$("$CMUX" new-workspace --cwd "$path" --command "$AGENT_BIN $AGENT_LAUNCH_FLAGS")
    # raw looks like: "OK workspace:55"
    ws_id=$(echo "$raw" | "$GREP" -oE 'workspace:[0-9]+' | "$HEAD" -1)
    ```
 
    `auto` auto-approves tool calls but runs a background safety classifier that still blocks destructive actions (force push, mass deletion, `curl | bash`, production deploys) and falls back to manual prompting after repeated blocks. This is the point of the skill — an unattended session that pauses on the first `pnpm install` prompt has not shipped anything.
 
-   If `--permission-mode auto` is rejected (older `claude` build, or the account is not entitled to auto mode), **STOP** — do not spawn the workspace, and do not fall back to `--permission-mode acceptEdits` or `bypassPermissions` / `--dangerously-skip-permissions`. Tell the user plainly that their account is not entitled to auto mode; a spawned CMUX session nobody is watching must never silently stall on a permission prompt, and these worktrees sit on the real filesystem with real credentials, not in a container.
+   If the selected agent's unattended launch flags are rejected (for example, an older Claude build or a Codex session without `--approve-for-me`), **STOP** — do not spawn the workspace, and do not fall back to a lesser permission mode or `--dangerously-bypass-approvals-and-sandbox`. Tell the user plainly that the selected agent cannot run unattended; a spawned CMUX session nobody is watching must never silently stall on a permission prompt, and these worktrees sit on the real filesystem with real credentials, not in a container.
 
 2. **Guard: abort this item if ws_id is empty.** A blank `--workspace` arg silently targets the currently-selected workspace, which is the orchestrator running this skill — `send`/`send-key` against an empty ref will type into the user's own claude session.
 
@@ -352,11 +355,11 @@ For each `{ref, path}`:
 
    Green hex: `#22c55e` (Tailwind green-500). Pick a darker/lighter shade if the user requests it, but default to green-500 for consistency.
 
-5. **Wait for the claude TUI to be ready, then queue the slash command.** Claude's terminal UI needs several seconds to boot before it accepts keystrokes. `sleep 1` is too short.
+5. **Wait for the agent TUI to be ready, then queue the command.** The terminal UI needs several seconds to boot before it accepts keystrokes. `sleep 1` is too short.
 
    ```bash
    "$SLEEP" 6
-   "$CMUX" send --workspace "$ws_id" "/juel:ship-ticket $ref"
+   "$CMUX" send --workspace "$ws_id" "${AGENT_PROMPT_PREFIX}juel:ship-ticket $ref"
    "$SLEEP" 1
    "$CMUX" send-key --workspace "$ws_id" Enter
    ```
@@ -412,7 +415,7 @@ Every workspace MUST be renamed to its canonical ref (e.g. `MSTR-3034`) per Step
 | `cmux` not installed                                                                                 | Abort, link https://github.com/manaflow-ai/cmux                                                                                                                                                        |
 | `command not found: cmux` (or claude/sleep/head/grep/cat) mid-script after earlier resolution succeeded | Not a PATH drop — this is a fresh non-login shell that never had the earlier call's variables. Source `$BINS` (see "Resolve binaries once, persist, then source every call") and use `"$CMUX"` / `"$SLEEP"` / `"$GREP"` / `"$HEAD"` / `"$CAT"` everywhere. Do not retry with bare names.       |
 | `juel:daily-worktrees` finds no work items                                                          | Stop after Step 1, nothing to do                                                                                                                                                                       |
-| `claude` rejects `--permission-mode auto` (unknown value / not entitled)                             | STOP. Do not spawn the workspace. Tell the user their account is not entitled to `--permission-mode auto` (or the `claude` build is too old). Never fall back to `acceptEdits` or `bypassPermissions`                                                                    |
+| selected agent rejects `$AGENT_LAUNCH_FLAGS`                                                        | STOP. Do not spawn the workspace. Tell the user the selected agent cannot run unattended. Never fall back to a lesser permission mode or `--dangerously-bypass-approvals-and-sandbox`                                                                    |
 | `cmux <subcmd>` rejects a flag (CLI version drift)                                                   | Run `cmux <subcmd> --help`, adapt the call once, then continue. Do NOT loop on broken flags                                                                                                            |
 | Workspace creation succeeds but `ws_id` parse fails                                                  | Skip that item (per Step 3.2 guard). Never call `rename-workspace` / `send` / `send-key` with an empty `--workspace` value — it silently targets the currently-selected workspace (the orchestrator) |
 | Workspace creation fails for one item                                                                | Log error, continue with the rest, include in final report                                                                                                                                             |
@@ -432,7 +435,7 @@ Every workspace MUST be renamed to its canonical ref (e.g. `MSTR-3034`) per Step
 - [ ] Worktrees created/reused by `juel:daily-worktrees`
 - [ ] One CMUX workspace per selected item, `cwd` = worktree absolute path
 - [ ] `ws_id` parsed and non-empty before any `send`/`send-key`
-- [ ] `claude` launched inside each workspace (no `--session-id`) with `--permission-mode auto` — no `acceptEdits`/`bypassPermissions` fallback attempted
+- [ ] `$AGENT_BIN` launched inside each workspace with `$AGENT_LAUNCH_FLAGS` — no lesser-permission fallback attempted
 - [ ] `/juel:ship-ticket <REF>` typed AND Enter pressed (visible as a submitted prompt, not a draft)
 - [ ] Every workspace renamed to the canonical ref (e.g. `MSTR-3034`, not `mstr-3034`)
 - [ ] `INSTALL_CMD` resolved once (from `$MAIN_ROOT`, before the per-item loop) via the tiered detection layer, reused unchanged for every item — never re-detected per item
