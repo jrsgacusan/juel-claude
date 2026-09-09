@@ -122,8 +122,31 @@ on you:
 | `cmux-ship-tickets` | Daily kickoff in CMUX: fetch Linear todos, create worktrees, spawn one CMUX workspace per ticket, and auto-launch the resolved agent running the ticket skill in each. |
 | `cmux-review-pr` | Workspace plumbing for a PR review: worktree, agent-aware session naming, linked work-item ref, then auto-launch the resolved agent running the review skill inside an isolated CMUX workspace. |
 | `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
+| `orca-ship-tickets` | Ship several work items in parallel through Orca: one Orca worktree per item, agent already running `/juel:ship-ticket`. Fire and forget. |
+| `orca-review-pr` | Review a PR in its own Orca worktree, checked out on the real PR head branch, agent already running `/juel:review-pr`. |
 
-13 skills.
+15 skills.
+
+### Orca flow
+
+The `orca-*` skills are the flow being trialed. They drive [Orca](https://www.onorca.dev) instead
+of CMUX; the `cmux-*` skills are unchanged and still work.
+
+Four things differ from the CMUX flow, and all four are worth knowing before you use them:
+
+- **Orca owns the checkout.** Worktrees land in `~/orca/workspaces/<repo>/<name>`, not
+  `<repo>/.worktrees/`. They are real git worktrees registered with the main repo, so `git` and
+  `gh` behave normally.
+- **The two flows do not share worktrees.** Orca cannot adopt a checkout it did not create, so an
+  existing `.worktrees/` checkout cannot be handed to it. Recreate it through Orca instead.
+- **The first spawn into a new location asks twice.** Claude Code's folder-trust and
+  bypass-permissions dialogs both default to "No, exit". The skill clears them once, then never
+  again for that location.
+- **Teardown deletes branches.** `orca worktree rm` removes the checked-out local branch with or
+  without `--force`. Move off any branch you want to keep before removing its worktree.
+
+Orca ships its own CLI, which is not on `PATH` — the skills resolve it from the app bundle. Run
+`/juel:doctor` for a read on whether Orca is installed, reachable, and knows about this repo.
 
 ## Commands
 
