@@ -253,9 +253,13 @@ call:
 
 ```sh
 . "$BINS"
-"$ORCA" status --json
+"$ORCA" status
 "$ORCA" repo list --json
 ```
+
+Use `status` in its **text** form here. `runtimeReachable` is a flat key only in that output; the
+JSON nests it as `result.runtime.reachable`, so grepping the text key against `--json` reports
+every reachable runtime as unreachable. `repo list` still uses `--json`, where the shape is stable.
 
 `status` must report `runtimeReachable: true` and `graphState: ready`. If it does not, offer
 `"$ORCA" open` — which launches Orca and waits for the runtime — rather than aborting.

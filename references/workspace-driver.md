@@ -52,7 +52,7 @@ The `id:` form is copied verbatim from `worktree create --json` or `worktree lis
 
 | Need | Command |
 | --- | --- |
-| Runtime readiness | `orca status` (`runtimeReachable`, `graphState`) |
+| Runtime readiness | `orca status` (`runtimeReachable`, `graphState`) — **text form**, see below |
 | Repo id | `orca repo list`, register with `orca repo add` |
 | Create worktree + agent + prompt | `orca worktree create --repo id:<id> --name <n> --agent claude --prompt "<text>" --no-parent --json` |
 | Agent handle | `result.agentTerminalHandle`, else `result.startupTerminal.handle` |
@@ -65,6 +65,11 @@ The `id:` form is copied verbatim from `worktree create --json` or `worktree lis
 
 `terminal read` defaults to accumulated stream output, in which a repainted line comes back as
 stacked fragments. Pass `--screen` whenever the answer depends on what the terminal *renders*.
+
+**`status` is the one command to read in its text form.** `runtimeReachable` and `graphState` are
+flat keys only there; `--json` nests them as `result.runtime.reachable` and `result.runtime.state`.
+Grepping the text key against `--json` reports every reachable runtime as unreachable — silently,
+since both forms exit 0. Every other command in this table is read as `--json`.
 
 ## 5. Verified behavior
 

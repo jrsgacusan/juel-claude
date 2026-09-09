@@ -156,7 +156,7 @@ if [ -d "${cache_plugin_dir}" ]; then
 fi
 
 # --- cli binaries referenced by requirements.json's cli-kind definitions ---
-for b in claude cmux codex gh git; do
+for b in claude cmux codex gh git orca; do
   command -v "$b" >/dev/null 2>&1 && echo "CLI_${b}=present:$(command -v "$b")" || echo "CLI_${b}=absent"
 done
 git --version 2>/dev/null || echo "GIT_VERSION=unknown"
@@ -171,6 +171,15 @@ test -w . && echo "WRITABLE_CWD=yes" || echo "WRITABLE_CWD=no"
 [ "$PWD" = "$(git rev-parse --show-toplevel 2>/dev/null)" ] && echo "WORKTREE_ROOT_CWD=yes" || echo "WORKTREE_ROOT_CWD=no-or-na"
 command -v gh >/dev/null 2>&1 && gh pr view --json number >/dev/null 2>&1 && echo "OPEN_PR=yes" || echo "OPEN_PR=no-or-na"
 command -v cmux >/dev/null 2>&1 && { cmux list-workspaces 2>/dev/null | head -1 | grep -q . && echo "CMUX_SESSION=yes" || echo "CMUX_SESSION=no"; } || echo "CMUX_SESSION=na-no-cmux"
+# orca is not on PATH by default — the app ships it in its bundle, so probe the
+# candidate too, exactly as the orca-* skills' resolve_bin does.
+ORCA_BIN=$(command -v orca 2>/dev/null || { [ -x /Applications/Orca.app/Contents/Resources/bin/orca ] && echo /Applications/Orca.app/Contents/Resources/bin/orca; })
+# Use the TEXT form, not --json: `runtimeReachable` is a flat key only in the text
+# output. The JSON nests it as result.runtime.reachable, so grepping the text key
+# against --json silently reports every reachable runtime as unreachable.
+[ -n "$ORCA_BIN" ] && "$ORCA_BIN" status 2>/dev/null | grep -q 'runtimeReachable: true' && echo "ORCA_RUNTIME=yes" || echo "ORCA_RUNTIME=no-or-na"
+[ -n "$ORCA_BIN" ] && "$ORCA_BIN" repo list 2>/dev/null | grep -qF "$(git rev-parse --show-toplevel 2>/dev/null)" && echo "ORCA_REPO=yes" || echo "ORCA_REPO=no-or-na"
+[ -n "$ORCA_BIN" ] && { "$ORCA_BIN" linear team list 2>/dev/null | grep -q 'No Linear teams found' && echo "ORCA_LINEAR=no" || echo "ORCA_LINEAR=yes-or-unknown"; } || echo "ORCA_LINEAR=na-no-orca"
 
 # --- skill-kind deps: juel:* ship in this very bundle; the rest are marketplace plugin deps ---
 for s in daily-worktrees review-and-execute ship-ticket start; do
@@ -314,6 +323,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 |---|---|---|---|---|
 | `claude` | cli | `command -v claude`, or one of the declared `paths` is executable | neither resolves | |
 | `cmux` | cli | `command -v cmux`, or a declared `paths` entry | neither resolves | |
+| `orca` | cli | `command -v orca`, or a declared `paths` entry | neither resolves | |
 | `codex` | cli | `command -v codex` | absent | |
 | `coreutils` | cli | none of `grep`/`sleep`/`tail`/`head`/`cat` missing | any missing (rare) | |
 | `gh` | cli | `command -v gh` | absent | note `GH_AUTH` alongside — some skills additionally need `gh auth status` to succeed; report that as a bonus fact, not a separate id |
@@ -322,6 +332,8 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `app-url` | context | — | — | yes — depends on which app/port the invoking task is running; doctor doesn't know the target |
 | `clean-tree` | context | in a repo, `git status --porcelain` empty | in a repo, dirty | only when not in a git repo (report `not applicable — no git repo at cwd`) |
 | `git-repo` | context | `git rev-parse --show-toplevel` succeeds at cwd | it fails | |
+| `orca-runtime` | context | `ORCA_RUNTIME=yes` | `ORCA_RUNTIME=no-or-na` while `orca` resolves | when `orca` itself is absent (report `not applicable — no orca binary`) |
+| `orca-repo-registered` | context | `ORCA_REPO=yes` | `ORCA_REPO=no-or-na` while `orca` resolves | when `orca` itself is absent (report `not applicable — no orca binary`) |
 | `github-remote` | context | a remote URL resolves and contains `github.com` | it resolves to something else, or no remote | when there's no git repo at all |
 | `interactive-user` | context | always — `/juel:doctor` itself only runs inside an interactive session | — | |
 | `open-pr` | context | `gh` present, in a repo, `gh pr view --json number` succeeds | `gh` present but it fails | when `gh` itself is absent |
@@ -383,6 +395,14 @@ Cache holds: <version-a>, <version-b>, ...
 ## MCP servers (from this run's `claude mcp list`)
 linear:     <working|auth_needed|absent> — <the Step 2 message>
 playwright: <present|missing|unverifiable> — <raw status text if unverifiable>
+
+## Orca
+binary:   <resolved path|absent>
+runtime:  <reachable|unreachable — run `orca open`|not applicable — no orca binary>
+repo:     <registered|not registered — run `orca repo add`|not applicable — no orca binary>
+[only when ORCA_LINEAR=no:]
+Orca's Linear is not connected, so the orca skills select work items through the work-source
+layer instead of `orca linear`. Connect it in Orca settings to use the native path.
 
 ## Per-skill audit
 

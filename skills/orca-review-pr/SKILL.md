@@ -227,9 +227,13 @@ Resolve the binaries per the block above, then confirm the runtime and this repo
 
 ```sh
 . "$BINS"
-"$ORCA" status --json
+"$ORCA" status
 "$ORCA" repo list --json
 ```
+
+Use `status` in its **text** form here. `runtimeReachable` is a flat key only in that output; the
+JSON nests it as `result.runtime.reachable`, so grepping the text key against `--json` reports
+every reachable runtime as unreachable. `repo list` still uses `--json`, where the shape is stable.
 
 `status` must report `runtimeReachable: true` and `graphState: ready`. If it does not, offer
 `"$ORCA" open` rather than aborting. Match `$MAIN_ROOT` in `repo list --json` to get `REPO_ID`, and
