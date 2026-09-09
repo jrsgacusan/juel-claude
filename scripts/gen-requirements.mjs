@@ -40,6 +40,9 @@ const GROUPS_WITH_CHECK = new Set(['mcp', 'cli', 'context']);
 // resolved-target claim and a criteria-source claim, neither of which any
 // prior context id already covers (they are not a location, a permission, a
 // provider capability, or a human-presence check).
+// `orca-runtime` and `orca-repo-registered` are added for the Orca flow: a reachable
+// Orca runtime and a repo Orca already knows are two distinct claims, and neither is a
+// location, a permission, a provider capability, or a human-presence check.
 const CONTEXT_VOCAB = new Set([
   'git-repo',
   'git-worktree',
@@ -48,6 +51,8 @@ const CONTEXT_VOCAB = new Set([
   'open-pr',
   'plan-file',
   'cmux-session',
+  'orca-runtime',
+  'orca-repo-registered',
   'interactive-user',
   'writable-cwd',
   'work-source-list-capable',
@@ -83,6 +88,12 @@ const DEFINITIONS = {
     label: 'cmux',
     install: 'https://github.com/manaflow-ai/cmux',
     paths: ['/Applications/cmux.app/Contents/Resources/bin/cmux'],
+  },
+  orca: {
+    kind: 'cli',
+    label: 'Orca CLI',
+    install: 'Ships with the Orca desktop app; register it in Settings → General → Orca CLI',
+    paths: ['/Applications/Orca.app/Contents/Resources/bin/orca'],
   },
   claude: {
     kind: 'cli',
@@ -199,6 +210,16 @@ const DEFINITIONS = {
     kind: 'context',
     label: 'cmux workspace',
     install: 'Run with at least one active cmux workspace',
+  },
+  'orca-runtime': {
+    kind: 'context',
+    label: 'reachable Orca runtime',
+    install: 'Launch Orca, or run `orca open`, then re-run — `orca status` must report runtimeReachable: true',
+  },
+  'orca-repo-registered': {
+    kind: 'context',
+    label: 'repo registered with Orca',
+    install: 'Run `orca repo add` for this repo, or add it from the Orca app',
   },
   'interactive-user': {
     kind: 'context',
