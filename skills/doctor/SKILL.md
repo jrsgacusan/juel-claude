@@ -172,10 +172,6 @@ test -w . && echo "WRITABLE_CWD=yes" || echo "WRITABLE_CWD=no"
 command -v gh >/dev/null 2>&1 && gh pr view --json number >/dev/null 2>&1 && echo "OPEN_PR=yes" || echo "OPEN_PR=no-or-na"
 command -v cmux >/dev/null 2>&1 && { cmux list-workspaces 2>/dev/null | head -1 | grep -q . && echo "CMUX_SESSION=yes" || echo "CMUX_SESSION=no"; } || echo "CMUX_SESSION=na-no-cmux"
 
-# --- perm: hook config ---
-settings="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"
-[ -f "$settings" ] && grep -q 'cmux wait-for' "$settings" 2>/dev/null && echo "CMUX_HOOKS=yes" || echo "CMUX_HOOKS=no"
-
 # --- skill-kind deps: juel:* ship in this very bundle; the rest are marketplace plugin deps ---
 for s in daily-worktrees review-and-execute ship-ticket start; do
   test -f "${PLUGIN_ROOT}/skills/${s}/SKILL.md" && echo "JUEL_${s}=present" || echo "JUEL_${s}=absent"
@@ -325,7 +321,6 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `resolved-install-command` | cli | — | — | yes — resolved per-repo at run time from the repo's own install layer; doctor has no fixed target to check |
 | `app-url` | context | — | — | yes — depends on which app/port the invoking task is running; doctor doesn't know the target |
 | `clean-tree` | context | in a repo, `git status --porcelain` empty | in a repo, dirty | only when not in a git repo (report `not applicable — no git repo at cwd`) |
-| `cmux-session` | context | `cmux` present and `cmux list-workspaces` non-empty | `cmux` present but zero workspaces | when `cmux` itself is absent (report `not applicable — no cmux binary`) |
 | `git-repo` | context | `git rev-parse --show-toplevel` succeeds at cwd | it fails | |
 | `github-remote` | context | a remote URL resolves and contains `github.com` | it resolves to something else, or no remote | when there's no git repo at all |
 | `interactive-user` | context | always — `/juel:doctor` itself only runs inside an interactive session | — | |
@@ -335,7 +330,6 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `work-source-list-capable` | context | tied to `LINEAR_STATE`: `working` → present | `LINEAR_STATE` is `auth_needed` or `absent` → missing (soft-degradable: paste refs, or point at a spec directory) | |
 | `worktree-root-cwd` | context | cwd equals `git rev-parse --show-toplevel` | it's a subdirectory of the repo | when there's no git repo at all |
 | `writable-cwd` | context | `test -w .` | it fails | |
-| `cmux-notification-hooks` | perm | `settings.json` contains a `cmux wait-for` hook | it doesn't | |
 | `permission-mode-auto` | perm | — | — | yes — depends on the flag this *session* was launched with; no reliable check from inside a running command |
 | `linear` | mcp | `LINEAR_STATE == working` | `LINEAR_STATE` is `auth_needed` or `absent` (see Step 2 — these render with different messages, never the same one) | |
 | `playwright` | mcp | `plugin:playwright:playwright` shows `Connected` | no such line | when the line exists but shows an unexpected status — report the raw text |
@@ -412,8 +406,8 @@ Three worked shapes, so the verdict lines are never generic:
   `! missing (soft): linear (auth_needed) — Linear plugin is installed but not authorized. Run
   the plugin's authenticate tool, then restart the session so its tools bind.` / `→ proceeds
   without Linear; resolve the work item from a spec file or inline conversation instead.`
-- **BLOCKED**: `### cmux-babysit — BLOCKED` / `✗ missing (hard): cmux — https://github.com/manaflow-ai/cmux`
-  / `→ nothing to babysit without the cmux binary; install it and re-run.`
+- **BLOCKED**: `### orca-ship-tickets — BLOCKED` / `✗ missing (hard): orca — https://www.onorca.dev`
+  / `→ install Orca and re-run; no workspace can be spawned without it.`
 
 ## What this command deliberately does not do
 

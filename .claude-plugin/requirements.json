@@ -33,16 +33,6 @@
         "/Applications/cmux.app/Contents/Resources/bin/cmux"
       ]
     },
-    "cmux-notification-hooks": {
-      "kind": "perm",
-      "label": "cmux Notification+Stop hooks",
-      "install": "Add async Notification and Stop hooks running `cmux wait-for` to ~/.claude/settings.json"
-    },
-    "cmux-session": {
-      "kind": "context",
-      "label": "cmux workspace",
-      "install": "Run with at least one active cmux workspace"
-    },
     "code-simplifier": {
       "kind": "skill",
       "label": "code-simplifier",
@@ -185,17 +175,6 @@
     }
   },
   "skills": {
-    "cmux-babysit": {
-      "hard": [
-        "cmux",
-        "cmux-session",
-        "coreutils",
-        "interactive-user"
-      ],
-      "soft": [
-        "cmux-notification-hooks"
-      ]
-    },
     "cmux-review-pr": {
       "hard": [
         "claude",

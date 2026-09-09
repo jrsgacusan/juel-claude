@@ -122,7 +122,6 @@ on you:
 | `cmux-ship-tickets` | Daily kickoff in CMUX: fetch Linear todos, create worktrees, spawn one CMUX workspace per ticket, and auto-launch the resolved agent running the ticket skill in each. |
 | `cmux-review-pr` | Workspace plumbing for a PR review: worktree, agent-aware session naming, linked work-item ref, then auto-launch the resolved agent running the review skill inside an isolated CMUX workspace. |
 | `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
-| `cmux-babysit` | Turn the current session into a manager that monitors N CMUX workspaces, reports which need your input, and relays your replies — so you never switch tabs. |
 
 13 skills.
 
