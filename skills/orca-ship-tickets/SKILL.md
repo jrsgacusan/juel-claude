@@ -336,6 +336,11 @@ for f in $COPIED; do [ -e "$WT_PATH/$f" ] || echo "MISSING AFTER COPY: $f"; done
 empty (`hookSettings.scripts.setup: ""`), in which case `--setup run` copies nothing and this step
 is the only thing that puts `.env`, `.npmrc` and `.claude/` in the new checkout.
 
+**Orca's view of the branch is eventually consistent.** A `worktree show` issued immediately after
+the rename can still report the old name; a moment later it reports the new one. Git is the
+authoritative answer — `"$GIT" -C "$WT_PATH" rev-parse --abbrev-ref HEAD` — and Orca's view is
+re-read before any mismatch is reported as a failure.
+
 ### Step 5: Clear the first-run dialogs
 
 A spawn into a never-trusted path stops on the folder-trust dialog and then the bypass-permissions
@@ -417,7 +422,7 @@ and that the sessions are reached in the Orca app or via `"$ORCA" terminal read`
 ## QA checklist
 
 1. Every spawned worktree's path came from `result.worktree.path`, not from string-building.
-2. Every branch was renamed to the resolved `branchPattern`, and `worktree show` reflects it.
+2. Every branch was renamed to the resolved `branchPattern`, confirmed with `git -C <path> rev-parse --abbrev-ref HEAD` (Orca's own view lags; re-read it before calling a mismatch a failure).
 3. `copy_untracked` ran for every worktree, and the verification loop reported no missing files.
 4. No session was left sitting on an unanswered first-run dialog.
 5. The install tab is a separate tab from the agent's, or was skipped with a note.

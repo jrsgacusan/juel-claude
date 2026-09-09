@@ -359,6 +359,11 @@ the real head — Orca reads git and follows, so `worktree show` reports the bra
 `${REF:+ $REF}` expands to ` <REF>` when a ref resolved and to nothing when it did not, so
 `juel:review-pr` resolves its own ref rather than blocking.
 
+**Orca's view of the branch is eventually consistent.** A `worktree show` issued immediately after
+the checkout can still report the branch Orca created; a moment later it reports the checked-out
+one. Confirm with `"$GIT" -C "$WT_PATH" rev-parse --abbrev-ref HEAD`, which is authoritative, and
+re-read Orca's view before reporting a mismatch as a failure.
+
 **Cross-repo fork.** The head branch is not on this remote, so fetch it into a local branch first:
 
 ```sh
@@ -468,7 +473,7 @@ by `branch:<HEAD_REF>` instead — both are first-class selectors.
 
 ## QA checklist
 
-1. The worktree sits on the real PR head branch, confirmed by `worktree show` or `git -C <path> rev-parse --abbrev-ref HEAD`.
+1. The worktree sits on the real PR head branch, confirmed by `git -C <path> rev-parse --abbrev-ref HEAD` (authoritative; Orca's own view lags a moment behind a checkout).
 2. The throwaway branch Orca created was recorded, so teardown can move off the PR head safely.
 3. `copy_untracked` ran and the verification loop reported no missing files.
 4. No session was left sitting on an unanswered first-run dialog.

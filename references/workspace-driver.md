@@ -5,7 +5,7 @@ driving a CMUX workspace and driving an Orca worktree live in one place, instead
 re-derived in each `orca-*` skill.
 
 Unlike `references/agent-driver.md`, there is no runtime `resolve_workspace` helper: Orca and
-CMUX do not share a seam, because Orca owns the checkout itself (see §6, finding 9). The two
+CMUX do not share a seam, because Orca owns the checkout itself (see §5, finding 7). The two
 flows are separate skills by design. This file is the Orca half's command surface, its
 verified behavior, and the ways it degrades.
 
@@ -86,37 +86,44 @@ re-probing.
    it. A post-create `git -C <path> branch -m <name>` **is** picked up by Orca, which reads git
    rather than owning the name.
    *Consequence:* the plugin's own `branchPattern` is restored by renaming after create.
-3. **Setup hooks may copy nothing** — `repo show` reports `hookSettings.scripts.setup: ""` for
+3. **Orca's view of git is eventually consistent** — after `git -C <path> branch -m` (or a
+   `checkout`), the very next `worktree show` can still report the *old* branch; a second read
+   moments later reports the new one. Observed twice: a read after a ~2s gap was correct, a read
+   issued immediately was stale.
+   *Consequence:* never assert on `worktree show` in the same breath as the git command that
+   changed it. Read git for the authoritative answer (`git -C <path> rev-parse --abbrev-ref HEAD`),
+   and re-read Orca's view before reporting a mismatch as a failure.
+4. **Setup hooks may copy nothing** — `repo show` reports `hookSettings.scripts.setup: ""` for
    a repo with no configured hook, and `--setup run` is then a no-op. A probe worktree
    contained no `.claude/` and no `.env`.
    *Consequence:* untracked provisioning stays the plugin's job, via `copy_untracked` from
    `references/resolution.md`. Orca hooks are the optional upgrade, not the mechanism.
-4. **Agent launch** — `worktree create --agent claude --prompt "<text>"` returns
+5. **Agent launch** — `worktree create --agent claude --prompt "<text>"` returns
    `result.agentTerminalHandle` and delivers the prompt once the TUI is ready. Orca launches
    Claude with `--dangerously-skip-permissions`.
    *Consequence:* no readiness polling, no separate Enter keystroke, and no argv seam is needed
    for unattended permission mode.
-5. **First-run dialog gauntlet** — a spawn into a never-trusted path stops on two sequential
+6. **First-run dialog gauntlet** — a spawn into a never-trusted path stops on two sequential
    dialogs: folder trust, then bypass-mode consent. **Both default to `No, exit`**, so a blind
    Enter kills the session. `terminal send --text $'\x1b[B'` moves the selection and
    `terminal send --enter` confirms. After clearing them once, a fresh worktree spawned clean.
    The queued `--prompt` survives both dialogs.
    *Consequence:* the gauntlet is a bounded, self-disabling phase, not per-ticket polling.
-6. **Orca cannot adopt foreign checkouts** — `terminal create --worktree path:<a plain git
+7. **Orca cannot adopt foreign checkouts** — `terminal create --worktree path:<a plain git
    worktree>` returns `selector_not_found`. Such a worktree is also absent from
    `worktree list`, and `worktree current` run from inside it answers with the *main* repo
    worktree rather than erroring. The repo record carries
    `externalWorktreeVisibility: "hide"`, and no CLI command sets it.
    *Consequence:* `.worktrees/` and Orca are mutually exclusive. There is no fallback that
    reuses an existing checkout; recreate through Orca instead.
-7. **Existing branches** — `--base-branch <ref>` cuts a *new* branch from that ref rather than
+8. **Existing branches** — `--base-branch <ref>` cuts a *new* branch from that ref rather than
    checking it out. A post-create `git -C <path> checkout <ref>` is tracked by Orca.
    *Consequence:* a review worktree reaches the real PR head by checking out after create.
-8. **Removal deletes branches** — `worktree rm` "attempts to delete the checked-out local
+9. **Removal deletes branches** — `worktree rm` "attempts to delete the checked-out local
    branch, with or without `--force`".
    *Consequence:* move a review worktree off the PR head branch before removing it, or the
    local copy of that branch is deleted with the worktree.
-9. **Linear may be disconnected in Orca** — `orca linear list-issues` can return
+10. **Linear may be disconnected in Orca** — `orca linear list-issues` can return
    `linear_not_connected` with an empty `linear team list`, while `--linear-issue <REF>` still
    links offline and comes back as `linkedLinearIssue` in `worktree list --json`.
    *Consequence:* selection goes through the work-source layer; `orca linear` is a gated
@@ -131,7 +138,7 @@ re-probing.
   `orca terminal create --worktree <sel> --command "<AGENT_BIN> <AGENT_LAUNCH_FLAGS>"` followed
   by `orca terminal send`. This is also the path taken deliberately when a repo needs untracked
   files in place before the agent's first input.
-- **No foreign checkout.** Per finding 6 there is no degradation that reuses
+- **No foreign checkout.** Per §5 finding 7 there is no degradation that reuses
   `<repo>/.worktrees/`. A skill that cannot create an Orca worktree stops and says so.
 
 ## 7. Adding a second workspace driver
