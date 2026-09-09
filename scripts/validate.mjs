@@ -587,6 +587,44 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 15: orca-* skills must resolve the binary, not hard-code it, and
+// must not drive cmux ---------------------------------------------------------
+// The Orca CLI is not on PATH: it lives inside the app bundle. That absolute
+// path is legitimate only as a labelled resolve_bin candidate, because a
+// non-default install location or a Linux host turns an inlined path into a
+// silent no-op. And an orca-* skill naming cmux is a copy-paste from the
+// cmux flow that would drive the wrong tool entirely.
+{
+  const ORCA_APP_PATH = '/Applications/Orca.app/Contents/Resources/bin/orca';
+  for (const [name, text] of skillBodies) {
+    if (!name.startsWith('orca-')) continue;
+    let pathReported = false;
+    let cmuxReported = false;
+    text.split(/\r?\n/).forEach((line, i) => {
+      // Prose and table cells may name either tool; only executable-looking
+      // lines are policed, matching check 13's convention.
+      if (line.trimStart().startsWith('|') || line.trimStart().startsWith('>')) return;
+      if (!pathReported && line.includes(ORCA_APP_PATH) && !/resolve_bin/.test(line)) {
+        fail('orca-driver',
+          `skills/${name}/SKILL.md:${i + 1}: hard-coded Orca path outside a resolve_bin ` +
+          `candidate list — pass it as a candidate: resolve_bin orca ${ORCA_APP_PATH} — ` +
+          `"${line.trim().slice(0, 80)}"`);
+        pathReported = true;
+      }
+      // Shell USAGE only, case-sensitive: `$CMUX`, or a lowercase `cmux <subcommand>`
+      // invocation. Not the bare word: the strict protocol block every skill copies
+      // byte-for-byte names "a CMUX prompt" in prose, so a case-insensitive word match
+      // would make an orca-* skill impossible to write at all.
+      if (!cmuxReported && (/\$CMUX\b/.test(line) || /(?:^|[\s;&|(])cmux\s+[a-z][a-z-]*/.test(line))) {
+        fail('orca-driver',
+          `skills/${name}/SKILL.md:${i + 1}: an orca-* skill drives cmux — ` +
+          `"${line.trim().slice(0, 80)}"`);
+        cmuxReported = true;
+      }
+    });
+  }
+}
+
 // --- Check 14: the vendored Codex plan executor keeps its contract ----------
 // Four skills dispatch this file by the bare id `$claude-plan-executor`. It is
 // not under skills/, so no per-skill check reaches it, and it is the one file

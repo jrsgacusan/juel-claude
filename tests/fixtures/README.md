@@ -15,3 +15,21 @@ globs `skills/*/SKILL.md` at the plugin root, and these are three levels deeper.
 Renaming them to avoid the copy was considered and rejected: they exist to exercise the real
 discovery path, and a fixture that no longer looks like a real skill no longer tests it. The few KB
 of dead weight in the cache is the cheaper trade.
+
+## `orca-driver` fixtures
+
+The `orca-*` skills drive a CLI that is not on `PATH`, so check 15 polices two mistakes. One
+fixture per mistake, each otherwise a valid skill:
+
+- `orca-hardcoded-path` — inlines `/Applications/Orca.app/Contents/Resources/bin/orca` into an
+  executable line instead of passing it as a `resolve_bin` candidate. Fails `orca-driver`.
+- `orca-names-cmux` — an `orca-*` skill invoking `"$CMUX"`, i.e. a copy-paste from the cmux flow
+  that would drive the wrong tool. Fails `orca-driver`.
+
+Both also report the three errors inherent to any fixture root (missing `requirements.json`,
+`references/harness-codex.md`, and the vendored plan executor). The `orca-driver` line is the
+assertion; those three are noise every fixture here shares.
+
+Note the check matches shell *usage* (`$CMUX`, or a lowercase `cmux <subcommand>`), not the bare
+word: the strict protocol block copied byte-for-byte into every skill names "a CMUX prompt" in
+prose, and a case-insensitive word match would make an `orca-*` skill impossible to write.
