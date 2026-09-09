@@ -30,6 +30,7 @@ Both also report the three errors inherent to any fixture root (missing `require
 `references/harness-codex.md`, and the vendored plan executor). The `orca-driver` line is the
 assertion; those three are noise every fixture here shares.
 
-Note the check matches shell *usage* (`$CMUX`, or a lowercase `cmux <subcommand>`), not the bare
-word: the strict protocol block copied byte-for-byte into every skill names "a CMUX prompt" in
-prose, and a case-insensitive word match would make an `orca-*` skill impossible to write.
+Note the check matches shell *usage* (`$CMUX`, or `cmux` in command position at the start of a
+line), not the bare word anywhere on the line. Two real failures shaped this: the strict protocol
+block copied byte-for-byte into every skill names "a CMUX prompt" in prose, and `orca-ship-tickets`
+legitimately names the cmux flow when explaining why it does not use it.

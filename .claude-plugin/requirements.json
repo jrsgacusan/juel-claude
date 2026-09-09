@@ -113,6 +113,24 @@
       "label": "open PR",
       "install": "The current branch needs an open pull request (`gh pr view`)"
     },
+    "orca": {
+      "kind": "cli",
+      "label": "Orca CLI",
+      "install": "Ships with the Orca desktop app; register it in Settings → General → Orca CLI",
+      "paths": [
+        "/Applications/Orca.app/Contents/Resources/bin/orca"
+      ]
+    },
+    "orca-repo-registered": {
+      "kind": "context",
+      "label": "repo registered with Orca",
+      "install": "Run `orca repo add` for this repo, or add it from the Orca app"
+    },
+    "orca-runtime": {
+      "kind": "context",
+      "label": "reachable Orca runtime",
+      "install": "Launch Orca, or run `orca open`, then re-run — `orca status` must report runtimeReachable: true"
+    },
     "permission-mode-auto": {
       "kind": "perm",
       "label": "--permission-mode auto",
@@ -251,6 +269,23 @@
       ],
       "soft": [
         "codex"
+      ]
+    },
+    "orca-ship-tickets": {
+      "hard": [
+        "claude",
+        "coreutils",
+        "git",
+        "git-repo",
+        "juel:ship-ticket",
+        "orca",
+        "orca-repo-registered",
+        "orca-runtime"
+      ],
+      "soft": [
+        "linear",
+        "resolved-install-command",
+        "work-source-list-capable"
       ]
     },
     "receive-review-and-execute": {

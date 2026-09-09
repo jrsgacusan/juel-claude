@@ -611,11 +611,12 @@ for (const [name, text] of skillBodies) {
           `"${line.trim().slice(0, 80)}"`);
         pathReported = true;
       }
-      // Shell USAGE only, case-sensitive: `$CMUX`, or a lowercase `cmux <subcommand>`
-      // invocation. Not the bare word: the strict protocol block every skill copies
-      // byte-for-byte names "a CMUX prompt" in prose, so a case-insensitive word match
-      // would make an orca-* skill impossible to write at all.
-      if (!cmuxReported && (/\$CMUX\b/.test(line) || /(?:^|[\s;&|(])cmux\s+[a-z][a-z-]*/.test(line))) {
+      // Shell USAGE only: the `$CMUX` variable, or `cmux` in command position at the
+      // start of a line. Deliberately NOT the bare word anywhere on the line — the
+      // strict protocol block every skill copies byte-for-byte names "a CMUX prompt",
+      // and an orca-* skill has legitimate reason to name the cmux flow in prose when
+      // explaining why it does not use it. Both were caught by real failures here.
+      if (!cmuxReported && (/\$CMUX\b/.test(line) || /^\s*cmux\s+[a-z]/.test(line))) {
         fail('orca-driver',
           `skills/${name}/SKILL.md:${i + 1}: an orca-* skill drives cmux — ` +
           `"${line.trim().slice(0, 80)}"`);
