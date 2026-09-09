@@ -271,6 +271,24 @@
         "codex"
       ]
     },
+    "orca-review-pr": {
+      "hard": [
+        "claude",
+        "coreutils",
+        "gh",
+        "git",
+        "git-repo",
+        "juel:review-pr",
+        "open-pr",
+        "orca",
+        "orca-repo-registered",
+        "orca-runtime"
+      ],
+      "soft": [
+        "linear",
+        "resolved-install-command"
+      ]
+    },
     "orca-ship-tickets": {
       "hard": [
         "claude",
