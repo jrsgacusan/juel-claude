@@ -1,6 +1,6 @@
 ---
 name: create-linear-ticket
-description: Use when user asks to create a Linear ticket, file a bug, track a task, or when discovering issues/TODOs in code that need a Linear issue. Linear-specific — for other sources, resolve the work item via the work-source reference.
+description: Use when user asks to create a Linear ticket, file a bug, track a task, or when discovering issues/TODOs in code that need a Linear issue. Scopes the request through superpowers:brainstorming first, so the requirements and acceptance criteria are unambiguous and grounded in the actual codebase before the ticket is drafted. Linear-specific — for other sources, resolve the work item via the work-source reference.
 metadata:
   requires:
     mcp:
@@ -8,22 +8,27 @@ metadata:
         hard: true
         why: creates the ticket directly via Linear's save_issue (the sole create-or-update verb); this skill is Linear-specific by design
         check: none
+    skills:
+      - id: superpowers:brainstorming
+        hard: true
+        why: phase 1 scopes the request into unambiguous requirements and acceptance criteria before anything is drafted
     context:
       - id: interactive-user
         hard: true
-        why: phase 2 project selection is mandatory and uses AskUserQuestion
+        why: phase 3 project selection is mandatory and uses AskUserQuestion
       - id: git-repo
         hard: false
-        why: phase 4 scans the codebase for bug/refactor tickets
+        why: phase 5 scans the codebase for bug/refactor tickets
         check: "git rev-parse --show-toplevel"
-        fallback: phase 4 codebase scan is SKIPPED
+        fallback: phase 5 codebase scan is SKIPPED
 ---
 
 # Create Linear Ticket
 
 ## Overview
 
-Creates Linear tickets from conversational input or code context. Always previews before submitting.
+Creates Linear tickets from conversational input or code context. Scopes the request into
+unambiguous requirements before drafting anything, and always previews before submitting.
 
 **Announce at start:** "I'm using juel:create-linear-ticket to draft and create the ticket."
 
@@ -62,23 +67,25 @@ Creates Linear tickets from conversational input or code context. Always preview
 
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
-| Linear MCP | mcp | HARD | **none — render as `?`** | proceed; phase 2 fails loudly. This skill is Linear-specific by design |
+| Linear MCP | mcp | HARD | **none — render as `?`** | proceed; phase 3 fails loudly. This skill is Linear-specific by design |
+| superpowers:brainstorming | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
 | AskUserQuestion | context | HARD | always available interactively | STOP → project selection is mandatory |
-| git repo | context | SOFT | `git rev-parse --show-toplevel` | phase 4 codebase scan is SKIPPED |
+| git repo | context | SOFT | `git rev-parse --show-toplevel` | phase 5 codebase scan is SKIPPED |
 
 ## Phases
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
-1. Gather input — parent, blockers, assignee, deadline, cycle, links
-2. Project selection (MANDATORY — never skipped)
-3. Fetch team data — labels and statuses
-4. Codebase scan (conditional)
-5. Draft the ticket — title, description, defaults, labels
-6. Preview (MANDATORY — never skipped): Yes / Edit / Cancel
-7. Create and report the ticket identifier
+1. Scope the request (MANDATORY — never skipped): unambiguous requirements and acceptance criteria
+2. Gather input — parent, blockers, assignee, deadline, cycle, links
+3. Project selection (MANDATORY — never skipped)
+4. Fetch team data — labels and statuses
+5. Codebase scan (conditional)
+6. Draft the ticket — title, description, defaults, labels
+7. Preview (MANDATORY — never skipped): Yes / Edit / Cancel
+8. Create and report the ticket identifier
 
-Phase 4 is the canonical rule-2 case: it is never silently dropped. Not in a git repo, or the ticket type doesn't warrant it (feature request, design task, research spike — see Step 4 below), it is still announced: mark its task `completed` via `TaskUpdate` with the one-line evidence stating the skip reason. For a feature request that evidence reads:
+Phase 5 is the canonical rule-2 case: it is never silently dropped. Not in a git repo, or the ticket type doesn't warrant it (feature request, design task, research spike — see Step 5 below), it is still announced: mark its task `completed` via `TaskUpdate` with the one-line evidence stating the skip reason. For a feature request that evidence reads:
 `SKIPPED: feature request, code context would prescribe implementation`
 
 **Steps marked MANDATORY must never be skipped.**
@@ -93,9 +100,62 @@ plugin connector can be installed but not yet authorized, which is not the same 
 neither prefix exposes a domain tool, **STOP**: "Linear MCP is not connected. Enable the connector,
 restart this session (connectors bind at startup), then re-run." Do not retry.
 
-### Step 1: Gather Input
+### Step 1: Scope the Request (MANDATORY)
 
-If input is vague, ask a targeted follow-up before proceeding. Never guess.
+A ticket is only as good as its acceptance criteria, and a request as typed is almost never
+specific enough to write them from. This phase turns the request into a requirement set the
+implementer cannot misread. It runs for **every** ticket — a one-line TODO capture that is already
+complete passes through in a single exchange, but it is never skipped on the judgment that the
+request "looks clear enough".
+
+Invoke `Skill("superpowers:brainstorming")` with a scoping contract. Pass all four clauses — the
+first three bound what it produces, and the fourth is what stops it building the thing you are
+only trying to file:
+
+```
+Scope this request into a Linear ticket's requirements. Contract:
+- Classify this as BOUNDED. We are scoping one work item, not designing a subsystem.
+- The deliverable is a confirmed Context / Requirements / Acceptance Criteria set for a
+  ticket. Not a design, not an implementation approach, not a file-by-file plan.
+- Read the codebase to ground every requirement in what is actually there: confirm the
+  components involved exist, the described behavior is real, and each acceptance criterion
+  is checkable. Those findings shape the criteria; they do NOT go into the ticket body.
+- Your terminal state is handing that requirement set back to juel:create-linear-ticket.
+  Do NOT implement, do NOT write a spec file, do NOT invoke writing-plans. The human
+  approval you are seeking is the user confirming this scope is right for a ticket.
+
+The request: <verbatim user request>
+```
+
+**Why the fourth clause is load-bearing.** `superpowers:brainstorming`'s documented terminal state
+for a bounded task is "implement via the normal development workflow". Without an explicit
+contract it would correctly read approval of the scope as approval to start building. The contract
+is what makes an off-label invocation safe; never abbreviate it to "brainstorm this first".
+
+**What comes back, and what to do with it:**
+
+| Brainstorming produced | Use it for |
+|---|---|
+| Context — why the work is needed | Step 6's Context section |
+| Requirements — what must be true when done | Step 6's Requirements section |
+| Acceptance criteria — how each is checked | Step 6's Acceptance Criteria section |
+| Codebase findings — what exists, what it is called | Grounding the above. **Not** ticket content |
+| An implementation approach, if it volunteered one | Discard it. The implementer decides that |
+
+The last two rows are the point: the reading makes the criteria concrete and testable, and then
+stays out of the ticket. Step 5's code-samples policy ("diagnostic only, never descriptive") still
+governs everything that reaches the ticket body.
+
+**If brainstorming starts implementing anyway** — editing files, writing a spec, invoking
+`writing-plans` — stop it, and re-invoke with the contract restated. Do not file a ticket for work
+that has already been half-done in the working tree without telling the user that happened.
+
+**This is deliberately the second time this work gets thought about.** `juel:start` phase 4 runs
+`superpowers:brainstorming` again when someone picks the ticket up, in a worktree with the ticket
+in hand. That run decides *how*; this one decides *what*. Removing either one is a mistake, not a
+simplification.
+
+### Step 2: Gather Input
 
 Extract from input if mentioned:
 - **Parent issue:** "sub-task of ENG-123" → resolve via `<LINEAR_PREFIX>get_issue`, set `parentId`
@@ -105,13 +165,13 @@ Extract from input if mentioned:
 - **Cycle:** "for this sprint", "current cycle" → fetch current cycle via `<LINEAR_PREFIX>list_cycles`
 - **URLs:** attach as `links`
 
-### Step 2: Project Selection (MANDATORY)
+### Step 3: Project Selection (MANDATORY)
 
 Ask the user to type a project name or keyword. Then call `<LINEAR_PREFIX>list_projects(query="<input>")` to filter and present matches with AskUserQuestion.
 
 **Session memory:** if the user already selected a project in this conversation, offer "Same project ([ProjectName])?" instead of asking again. Only re-prompt the full selection if the user requests a different project.
 
-### Step 3: Fetch Team Data (parallel)
+### Step 4: Fetch Team Data (parallel)
 
 From the selected project, resolve the team (use `<LINEAR_PREFIX>list_teams` if needed). Then fetch in parallel:
 - `<LINEAR_PREFIX>list_issue_labels` (for that team)
@@ -119,7 +179,7 @@ From the selected project, resolve the team (use `<LINEAR_PREFIX>list_teams` if 
 
 **Error handling:** if any non-critical call fails (labels, cycles, statuses), continue with that field unset and note it in the preview. Only abort if `<LINEAR_PREFIX>list_projects` or `<LINEAR_PREFIX>save_issue` fails.
 
-### Step 4: Codebase Scan (conditional)
+### Step 5: Codebase Scan (conditional)
 
 **Only scan when in a git repo AND the ticket type warrants it:**
 
@@ -159,7 +219,7 @@ at runtime, so nothing that must actually run can live only there):
 
 **Size limits:** 1-3 lines inline in Context, 4-10 lines in a code block, 11+ lines **never** — reference the component instead.
 
-### Step 5: Draft Ticket
+### Step 6: Draft Ticket
 
 **Title:** concise, imperative (e.g., "Add retry logic to payment webhook handler")
 
@@ -213,7 +273,7 @@ For **trivial tickets** (fix typo, rename variable): a one-line description is f
 
 Suggest 1-3 labels by keyword overlap between ticket content and label names. Never invent labels that don't exist.
 
-### Step 6: Preview (MANDATORY)
+### Step 7: Preview (MANDATORY)
 
 Canonical shared copy: `references/work-source.md` §6.4 — same reuse/inlining rationale as above;
 this step is never skipped regardless of which copy a future generic dispatcher reads.
@@ -241,9 +301,9 @@ Create this ticket? [Yes / Edit / Cancel]
 
 If user says **Edit**: apply their changes and re-preview. If **Cancel**: stop. If **Yes**: proceed.
 
-### Step 7: Create & Report
+### Step 8: Create & Report
 
-Call `<LINEAR_PREFIX>save_issue` with all fields. Include `parentId`, `blocks`, `blockedBy`, `links` if detected in Step 1. Report the ticket identifier. `save_issue` is the sole create-or-update verb — `create_issue` does not exist as a tool.
+Call `<LINEAR_PREFIX>save_issue` with all fields. Include `parentId`, `blocks`, `blockedBy`, `links` if detected in Step 2. Report the ticket identifier. `save_issue` is the sole create-or-update verb — `create_issue` does not exist as a tool.
 
 ## Edge Cases
 
@@ -263,6 +323,9 @@ Call `<LINEAR_PREFIX>save_issue` with all fields. Include `parentId`, `blocks`, 
 
 | Mistake | Correct |
 |---------|---------|
+| Skipping scoping because the request "looks clear" | Phase 1 runs for every ticket. A complete request passes through in one exchange; it is never skipped on judgment |
+| Abbreviating the scoping contract to "brainstorm this first" | Pass all four clauses. Without the terminal-state clause, brainstorming reads scope approval as approval to start building |
+| Putting brainstorming's codebase findings in the ticket | They ground the acceptance criteria and stay out of the body. Step 5's diagnostic-only policy still governs |
 | Skipping project selection | ALWAYS ask user to pick a project |
 | Dumping full project list | Use `query` param to filter server-side |
 | Using wrong template structure | Context/Requirements/AC for features+bugs; adapt for spikes/chores |

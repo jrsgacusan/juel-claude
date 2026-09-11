@@ -234,7 +234,8 @@
     "create-linear-ticket": {
       "hard": [
         "interactive-user",
-        "linear"
+        "linear",
+        "superpowers:brainstorming"
       ],
       "soft": [
         "git-repo"

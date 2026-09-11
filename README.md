@@ -116,7 +116,7 @@ on you:
 | `receive-review-and-execute` | Fetch external PR review comments, validate and clarify ambiguous ones, write a plan, then dispatch Codex to execute fixes. |
 | `ship-ticket` | Ship a Linear ticket end-to-end: fetch, brainstorm, spec + plan, dispatch Codex, parallel review + remediation, a final code-simplifier pass, Claude-driven end-to-end verification (`juel:verify`), then open the PR — pausing for confirmation between phases. |
 | `verify` | Verify a change actually works by driving it live through its real runtime surface (CLI, web UI via Playwright, HTTP/RPC handler) — establishes scope from the diff, drives it end-to-end, pushes on adjacent edge cases, and reports PASS / FAIL / BLOCKED / SKIP. Invoked directly, or delegated to from `ship-ticket` Phase 7 for every checklist item with a UI surface. |
-| `create-linear-ticket` | Create a Linear ticket from a bug report, task, or a TODO discovered while reading code. |
+| `create-linear-ticket` | Create a Linear ticket from a bug report, task, or a TODO discovered while reading code. Scopes the request through `superpowers:brainstorming` first, so the acceptance criteria are unambiguous and grounded in the real codebase before anything is drafted. |
 | `daily-worktrees` | Start the day by listing Linear tickets assigned to you and setting up a git worktree per ticket for parallel work. |
 | `compact-context` | Snapshot the current conversation into a compaction-style summary under `docs/.superpowers/context/`, so context survives a `/compact` or a fresh session. |
 | `cmux-ship-tickets` | Daily kickoff in CMUX: fetch Linear todos, create worktrees, spawn one CMUX workspace per ticket, and auto-launch the resolved agent running the ticket skill in each. |

@@ -270,7 +270,8 @@ otherwise satisfied.
 
 ## 6. Authoring templates (extracted from `create-linear-ticket`, provider-neutral)
 
-Extracted verbatim from `skills/create-linear-ticket/SKILL.md` Steps 4–6 so the description
+Extracted verbatim from `skills/create-linear-ticket/SKILL.md` Steps 5–7 (Steps 4–6 before the
+scoping phase was added at the front) so the description
 templates, AC rules, code-sample policy, and mandatory preview step are available to any future
 provider-neutral authoring flow (spec §7.11: a thin `create-work-item` dispatcher for other
 providers is deferred past v1.0, but its authoring half should not have to be re-derived from
