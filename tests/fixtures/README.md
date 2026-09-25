@@ -34,3 +34,10 @@ Note the check matches shell *usage* (`$CMUX`, or `cmux` in command position at 
 line), not the bare word anywhere on the line. Two real failures shaped this: the strict protocol
 block copied byte-for-byte into every skill names "a CMUX prompt" in prose, and `orca-ship-tickets`
 legitimately names the cmux flow when explaining why it does not use it.
+
+## `evidence-overwrite`
+
+A skill that writes an E2E evidence report under `${docsRoot}/evidence/` and states no collision
+rule. Fails `docsroot` (check 7). It pins that evidence directories are held to the same
+never-overwrite, `-vN`-on-collision rule as specs, plans, context and findings. It also reports
+the noise errors every fixture root shares.

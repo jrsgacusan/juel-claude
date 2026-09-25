@@ -183,7 +183,7 @@ for (const [name, text] of skillBodies) {
 //
 // A "write site" is a line where this skill itself (not a delegated skill it
 // invokes) names a concrete path under `${docsRoot}` with a specific
-// specs/plans/context/findings subdirectory, either as an imperative
+// specs/plans/context/findings/evidence subdirectory, either as an imperative
 // ("Write the report to `${docsRoot}/findings/...`", "write to
 // `${docsRoot}/plans/...`") or as a labeled path bullet ("- Path:
 // `${docsRoot}/specs/...`", "- Plan path: `${docsRoot}/plans/...`"). A
@@ -208,9 +208,9 @@ for (const [name, text] of skillBodies) {
 // are silently exempted — a write-capable skill with no rule fails loudly,
 // naming the skill and the line(s) that need one.
 {
-  const DOCSROOT_SUBDIR_RE = /\$\{?docsRoot\}?\/(specs|plans|context|findings)\//;
+  const DOCSROOT_SUBDIR_RE = /\$\{?docsRoot\}?\/(specs|plans|context|findings|evidence)\//;
   const WRITE_VERB_RE = /(?<![-\w])(write|writes|writing|written)(?![-\w])/i;
-  const PATH_LABEL_RE = /^\s*-?\s*\**(spec |plan )?path\**:\s*`?\$\{?docsRoot\}?\/(specs|plans|context|findings)\//i;
+  const PATH_LABEL_RE = /^\s*-?\s*\**(spec |plan |evidence )?path\**:\s*`?\$\{?docsRoot\}?\/(specs|plans|context|findings|evidence)\//i;
   const DELEGATION_DISCLAIMER_RE = /\b(lives in `juel:|does not resolve|does not write|not here)\b/i;
   const DELEGATED_WRITE_LINE_RE = /`\/?(?:juel|superpowers|pr-review-toolkit):[a-z0-9-]+`[^\n]*\bwrites?\b/i;
   const OVERWRITE_TOKEN_RE = /overwrit\w*/gi;
