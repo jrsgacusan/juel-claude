@@ -201,6 +201,11 @@ git status --porcelain
    - Conflicts: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`). Ask via
      `AskUserQuestion`: resolve the conflicts in this session, or `git merge --abort` and stop the
      skill. Never auto-resolve, and never pick a side silently.
+   - If the user chooses to resolve in-session: propose each file's resolution and apply it only
+     after the user approves it. Then confirm no conflict markers remain
+     (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
+     with `git commit --no-edit` before any later phase runs, so remediation commits never land
+     inside an unfinished merge. One evidence line: the merge commit's short SHA.
 6. Do not push here. The merge commit is pushed with the remediation commits.
 
 ### Step 1: Fetch PR review comments

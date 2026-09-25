@@ -474,7 +474,9 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    All must be green. A command that resolved to `null` in Phase 4 reports its one-line skip note
    and does not block the gate — including `build` resolving `null` on ecosystems where `install`
    or `typecheck` already performs it (see "Toolchain commands").
-6. If any checklist item is FAIL, or the regression gate fails, **do not patch by hand** — loop
+6. If any checklist item is FAIL, or the regression gate fails, first run step 7's cleanup and
+   report it (remote writes, the running stack and port redirects never outlive a failed run),
+   then **do not patch by hand** — loop
    back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-run this
    entire phase after the fix — a partial re-verify is not sufficient.
 7. **Clean up before the checkpoint.** Stop only what this phase started, remove port-redirect
@@ -509,6 +511,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Verification finds a defect in phase 6 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 6 in full. Do not open the PR until every checklist item is PASS and the regression gate is green. |
 | Claude cannot self-verify a FE item in phase 6 (`juel:verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
 | A port the stack needs is already taken in phase 6 | Pick the next free port and rewire (rule 2 of `references/local-e2e.md`). Never stop the process holding it. |
+| An item FAILs in phase 6 while `cleanup.md` has open entries | Clean up first (step 7), then loop back. The re-run starts a fresh `-vN` evidence directory with an empty ledger. |
 | A remote cleanup fails in phase 6 | Report the leftover identifiers first. Do not mark the phase complete or open the PR until the owner decides. |
 | Not in a worktree | Ask user; do not auto-create one. |
 

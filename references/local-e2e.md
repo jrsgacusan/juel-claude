@@ -66,14 +66,19 @@ The owner pre-authorizes remote data access for local runs. No need to ask.
 
 ## 5. Evidence directory
 
-- Path: `${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/`, with `docsRoot` resolved the
-  same way as every other juel skill. The ref segment is included only when the work item has one.
+- Path: `${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/`. The ref segment is included
+  only when the work item has one.
+- Resolve `docsRoot` the same way as every other juel skill, in order: `docsRoot` from
+  `.claude/workflow.local.json` or `.claude/workflow.json` if set; else
+  `<repo-root>/docs/.superpowers/` if it exists and is non-empty; else
+  `<repo-root>/docs/superpowers/`. Never pick between the two variants ad hoc.
 - Never overwrite an existing evidence directory. On a collision, use `-v2`, then `-v3`, and so on.
 - Ensure the repo's `.gitignore` has unanchored `superpowers/` and `.superpowers/` entries, as the
   other docsRoot writers do.
 - Contents:
   - `report.md`: the per-item checklist (method, evidence, PASS/FAIL), the port map, and notes
-    on any remote data used.
+    on any remote data used. Written only by the skill that owns the directory.
+  - `verify-<NN>-<item-slug>.md`: one per `juel:verify` run inside `juel:ship-ticket`.
   - `screenshots/`: per rule 4.
   - `cleanup.md`: only when remote writes happened, per rule 3.
   - Captured responses and logs, when an item's evidence is too long to inline in the report.

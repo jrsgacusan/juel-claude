@@ -246,10 +246,17 @@ distinct socket, `mktemp -d` — rather than colliding with whatever the user al
 Ports and containers follow rule 2 of `references/local-e2e.md`: a taken port means pick another,
 never stop what this run did not start.
 
-Write the evidence to disk as it is captured: `report.md` and `screenshots/` under
-`${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (rule 5). Never overwrite an existing
-evidence directory; on a collision use `-v2`, then `-v3`. When invoked from `juel:ship-ticket`,
-write into the evidence directory it passes instead of creating a new one.
+Write the evidence to disk as it is captured, under
+`${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (rule 5; resolve `docsRoot` exactly as
+that rule says). Run on its own, this skill creates that directory and writes `report.md` and
+`screenshots/`; take the ref and slug from the current branch (its ticket-shaped segment, if
+any, lower-cased) and a short kebab-case summary of the diff's subject. Never overwrite an
+existing evidence directory; on a collision use `-v2`, then `-v3`.
+
+When invoked from `juel:ship-ticket`, write into the evidence directory it passes instead of
+creating one. That directory's `report.md` belongs to ship-ticket: write this run's report to
+`verify-<NN>-<item-slug>.md` (NN = the checklist item number) and screenshots into the shared
+`screenshots/`, never to `report.md`.
 
 ### Step 7: Report the verdict
 

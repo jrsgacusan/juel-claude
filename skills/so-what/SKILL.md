@@ -111,8 +111,9 @@ the sentence.
 
 Output contract:
 
-- Exactly one sentence, inside a fenced code block, and **nothing else** in the reply: no
-  heading, no preamble, no explanation, no follow-up offer.
+- Exactly one sentence, inside a fenced code block. After the protocol's required preflight and
+  phase evidence lines, the final message is **only** that code block: no heading, no preamble,
+  no explanation, no follow-up offer.
 - Leads with the outcome for users or the business. Add a short "because ..." clause only when
   the mechanism is what makes the outcome believable.
 - Plain words. No file names, function names, ticket ids, or jargon. No em dashes. Under about
