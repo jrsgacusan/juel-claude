@@ -305,6 +305,7 @@
     "receive-review-and-execute": {
       "hard": [
         "claude-plan-executor",
+        "clean-tree",
         "gh",
         "github-remote",
         "interactive-user",

@@ -1,6 +1,6 @@
 ---
 name: receive-review-and-execute
-description: Use when a PR already has external review comments and you want them validated, planned, and executed automatically - fetches PR review comments, validates findings, asks about ambiguous ones, writes a plan, then dispatches Codex to execute fixes
+description: Use when a PR already has external review comments and you want them validated, planned, and executed automatically - merges the PR's base branch in first, then fetches PR review comments, validates findings, asks about ambiguous ones, writes a plan, then dispatches Codex to execute fixes
 metadata:
   requires:
     cli:
@@ -10,7 +10,7 @@ metadata:
         check: "gh auth status"
       - id: codex
         hard: false
-        why: phase 7 dispatches codex to execute the remediation plan
+        why: phase 8 dispatches codex to execute the remediation plan
         check: "command -v codex"
         fallback: execute the plan in-session
     context:
@@ -24,14 +24,18 @@ metadata:
         check: "git remote get-url <remote> matches github.com"
       - id: interactive-user
         hard: true
-        why: phase 5 clarifies ambiguous findings via AskUserQuestion
+        why: phase 6 clarifies ambiguous findings and phase 2 asks how to handle merge conflicts via AskUserQuestion
+      - id: clean-tree
+        hard: true
+        why: phase 2 merges the base branch and must not merge onto uncommitted changes
+        check: "git status --porcelain empty"
     skills:
       - id: superpowers
         hard: true
-        why: phases 4 and 6 delegate to superpowers:receiving-code-review and superpowers:writing-plans
+        why: phases 5 and 7 delegate to superpowers:receiving-code-review and superpowers:writing-plans
       - id: claude-plan-executor
         hard: true
-        why: phase 7 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
+        why: phase 8 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
 ---
 
 # Receive Review and Execute
@@ -86,31 +90,31 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
 | AskUserQuestion | context | HARD | always available interactively | STOP in headless sessions |
+| clean working tree | context | HARD | `git status --porcelain` empty | STOP → commit or stash first |
 
 ## Phases
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
 1. Ensure a PR number, asking if it was not supplied
-2. Read every review thread and deliver the summary before forming an opinion
-3. Fetch structured data — inline comments, reviews, issue comments, diff
-4. Validate findings into actionable / rejected / ambiguous
-5. Clarify ambiguous findings (SKIPPED if none were ambiguous)
-6. Write the remediation plan, or stop here if there are zero actionable findings
-7. Run the executor on the plan, BACKGROUND (watched, waited-on)
-8. Report the result
+2. Sync with the integration branch — merge the PR's base branch in before reading anything
+3. Read every review thread and deliver the summary before forming an opinion
+4. Fetch structured data — inline comments, reviews, issue comments, diff
+5. Validate findings into actionable / rejected / ambiguous
+6. Clarify ambiguous findings (SKIPPED if none were ambiguous)
+7. Write the remediation plan, or stop here if there are zero actionable findings
+8. Run the executor on the plan, BACKGROUND (watched, waited-on)
+9. Report the result
 
 ## First action (non-negotiable)
 
-When asked to review a PR, your **first action is always**:
+Once the PR number is known and the branch is synced (phases 1-2), your **first action is always**:
 
 1. Run `gh pr view <num> --comments`
 2. Read every existing comment and review thread in full
 3. Summarize what's already been raised before forming your own opinion
 
 Do not skim. Do not skip to validation. Do not form opinions before this summary. The summary is delivered to the user before any further step.
-
-For **code-simplifier passes** in this flow (if invoked): read the last 3 commits (`git log -3 --stat`) and ask the user to confirm scope before changing anything.
 
 ## Arguments
 
@@ -130,6 +134,9 @@ digraph flow {
     node [shape=box];
 
     ask [label="0. Ask for PR number\n(if not provided)"];
+    sync [label="0a. Merge PR base branch\n(git fetch + git merge --no-edit)"];
+    conflict [label="Conflicts?" shape=diamond];
+    stop_conflict [label="Stop: list files,\nask resolve vs abort"];
     fetch [label="1. Fetch PR review comments\n(gh api)"];
     validate [label="2. Validate Findings\n(receiving-code-review)"];
     ambiguous [label="Any ambiguous findings?" shape=diamond];
@@ -139,7 +146,11 @@ digraph flow {
     execute [label="4. Dispatch Codex\n(codex exec --sandbox workspace-write)"];
     done [label="Done - no action needed"];
 
-    ask -> fetch;
+    ask -> sync;
+    sync -> conflict;
+    conflict -> stop_conflict [label="yes"];
+    conflict -> fetch [label="no"];
+    stop_conflict -> fetch [label="resolved"];
     fetch -> validate;
     validate -> ambiguous;
     ambiguous -> clarify [label="yes"];
@@ -158,6 +169,39 @@ If the user did not supply a PR number, ask:
 > "Which PR number should I receive review feedback from?"
 
 Do not proceed until you have a valid integer PR number.
+
+### Step 0a: Sync with the integration branch
+
+Bring the PR up to date with the branch it targets **before** reading any comment, so every
+finding is validated against current code. A comment already fixed on the base branch is then
+rejected as outdated instead of fixed twice.
+
+```bash
+gh pr view <PR> --json headRefName,baseRefName
+git rev-parse --abbrev-ref HEAD
+git status --porcelain
+```
+
+1. The current branch must equal `headRefName`. If it does not, STOP and say so, naming both
+   branches. Never check out, switch, or stash on the user's behalf.
+2. The working tree must be clean. If it is not, STOP: commit or stash first.
+3. The integration branch is `baseRefName`, the PR's own target (`dev` in gitflow repos, `main`
+   elsewhere). Resolve the remote: exactly one remote, use it; one named `origin`, use that;
+   otherwise ask once.
+4. Merge it in:
+
+   ```bash
+   git fetch <remote> <base>
+   git merge --no-edit <remote>/<base>
+   ```
+
+5. Outcomes, each with one evidence line:
+   - `Already up to date.`: continue.
+   - Clean merge: report the merge commit's short SHA and the number of files it brought in.
+   - Conflicts: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`). Ask via
+     `AskUserQuestion`: resolve the conflicts in this session, or `git merge --abort` and stop the
+     skill. Never auto-resolve, and never pick a side silently.
+6. Do not push here. The merge commit is pushed with the remediation commits.
 
 ### Step 1: Fetch PR review comments
 
@@ -300,6 +344,8 @@ Wait for Codex to complete, then state the exit status and files changed before 
 | Mistake | Fix |
 |---------|-----|
 | Proceeding without a PR number | Step 0 — ask, do not guess |
+| Validating comments against a stale base | Step 0a merges the PR's base branch first; outdated comments are then rejected, not re-fixed |
+| Auto-resolving merge conflicts, or checking out the PR branch for the user | Never. Step 0a stops, lists the files, and asks |
 | Acting on every PR comment blindly | Step 2 — validate before accepting |
 | Guessing reviewer intent on ambiguous comments | Step 2a — ask the user explicitly |
 | Skipping the plan and going straight to Codex | Codex needs a structured plan |
@@ -307,8 +353,7 @@ Wait for Codex to complete, then state the exit status and files changed before 
 | Fixing findings directly instead of writing a plan | NEVER fix code yourself — always plan + dispatch Codex |
 | Treating already-fixed comments as actionable | Verify against current PR HEAD before accepting |
 | Forming an opinion before reading existing comments | Run `gh pr view <num> --comments` first, summarize, then think |
-| code-simplifier pass without scope confirmation | Read last 3 commits, ask user to confirm scope before edits |
-| Running the executor in the foreground, or redirecting its output to a file | Never. Phase 7 always backgrounds Codex (600s Bash-tool cap) but never redirects its output — the user watches it in the shell. |
+| Running the executor in the foreground, or redirecting its output to a file | Never. Phase 8 always backgrounds Codex (600s Bash-tool cap) but never redirects its output — the user watches it in the shell. |
 | Backgrounding Codex and moving on without waiting for it to exit | Never. Background is not fire-and-forget — wait for exit, then report the outcome. |
 | Forgetting `--sandbox workspace-write` | Codex needs write access to apply the plan |
 | Overwriting an existing `receive-review-plan.md` | Always pick the next free `-vN` suffix; prior plans are historical |
