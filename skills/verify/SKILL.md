@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Use to verify that a change actually works by driving it live, not by reading it. Establishes the diff's scope, identifies the runtime surface it reaches (CLI, TUI, web UI, HTTP/RPC handler, background job), drives the change end-to-end through that real surface, pushes on adjacent edge cases, captures the evidence, and reports PASS/FAIL/BLOCKED/SKIP. Never runs the test suite or a typecheck as verification, and never calls the changed function directly in isolation - only the real interface counts. Invoked directly as /juel:verify, or delegated to from juel:ship-ticket's Phase 7 for every checklist item with a runtime surface.
+description: Use to verify that a change actually works by driving it live, not by reading it. Establishes the diff's scope, identifies the runtime surface it reaches (CLI, TUI, web UI, HTTP/RPC handler, background job), drives the change end-to-end through that real surface, pushes on adjacent edge cases, captures the evidence, and reports PASS/FAIL/BLOCKED/SKIP. Never runs the test suite or a typecheck as verification, and never calls the changed function directly in isolation - only the real interface counts. Invoked directly as /juel:verify, or delegated to from juel:ship-ticket's Phase 6 for every checklist item with a runtime surface.
 metadata:
   requires:
     mcp:
@@ -158,6 +158,12 @@ them, not just the first one found.
 
 ### Step 3: Get a handle on the surface
 
+**Read `references/local-e2e.md` first**, resolved relative to this skill file's own location
+(`../../references/local-e2e.md`), and follow it for the rest of this run. Its five rules: (1)
+local running stack always, (2) port and container isolation, never touching another worktree's
+processes, (3) remote data read and write allowed with a cleanup ledger, (4) light-mode desktop
+screenshots for frontend changes, (5) evidence in `${docsRoot}/evidence/`.
+
 ```bash
 ls .claude/skills/                    # target repo root
 ls <touched-dir>/.claude/skills/      # each dir level the diff names
@@ -237,6 +243,13 @@ breakage is a finding, not noise to discard.
 
 Shared process state (tmux sessions, ports, lockfiles): isolate it — a fresh `tmux -L <name>`, a
 distinct socket, `mktemp -d` — rather than colliding with whatever the user already has running.
+Ports and containers follow rule 2 of `references/local-e2e.md`: a taken port means pick another,
+never stop what this run did not start.
+
+Write the evidence to disk as it is captured: `report.md` and `screenshots/` under
+`${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (rule 5). Never overwrite an existing
+evidence directory; on a collision use `-v2`, then `-v3`. When invoked from `juel:ship-ticket`,
+write into the evidence directory it passes instead of creating a new one.
 
 ### Step 7: Report the verdict
 
@@ -244,6 +257,10 @@ Report inline, in the final message — a file only the model can open is not ev
 can check. If a tool for sending files to the user directly is available in this session, use it
 for screenshots and recordings and let the report name what was sent; otherwise keep the evidence
 that matters inline (pane captures, response bodies) rather than only a path.
+
+The inline report is still the primary record. The evidence directory holds the full captures
+and screenshots, and the final message ends with its absolute path. If remote writes happened,
+state the cleanup result (every `cleanup.md` entry reversed and confirmed) before the verdict.
 
 ```
 ## Verification: <one-line what changed>
@@ -300,5 +317,5 @@ costs one more look by a human. Ambiguous output is reported as FAIL with the ra
 | Change touches only docs/types/tests, no runtime surface | SKIP, with a one-line reason. |
 | Change is destructive (delete/publish/send) with no dry-run or safe target | Verify everything else; state plainly which path was not exercised and why. Never drive it live. |
 | A discovered `verifier-*` project skill fails on mechanics unrelated to the change | Ask the user whether to patch it. Never FAIL the change for verifier rot. |
-| Invoked from `juel:ship-ticket` Phase 7 and Playwright MCP is unavailable | Ask the user to drive the browser themselves and confirm the affected checklist item(s), recording which were not verified directly. |
+| Invoked from `juel:ship-ticket` Phase 6 and Playwright MCP is unavailable | Ask the user to drive the browser themselves and confirm the affected checklist item(s), recording which were not verified directly. |
 | Cold start (Step 3) exceeds the ~15-minute timebox | Report BLOCKED with exactly where it stopped, after checking every skill under the touched subtree's `.claude/skills/` for one that unlocks the environment. |
