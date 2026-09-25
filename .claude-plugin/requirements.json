@@ -33,11 +33,6 @@
         "/Applications/cmux.app/Contents/Resources/bin/cmux"
       ]
     },
-    "code-simplifier": {
-      "kind": "skill",
-      "label": "code-simplifier",
-      "install": "Ships as a plugin dependency"
-    },
     "codex": {
       "kind": "cli",
       "label": "Codex CLI",
@@ -354,7 +349,6 @@
         "worktree-root-cwd"
       ],
       "soft": [
-        "code-simplifier",
         "codex",
         "gh",
         "juel:verify",

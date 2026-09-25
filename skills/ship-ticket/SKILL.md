@@ -1,14 +1,14 @@
 ---
 name: ship-ticket
-description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, a final code-simplifier polish, then exhaustive end-to-end verification (every acceptance criterion individually confirmed, Claude driving the real flow itself, a full test/lint/typecheck/build regression gate), then opens the PR. Pauses for confirmation between phases.
+description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR. Pauses for confirmation between phases.
 metadata:
   requires:
     mcp:
       - id: linear
         hard: false
-        why: phase 1 (via juel:start) and phase 8's status update use the resolved Linear connection when one exists
+        why: phase 1 (via juel:start) and phase 7's status update use the resolved Linear connection when one exists
         check: none
-        fallback: phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR
+        fallback: phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR
     cli:
       - id: codex
         hard: false
@@ -17,9 +17,9 @@ metadata:
         fallback: phase 4 executes the plan in-session
       - id: gh
         hard: false
-        why: phase 8 opens the PR
+        why: phase 7 opens the PR
         check: "command -v gh"
-        fallback: phase 8 prints a compare URL instead of opening the PR
+        fallback: phase 7 prints a compare URL instead of opening the PR
     context:
       - id: worktree-root-cwd
         hard: true
@@ -43,18 +43,14 @@ metadata:
         hard: false
         why: phase 5 (via juel:review-and-execute) runs pr-review-toolkit:review-pr
         fallback: phase 5 falls back to /review
-      - id: code-simplifier
-        hard: false
-        why: phase 6 dispatches the code-simplifier agent as the final polish pass
-        fallback: phase 6 SKIPPED with a note
       - id: run
         hard: false
-        why: phase 7 launches the app to drive and observe backend behavior directly, including the backend leg of full-stack traces
-        fallback: phase 7 executes the resolved commands.run directly and observes
+        why: phase 6 launches the app to drive and observe backend behavior directly, including the backend leg of full-stack traces
+        fallback: phase 6 executes the resolved commands.run directly and observes
       - id: juel:verify
         hard: false
-        why: phase 7 drives the real browser flow for every checklist item with a UI surface, as Claude's default end-to-end verifier
-        fallback: phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly
+        why: phase 6 drives the real browser flow for every checklist item with a UI surface, as Claude's default end-to-end verifier
+        fallback: phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly
       - id: claude-plan-executor
         hard: true
         why: phase 4 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
@@ -64,7 +60,7 @@ metadata:
 
 ## Overview
 
-End-to-end orchestration that replaces the manual sequence `/juel:start` → `/juel:execute` → `/juel:review-and-execute` with a single skill. The `code-simplifier` agent runs **last**, as the final polish after review remediation, so it cleans up whatever shape the code ends up in rather than producing findings that get rewritten by the review pass.
+End-to-end orchestration that replaces the manual sequence `/juel:start` → `/juel:execute` → `/juel:review-and-execute` with a single skill. After review remediation it verifies the change end to end on an isolated local stack, then opens the PR.
 
 **Announce at start:** "I'm using juel:ship-ticket to drive the ticket from start to PR."
 
@@ -108,13 +104,12 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
 | juel:start, juel:review-and-execute | skill | HARD | ship with this plugin | STOP |
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
-| code-simplifier | skill | SOFT | ships as a plugin dependency | phase 6 SKIPPED with a note |
-| run | skill | SOFT | built-in | phase 7 executes the resolved `commands.run` directly and observes |
-| juel:verify | skill | SOFT | ships with this plugin | phase 7 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
+| run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
+| juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
 | claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
-| gh | cli | SOFT | `command -v gh` | phase 8 prints a compare URL instead of opening the PR |
-| Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 8's status update is skipped with a printed note and never blocks the PR |
+| gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR |
+| Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR |
 
 ## Phases
 
@@ -125,11 +120,8 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 3. Plan — superpowers:writing-plans
 4. Execute — run the executor from the worktree root, BACKGROUND (watched, waited-on)
 5. Review + remediation — juel:review-and-execute
-6. Simplify (final polish) — code-simplifier agent, FOREGROUND
-7. End-to-end verification — exhaustive per-item checklist, Claude drives the real flow, full regression gate before PR
-8. Open PR — with QA instructions, update the work-item status
-
-Note phase 6's preflight row is SOFT while its phase is not optional: if `code-simplifier` is genuinely unavailable, that phase's task is still marked `completed` via `TaskUpdate` with a `SKIPPED` evidence line, which protocol rule 2 requires be announced rather than dropped.
+6. End-to-end verification — exhaustive per-item checklist on an isolated local stack, Claude drives the real flow, evidence saved, full regression gate before PR
+7. Open PR — with QA instructions, update the work-item status
 
 ## Arguments
 
@@ -142,7 +134,7 @@ Usage: `/juel:ship-ticket` or `/juel:ship-ticket SAVI-1162`
 
 ## Base branch & repo conventions
 
-Resolved **once**, before Phase 5, then reused for the rest of the run (Phase 8's push, PR title,
+Resolved **once**, before Phase 5, then reused for the rest of the run (Phase 7's push, PR title,
 PR body, and trailers all read the same resolved values — never re-derive mid-run).
 
 **Base branch**, in order: explicit argument → `config.baseBranch` →
@@ -246,10 +238,10 @@ that key resolves to `null` and the corresponding gate is **skipped with an expl
 ("no test command resolved — test gate skipped"), never invented (never `npm test` for a repo with
 no `test` script), and never a reason to stop the skill.
 
-**Resolve once, in Phase 4; reuse in Phases 5, 6 and 7 — never re-detect per phase.** This whole
+**Resolve once, in Phase 4; reuse in Phases 5 and 6 — never re-detect per phase.** This whole
 tiered probe runs exactly one time per run, in Phase 4, immediately after Codex finishes. Its result
 (one line per key: resolved command + source tier, or `null — skipped`) is reported as part of Phase
-4's checkpoint. Phases 5, 6 and 7 read that already-reported set as-is; they must not re-run tier
+4's checkpoint. Phases 5 and 6 read that already-reported set as-is; they must not re-run tier
 detection, re-scan for `Makefile`/`package.json`, or otherwise "pick project-relevant lint/test
 commands" fresh at each phase — that ad-hoc re-picking is the same failure mode Task 15 fixed for
 `docsRoot` (a value that drifts mid-run because two phases derived it independently instead of one
@@ -269,10 +261,9 @@ digraph flow {
     p3 [label="3. Plan\n(superpowers:writing-plans)"];
     p4 [label="4. Execute\n(codex exec from worktree root)"];
     p5 [label="5. Review + remediation\n(juel:review-and-execute)"];
-    p6 [label="6. Simplify (final polish)\n(code-simplifier agent)"];
-    p7 [label="7. End-to-end verification\n(per-item checklist + full regression gate)"];
-    p8 [label="8. Open PR\n(gh pr create, or push + compare URL if gh is absent)"];
-    p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8;
+    p6 [label="6. End-to-end verification\n(isolated local stack, per-item checklist,\nevidence + full regression gate)"];
+    p7 [label="7. Open PR\n(gh pr create, or push + compare URL if gh is absent)"];
+    p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7;
 }
 ```
 
@@ -361,7 +352,7 @@ Do not redirect its output to a file — the user watches the executor run in th
 commands" above. This step is side-effect-free detection only — it must not install or run
 anything. Report
 the resolved set in this phase's checkpoint (one line per key: command + source tier, or `null —
-skipped`). Phases 5, 6 and 7 reuse this exact set; see "Toolchain commands" for why re-resolving
+skipped`). Phases 5 and 6 reuse this exact set; see "Toolchain commands" for why re-resolving
 mid-run is a Common Mistake, not a harmless redundancy.
 
 **Checkpoint:** Codex finished. Summarize files changed (`git status`, `git diff --stat`) and the
@@ -370,7 +361,7 @@ resolved toolchain commands (key → command or `null — skipped`, with source 
 ### Phase 5 — Review + remediation
 
 **Resolve base branch, remote, branch naming, commit style and trailers now** (per "Base branch &
-repo conventions" above), before delegating — the rest of this run (including Phase 8) reuses these
+repo conventions" above), before delegating — the rest of this run (including Phase 7) reuses these
 resolved values rather than re-deriving them.
 
 Delegate the full review-validate-plan-execute cycle to `/juel:review-and-execute`:
@@ -385,32 +376,24 @@ That skill internally runs:
 3. `superpowers:writing-plans` → writes to `${docsRoot}/plans/review-plan.md` (auto-bumps to `-v2`, `-v3`, ... if a prior one exists)
 4. `codex exec --sandbox workspace-write` to apply remediation
 
-If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (code-simplifier still runs) and phase 7 (verification still runs) either way.
+If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (verification still runs) either way.
 
 After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused here — do not re-derive) to verify nothing regressed. Run a command only when its resolved value is non-null; a `null` command reports its one-line skip note (e.g. "no lint command resolved — lint gate skipped") and the phase continues rather than stopping.
 
 **Checkpoint:** show diff summary post-remediation. Ask to proceed.
 
-### Phase 6 — Simplify (final polish)
+### Phase 6 — End-to-end verification
 
-This is the last **planned** code-change phase (phase 7 verification may still loop back if it finds a defect). Run after review remediation so `code-simplifier` operates on the final shape of the code, not a draft that's about to be rewritten.
+**Read `references/local-e2e.md` first**, resolved relative to this skill file's own location
+(`../../references/local-e2e.md`), and follow it for this whole phase. Its five rules: (1) local
+running stack always, (2) port and container isolation, never touching another worktree's
+processes, (3) remote data read and write allowed with a cleanup ledger, (4) light-mode desktop
+screenshots for frontend changes, (5) evidence in `${docsRoot}/evidence/`.
 
-1. Dispatch the `code-simplifier` agent via the Agent tool, `run_in_background: false`:
-
-   ```
-   Agent(subagent_type: "code-simplifier", run_in_background: false,
-         description: "Simplify recently-changed code",
-         prompt: "Review the code changed in this branch (see git diff against the base branch) for reuse, simplification, efficiency, and clarity, then apply the fixes directly. Preserve behavior exactly.")
-   ```
-
-   It is dispatched via the **Agent tool** — `code-simplifier` is an agent (ships as a plugin dependency), not a skill, so there is no `Skill("code-simplifier")` form. It targets recently-modified code, which is what we want. It pins `model: opus` in its own definition — never pass a model override here.
-2. Read `code-simplifier`'s complete output and state what it changed before marking phase 6 done.
-3. After `code-simplifier` finishes, re-run the `format`, `lint` and `test` commands resolved in Phase 4 (the same resolved set Phase 5 used — reused again, not re-derived) to verify the polish did not regress anything. Any command that resolved to `null` in Phase 4 has its gate skipped here too, with the same one-line note.
-4. Review the diff `code-simplifier` produced. If anything looks wrong, revert that specific change with `git restore -p` rather than the whole pass.
-
-**Checkpoint:** show diff summary post-simplify. Ask to proceed to manual verification.
-
-### Phase 7 — End-to-end verification
+**Create this phase's evidence directory now:** write it to
+`${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (same date, ref and slug as the spec
+from Phase 2). Never overwrite an existing one; on a collision use `-v2`, then `-v3`. Pass this
+path to every `juel:verify` invocation below so all evidence lands in one place.
 
 Verify the change actually works, exhaustively, before opening the PR. This phase is
 **human-in-the-loop only where Claude genuinely cannot self-serve**: do not open the PR on the
@@ -418,16 +401,16 @@ strength of passing unit tests alone, and do not treat "the user will check it" 
 for Claude driving the real flow itself.
 
 **Environment sanity check, before anything else in this phase.** A stack that looks ready can be
-a false positive — a stale container already squatting on the port `commands.run` (resolved in
-Phase 4) needs, or a target repo with unresolved migration state. Fail loudly here rather than
+a false positive — another worktree's stack already answering on the port `commands.run` (resolved
+in Phase 4) needs, or a target repo with unresolved migration state. Fail loudly here rather than
 letting a later step misread a broken environment as a broken change:
 
 - **Port conflicts.** Identify the port(s) `commands.run` binds (a `PORT`/`.env` value, a
   `docker-compose.yml` port mapping, or the framework's stated default — whichever the repo's own
-  evidence gives). Run `docker ps` and a port check (`lsof -i :<port>` or equivalent) against those
-  specific ports only — never every port in use on the machine, which would false-positive on an
-  unrelated service the user runs long-lived on purpose. A container already holding one of those
-  ports is torn down, not trusted to mean the stack is ready.
+  evidence gives). Check only those ports with `lsof -nP -iTCP:<port> -sTCP:LISTEN`. A taken port
+  is never a signal that the stack is ready, and never something to stop: it most likely belongs
+  to another worktree. Pick the next free port and rewire per rule 2 of `references/local-e2e.md`
+  (including `COMPOSE_PROJECT_NAME=<worktree-basename>`).
 - **Migration-head conflicts.** If Phase 4's toolchain-detection evidence shows a migrations tool
   (e.g. an `alembic/` directory, a `migrations/` directory with a head-tracking file), run that
   ecosystem's head-check (`alembic heads` or equivalent). More than one head resolving is a hard
@@ -436,7 +419,7 @@ letting a later step misread a broken environment as a broken change:
   universal.
 
 State one line of evidence before continuing to the checklist below — "env sanity: clear", "env
-sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations tool detected".
+sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no migrations tool detected".
 
 1. **Build the exhaustive verification checklist.** Enumerate, as individually numbered items:
    - Every acceptance criterion from the work item, if it has any.
@@ -471,6 +454,8 @@ sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations to
      row, log line) so one pass traces the full path: UI action → network → backend → DB/state →
      UI feedback. This is Claude's default for every UI-surfaced item, not a fallback offered only
      when the user is unavailable.
+   - **Any item whose diff touches UI:** capture the rule 4 screenshots (light mode, desktop
+     1440x900) of every changed screen or state into the evidence directory's `screenshots/`.
    - **Any item with a backend/API surface and no UI leg:** invoke `Skill("run",
      run_in_background: false)` to launch the app and observe real behavior directly (hit the
      endpoint, check the DB, exercise the background task).
@@ -480,7 +465,7 @@ sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations to
      directly.
    - **If `run` is unavailable:** execute the `commands.run` resolved in Phase 4 directly and
      observe.
-4. **Record evidence per item, not in aggregate.** For every numbered item from Step 1, record:
+4. **Record evidence per item, not in aggregate, in the evidence directory's `report.md`.** For every numbered item from Step 1, record:
    method (`juel:verify` / `run` / user-confirmed), the evidence (request/response, log lines,
    screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
    items may be collapsed into one "looks good" line.
@@ -492,11 +477,14 @@ sanity: killed container on :8453", or "env sanity: SKIPPED — no migrations to
 6. If any checklist item is FAIL, or the regression gate fails, **do not patch by hand** — loop
    back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-run this
    entire phase after the fix — a partial re-verify is not sufficient.
+7. **Clean up before the checkpoint.** Stop only what this phase started, remove port-redirect
+   files, delete local copies of remote data, and reverse every `cleanup.md` entry per rule 3.
+   This phase cannot be marked complete with an open ledger entry.
 
-**Checkpoint:** show the full per-item checklist (all PASS) and the regression-gate result. Ask to
-proceed to PR.
+**Checkpoint:** show the full per-item checklist (all PASS), the regression-gate result, the
+cleanup result, and the absolute path of the evidence directory. Ask to proceed to PR.
 
-### Phase 8 — Open PR
+### Phase 7 — Open PR
 
 1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
 2. Resolve the PR title and body per "Base branch & repo conventions" above:
@@ -516,11 +504,12 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 |-----------|--------|
 | Codex fails in phase 4 | Stop. Show error. Ask user to adjust plan or escalate. Do not run phase 5+. |
 | Working tree dirty before phase 4 | Stop. Ask user to commit/stash. |
-| Zero actionable findings in phase 5 | `/juel:review-and-execute` handles this internally; still run phase 6 (code-simplifier), phase 7 (verification), and phase 8 (PR). |
+| Zero actionable findings in phase 5 | `/juel:review-and-execute` handles this internally; still run phase 6 (verification) and phase 7 (PR). |
 | Lint/tests fail after phase 5 | Loop back: invoke `/juel:review-and-execute` again — it will write a `-vN` plan and dispatch Codex. Do not hand-edit. |
-| Simplify introduces a regression in phase 6 | `git restore -p` the offending hunks; do not revert the whole pass blindly. |
-| Verification finds a defect in phase 7 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 7 in full. Do not open the PR until every checklist item is PASS and the regression gate is green. |
-| Claude cannot self-verify a FE item in phase 7 (`juel:verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
+| Verification finds a defect in phase 6 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 6 in full. Do not open the PR until every checklist item is PASS and the regression gate is green. |
+| Claude cannot self-verify a FE item in phase 6 (`juel:verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
+| A port the stack needs is already taken in phase 6 | Pick the next free port and rewire (rule 2 of `references/local-e2e.md`). Never stop the process holding it. |
+| A remote cleanup fails in phase 6 | Report the leftover identifiers first. Do not mark the phase complete or open the PR until the owner decides. |
 | Not in a worktree | Ask user; do not auto-create one. |
 
 ## Common mistakes
@@ -528,18 +517,18 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | Mistake | Fix |
 |---------|-----|
 | Skipping checkpoints to "save time" | Every phase pauses. The point is reviewable handoffs. |
-| Re-resolving install/test/lint/typecheck/format/run commands at each phase | Resolve once in Phase 4 (see "Toolchain commands"); Phases 5, 6 and 7 reuse that exact reported set, never re-scan the repo. |
-| Running code-simplifier before review remediation | code-simplifier is the last planned code-change phase (phase 6) so it polishes the final shape of the code, not a draft. |
+| Re-resolving install/test/lint/typecheck/format/run commands at each phase | Resolve once in Phase 4 (see "Toolchain commands"); Phases 5 and 6 reuse that exact reported set, never re-scan the repo. |
 | Hand-editing instead of delegating remediation | Never. Phase 5 delegates to `/juel:review-and-execute`; do not bypass it. |
 | Dispatching Codex from `frontend/` or another subdir | Always cd to worktree root first. |
 | Skipping `git status` review between phases | Each checkpoint must show what changed. |
-| Opening the PR on green unit tests alone | Phase 7 requires observed behavior for every checklist item plus a full test/lint/typecheck/build regression gate — passing unit tests alone is never sufficient. |
-| Posting PR review-style summary instead of QA-oriented body | Phase 8 PR body is for the reviewer, not a changelog. |
-| Forgetting to update the work item's status | Phase 8 step 4 — but a provider with no `update_status` capability (including "no tracker resolved at all") is a legitimate skip printed as one line, not a forgotten step; only flag this when the provider does support `update_status` and the call was simply never made. |
+| Opening the PR on green unit tests alone | Phase 6 requires observed behavior for every checklist item plus a full test/lint/typecheck/build regression gate — passing unit tests alone is never sufficient. |
+| Posting PR review-style summary instead of QA-oriented body | Phase 7 PR body is for the reviewer, not a changelog. |
+| Forgetting to update the work item's status | Phase 7 step 4 — but a provider with no `update_status` capability (including "no tracker resolved at all") is a legitimate skip printed as one line, not a forgotten step; only flag this when the provider does support `update_status` and the call was simply never made. |
 | Overwriting an existing spec or plan file on a re-run (e.g. after a failed prior attempt for the same ticket, same day) | Always bump to `-v2`, `-v3`, etc. — specs and plans are immutable history, same as `review-plan.md`. |
-| Splitting FE/BE verification without tracing one real request end-to-end | Phase 7 traces a single real user action through the whole stack (UI → network → backend → DB/state → UI feedback) for UI-surfaced items — verifying each side in isolation is not equivalent. |
+| Splitting FE/BE verification without tracing one real request end-to-end | Phase 6 traces a single real user action through the whole stack (UI → network → backend → DB/state → UI feedback) for UI-surfaced items — verifying each side in isolation is not equivalent. |
 | Aggregating acceptance criteria into one "looks good" checkmark | Every acceptance criterion and every diff-implied edge/negative case gets its own numbered line with its own evidence and PASS/FAIL verdict — an aggregate pass is not sufficient. |
-| Skipping typecheck/build in the final gate because test+lint passed | Phase 7's regression gate re-runs every resolved command — test, lint, typecheck, and build — not just test and lint. |
+| Skipping typecheck/build in the final gate because test+lint passed | Phase 6's regression gate re-runs every resolved command — test, lint, typecheck, and build — not just test and lint. |
+| Killing a container or process that holds a port the stack needs | Never. It belongs to another worktree. Pick another port (Phase 6 environment sanity check). |
 
 ## Notes
 
