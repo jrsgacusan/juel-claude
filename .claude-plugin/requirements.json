@@ -358,6 +358,13 @@
         "run"
       ]
     },
+    "so-what": {
+      "hard": [],
+      "soft": [
+        "gh",
+        "git-repo"
+      ]
+    },
     "start": {
       "hard": [
         "git-repo",
