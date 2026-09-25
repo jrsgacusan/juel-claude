@@ -38,16 +38,16 @@ update; `daily-worktrees` lists issues by assignee+project+state, reads id/title
 
 | Field | Required? | Consumed by |
 |---|---|---|
-| `title` | **Yes — the only required field** | all three: PR title (`ship-ticket` phase 8), ticket list rows (`daily-worktrees` phase 5), requirements summary (`start` phase 3) |
-| `ref` | **No — NULLABLE** | branch/worktree/spec/plan/PR-title/commit-scope naming (`daily-worktrees` phase 3, `ship-ticket` phases 2/3/8). When null, the segment drops out entirely — never a placeholder string like `"none"` |
+| `title` | **Yes — the only required field** | all three: PR title (`ship-ticket` phase 7), ticket list rows (`daily-worktrees` phase 5), requirements summary (`start` phase 3) |
+| `ref` | **No — NULLABLE** | branch/worktree/spec/plan/PR-title/commit-scope naming (`daily-worktrees` phase 3, `ship-ticket` phases 2/3/7). When null, the segment drops out entirely — never a placeholder string like `"none"` |
 | `id` | No | the provider-native lookup key passed back into `fetch`/`update_status` calls (`start` phase 2, `daily-worktrees` phase 7) |
 | `slug` | No | branch/worktree name generation (`daily-worktrees` phase 3) |
 | `type` | No | branch prefix inference — `feat`/`fix`/`refactor`/`chore` (`daily-worktrees` phase 3) |
 | `description` | No | requirements/AC parsing source (`start` phase 3) |
 | `requirements` | No | derived from `description`; presented in `start` phase 3's summary |
-| `acceptance_criteria` | No | derived from `description` (`## Acceptance Criteria`, `## Done When`, `## Outcome` headings, else `- [ ]` checkboxes); the highest-value derived field — six call sites across `ship-ticket` phases 2 and 7, `start` phase 3, PR body QA instructions |
-| `status` | No | normalized read/write target for `update_status` (`daily-worktrees` phases 6–7, `ship-ticket` phase 8) |
-| `url` | No | PR-body Linear link section (`ship-ticket` phase 8) |
+| `acceptance_criteria` | No | derived from `description` (`## Acceptance Criteria`, `## Done When`, `## Outcome` headings, else `- [ ]` checkboxes); the highest-value derived field — six call sites across `ship-ticket` phases 2 and 6, `start` phase 3, PR body QA instructions |
+| `status` | No | normalized read/write target for `update_status` (`daily-worktrees` phases 6–7, `ship-ticket` phase 7) |
+| `url` | No | PR-body Linear link section (`ship-ticket` phase 7) |
 | `labels` | No | read by `daily-worktrees` phase 3's branch-type inference table (`skills/daily-worktrees/SKILL.md:119`: "Title/labels contain 'bug', 'fix', 'error'" → `fix`); also carried for `create-linear-ticket` authoring parity |
 | `branch_hint` | No | seeds branch naming when `slug`/`type` are absent |
 | `parent` | No | gates the "branch from the parent tip" guidance (spec §7.11); only Linear/Jira expose it |
