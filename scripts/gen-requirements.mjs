@@ -167,11 +167,6 @@ const DEFINITIONS = {
     label: 'juel:ship-ticket',
     install: 'Ships with this plugin',
   },
-  'code-simplifier': {
-    kind: 'skill',
-    label: 'code-simplifier',
-    install: 'Ships as a plugin dependency',
-  },
   run: { kind: 'skill', label: 'run', install: 'Built-in Claude Code skill' },
   'juel:verify': { kind: 'skill', label: 'juel:verify', install: 'Ships with this plugin' },
 
