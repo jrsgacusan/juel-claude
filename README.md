@@ -126,7 +126,7 @@ on you:
 | `orca-ship-tickets` | Ship several work items in parallel through Orca: one Orca worktree per item, agent already running `/juel:ship-ticket`. Fire and forget. |
 | `orca-review-pr` | Review a PR in its own Orca worktree, checked out on the real PR head branch, agent already running `/juel:review-pr`. |
 
-15 skills.
+16 skills.
 
 ### Orca flow
 

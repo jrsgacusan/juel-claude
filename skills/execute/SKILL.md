@@ -115,7 +115,7 @@ digraph flow {
 3. Otherwise `<repo-root>/docs/superpowers/` — canonical for every new repo.
 
 Never pick between the two variants ad hoc. Layout underneath is
-`${docsRoot}/{specs,plans,context,findings}/`.
+`${docsRoot}/{specs,plans,context,findings,evidence}/`.
 
 ```bash
 ROOT=$(git rev-parse --show-toplevel)

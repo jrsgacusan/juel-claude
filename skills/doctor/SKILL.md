@@ -186,7 +186,7 @@ for s in daily-worktrees review-and-execute ship-ticket start; do
   test -f "${PLUGIN_ROOT}/skills/${s}/SKILL.md" && echo "JUEL_${s}=present" || echo "JUEL_${s}=absent"
 done
 cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-for p in superpowers pr-review-toolkit code-simplifier; do
+for p in superpowers pr-review-toolkit; do
   found=$(find "${cfg}/plugins/cache/claude-plugins-official" -maxdepth 1 -type d -iname "$p" 2>/dev/null | head -1)
   [ -n "$found" ] && echo "PLUGIN_${p}=present:${found}" || echo "PLUGIN_${p}=absent"
 done
@@ -346,7 +346,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `linear` | mcp | `LINEAR_STATE == working` | `LINEAR_STATE` is `auth_needed` or `absent` (see Step 2 — these render with different messages, never the same one) | |
 | `playwright` | mcp | `plugin:playwright:playwright` shows `Connected` | no such line | when the line exists but shows an unexpected status — report the raw text |
 | `juel:daily-worktrees`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
-| `pr-review-toolkit`, `superpowers`, `code-simplifier` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
+| `pr-review-toolkit`, `superpowers` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
 | `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves | it does not | when running under Claude Code — the Claude path still dispatches `codex exec`, so it is required there too; report it in both harnesses |
 | `superpowers:brainstorming` | skill | the `superpowers` plugin cache dir exists **and** contains a `skills/brainstorming/SKILL.md` | the plugin dir is missing, or it's present without that skill | |
 | `run`, `verify` | skill | — | — | yes, always — harness built-ins this plugin cannot install or query. Report plainly: "cannot determine; assume present unless a skill actually fails to invoke it" |

@@ -90,6 +90,10 @@ First match wins:
    gh pr view <N> --json title,body,baseRefName,headRefName
    gh pr diff <N>
    ```
+   Given a numeric argument and `gh` is missing: fetch the PR head with plain git
+   (`git fetch <remote> pull/<N>/head:so-what-pr-<N>`) and treat that ref as a branch source
+   (step 2, base = the remote's default branch), then delete the temporary ref. If that fetch
+   fails too, reply in one line that PR <N> cannot be read without `gh` and stop.
 2. **Non-numeric argument: a branch.** Base is `gh pr view <branch> --json baseRefName` when a
    PR exists for it, else the remote's default branch (`git symbolic-ref --short
    refs/remotes/<remote>/HEAD`).

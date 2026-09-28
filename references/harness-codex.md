@@ -86,7 +86,7 @@ correction, not a rename.
 
 | Skill depends on | Use instead | Contract |
 | --- | --- | --- |
-| `code-simplifier` | `$simplify` | SOFT. Present in `~/.agents/skills/`. If absent, skip the polish phase and say so. |
+| `code-simplifier` | `$simplify` | SOFT. Present in `~/.agents/skills/`. If absent, skip any simplifier pass a skill asks for and say so. No juel skill currently requires one. |
 | `pr-review-toolkit:review-pr` | `codex review` | SOFT, **and a downgrade.** See below. |
 | `superpowers:brainstorming` | `$superpowers:brainstorming` | HARD. Same id as Claude Code. If absent, STOP and point at `scripts/link-agent-skills.mjs`. |
 | `superpowers:writing-plans` | `$superpowers:writing-plans` | HARD. Same id as Claude Code. Same remedy. |
