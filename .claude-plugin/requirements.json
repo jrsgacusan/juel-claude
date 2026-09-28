@@ -141,6 +141,11 @@
       "label": "Playwright MCP",
       "install": "Ships as a plugin dependency"
     },
+    "playwright-video": {
+      "kind": "mcp",
+      "label": "Playwright video tools",
+      "install": "Set PLAYWRIGHT_MCP_CAPS=devtools in the settings.json env block, then restart"
+    },
     "pr-review-toolkit": {
       "kind": "skill",
       "label": "pr-review-toolkit",
@@ -354,6 +359,7 @@
         "gh",
         "juel:verify",
         "linear",
+        "playwright-video",
         "pr-review-toolkit",
         "run"
       ]
@@ -383,6 +389,7 @@
         "gh",
         "git-repo",
         "playwright",
+        "playwright-video",
         "run",
         "verification-criteria"
       ]

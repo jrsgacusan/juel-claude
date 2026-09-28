@@ -76,6 +76,11 @@ const DEFINITIONS = {
     label: 'Playwright MCP',
     install: 'Ships as a plugin dependency',
   },
+  'playwright-video': {
+    kind: 'mcp',
+    label: 'Playwright video tools',
+    install: 'Set PLAYWRIGHT_MCP_CAPS=devtools in the settings.json env block, then restart',
+  },
   context7: {
     kind: 'mcp',
     label: 'Context7 MCP',

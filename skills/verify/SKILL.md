@@ -9,6 +9,11 @@ metadata:
         why: phase 4 drives a web UI surface through the real browser, not a mock or a direct API call underneath it
         check: none
         fallback: web UI surfaces cannot be driven directly; ask the user to drive the browser themselves and report which items were not verified by Claude
+      - id: playwright-video
+        hard: false
+        why: web UI runs are recorded end to end with browser_start_video, which needs the Playwright devtools capability
+        check: none
+        fallback: screenshots only, with a Recording missing line at the top of the report
     cli:
       - id: git
         hard: true
@@ -98,6 +103,7 @@ verbatim only because the block is copied byte-for-byte across every skill (see
 | acceptance criteria to verify | context | SOFT | **none — render as `?`** | phase 1 derives the claim from the diff alone and reports any mismatch as a finding |
 | run | skill | SOFT | built-in | phase 3 cold-starts from the target's README/package.json/Makefile instead |
 | Playwright MCP | mcp | SOFT | **none — render as `?`** | web UI surfaces cannot be driven directly; ask the user to drive the browser themselves and report which items were not verified by Claude |
+| Playwright video tools | mcp | SOFT | **none — render as `?`** | screenshots only, with a Recording missing line at the top of the report |
 
 ## Phases
 
@@ -162,7 +168,7 @@ them, not just the first one found.
 (`../../references/local-e2e.md`), and follow it for the rest of this run. Its five rules: (1)
 local running stack always, (2) port and container isolation, never touching another worktree's
 processes, (3) remote data read and write allowed with a cleanup ledger, (4) light-mode desktop
-screenshots for frontend changes, (5) evidence in `${docsRoot}/evidence/`.
+screenshots plus one end-to-end recording for UI changes, (5) evidence in `${docsRoot}/evidence/`.
 
 ```bash
 ls .claude/skills/                    # target repo root
@@ -254,7 +260,13 @@ any, lower-cased) and a short kebab-case summary of the diff's subject. Never ov
 existing evidence directory; on a collision use `-v2`, then `-v3`.
 
 When invoked from `juel:ship-ticket`, write into the evidence directory it passes instead of
-creating one. That directory's `report.md` belongs to ship-ticket: write this run's report to
+creating one.
+
+**Recording (rule 4).** Run on its own with a UI surface, this skill records the whole driven flow
+once: start the recording before the first UI step, stop it after the last, and save it as
+`recording.webm`. When invoked from `juel:ship-ticket`, it does not start or stop its own recording:
+ship-ticket's recording is already running, so drive the item in that same browser session and
+report the elapsed time the item started. That directory's `report.md` belongs to ship-ticket: write this run's report to
 `verify-<NN>-<item-slug>.md` (NN = the checklist item number) and screenshots into the shared
 `screenshots/`, never to `report.md`.
 

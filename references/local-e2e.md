@@ -2,7 +2,7 @@
 
 Read at runtime by `juel:ship-ticket` (Phase 6) and `juel:verify` (Step 3). This file is the
 single source of truth for how an end-to-end run sets up, isolates, touches remote data, captures
-screenshots, and stores evidence. The skills name the five rules; the details live here.
+screenshots and the end-to-end recording, and stores evidence. The skills name the five rules; the details live here.
 
 ## 1. Local, running stack, always
 
@@ -54,15 +54,29 @@ The owner pre-authorizes remote data access for local runs. No need to ask.
 - **The run cannot be reported complete with an open ledger entry.** A failed cleanup is reported
   first and loudly, with the exact leftover identifiers and where they live.
 
-## 4. Screenshots for frontend changes
+## 4. Screenshots and one end-to-end recording for UI changes
 
-- Any diff touching UI (components, styles, templates, client routes) needs a Playwright
-  screenshot of every changed screen or state.
-- Default: light mode (`browser_emulate_media` with `colorScheme: 'light'`), desktop viewport
-  1440x900 (`browser_resize`), full page. Dark mode, mobile, or before/after pairs only when the
+Any diff touching UI (components, styles, templates, client routes) is driven in the real browser
+and produces two kinds of evidence: screenshots of every changed screen or state, and **one**
+continuous recording of the whole UI flow.
+
+- **Browser setup:** light mode (`browser_emulate_media` with `colorScheme: 'light'`), desktop
+  viewport 1440x900 (`browser_resize`). Dark mode, mobile, or before/after pairs only when the
   owner explicitly asks.
-- Save to `screenshots/<NN>-<checklist-item-slug>.png` in the evidence directory, and reference
-  each one from the report next to the checklist item it proves.
+- **One recording per run, not per item.** Start it once, before the first UI checklist item:
+  `browser_start_video` with `size: {width: 1440, height: 900}` and `cursor: true`, then
+  `browser_video_show_actions` so clicks and typing are annotated. Drive every UI item in order
+  in that same browser session. Stop it once, after the last UI item: `browser_stop_video`, then
+  move the `.webm` it reports to `recording.webm` in the evidence directory.
+- **Timestamps:** note the recording's elapsed time when each UI item starts (for example
+  `02:14`) and write it next to that item in the report, so a reviewer can jump to it.
+- **Screenshots:** full page, taken during the recorded flow at each state that proves an item.
+  Save to `screenshots/<NN>-<checklist-item-slug>.png` and reference each from the report next
+  to the item it proves.
+- **Video tools missing** (`browser_start_video` is not available in this session): continue with
+  screenshots only, and put this line at the top of `report.md` and in the run's final message:
+  `Recording missing: Playwright video tools not enabled. Set PLAYWRIGHT_MCP_CAPS=devtools in the
+  settings.json env block and restart.` Never drop the recording silently.
 
 ## 5. Evidence directory
 
@@ -80,6 +94,7 @@ The owner pre-authorizes remote data access for local runs. No need to ask.
     on any remote data used. Written only by the skill that owns the directory.
   - `verify-<NN>-<item-slug>.md`: one per `juel:verify` run inside `juel:ship-ticket`.
   - `screenshots/`: per rule 4.
+  - `recording.webm`: the single end-to-end recording, per rule 4.
   - `cleanup.md`: only when remote writes happened, per rule 3.
   - Captured responses and logs, when an item's evidence is too long to inline in the report.
 - When `juel:verify` runs inside `juel:ship-ticket`, it writes into ship-ticket's evidence

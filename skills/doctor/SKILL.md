@@ -192,6 +192,16 @@ for p in superpowers pr-review-toolkit; do
 done
 find "${cfg}/plugins/cache/claude-plugins-official/superpowers" -maxdepth 3 -type d -iname "brainstorming" 2>/dev/null | head -1
 
+# --- Playwright video tools need the devtools capability (PLAYWRIGHT_MCP_CAPS) ---
+case ",${PLAYWRIGHT_MCP_CAPS:-}," in
+  *devtools*|*tracing*) echo "PLAYWRIGHT_VIDEO=enabled" ;;
+  *) if jq -r '.env.PLAYWRIGHT_MCP_CAPS // empty' "${cfg}/settings.json" 2>/dev/null | grep -qE 'devtools|tracing'; then
+       echo "PLAYWRIGHT_VIDEO=restart-needed"
+     else
+       echo "PLAYWRIGHT_VIDEO=disabled"
+     fi ;;
+esac
+
 # --- the only `claude mcp list` invocation in this whole plugin ---
 time claude mcp list
 ```
@@ -345,6 +355,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `permission-mode-auto` | perm | — | — | yes — depends on the flag this *session* was launched with; no reliable check from inside a running command |
 | `linear` | mcp | `LINEAR_STATE == working` | `LINEAR_STATE` is `auth_needed` or `absent` (see Step 2 — these render with different messages, never the same one) | |
 | `playwright` | mcp | `plugin:playwright:playwright` shows `Connected` | no such line | when the line exists but shows an unexpected status — report the raw text |
+| `playwright-video` | mcp | `PLAYWRIGHT_VIDEO=enabled` | `PLAYWRIGHT_VIDEO=disabled` | `PLAYWRIGHT_VIDEO=restart-needed`: set in settings.json but not yet in this session's environment |
 | `juel:daily-worktrees`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
 | `pr-review-toolkit`, `superpowers` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
 | `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves | it does not | when running under Claude Code — the Claude path still dispatches `codex exec`, so it is required there too; report it in both harnesses |
@@ -395,6 +406,7 @@ Cache holds: <version-a>, <version-b>, ...
 ## MCP servers (from this run's `claude mcp list`)
 linear:     <working|auth_needed|absent> — <the Step 2 message>
 playwright: <present|missing|unverifiable> — <raw status text if unverifiable>
+playwright video: <enabled|disabled|restart-needed> — disabled means verify records nothing; set PLAYWRIGHT_MCP_CAPS=devtools in settings.json env
 
 ## Orca
 binary:   <resolved path|absent>

@@ -9,6 +9,11 @@ metadata:
         why: phase 1 (via juel:start) and phase 7's status update use the resolved Linear connection when one exists
         check: none
         fallback: phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR
+      - id: playwright-video
+        hard: false
+        why: phase 6 records the whole UI verification end to end with browser_start_video, which needs the Playwright devtools capability
+        check: none
+        fallback: phase 6 takes screenshots only and puts a Recording missing line at the top of the report and the checkpoint
     cli:
       - id: codex
         hard: false
@@ -110,6 +115,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR |
+| Playwright video tools | mcp | SOFT | **none — render as `?`** | phase 6 takes screenshots only and puts a Recording missing line at the top of the report and the checkpoint |
 
 ## Phases
 
@@ -388,7 +394,7 @@ After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused
 (`../../references/local-e2e.md`), and follow it for this whole phase. Its five rules: (1) local
 running stack always, (2) port and container isolation, never touching another worktree's
 processes, (3) remote data read and write allowed with a cleanup ledger, (4) light-mode desktop
-screenshots for frontend changes, (5) evidence in `${docsRoot}/evidence/`.
+screenshots plus one end-to-end recording for UI changes, (5) evidence in `${docsRoot}/evidence/`.
 
 **Create this phase's evidence directory now:** write it to
 `${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (same date, ref and slug as the spec
@@ -447,7 +453,13 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
 
    This does not weaken step 1's "an empty checklist is never a pass" rule — it only changes who
    usually satisfies a data-state requirement once the checklist already exists.
-3. **Claude drives the real flow itself, end-to-end, for every checklist item:**
+3. **Claude drives the real flow itself, end-to-end, for every checklist item.** If any item has a
+   UI surface, **Start the end-to-end recording** once, before the first UI item, per rule 4 of
+   `references/local-e2e.md` (`browser_start_video`, 1440x900, `cursor: true`, then
+   `browser_video_show_actions`). Drive the UI items back to back in that one browser session.
+   **Stop the recording** once, after the last UI item (`browser_stop_video`), and save it as
+   `recording.webm` in the evidence directory. Video tools missing: screenshots only, plus the
+   rule 4 `Recording missing` line.
    - **Any item with a UI surface:** invoke `Skill("juel:verify", run_in_background: false)` to drive
      the actual browser flow through Playwright — the real user action, not a mock. The same
      driven session should also observe the resulting backend effect (network request/response, DB
@@ -455,7 +467,8 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
      UI feedback. This is Claude's default for every UI-surfaced item, not a fallback offered only
      when the user is unavailable.
    - **Any item whose diff touches UI:** capture the rule 4 screenshots (light mode, desktop
-     1440x900) of every changed screen or state into the evidence directory's `screenshots/`.
+     1440x900) of every changed screen or state into the evidence directory's `screenshots/`,
+     taken during the recorded flow, and note the item's start time in the recording.
    - **Any item with a backend/API surface and no UI leg:** invoke `Skill("run",
      run_in_background: false)` to launch the app and observe real behavior directly (hit the
      endpoint, check the DB, exercise the background task).
@@ -484,7 +497,8 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    This phase cannot be marked complete with an open ledger entry.
 
 **Checkpoint:** show the full per-item checklist (all PASS), the regression-gate result, the
-cleanup result, and the absolute path of the evidence directory. Ask to proceed to PR.
+cleanup result, the recording's path (or the `Recording missing` line), and the absolute path of
+the evidence directory. Ask to proceed to PR.
 
 ### Phase 7 — Open PR
 
