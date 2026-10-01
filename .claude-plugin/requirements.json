@@ -68,6 +68,11 @@
       "label": "interactive user",
       "install": "Requires an interactive session (AskUserQuestion); unavailable headless"
     },
+    "juel:babysit-pr": {
+      "kind": "skill",
+      "label": "juel:babysit-pr",
+      "install": "Ships with this plugin"
+    },
     "juel:daily-worktrees": {
       "kind": "skill",
       "label": "juel:daily-worktrees",
@@ -375,6 +380,7 @@
       "hard": [
         "claude-plan-executor",
         "clean-tree",
+        "juel:babysit-pr",
         "juel:review-and-execute",
         "juel:start",
         "superpowers",

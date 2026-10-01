@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR. Pauses for confirmation between phases.
+description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases.
 metadata:
   requires:
     mcp:
@@ -22,9 +22,9 @@ metadata:
         fallback: phase 4 executes the plan in-session
       - id: gh
         hard: false
-        why: phase 7 opens the PR
+        why: phase 7 opens the PR; phase 8 needs it to watch the PR
         check: "command -v gh"
-        fallback: phase 7 prints a compare URL instead of opening the PR
+        fallback: phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped
     context:
       - id: worktree-root-cwd
         hard: true
@@ -59,6 +59,9 @@ metadata:
       - id: claude-plan-executor
         hard: true
         why: phase 4 dispatches `codex exec '$claude-plan-executor <plan>'`; without it Codex silently executes something else
+      - id: juel:babysit-pr
+        hard: true
+        why: phase 8 delegates waiting for reviews, remediation, sync and push to it
 ---
 
 # Ship Ticket
@@ -112,8 +115,9 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
 | claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
+| juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
-| gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR |
+| gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR |
 | Playwright video tools | mcp | SOFT | **none — render as `?`** | phase 6 takes screenshots only and puts a Recording missing line at the top of the report and the checkpoint |
 
@@ -128,6 +132,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 5. Review + remediation — juel:review-and-execute
 6. End-to-end verification — exhaustive per-item checklist on an isolated local stack, Claude drives the real flow, evidence saved, full regression gate before PR
 7. Open PR — with QA instructions, update the work-item status
+8. Babysit PR — juel:babysit-pr: wait for reviews, remediate, sync and push until approved
 
 ## Arguments
 
@@ -269,7 +274,8 @@ digraph flow {
     p5 [label="5. Review + remediation\n(juel:review-and-execute)"];
     p6 [label="6. End-to-end verification\n(isolated local stack, per-item checklist,\nevidence + full regression gate)"];
     p7 [label="7. Open PR\n(gh pr create, or push + compare URL if gh is absent)"];
-    p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7;
+    p8 [label="8. Babysit PR\n(juel:babysit-pr: reviews, remediation,\nsync, gates, push until approved)"];
+    p1 -> p2 -> p3 -> p4 -> p5 -> p6 -> p7 -> p8;
 }
 ```
 
@@ -514,6 +520,20 @@ the evidence directory. Ask to proceed to PR.
 
 Trailers: apply the detected convention from "Base branch & repo conventions" above (zero `Co-Authored-By:` history → omit; do not impose a trailer the repo's own commit history doesn't use).
 
+### Phase 8 — Babysit PR
+
+1. If Phase 7 had no `gh` (compare URL only), skip this phase with one line:
+   `Phase 8 skipped: gh unavailable, no PR to watch`.
+2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
+   number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
+   order. Do not re-resolve the toolchain.
+3. There are no per-round confirmations inside this phase. The user is asked only by
+   `juel:receive-review-and-execute` (ambiguous findings), merge conflicts, red gates, and
+   long silence or repeated errors.
+
+**Checkpoint:** babysit-pr's Phase 5 report: rounds handled, final gate result, pushed head,
+and "Ready for you to merge" or why it stopped.
+
 ## Failure modes & recovery
 
 | Situation | Action |
@@ -528,6 +548,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 | An item FAILs in phase 6 while `cleanup.md` has open entries | Clean up first (step 7), then loop back. The re-run starts a fresh `-vN` evidence directory with an empty ledger. |
 | A remote cleanup fails in phase 6 | Report the leftover identifiers first. Do not mark the phase complete or open the PR until the owner decides. |
 | Not in a worktree | Ask user; do not auto-create one. |
+| Phase 8 stops (red gate twice, merge conflict, PR closed) | babysit-pr reports why; fix or decide, then resume with `/juel:babysit-pr <pr>`. Never merge the PR from this skill. |
 
 ## Common mistakes
 
