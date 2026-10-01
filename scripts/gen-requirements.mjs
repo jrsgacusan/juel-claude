@@ -111,6 +111,11 @@ const DEFINITIONS = {
     label: 'Codex CLI',
     install: 'npm i -g @openai/codex',
   },
+  python3: {
+    kind: 'cli',
+    label: 'Python 3',
+    install: 'brew install python, or the python3 from Xcode Command Line Tools',
+  },
   gh: {
     kind: 'cli',
     label: 'GitHub CLI',
@@ -135,6 +140,11 @@ const DEFINITIONS = {
   },
 
   // --- skills ----------------------------------------------------------------
+  orchestration: {
+    kind: 'skill',
+    label: 'Orca orchestration skill',
+    install: 'Ships with the Orca app; `orca skills get orchestration` must print the guide',
+  },
   'pr-review-toolkit': {
     kind: 'skill',
     label: 'pr-review-toolkit',

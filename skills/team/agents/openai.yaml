@@ -1,0 +1,5 @@
+interface:
+  display_name: "Team"
+  short_description: "Plan and supervise an Orca team of Claude and Codex workers"
+policy:
+  allow_implicit_invocation: false
