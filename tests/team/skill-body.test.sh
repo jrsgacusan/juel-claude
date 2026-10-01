@@ -27,5 +27,10 @@ else fail "blind copy rule missing"; fi
 # A missing claude CLI means Codex-only; the alias fallback is only for a failed listing.
 grep -q 'claude not found on PATH' "$SKILL" && pass "missing claude CLI plans Codex-only" || fail "missing claude CLI falls into alias fallback"
 
+# The Skill tool must be able to invoke juel:team when the user asks for it by name.
+if sed -n '/^---$/,/^---$/p' "$SKILL" | grep -q 'disable-model-invocation'; then fail "model invocation disabled"
+else pass "model can invoke the skill"; fi
+sed -n '/^---$/,/^---$/p' "$SKILL" | grep -q 'by name' && pass "description keeps it opt-in by name" || fail "description does not limit triggering to explicit asks"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

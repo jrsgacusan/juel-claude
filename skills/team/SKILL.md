@@ -1,7 +1,6 @@
 ---
 name: team
-description: Use only when the user invokes /juel:team to plan and launch a supervised Orca team of Claude and Codex workers for a goal (research, testing, review, implementation) - discovers the models available right now, picks one per role, shows the roster for approval, then supervises the workers and a blind synthesizer to one result. Triggers "/juel:team".
-disable-model-invocation: true
+description: Use only when the user asks for juel:team or /juel:team by name, or explicitly asks to spawn a supervised Orca team of Claude and Codex workers for a goal (research, testing, review, implementation) - discovers the models available right now, picks one per role, shows the roster for approval, then supervises the workers and a blind synthesizer to one result. Not for a passing mention of agents. Triggers "/juel:team", "use juel:team".
 argument-hint: "<goal> [with N agents] [use <model>] [synthesize with <model>]"
 metadata:
   requires:
