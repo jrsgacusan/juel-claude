@@ -105,8 +105,8 @@ for provider, lister in (("codex", codex_models), ("claude", claude_models)):
         reason = str(e)
     except KeyError as e:
         reason = f"unexpected output shape: missing key {e}"
-    except (ValueError, TypeError) as e:
-        reason = f"unexpected output shape: {e}"
+    except Exception as e:  # any other drift in a debug/undocumented interface; never a traceback
+        reason = f"unexpected output shape: {type(e).__name__}: {e}"
     else:
         continue
     emit({"provider": provider, "unavailable": reason})

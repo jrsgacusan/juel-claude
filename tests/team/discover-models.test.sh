@@ -102,6 +102,16 @@ B="$TMP/empty"; stub "$B" codex 'echo "{\"models\": []}"'; stub "$B" claude "$CL
 check "codex empty list: unavailable no models" \
   'any(l.get("provider") == "codex" and "no models" in l.get("unavailable", "") for l in lines)'
 
+# 10. codex catalog entries are not objects (AttributeError territory): still exit 0, claude still listed
+B="$TMP/strings"; stub "$B" codex 'echo "{\"models\": [\"gpt-x\"]}"'; stub "$B" claude "$CLAUDE_OK"; run "$B" 5
+check "codex string entries: unavailable shape, claude still listed, exit 0" \
+  'rc == 0 and any(l.get("provider") == "codex" and "shape" in l.get("unavailable", "") for l in lines) and any(l.get("provider") == "claude" and "id" in l for l in lines)'
+
+# 11. codex description is not a string
+B="$TMP/baddesc"; stub "$B" codex 'echo "{\"models\": [{\"slug\": \"a\", \"visibility\": \"list\", \"description\": {\"x\": 1}}]}"'; stub "$B" claude "$CLAUDE_OK"; run "$B" 5
+check "codex non-string description: unavailable, exit 0" \
+  'rc == 0 and any(l.get("provider") == "codex" and "unavailable" in l for l in lines)'
+
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -174,9 +174,16 @@ Each stdout line is one JSON object:
   `flags` (`retiring`, `legacy`, `alias`)
 - or a failure: `provider`, `unavailable`
 
-The output is the only source of model ids. If `claude` is unavailable, fall back to the aliases
-`fable`, `opus`, `sonnet`, `haiku` with `efforts` unknown (omit `--effort` for them). If
-`codex` is unavailable, plan Claude-only. State either fallback in the roster.
+The output is the only source of model ids. Per provider:
+
+- `unavailable` says `claude not found on PATH`: no Claude workers can launch; plan Codex-only.
+- any other `claude` failure (timeout, shape, no `control_response`): the CLI exists but its
+  listing broke; fall back to the aliases `fable`, `opus`, `sonnet`, `haiku` with `efforts`
+  unknown (omit `--effort` for them).
+- `codex` unavailable for any reason: plan Claude-only.
+
+State any fallback in the roster. A listed model can still be unusable on this account (no
+credits, no access); Phase 7 catches that at launch.
 
 ## Phase 4: Decompose into roles
 
@@ -278,24 +285,36 @@ from Phase 2 for every command; the sequence is:
    once with the next lower listed level and note it. Any other start failure: report the
    receipt's stage and residual resources, mark that role failed, do not retry blindly.
 5. Print one line per worker with `launch.effective` (agent, model, effort).
-6. Wait with `check --wait --types worker_done,escalation,question`. Process every message in a
+6. **Confirm each worker is actually working.** Read each worker's recent output once (the
+   guide's bounded read command) and again for every worker still unreported at each wait
+   timeout. A worker stuck at a prompt (model switch, usage credits, login, trust dialog) or
+   showing no activity never sends a message on its own: stop it per the guide, tell the user
+   why, and offer the next eligible model in the same tier. Never answer the prompt for it.
+7. Wait with `check --wait --types worker_done,escalation,question`. Process every message in a
    Delivery, answer `question`s, then acknowledge. A timeout is a checkpoint, not a failure.
-7. On each `worker_done`: confirm the report file exists, is non-empty, and has all four
+8. On each `worker_done`: confirm the report file exists, is non-empty, and has all four
    headings. If not, send the worker a follow-up asking for the complete report at that path
    and keep waiting. Once complete, `worker-release` that dispatch.
-8. Continue until **every** worker dispatch has settled. A worker that fails is a gap: record
+   If the release reports `retained`, follow the receipt's recovery action; if the terminal is
+   still open after that, record the worker, the reason and its terminal handle for the final
+   reply.
+9. Continue until **every** worker dispatch has settled. A worker that fails is a gap: record
    it, never fill it in.
 
 ## Phase 8: Synthesize and report
 
-1. Copy each complete report to `<team-dir>/blind/A.md`, `B.md`, ... in a shuffled order. Remove
-   any line that names a model or provider (title lines like "report (Claude, Opus 5.5)").
-   Keep the label-to-report mapping to yourself until the end.
+1. Copy each complete report to `<team-dir>/blind/A.md`, `B.md`, ... in a shuffled order.
+   Redact self-identification only: an author or title line naming the writing model ("report
+   (Claude, Opus 5.5)") and phrases like "as <model>, I ...". Never delete lines because they
+   mention a model or provider as the subject of the research. If anything beyond a header line
+   was redacted, say so in the final reply. Keep the label-to-report mapping to yourself until
+   the end.
 2. `worker-start` the synthesizer task (it became ready when its dependencies completed) with
    its assigned model, supervise it exactly as in Phase 7, validate its four headings, release
    it. With `no synthesizer`, do the same synthesis yourself into `<team-dir>/synthesis.md`.
 3. Reply with: the synthesis path, a 5-line summary, the label-to-worker mapping, the report
-   paths, and any failed or missing role.
+   paths, any failed or missing role, and every worker terminal still open (worker, retain
+   reason, terminal handle) so the user can close it.
 
 ## Common mistakes
 
