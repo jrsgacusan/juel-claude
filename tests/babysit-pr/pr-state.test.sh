@@ -110,6 +110,42 @@ mkdir -p "$TMP/nogh"; ln -s "$PY" "$TMP/nogh/python3"
 PATH="$TMP/nogh:/usr/bin:/bin" /bin/sh "$SCRIPT" 7 > "$TMP/out" 2>/dev/null; echo $? > "$TMP/rc"; echo 0 > "$TMP/calls"
 check "gh missing becomes error" 'rc == 0 and "not found" in d["error"]'
 
+# ---- --wait ----
+fixture wait-approve pr.1.json '{"state":"OPEN","reviewDecision":"","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/9"}'
+fixture wait-approve pr.2.json '{"state":"OPEN","reviewDecision":"REVIEW_REQUIRED","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/9"}'
+fixture wait-approve pr.3.json '{"state":"OPEN","reviewDecision":"APPROVED","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/9"}'
+fixture wait-approve reviews.json ''
+fixture wait-approve inline.json ''
+fixture wait-approve comments.json ''
+run wait-approve 9 --wait --interval 0
+check "wait: polls until APPROVED, empty decision never wakes" 'd["wake"] == "approved" and calls == 3 and d["decision"] == "APPROVED"'
+
+fixture wait-feedback pr.json '{"state":"OPEN","reviewDecision":"","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/10"}'
+fixture wait-feedback reviews.json ''
+fixture wait-feedback inline.json ''
+fixture wait-feedback comments.1.json ''
+fixture wait-feedback comments.json '{"id":77,"user":{"login":"mstr-ezra","type":"User"},"body":"nit","created_at":"2026-10-01T09:00:00Z","html_url":"i77"}'
+run wait-feedback 10 --wait --interval 0
+check "wait: wakes on the first new feedback" 'd["wake"] == "feedback" and calls == 2 and ids == [77]'
+
+fixture wait-closed pr.json '{"state":"MERGED","reviewDecision":"APPROVED","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/11"}'
+fixture wait-closed reviews.json ''
+fixture wait-closed inline.json ''
+fixture wait-closed comments.json '{"id":78,"user":{"login":"mstr-ezra","type":"User"},"body":"late","created_at":"2026-10-01T09:00:00Z","html_url":"i78"}'
+run wait-closed 11 --wait --interval 0
+check "wait: closed/merged wins over feedback" 'd["wake"] == "closed" and calls == 1'
+
+run wait-feedback 10 --wait --interval 0 --silence-hours 24 --quiet-since 2020-01-01T00:00:00Z
+check "wait: silence fires when quiet too long" 'd["wake"] == "silence" and calls == 1 and d["state"] == "OPEN"'
+
+run wait-feedback 10 --wait --interval 0 --max-seconds 0
+check "wait: --max-seconds 0 returns timeout after one poll" 'd["wake"] == "timeout" and calls == 1'
+
+STUB_FAIL=1; export STUB_FAIL
+run wait-feedback 10 --wait --interval 0
+check "wait: three errors in a row wake with errors" 'd["wake"] == "errors" and "exited 1" in d["error"]'
+unset STUB_FAIL
+
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

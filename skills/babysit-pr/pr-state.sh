@@ -4,13 +4,16 @@
 # Feedback = review bodies, inline comments and conversation comments from humans other than
 # the PR author. Bots ([bot] logins or type Bot) are ignored. Failures print {"error": "..."}.
 # Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60).
+# --wait polls every --interval seconds and prints the snapshot plus "wake" when something
+# happens: feedback | approved | closed | errors (3 in a row) | silence | timeout.
 exec python3 - "$@" <<'PY'
 import argparse
 import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timezone
 
 TIMEOUT = float(os.environ.get("BABYSIT_GH_TIMEOUT", "60"))
 
@@ -96,6 +99,41 @@ def snapshot(pr, since, repo):
             "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor}
 
 
+def wake_reason(snap):
+    if snap["state"] in ("CLOSED", "MERGED"):
+        return "closed"
+    if snap["new_feedback"]:
+        return "feedback"
+    if snap["decision"] == "APPROVED":
+        return "approved"
+    return None
+
+
+def wait(a):
+    started = time.monotonic()
+    quiet_since = ts(a.quiet_since) if a.quiet_since else datetime.now(timezone.utc)
+    errors, last_error, last_good = 0, None, None
+    while True:
+        try:
+            snap = snapshot(a.pr, a.since, a.repo)
+        except Exception as e:
+            errors += 1
+            last_error = str(e) if isinstance(e, GhError) else f"unexpected gh output: {type(e).__name__}: {e}"
+            if errors >= 3:
+                return {**(last_good or {}), "error": last_error, "wake": "errors"}
+        else:
+            errors, last_good = 0, snap
+            reason = wake_reason(snap)
+            if reason:
+                return {**snap, "wake": reason}
+            quiet_for = (datetime.now(timezone.utc) - quiet_since).total_seconds()
+            if a.silence_hours and quiet_for >= a.silence_hours * 3600:
+                return {**snap, "wake": "silence"}
+        if a.max_seconds is not None and time.monotonic() - started + a.interval > a.max_seconds:
+            return {**(last_good or {}), "wake": "timeout", **({"error": last_error} if last_good is None else {})}
+        time.sleep(a.interval)
+
+
 def emit(obj):
     print(json.dumps(obj, separators=(",", ":")))
 
@@ -105,14 +143,21 @@ def main(argv):
     p.add_argument("pr")
     p.add_argument("--since")
     p.add_argument("--repo")
+    p.add_argument("--wait", action="store_true")
+    p.add_argument("--interval", type=float, default=600)
+    p.add_argument("--max-seconds", type=float, default=None)
+    p.add_argument("--silence-hours", type=float, default=0)
+    p.add_argument("--quiet-since")
     a = p.parse_args(argv)
+    if a.wait:
+        emit(wait(a))
+        return
     try:
         emit(snapshot(a.pr, a.since, a.repo))
     except GhError as e:
         emit({"error": str(e)})
     except Exception as e:  # output drift from gh; never a traceback
         emit({"error": f"unexpected gh output: {type(e).__name__}: {e}"})
-
 
 main(sys.argv[1:])
 sys.exit(0)
