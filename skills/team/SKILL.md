@@ -94,10 +94,15 @@ If both `codex` and `claude` are missing, the verdict is STOP: a team needs at l
 All satisfied renders as: `Preflight: 6/6 OK (orca, python3, codex, claude, orchestration, Orca runtime)` / `→ PROCEED: all requirements met.`
 
 ```bash
+# No numbered positional parameters anywhere in this file: the skill loader replaces them
+# with words from the user's request. Bare names are looked up on PATH, absolute paths tested.
 resolve_bin() {
-  n=$1; shift
-  p=$(command -v "$n" 2>/dev/null) && { printf '%s' "$p"; return 0; }
-  for c in "$@"; do [ -x "$c" ] && { printf '%s' "$c"; return 0; }; done
+  for c in "$@"; do
+    case $c in
+      /*) [ -x "$c" ] && { printf '%s' "$c"; return 0; } ;;
+      *) p=$(command -v "$c" 2>/dev/null) && { printf '%s' "$p"; return 0; } ;;
+    esac
+  done
   return 1
 }
 # Orca's own resolution order: ORCA_CLI_COMMAND, then orca-dev in a dev checkout
