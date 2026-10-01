@@ -1,0 +1,8 @@
+{
+  "models": [
+    {"slug": "gpt-5.5", "display_name": "GPT-5.5", "description": "Legacy coding model.", "visibility": "list", "priority": 13, "default_reasoning_level": "medium", "supported_reasoning_levels": [{"effort": "low", "description": "x"}, {"effort": "medium", "description": "x"}], "upgrade": {"model": "gpt-6.1-sol", "retirement_at": "2026-10-14T00:00:00Z"}, "base_instructions": "SECRET-BASE-INSTRUCTIONS"},
+    {"slug": "gpt-6-astra", "display_name": "GPT-6-Astra", "description": "Frontier intelligence for the most demanding work.", "visibility": "list", "priority": 2, "default_reasoning_level": "medium", "supported_reasoning_levels": [{"effort": "low", "description": "x"}, {"effort": "ultra", "description": "x"}], "upgrade": null, "base_instructions": "SECRET-BASE-INSTRUCTIONS"},
+    {"slug": "gpt-reserve", "display_name": "GPT-Reserve", "description": "Hidden model.", "visibility": "hide", "priority": 4, "default_reasoning_level": "medium", "supported_reasoning_levels": [], "upgrade": null},
+    {"slug": "gpt-6.1-sol", "display_name": "GPT-6.1-Sol", "description": "Latest workhorse model for coding and everyday work.", "visibility": "list", "priority": 1, "default_reasoning_level": "low", "supported_reasoning_levels": [{"effort": "low", "description": "x"}, {"effort": "high", "description": "x"}], "upgrade": null, "base_instructions": "SECRET-BASE-INSTRUCTIONS"}
+  ]
+}
