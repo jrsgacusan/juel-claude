@@ -172,6 +172,12 @@ const DEFINITIONS = {
     label: 'juel:review-and-execute',
     install: 'Ships with this plugin',
   },
+  'juel:receive-review-and-execute': {
+    kind: 'skill',
+    label: 'juel:receive-review-and-execute',
+    install: 'Ships with this plugin',
+  },
+  'juel:babysit-pr': { kind: 'skill', label: 'juel:babysit-pr', install: 'Ships with this plugin' },
   'juel:daily-worktrees': {
     kind: 'skill',
     label: 'juel:daily-worktrees',

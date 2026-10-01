@@ -73,6 +73,11 @@
       "label": "juel:daily-worktrees",
       "install": "Ships with this plugin"
     },
+    "juel:receive-review-and-execute": {
+      "kind": "skill",
+      "label": "juel:receive-review-and-execute",
+      "install": "Ships with this plugin"
+    },
     "juel:review-and-execute": {
       "kind": "skill",
       "label": "juel:review-and-execute",
@@ -203,6 +208,17 @@
     }
   },
   "skills": {
+    "babysit-pr": {
+      "hard": [
+        "gh",
+        "git",
+        "git-repo",
+        "juel:receive-review-and-execute",
+        "open-pr",
+        "python3"
+      ],
+      "soft": []
+    },
     "cmux-review-pr": {
       "hard": [
         "claude",
