@@ -32,5 +32,10 @@ if sed -n '/^---$/,/^---$/p' "$SKILL" | grep -q 'disable-model-invocation'; then
 else pass "model can invoke the skill"; fi
 sed -n '/^---$/,/^---$/p' "$SKILL" | grep -q 'by name' && pass "description keeps it opt-in by name" || fail "description does not limit triggering to explicit asks"
 
+# Top-tier models (frontier / toughest / most capable) are never proposed unless the user names one.
+grep -q 'Never propose a top-tier model' "$SKILL" && pass "top tier is opt-in only" || fail "top-tier opt-in rule missing"
+if grep -qE 'judge, ambiguous design → top|claude-fable|gpt-6-astra' "$SKILL"; then fail "skill still routes or shows a top-tier model by default"
+else pass "no default route or example to a top-tier model"; fi
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

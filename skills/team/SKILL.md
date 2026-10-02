@@ -229,7 +229,10 @@ typed and note "not in catalog" in the roster. A named `retiring` model: keep it
 
 **Rubric for everything else:**
 
-1. Eligible: no `legacy` and no `retiring` flag.
+1. Eligible: no `legacy` and no `retiring` flag, and not top tier.
+   **Never propose a top-tier model** (frontier / toughest / most capable) for any role unless
+   the user names it or explicitly asks for the top tier. They cost several times the mid tier
+   and an account may lack credits for them.
 2. Tier from the `description`, case-insensitive keywords:
    - top: frontier, toughest, hardest, most demanding, most capable
    - mid: workhorse, complex, everyday
@@ -239,8 +242,9 @@ typed and note "not in catalog" in the roster. A named `retiring` model: keep it
    its listing order). Prefer a Claude `alias` over a pinned id of the same model, and show
    `resolves_to` so the user sees what the alias means today. Never read priority as price or
    speed.
-4. Role to tier: tester, mechanical sweep, extraction → light; researcher, debugger,
-   implementer → mid; synthesizer, judge, ambiguous design → top.
+4. Role to tier: tester, mechanical sweep, extraction → light; every other role (researcher,
+   debugger, implementer, synthesizer, judge) → mid. A user who asks for "the best" or "top
+   tier" for a role gets the top tier for that role only.
 5. Parallel peers alternate providers unless the user pinned one.
 6. The synthesizer runs on the minority provider among the workers (tie: the provider not used
    by the first worker).
@@ -259,7 +263,7 @@ One table, then stop:
 |---|------|-------|-------|--------|-------|--------|
 | 1 | researcher | codex | gpt-6.1-sol (GPT-6.1-Sol) | high | primary sources | reports/researcher-1.md |
 | 2 | researcher | claude | opus (Opus 5.5) | high | failure cases | reports/researcher-2.md |
-| 3 | synthesizer | claude | claude-fable-5-1 (Fable 5.1) | high | blind merge | synthesis.md |
+| 3 | synthesizer | claude | opus (Opus 5.5) | high | blind merge | synthesis.md |
 
 (Example shape only; the values always come from Phases 3 to 5.)
 
