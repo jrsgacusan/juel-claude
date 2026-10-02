@@ -176,7 +176,13 @@ Act on the printed object's `wake`:
    quotes each item and answers it under the quote: `gh pr comment <pr> --body-file <tmpfile>`.
    Write bodies to temp files; never inline a HEREDOC into the command.
 6. `gh pr edit <pr> --add-reviewer <reviewers joined by ,>` using this round's `reviewers`.
-7. Cursor = this round's `cursor`. Quiet-since = now. Back to Phase 2.
+   Skip this step when the round's `decision` is `APPROVED`: the reviewer already approved and
+   only asked for follow-up changes, so the fixes, push and replies are enough. Say "approved
+   PR: review not re-requested" in the round's evidence line.
+7. Cursor = this round's `cursor`. Quiet-since = now. Back to Phase 2. On an approved PR the
+   next wait wakes with `approved` unless new feedback arrived, which leads to Phase 4. If
+   branch protection dismissed the approval on push, `decision` is no longer `APPROVED` and
+   the wait continues as normal.
 
 ## Phase 4: Final sync and push
 

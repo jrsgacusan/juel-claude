@@ -16,5 +16,8 @@ grep -q 'in_reply_to' "$SKILL" && pass "replies go to the thread root" || fail "
 grep -q 'wake' "$SKILL" && pass "uses pr-state wake values" || fail "wake handling missing"
 grep -q 'new feedback arrived while' "$SKILL" && pass "post-push re-check present" || fail "post-push re-check missing"
 
+# An approval with change requests gets fixes, a push and replies, but no new review request.
+grep -q 'Skip this step when the round.s `decision` is `APPROVED`' "$SKILL" && pass "no re-request on an approved PR" || fail "re-request is not skipped for an approved PR"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
