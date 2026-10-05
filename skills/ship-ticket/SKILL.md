@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases.
+description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as a fleet worker under juel:fleet-ship-tickets, escalating real decisions and opening a draft PR.
 metadata:
   requires:
     mcp:
@@ -140,8 +140,12 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 |----------|---------|-------------|
 | `[ticket-id]` | auto-detect from worktree | Linear ticket id, e.g. `SAVI-1162` |
 | `[base-branch]` | auto-detected — see "Base branch & repo conventions" below | Branch to diff/PR against |
+| `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
+| `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
+| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight). Inside it, outward actions are held, not performed. See "Unattended mode" |
 
-Usage: `/juel:ship-ticket` or `/juel:ship-ticket SAVI-1162`
+Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a fleet worker,
+`/juel:ship-ticket --unattended --brief docs/superpowers/specs/2026-10-06-savi-1162-brief.md --quiet-hours 22:00-07:00@Asia/Manila`
 
 ## Base branch & repo conventions
 
@@ -234,7 +238,7 @@ Tier B's existence gate above, never in place of it — the head binary resolvin
 sufficient; `npm install`+`npm` on `PATH` says nothing about whether `scripts.test` exists.
 
 ```sh
-head_bin=$(printf '%s' "$cmd" | awk '{print $1}')
+head_bin=${cmd%% *}   # first word; no numbered positional parameters in a skill body
 case "$head_bin" in
   ./*) [ -x "$head_bin" ] || reject ;;
   *)   command -v "$head_bin" >/dev/null 2>&1 || reject ;;
@@ -262,6 +266,62 @@ phase resolving it and the rest reusing that answer).
 
 **Pause for explicit user confirmation between every phase.** Never chain phases automatically. After each phase, summarize what was done and ask: "Proceed to phase N+1: <name>?"
 
+The single exception is `--unattended` (next section), which replaces each question with a one-line
+log entry. Without that flag, every rule in this section applies unchanged.
+
+## Unattended mode
+
+`--unattended` is how `juel:fleet-ship-tickets` runs this skill as a worker on the fleet, where no
+human answers checkpoints. The human already approved the scope as a brief, and keeps the merge.
+`--unattended` without `--brief` is refused: print `ESCALATION item=unknown phase=0
+reason=no-brief needs=an approved brief` and stop.
+
+**Item name.** `item` below is the brief's `item.ref`, or `item.slug` when the ref is null. Never a
+literal `null` or an empty string.
+
+**Report lines.** The driver parses single lines by prefix, so print each exactly, on its own line:
+
+| When | Line |
+|---|---|
+| very first output, before the preflight block | `ACK <item> <worktree-path>` |
+| start of each phase | `PHASE <n> <item>` |
+| an outward action held | `HELD item=<item> action=<what>` |
+| PR opened | `PR item=<item> url=<url> draft` |
+| a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
+| finished | `DONE item=<item> pr=<url>` |
+
+**Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
+run continues. The task list and rule 3's one-line evidence still apply.
+
+**Escalations are a fixed list.** On any of these, print the `ESCALATION` line and end the run.
+Nothing else stops an unattended run, and nothing on this list is ever worked around:
+
+1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
+2. `codex-failed` — Codex fails in phase 4.
+3. `verification-failed` — a phase 6 item is still FAIL after one loop back through phase 5.
+4. `gate-red` — the regression gate is red twice.
+5. `merge-conflict` — a merge conflict with the base branch.
+6. `needs-human-input` — phase 6 needs a secret, a paid service or a real account it cannot self-serve.
+7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
+
+An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
+
+**Quiet hours.** With `--quiet-hours`, check the window at the moment of each outward action, not
+once at the start — a run that starts before the window and acts inside it must still hold:
+
+```sh
+now=$(TZ="<tz>" date +%H:%M)
+# inside when start <= end: start <= now < end; when the window crosses midnight: now >= start || now < end
+```
+
+Inside the window, outward actions become `HELD` lines: the phase 7 status write, and anything that
+notifies a person. Pushing commits and opening a **draft** PR are not outward in this sense and
+proceed.
+
+**Status writes without a connector.** When the resolved provider supports `update_status` but this
+host cannot reach it (the fleet VM may have no Linear or Jira connector), print a `HELD` line
+instead of failing. The human's local session flushes it.
+
 ## Workflow
 
 ```dot
@@ -280,6 +340,17 @@ digraph flow {
 ```
 
 ### Phase 1 — Start
+
+**With `--brief`:** do not invoke `juel:start`. The brief's work item is the requirement source, read
+instead of calling the provider's `fetch` — the host may not have the provider's connector, and the
+branch name would make `juel:start` detect the ref and try. Read the brief, summarize the work item
+the way `juel:start` Step 3 does, then invoke `Skill("superpowers:brainstorming")` with this
+contract: "The approved brief below is a fixed contract. Its Approach and Scope are decided. Work out
+the implementation inside them; do not reopen scope and do not ask for approval. If the work cannot
+be done inside the brief, stop and say so (brief-violation). Your terminal state is handing the
+approach back to juel:ship-ticket; do not write a spec or invoke writing-plans." A
+brief-violation answer becomes the `brief-violation` escalation under `--unattended`, and a question
+to the user otherwise. Without `--brief`, this phase is unchanged:
 
 Invoke `Skill("juel:start")`. It detects the ticket id from the worktree (`basename $(pwd)`), fetches the Linear issue, summarizes requirements, and runs `superpowers:brainstorming`.
 
@@ -453,7 +524,9 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    test factory, or fixture) — construct it directly: via the repo's own seed tooling, or a direct
    insert/API call against the `commands.run` stack (from Phase 4). Do this before asking the user.
 
-   Then **ask the user only what Claude genuinely cannot self-serve:** "Do you need anything from
+   Under `--unattended` there is nobody to ask: anything Claude cannot self-serve is the
+   `needs-human-input` escalation, and the item is never marked PASS. Otherwise,
+   **ask the user only what Claude genuinely cannot self-serve:** "Do you need anything from
    me (an external paid service, a real org membership, a secret, or anything else I can't
    construct myself)?" Wait for their answer before driving anything that needs it.
 
@@ -513,9 +586,9 @@ the evidence directory. Ask to proceed to PR.
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
    - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist).
 3. Open the PR, or degrade if `gh` is unavailable:
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC.
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --title "<title>" --body-file <tmp>`, then print the `PR` line. Marking it ready is the human's call.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
-4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3. For Linear specifically: resolve the active prefix — accept either `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then call `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)` — `save_issue` is the sole create-or-update verb; no other write verb exists for this. **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.**
+4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3. For Linear specifically: resolve the active prefix — accept either `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then call `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)` — `save_issue` is the sole create-or-update verb; no other write verb exists for this. **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.** Under `--quiet-hours` inside the window, or when the provider has `update_status` but this host cannot reach it, print `HELD item=<item> action=set status in_review via <source>` instead of writing.
 5. Return the PR URL — or, if `gh` was unavailable, the compare URL — to the user.
 
 Trailers: apply the detected convention from "Base branch & repo conventions" above (zero `Co-Authored-By:` history → omit; do not impose a trailer the repo's own commit history doesn't use).
@@ -524,6 +597,9 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 
 1. If Phase 7 had no `gh` (compare URL only), skip this phase with one line:
    `Phase 8 skipped: gh unavailable, no PR to watch`.
+   Under `--unattended`, skip it too: the PR is a draft that nobody reviews until the human marks it
+   ready. Print `HELD item=<item> action=mark PR <n> ready, then /juel:babysit-pr <n>`, then the
+   `DONE` line, and end the run.
 2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
    number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
    order. Do not re-resolve the toolchain.
@@ -548,6 +624,8 @@ and "Ready for you to merge" or why it stopped.
 | An item FAILs in phase 6 while `cleanup.md` has open entries | Clean up first (step 7), then loop back. The re-run starts a fresh `-vN` evidence directory with an empty ledger. |
 | A remote cleanup fails in phase 6 | Report the leftover identifiers first. Do not mark the phase complete or open the PR until the owner decides. |
 | Not in a worktree | Ask user; do not auto-create one. |
+| `--unattended` hits anything on the escalation list | Print the `ESCALATION` line and end the run. Never work around it, never mark an unverifiable item PASS. |
+| `--unattended` without `--brief` | Refuse with the `no-brief` escalation; never run unattended without an approved brief. |
 | Phase 8 stops (red gate twice, merge conflict, PR closed) | babysit-pr reports why; fix or decide, then resume with `/juel:babysit-pr <pr>`. Never merge the PR from this skill. |
 
 ## Common mistakes
