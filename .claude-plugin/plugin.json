@@ -13,7 +13,8 @@
     "linear",
     "code-review",
     "worktrees",
-    "cmux"
+    "cmux",
+    "fleet"
   ],
   "dependencies": [
     "superpowers@claude-plugins-official",
