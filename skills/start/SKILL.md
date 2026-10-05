@@ -87,7 +87,8 @@ name first, then fall back to the current branch name:
 DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
 
 _ref_from_segment() {
-  seg=$1
+  # No numbered positional parameters: the skill loader rewrites them.
+  seg=; for a in "$@"; do seg=$a; break; done
   case "$seg" in
     *-*) : ;;
     *) return 1 ;;
@@ -124,7 +125,8 @@ _ref_from_segment() {
 }
 
 detect_ref() {
-  str=$1; pat=${2:-}
+  str=; pat=; n=0
+  for a in "$@"; do n=$((n + 1)); if [ "$n" -eq 1 ]; then str=$a; else pat=$a; fi; done
   result=$(printf '%s\n' "$str" | tr '/' '\n' | while IFS= read -r seg; do
     if ref=$(_ref_from_segment "$seg") && [ -n "$ref" ]; then
       if [ -n "$pat" ]; then
@@ -160,35 +162,33 @@ Never block.
 ### Step 2: Fetch the Work Item
 
 If a ref was detected, or the user picked "Pick from my open items" / "Point me at a requirements
-file" in Step 1, fetch it through the work-source abstraction — never a hardcoded Linear call.
+file" in Step 1, fetch it through the project's work source — never a hardcoded Linear call.
 
-For a tracker ref (e.g. `SAVI-855`), resolve the Linear MCP prefix first. **Both prefixes are
-real, and the active one depends on which Linear connector the user authenticated** — accept
-either `mcp__linear__` (the plugin dependency) or `mcp__claude_ai_Linear__` (the claude.ai
-connector). Use whichever prefix exposes a *domain* tool — anything other than
-`authenticate`/`complete_authentication`, since the plugin connector can be installed but not yet
-authorized, which is not the same as usable:
+**Resolve the source first**, once, stopping at the first hit: an explicit source the user named →
+`.claude/workflow.local.json` / `.claude/workflow.json` `tracker.type` → a `## Work Source` block in
+CLAUDE.md or AGENTS.md (`- type:`) → the legacy `## Linear Worktrees Config` block (read whenever no
+`tracker.type` resolved, even if `workflow.json` exists for other keys) → the ref's shape when it is
+unambiguous (`#412` is GitHub) → the single connected tracker (Linear MCP, Jira/Atlassian MCP, or
+`gh` with a GitHub remote) → ask once. A key like `PROJ-12` is Linear-shaped **and** Jira-shaped, so
+it never picks the provider by itself.
 
-```
-fetch(ref) → <LINEAR_PREFIX>get_issue(id: ref)
-```
-
-The verb is **`get_issue`** — not `fetch_issue`, not `get_ticket`.
-
-If neither prefix exposes a domain tool, **STOP**: "Linear MCP is not connected. Enable the
-connector, restart this session (connectors bind at startup), then re-run." Do not retry. Do not
-fall back to `gh` or the web.
+| Source | `fetch(ref)` |
+|---|---|
+| `linear` | resolve `LINEAR_PREFIX`: `mcp__linear__` (the plugin dependency) or `mcp__claude_ai_Linear__` (the claude.ai connector), whichever exposes a *domain* tool (anything other than `authenticate`/`complete_authentication`; an installed but unauthorized connector is not usable). Then `<LINEAR_PREFIX>get_issue(id: ref)` — the verb is **`get_issue`**, not `fetch_issue` or `get_ticket`. Neither prefix has a domain tool → **STOP**: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." Do not retry, and do not fall back to `gh` or the web |
+| `jira` | the connected Jira/Atlassian MCP's get-issue tool for the key. No Jira MCP connected → STOP with the same connect-and-restart message, naming Jira |
+| `github` | `gh issue view <n> --json number,title,body,url,labels` for `#<n>` (or `issue-<n>` in a branch) |
+| `file` | read the spec file directly |
 
 If a spec file was pointed at, or requirements were pasted inline (Step 1 auto-promotes inline
 text to a spec file, so this and later steps read one consistent source), read that file directly
-instead of calling `get_issue`.
+whatever the tracker is.
 
 If "No ticket — just brainstorm with me" was chosen, skip this step entirely — Step 3 works from
 the conversation itself.
 
 ### Step 3: Analyze Requirements
 
-Read the work item's description — from the fetched Linear issue, the spec file, or the inline
+Read the work item's description — from the fetched issue, the spec file, or the inline
 conversation — and extract:
 - **Type**: Feature, Enhancement, Bug fix, etc.
 - **Context**: Why this work is needed
@@ -211,4 +211,4 @@ Invoke `superpowers:brainstorming` to explore implementation approach before wri
 | Work item not found in `<source>` | Report error, ask user to verify |
 | Work item has no description | Warn user, proceed with title only |
 | Provider unavailable | Fall back per config, warn once |
-| Linear tool unavailable | STOP. "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." Do not retry; do not fall back to `gh` or the web. |
+| Linear (or Jira) is the resolved source and its MCP is unavailable | STOP. "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." Do not retry; do not fall back to `gh` or the web. |

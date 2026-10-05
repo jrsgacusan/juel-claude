@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a Linear ticket end-to-end in one go - fetches ticket, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as a fleet worker under juel:fleet-ship-tickets, escalating real decisions and opening a draft PR.
+description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as a fleet worker under juel:fleet-ship-tickets, escalating real decisions and opening a draft PR.
 metadata:
   requires:
     mcp:
@@ -138,7 +138,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `[ticket-id]` | auto-detect from worktree | Linear ticket id, e.g. `SAVI-1162` |
+| `[ticket-id]` | auto-detect from worktree | Work item ref in the project's tracker, e.g. `SAVI-1162`, `PROJ-12` or `#412` |
 | `[base-branch]` | auto-detected — see "Base branch & repo conventions" below | Branch to diff/PR against |
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
@@ -602,7 +602,16 @@ the evidence directory. Ask to proceed to PR.
 3. Open the PR, or degrade if `gh` is unavailable:
    - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. Marking it ready is the human's call.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
-4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3. For Linear specifically: resolve the active prefix — accept either `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then call `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)` — `save_issue` is the sole create-or-update verb; no other write verb exists for this. **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.** Under `--quiet-hours` inside the window, or when the provider has `update_status` but this host cannot reach it, print `HELD item=<item> action=set status in_review via <source>` instead of writing.
+4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
+
+   | Source | `update_status(in_review)` |
+   |---|---|
+   | `linear` | resolve the active prefix — `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)`; `save_issue` is the sole create-or-update verb |
+   | `jira` | the transition named by `config.tracker.statusMap.in_review`, through the connected Jira/Atlassian MCP's transition tool; no `statusMap` → treat as no `update_status` |
+   | `github` | `gh label create status:in-review --force`, then `gh issue edit <n> --add-label status:in-review`, adding `--remove-label status:in-progress` only when the issue has that label |
+   | `file` | rewrite the spec file's status marker to `in_review` |
+
+   **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.** Under `--quiet-hours` inside the window, or when the provider has `update_status` but this host cannot reach it, print `HELD item=<item> action=set status in_review via <source>` instead of writing.
 5. Return the PR URL — or, if `gh` was unavailable, the compare URL — to the user.
 
 Trailers: apply the detected convention from "Base branch & repo conventions" above (zero `Co-Authored-By:` history → omit; do not impose a trailer the repo's own commit history doesn't use).

@@ -120,16 +120,16 @@ on you:
 | `so-what` | Answer "so what?" for a PR, branch, or session with one plain, copy-pasteable sentence about the outcome for users. |
 | `team` | Plan and launch a supervised Orca team of Claude and Codex workers for a goal: discovers the models available right now, picks one per role, shows the roster for approval, then collects every report and synthesizes them blind. Starts only when asked for by name. |
 | `create-ticket` | Create a ticket in whatever tracker the project uses (Linear, Jira, GitHub Issues or a spec file, resolved from `.claude/workflow.json` or a `## Work Source` block in CLAUDE.md/AGENTS.md) from a bug report, task, or a TODO discovered while reading code. Scopes the request through `superpowers:brainstorming` first, so the acceptance criteria are unambiguous and grounded in the real codebase before anything is drafted. |
-| `daily-worktrees` | Start the day by listing Linear tickets assigned to you and setting up a git worktree per ticket for parallel work. |
+| `daily-worktrees` | Start the day by listing the work items assigned to you (Linear, Jira, GitHub Issues or a spec directory, resolved from the project) and setting up a git worktree per item for parallel work. |
 | `compact-context` | Snapshot the current conversation into a compaction-style summary under `docs/.superpowers/context/`, so context survives a `/compact` or a fresh session. |
-| `cmux-ship-tickets` | Daily kickoff in CMUX: fetch Linear todos, create worktrees, spawn one CMUX workspace per ticket, and auto-launch the resolved agent running the ticket skill in each. |
+| `cmux-ship-tickets` | Daily kickoff in CMUX: fetch your open work items, create worktrees, spawn one CMUX workspace per ticket, and auto-launch the resolved agent running the ticket skill in each. |
 | `cmux-review-pr` | Workspace plumbing for a PR review: worktree, agent-aware session naming, linked work-item ref, then auto-launch the resolved agent running the review skill inside an isolated CMUX workspace. |
 | `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
 | `orca-ship-tickets` | Ship several work items in parallel through Orca: one Orca worktree per item, agent already running `/juel:ship-ticket`. Fire and forget. |
 | `fleet-ship-tickets` | Ship several work items around the clock on the Sphere fleet. You approve one brief per item locally; a fleet driver chat then runs each through `/juel:ship-ticket --unattended` in its own fleet worktree, with a ledger, a capacity gate and quiet hours, and stops at a draft PR. `status` reads the ledger and flushes held actions. |
 | `orca-review-pr` | Review a PR in its own Orca worktree, checked out on the real PR head branch, agent already running `/juel:review-pr`. |
 
-16 skills.
+19 skills.
 
 ### Orca flow
 

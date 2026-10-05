@@ -32,5 +32,9 @@ grep -q 'Clean up before escalating' "$SKILL" && pass "cleanup before escalation
 grep -q 'gh pr create --draft --base <baseBranch>' "$SKILL" && pass "draft PR uses the brief base" || fail "draft PR base"
 grep -q 'the `--brief`.s `baseBranch` → explicit argument' "$SKILL" && pass "brief base heads the chain" || fail "brief base chain"
 grep -q 'with no `gh`, there is no PR yet' "$SKILL" && pass "no-gh unattended path" || fail "no-gh unattended path"
+for p in linear jira github file; do
+  grep -q "^   | \`$p\` |" "$SKILL" && pass "phase 7 status row $p" || fail "phase 7 status row $p"
+done
+grep -q 'ship a Linear ticket' "$SKILL" && fail "description is source-neutral" || pass "description is source-neutral"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
