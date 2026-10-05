@@ -1,21 +1,25 @@
 ---
-name: create-linear-ticket
-description: Use when user asks to create a Linear ticket, file a bug, track a task, or when discovering issues/TODOs in code that need a Linear issue. Scopes the request through superpowers:brainstorming first, so the requirements and acceptance criteria are unambiguous and grounded in the actual codebase before the ticket is drafted. Linear-specific — for other sources, resolve the work item via the work-source reference.
+name: create-ticket
+description: Use when the user asks to create a ticket, issue or work item, file a bug, track a task, or when discovering issues/TODOs in code that need one. The tracker comes from the project (.claude/workflow.json `tracker`, a `## Work Source` block in CLAUDE.md/AGENTS.md, or auto-detect) - Linear, Jira, GitHub Issues or a spec file. Scopes the request through superpowers:brainstorming first, so the requirements and acceptance criteria are unambiguous and grounded in the actual codebase before the ticket is drafted, and always previews before creating.
 metadata:
   requires:
     mcp:
       - id: linear
-        hard: true
-        why: creates the ticket directly via Linear's save_issue (the sole create-or-update verb); this skill is Linear-specific by design
+        hard: false
+        why: creates the item via Linear's save_issue when Linear resolves as the project's work source
         check: none
+        fallback: the project's other configured source is used; if Linear is the configured source and its MCP is not connected, Step 0 stops with the connect instructions
     skills:
       - id: superpowers:brainstorming
         hard: true
         why: phase 1 scopes the request into unambiguous requirements and acceptance criteria before anything is drafted
     context:
+      - id: work-source-create-capable
+        hard: true
+        why: Step 0 resolves the project's work source and requires its create capability
       - id: interactive-user
         hard: true
-        why: phase 3 project selection is mandatory and uses AskUserQuestion
+        why: Step 0's one-time source question, phase 3 scope selection and phase 7 preview use AskUserQuestion
       - id: git-repo
         hard: false
         why: phase 5 scans the codebase for bug/refactor tickets
@@ -23,14 +27,15 @@ metadata:
         fallback: phase 5 codebase scan is SKIPPED
 ---
 
-# Create Linear Ticket
+# Create Ticket
 
 ## Overview
 
-Creates Linear tickets from conversational input or code context. Scopes the request into
-unambiguous requirements before drafting anything, and always previews before submitting.
+Creates a work item in whatever tracker the project uses, from conversational input or code
+context. Scopes the request into unambiguous requirements before drafting anything, and always
+previews before submitting. The skill never decides the tracker: the project does.
 
-**Announce at start:** "I'm using juel:create-linear-ticket to draft and create the ticket."
+**Announce at start:** "I'm using juel:create-ticket to draft and create the ticket."
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -67,23 +72,25 @@ unambiguous requirements before drafting anything, and always previews before su
 
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
-| Linear MCP | mcp | HARD | **none — render as `?`** | proceed; phase 3 fails loudly. This skill is Linear-specific by design |
+| Linear MCP | mcp | SOFT | **none — render as `?`** | the project's other configured source is used; if Linear is the configured source and its MCP is not connected, Step 0 stops with the connect instructions |
 | superpowers:brainstorming | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
-| AskUserQuestion | context | HARD | always available interactively | STOP → project selection is mandatory |
+| work source with `create` | context | HARD | Step 0 resolution | STOP → configure `tracker` in `.claude/workflow.json` or a `## Work Source` block in CLAUDE.md/AGENTS.md |
+| AskUserQuestion | context | HARD | always available interactively | STOP → scope selection and preview are mandatory |
 | git repo | context | SOFT | `git rev-parse --show-toplevel` | phase 5 codebase scan is SKIPPED |
 
 ## Phases
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
+0. Resolve the work source (MANDATORY — never skipped)
 1. Scope the request (MANDATORY — never skipped): unambiguous requirements and acceptance criteria
 2. Gather input — parent, blockers, assignee, deadline, cycle, links
-3. Project selection (MANDATORY — never skipped)
-4. Fetch team data — labels and statuses
+3. Scope selection — project, repo or directory (MANDATORY where the source has a project concept)
+4. Fetch source metadata — labels, statuses, issue types
 5. Codebase scan (conditional)
 6. Draft the ticket — title, description, defaults, labels
 7. Preview (MANDATORY — never skipped): Yes / Edit / Cancel
-8. Create and report the ticket identifier
+8. Create and report the ticket identifier and URL
 
 Phase 5 is the canonical rule-2 case: it is never silently dropped. Not in a git repo, or the ticket type doesn't warrant it (feature request, design task, research spike — see Step 5 below), it is still announced: mark its task `completed` via `TaskUpdate` with the one-line evidence stating the skip reason. For a feature request that evidence reads:
 `SKIPPED: feature request, code context would prescribe implementation`
@@ -92,17 +99,35 @@ Phase 5 is the canonical rule-2 case: it is never silently dropped. Not in a git
 
 ## Workflow
 
-**Resolve the Linear MCP prefix first — every call below is written `<LINEAR_PREFIX>tool_name`.**
-Both `mcp__linear__` (the plugin dependency) and `mcp__claude_ai_Linear__` (the claude.ai connector)
-are real; the active one depends on which connector the user authenticated. Use whichever prefix
-exposes a *domain* tool — anything other than `authenticate`/`complete_authentication`, since the
-plugin connector can be installed but not yet authorized, which is not the same as usable. If
-neither prefix exposes a domain tool, **STOP**: "Linear MCP is not connected. Enable the connector,
-restart this session (connectors bind at startup), then re-run." Do not retry.
+### Step 0: Resolve the Work Source (MANDATORY)
+
+The project decides where the ticket goes. Resolve the provider once, stop at the first hit:
+
+1. An explicit source in the user's request ("file this as a GitHub issue").
+2. `.claude/workflow.local.json`, then `.claude/workflow.json`: `tracker.type` (and `tracker.project`).
+3. A `## Work Source` block in the repo's CLAUDE.md or AGENTS.md (`- type:` / `- project:`), then
+   the legacy `## Linear Worktrees Config` block (`linear-project:` implies `linear`).
+4. Auto-detect: a connected Linear MCP (a domain tool under `mcp__linear__` or
+   `mcp__claude_ai_Linear__`), a connected Jira/Atlassian MCP, or a GitHub remote with `gh`
+   authenticated. Exactly one candidate → use it. More than one → step 5.
+5. Ask once with AskUserQuestion, then offer to persist the answer as `tracker` in
+   `.claude/workflow.json`. Never write config without a yes.
+
+The resolved source must be able to `create`:
+
+| Source | `create` | Notes |
+|---|---|---|
+| `linear` | Yes | resolve `LINEAR_PREFIX` now: `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (anything but `authenticate`/`complete_authentication`); every Linear call below is written `<LINEAR_PREFIX>tool_name`. Neither does → STOP: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." |
+| `jira` | Yes | needs a connected Jira/Atlassian MCP |
+| `github` | Yes | needs `gh auth status` to pass and a GitHub remote |
+| `file` | Yes | writes into the spec directory (`config.docsRoot`'s `specs/`, or the configured directory) |
+| `inline` | No | `inline` cannot create: STOP with "This project's work source is inline text, which has nowhere to store a ticket. Configure `tracker` in .claude/workflow.json or a `## Work Source` block, then re-run." |
+
+State the result in one line before Step 1, e.g. `Work source: github (from CLAUDE.md Work Source block)`.
 
 ### Step 1: Scope the Request (MANDATORY)
 
-A ticket is only as good as its acceptance criteria, and a request as typed is almost never
+A work item is only as good as its acceptance criteria, and a request as typed is almost never
 specific enough to write them from. This phase turns the request into a requirement set the
 implementer cannot misread. It runs for **every** ticket — a one-line TODO capture that is already
 complete passes through in a single exchange, but it is never skipped on the judgment that the
@@ -113,14 +138,14 @@ first three bound what it produces, and the fourth is what stops it building the
 only trying to file:
 
 ```
-Scope this request into a Linear ticket's requirements. Contract:
+Scope this request into a work item's requirements. Contract:
 - Classify this as BOUNDED. We are scoping one work item, not designing a subsystem.
 - The deliverable is a confirmed Context / Requirements / Acceptance Criteria set for a
   ticket. Not a design, not an implementation approach, not a file-by-file plan.
 - Read the codebase to ground every requirement in what is actually there: confirm the
   components involved exist, the described behavior is real, and each acceptance criterion
   is checkable. Those findings shape the criteria; they do NOT go into the ticket body.
-- Your terminal state is handing that requirement set back to juel:create-linear-ticket.
+- Your terminal state is handing that requirement set back to juel:create-ticket.
   Do NOT implement, do NOT write a spec file, do NOT invoke writing-plans. The human
   approval you are seeking is the user confirming this scope is right for a ticket.
 
@@ -157,27 +182,36 @@ simplification.
 
 ### Step 2: Gather Input
 
-Extract from input if mentioned:
-- **Parent issue:** "sub-task of ENG-123" → resolve via `<LINEAR_PREFIX>get_issue`, set `parentId`
-- **Blocking relationships:** "blocked by ENG-456" → set `blockedBy`; "blocks ENG-789" → set `blocks`
-- **Assignee:** resolve via `<LINEAR_PREFIX>list_users`
-- **Deadline:** "by next Friday", "before the release" → compute due date
-- **Cycle:** "for this sprint", "current cycle" → fetch current cycle via `<LINEAR_PREFIX>list_cycles`
-- **URLs:** attach as `links`
+Extract from input if mentioned, keeping only the fields the resolved source supports:
 
-### Step 3: Project Selection (MANDATORY)
+- **Parent issue:** "sub-task of ENG-123". Linear: resolve via `<LINEAR_PREFIX>get_issue`, set `parentId`. Jira: parent key. GitHub and file: add a "Parent: <ref or link>" line to Context.
+- **Blocking relationships:** "blocked by ENG-456" / "blocks ENG-789". Linear: `blockedBy` / `blocks`. Others: a "Blocked by" / "Blocks" line in Context.
+- **Assignee:** Linear: resolve via `<LINEAR_PREFIX>list_users`. Jira: the MCP's user lookup. GitHub: a login for `--assignee`. File: an `assignee:` frontmatter field.
+- **Deadline:** "by next Friday", "before the release" → compute a due date (Linear, Jira, file frontmatter; GitHub has none, so add it to Context).
+- **Cycle:** "for this sprint". Linear only: fetch the current cycle via `<LINEAR_PREFIX>list_cycles`.
+- **URLs:** Linear: attach as `links`. Others: a Links section in the description.
 
-Ask the user to type a project name or keyword. Then call `<LINEAR_PREFIX>list_projects(query="<input>")` to filter and present matches with AskUserQuestion.
+### Step 3: Scope Selection
+
+| Source | What to select |
+|---|---|
+| `linear` | MANDATORY. Ask the user to type a project name or keyword (offer `tracker.project` as the default when set), then call `<LINEAR_PREFIX>list_projects(query="<input>")` and present matches with AskUserQuestion |
+| `jira` | MANDATORY. Project (offer `tracker.project` first), then issue type (Bug / Task / Story as the project defines them) |
+| `github` | No selection: the repo is the scope. Say so in one line, e.g. `Scope: github.com/owner/repo` |
+| `file` | No selection: the resolved spec directory. Say so in one line |
 
 **Session memory:** if the user already selected a project in this conversation, offer "Same project ([ProjectName])?" instead of asking again. Only re-prompt the full selection if the user requests a different project.
 
-### Step 4: Fetch Team Data (parallel)
+### Step 4: Fetch Source Metadata (parallel)
 
-From the selected project, resolve the team (use `<LINEAR_PREFIX>list_teams` if needed). Then fetch in parallel:
-- `<LINEAR_PREFIX>list_issue_labels` (for that team)
-- `<LINEAR_PREFIX>list_issue_statuses` (for that team — identify the team's default entry status)
+| Source | Fetch |
+|---|---|
+| `linear` | resolve the team (`<LINEAR_PREFIX>list_teams` if needed), then in parallel `<LINEAR_PREFIX>list_issue_labels` and `<LINEAR_PREFIX>list_issue_statuses` for that team (identify the default entry status) |
+| `jira` | labels in use in the project, and the issue type's fields |
+| `github` | `gh label list --json name --limit 200` |
+| `file` | nothing |
 
-**Error handling:** if any non-critical call fails (labels, cycles, statuses), continue with that field unset and note it in the preview. Only abort if `<LINEAR_PREFIX>list_projects` or `<LINEAR_PREFIX>save_issue` fails.
+**Error handling:** if any non-critical call fails (labels, cycles, statuses), continue with that field unset and note it in the preview. Only abort if scope selection or the create call itself fails.
 
 ### Step 5: Codebase Scan (conditional)
 
@@ -206,7 +240,7 @@ From the selected project, resolve the team (use `<LINEAR_PREFIX>list_teams` if 
 
 **Code samples policy — diagnostic only, never descriptive** (canonical shared copy:
 `references/work-source.md` §6.1, extracted verbatim so a future provider-neutral authoring
-dispatcher can reuse it without re-deriving from scratch — kept inline here too, since this skill
+dispatcher can reuse it — kept inline here too, since this skill
 must stay fully self-contained: `references/*.md` files are authoring sources of truth, never read
 at runtime, so nothing that must actually run can live only there):
 
@@ -262,31 +296,32 @@ For **trivial tickets** (fix typo, rename variable): a one-line description is f
 
 **AC rules** (canonical shared copy: `references/work-source.md` §6.3): each item must be verifiable — no vague language like "works correctly." State the observable outcome.
 
-**Defaults (auto-set unless user specifies otherwise):**
+**Defaults (auto-set unless the user specifies otherwise; only for fields the source has):**
 
 | Field | Value |
 |-------|-------|
-| Priority | No priority (0) — only set higher if user indicates urgency |
-| Status | Team's default entry status (from `<LINEAR_PREFIX>list_issue_statuses`) |
-| Cycle | Unset — only set if user says "this sprint" or "current cycle" |
+| Priority | No priority — only set higher if user indicates urgency (Linear, Jira) |
+| Status | The source's default entry status: Linear's team default from `<LINEAR_PREFIX>list_issue_statuses`, Jira's workflow start, GitHub's `status:todo` label only if the repo already uses `status:*` labels, file `Status: todo` |
+| Cycle | Unset — Linear only, and only if user says "this sprint" or "current cycle" |
 | Due date | Unset — only set if user mentions a deadline |
 
 Suggest 1-3 labels by keyword overlap between ticket content and label names. Never invent labels that don't exist.
 
 ### Step 7: Preview (MANDATORY)
 
-Canonical shared copy: `references/work-source.md` §6.4 — same reuse/inlining rationale as above;
-this step is never skipped regardless of which copy a future generic dispatcher reads.
+Canonical shared copy: `references/work-source.md` §6.4; this step is never skipped. The header
+names the source, and a field the source does not support is **left out**, never shown as "unset":
 
 ```
-Linear Ticket Preview
+<Source> Work Item Preview          (e.g. "GitHub Issue Preview", "Linear Ticket Preview")
 ---------------------
 Title:    [title]
-Project:  [project name]
-Team:     [team name]
-Priority: No priority
-Status:   [team default status]
-Cycle:    [unset or cycle name]
+Scope:    [project / repo / spec directory]
+Type:     [Jira issue type — Jira only]
+Team:     [team name — Linear only]
+Priority: [No priority — Linear, Jira]
+Status:   [default entry status]
+Cycle:    [unset or cycle name — Linear only]
 Due:      [unset or date]
 Labels:   [label1, label2]
 Assignee: [name or "unassigned"]
@@ -303,40 +338,47 @@ If user says **Edit**: apply their changes and re-preview. If **Cancel**: stop. 
 
 ### Step 8: Create & Report
 
-Call `<LINEAR_PREFIX>save_issue` with all fields. Include `parentId`, `blocks`, `blockedBy`, `links` if detected in Step 2. Report the ticket identifier. `save_issue` is the sole create-or-update verb — `create_issue` does not exist as a tool.
+| Source | Create |
+|---|---|
+| `linear` | `<LINEAR_PREFIX>save_issue` with all fields, including `parentId`, `blocks`, `blockedBy`, `links` from Step 2. `save_issue` is the sole create-or-update verb; `create_issue` does not exist |
+| `jira` | the connected Jira/Atlassian MCP's create-issue tool, with project, issue type, summary, description, labels, parent |
+| `github` | write the body to a temp file, then `gh issue create --title "<title>" --body-file <tmp> [--label …] [--assignee …]`; never a HEREDOC |
+| `file` | write `<spec-dir>/<YYYY-MM-DD>-<slug>.md` with frontmatter (`title`, `status: todo`, `labels`, `assignee`, `due`) and the description as the body; never overwrite, bump to `-v2`, `-v3` on a collision |
+
+Report the identifier and its URL (`file` reports the absolute path instead, since files have no URL).
 
 ## Edge Cases
 
 | Situation | Action |
 |-----------|--------|
 | Input too vague | Ask targeted follow-up before drafting |
-| User mentions parent issue | Resolve via `<LINEAR_PREFIX>get_issue`, set `parentId` |
-| User mentions "blocked by" / "blocks" | Set `blockedBy` / `blocks` fields |
-| User mentions assignee | Resolve via `<LINEAR_PREFIX>list_users` |
-| User mentions URL | Attach as `links` |
+| No work source resolves and the user declines to pick one | Stop: nothing is created |
+| Resolved source is `inline` | Stop with Step 0's message |
+| Linear configured but its MCP shows only `authenticate` | Stop with Step 0's connect message |
+| User mentions parent issue | Linear: `get_issue` + `parentId`; Jira: parent key; others: Context line |
+| User mentions "blocked by" / "blocks" | Linear fields, otherwise Context lines |
+| User mentions URL | Linear `links`, otherwise a Links section |
 | Video/timestamp mentioned | Add "Video timestamp: MM:SS" to Context |
 | User wants edits after preview | Apply changes, re-preview |
 | API call fails (non-critical) | Continue with field unset, note in preview |
-| 50+ projects in workspace | Use `<LINEAR_PREFIX>list_projects(query=...)` to filter, never dump full list |
+| 50+ projects in workspace | Use `<LINEAR_PREFIX>list_projects(query=...)` (Linear) or a filtered search (Jira), never dump the full list |
 
 ## Common Mistakes
 
 | Mistake | Correct |
 |---------|---------|
+| Hardcoding Linear | Step 0 resolves the project's source; Linear is one row of each table |
+| Asking which tracker every time | Resolve from config / CLAUDE.md / auto-detect first; ask once only when that fails, and offer to persist |
 | Skipping scoping because the request "looks clear" | Phase 1 runs for every ticket. A complete request passes through in one exchange; it is never skipped on judgment |
 | Abbreviating the scoping contract to "brainstorm this first" | Pass all four clauses. Without the terminal-state clause, brainstorming reads scope approval as approval to start building |
 | Putting brainstorming's codebase findings in the ticket | They ground the acceptance criteria and stay out of the body. Step 5's diagnostic-only policy still governs |
-| Skipping project selection | ALWAYS ask user to pick a project |
-| Dumping full project list | Use `query` param to filter server-side |
+| Skipping scope selection on Linear or Jira | ALWAYS ask the user to pick a project there |
+| Showing fields the source doesn't have | Leave them out of the preview entirely |
+| Dumping full project list | Use a query to filter server-side |
 | Using wrong template structure | Context/Requirements/AC for features+bugs; adapt for spikes/chores |
 | Setting due date without user asking | Only set when user mentions a deadline |
-| Auto-assigning current cycle | Only set when user says "this sprint" |
-| Hardcoding "Todo" status | Use the team's configured default entry status |
-| Setting priority to "Normal" unprompted | Default to No priority (0) unless user indicates urgency |
+| Hardcoding "Todo" status | Use the source's configured default entry status |
 | Not fetching labels | Fetch labels and suggest 1-3 relevant ones |
-| Not scanning codebase for bugs/refactors | Do targeted scan for bugs and tech debt; skip for features/spikes |
-| Using raw file paths only | Prefer component/module names; paths are supplementary |
 | Dumping code blocks as context | Code must be diagnostic (stack trace, repro, error), never descriptive (current impl) |
 | Vague acceptance criteria | Specific, testable ("Returns 200 for valid payload") |
 | Skipping preview | ALWAYS show preview before creating |
-| Aborting on non-critical API failure | Continue with field unset, note in preview |

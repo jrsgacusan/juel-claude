@@ -56,6 +56,7 @@ const CONTEXT_VOCAB = new Set([
   'interactive-user',
   'writable-cwd',
   'work-source-list-capable',
+  'work-source-create-capable',
   'github-remote',
   'app-url',
   'verification-criteria',
@@ -251,6 +252,11 @@ const DEFINITIONS = {
     kind: 'context',
     label: 'work-source provider with list capability',
     install: 'Configure a work-item provider that supports listing (e.g. Linear MCP), or paste refs / point at a spec directory',
+  },
+  'work-source-create-capable': {
+    kind: 'context',
+    label: 'work-source provider with create capability',
+    install: 'Configure a tracker that can create items (Linear, Jira, GitHub, or a spec directory) as `tracker` in .claude/workflow.json or a `## Work Source` block in CLAUDE.md/AGENTS.md',
   },
   'github-remote': {
     kind: 'context',
