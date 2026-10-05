@@ -23,5 +23,7 @@ for r in README.md references/work-source.md .claude-plugin/requirements.json; d
   grep 'create-linear-ticket' "$ROOT/$r" | grep -qv 'formerly `create-linear-ticket`' && fail "no old name in $r" || pass "no old name in $r"
 done
 
+grep -q 'the same directory `juel:daily-worktrees` lists' "$SKILL" && pass "file target matches daily-worktrees" || fail "file target dir"
+grep -q 'the Work Source block.s `project`' "$SKILL" && pass "project default from any source" || fail "project default"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
