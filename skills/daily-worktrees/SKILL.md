@@ -101,13 +101,26 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 
 ### Step 1: Resolve the Provider and Project/Repo Scope
 
-Resolve the work-source provider first (`config.tracker.type`, or capability auto-detect — see
-`references/resolution.md` §2's absent-config table, `tracker.type` row).
+Resolve the work-source provider first, once, stopping at the first hit:
+
+1. An explicit source in the user's request.
+2. `.claude/workflow.local.json`, then `.claude/workflow.json`: `tracker.type` (and `tracker.project`).
+3. A `## Work Source` block in the repo's CLAUDE.md or AGENTS.md (`- type:` / `- project:`).
+4. The legacy `## Linear Worktrees Config` block (`linear-project:` implies `linear`). This is read
+   whenever steps 2 and 3 yielded no `tracker.type`, even if `workflow.json` exists for other keys.
+5. Auto-detect: a connected Linear MCP (a domain tool under `mcp__linear__` or
+   `mcp__claude_ai_Linear__`), a connected Jira/Atlassian MCP, a GitHub remote with `gh auth status`
+   passing, or a spec directory with `status: todo` files. Exactly one candidate → use it.
+6. Otherwise ask once with AskUserQuestion, and offer to persist the answer as `tracker` in
+   `.claude/workflow.json`.
+
+State the result in one line, e.g. `Work source: github (from CLAUDE.md Work Source block)`.
 
 **Project/scope resolution is provider-specific — there is no single "project" concept that
 applies to every provider:**
 
-- **`linear` / `jira`:** prefer `config.tracker.project` if it is set. Otherwise:
+- **`linear` / `jira`:** prefer the project the source resolved with (`tracker.project`, the Work
+  Source block's `project`, or the legacy `linear-project`). Otherwise:
   ```bash
   project_name=$(basename "$(git rev-parse --show-toplevel)")
   ```
@@ -115,8 +128,9 @@ applies to every provider:**
   available projects and ask the user to select.
 - **`github`:** **no project step at all** — the repo IS the scope. Skip straight to Step 2; there
   is nothing to detect or ask about here.
-- **`file`:** use the configured directory (`config.docsRoot`'s `specs/` subdirectory, or a
-  user-pointed spec directory) — no project lookup, just a directory listing in Step 2.
+- **`file`:** use `<docsRoot>/specs/` (docsRoot is `config.docsRoot` if set, else
+  `docs/.superpowers/` when it exists and is non-empty, else `docs/superpowers/`), or a user-pointed
+  spec directory — no project lookup, just a directory listing in Step 2.
 - **`inline`:** cannot list (§3 of `references/work-source.md`'s capability table) — see the "no
   `list`" edge case in Step 2 instead of running this step at all.
 
@@ -136,8 +150,8 @@ this skill that names a provider's tools.
 |---|---|---|
 | `linear` | resolve `LINEAR_PREFIX` (`mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>save_issue(id: <id>, state: "In Progress")` (`save_issue` is the only write verb) |
 | `jira` | the connected Jira/Atlassian MCP's JQL search tool with `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | look up the transition named by `config.tracker.statusMap.in_progress`, then the MCP's transition tool. No `statusMap` → print the skip note |
-| `github` | `gh issue list --assignee @me --state open --json number,title,url,labels`, keeping issues without a `status:in-progress` or `status:in-review` label | `gh issue edit <n> --add-label status:in-progress --remove-label status:todo` (label-emulated; create the label once with `gh label create` if missing) |
-| `file` | every `*.md` in the spec directory whose `Status:` line (or frontmatter `status`) is `todo` or absent | rewrite that file's status marker to `in_progress` |
+| `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels`, keeping issues without a `status:in-progress` or `status:in-review` label | `gh label create status:in-progress --force`, then `gh issue edit <n> --add-label status:in-progress`, adding `--remove-label status:todo` only when the issue's `labels` include it (label-emulated) |
+| `file` | every `*.md` in the spec directory whose frontmatter `status` (or `Status:` line) is explicitly `todo`. A file with no status marker is not a work item: design specs, plans and briefs live there too | rewrite that file's status marker to `in_progress` |
 
 `inline` cannot list: see the edge case below.
 
@@ -204,8 +218,11 @@ Example:
 - Branch: `feat/asw-123-add-user-authentication`
 - Worktree: `.worktrees/asw-123`
 
-**Items with no ref** (a `file` spec, or a GitHub issue in a repo whose pattern has no ticket
-segment) use `{type}/{slug}` for the branch and `<slug>` for the worktree directory. Never a
+**GitHub issue refs** (`#412`) render as the segment `issue-412`: branch
+`feat/issue-412-add-user-authentication`, worktree `issue-412`. Never put `#` in a branch or directory,
+and never the bare number: `juel:start` reads the ref back from `issue-<n>` only.
+
+**Items with no ref** (a `file` spec) use `{type}/{slug}` for the branch and `<slug>` for the worktree directory. Never a
 literal `null`, an empty segment, or a dangling `-`.
 
 ### Step 4: Check Existing Branches/Worktrees
@@ -444,8 +461,9 @@ the provider this whole skill resolves against.
 - project: PROJECT_NAME   # linear/jira only; github uses the repo, file uses docsRoot/specs
 ```
 
-**Deprecated fallback.** When neither `workflow.json`, `workflow.local.json` nor a `## Work Source`
-block exists, the legacy CLAUDE.md block below is still read (precedence step 4 — see
+**Deprecated fallback.** When no `tracker.type` resolves from `workflow.json` /
+`workflow.local.json` and there is no `## Work Source` block, the legacy CLAUDE.md block below is
+still read, per key, even if `workflow.json` exists for other settings (precedence step 4 — see
 `references/resolution.md` §2's "Backwards compatibility" note):
 
 ```markdown

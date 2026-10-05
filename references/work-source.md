@@ -286,8 +286,7 @@ scoping phase was added at the front) so the description
 templates, AC rules, code-sample policy, and mandatory preview step are available to any future
 provider-neutral authoring flow (spec §7.11: a thin `create-work-item` dispatcher for other
 providers is deferred past v1.0, but its authoring half should not have to be re-derived from
-scratch when that dispatcher is built). **`create-ticket` (formerly `create-linear-ticket`) was not modified by this
-task** — a later task points it at this file instead of carrying this content inline.
+scratch when that dispatcher is built). `create-ticket` is now that provider-neutral flow and keeps its own inline copy of these sections.
 
 ### 6.1 Code samples policy — diagnostic only, never descriptive
 
@@ -345,15 +344,19 @@ outcome.
 
 ### 6.4 Mandatory preview step (never skipped)
 
+The header names the source, and a field the source does not support is left out, never shown as
+"unset".
+
 ```
-Linear Ticket Preview
+<Source> Work Item Preview          (e.g. "GitHub Issue Preview", "Linear Ticket Preview")
 ---------------------
 Title:    [title]
-Project:  [project name]
-Team:     [team name]
-Priority: No priority
-Status:   [team default status]
-Cycle:    [unset or cycle name]
+Scope:    [project / repo / spec directory]
+Type:     [Jira issue type — Jira only]
+Team:     [team name — Linear only]
+Priority: [No priority — Linear, Jira]
+Status:   [default entry status]
+Cycle:    [unset or cycle name — Linear only]
 Due:      [unset or date]
 Labels:   [label1, label2]
 Assignee: [name or "unassigned"]

@@ -89,9 +89,10 @@ worktree, so config follows the work with no new plumbing.
 `workflow.json`, with a provider-neutral `## Work Source` block (`- type: linear|jira|github|file|inline|none`,
 `- project: <name-or-id>`). It is precedence step 4, read by every skill that resolves a work source.
 
-**Backwards compatibility:** when neither `workflow.json`, `workflow.local.json` nor a
-`## Work Source` block exists, the legacy `## Linear Worktrees Config` markdown block in `CLAUDE.md`
-is still read, as a documented deprecated fallback (precedence step 4).
+**Backwards compatibility:** when no `tracker.type` resolves from `workflow.json` /
+`workflow.local.json` and there is no `## Work Source` block, the legacy `## Linear Worktrees Config`
+markdown block in `CLAUDE.md` is still read, as a documented deprecated fallback (precedence step 4).
+The gate is per key: a `workflow.json` that exists only for other keys does not disable it.
 
 ### Absent-config behavior table
 
@@ -403,6 +404,10 @@ follows:
 | Commit scope | `feat(SAVI-1162): add login endpoint` | `feat: add login endpoint` |
 | Context file (`compact-context`) | `2026-08-01-savi-1162-auth-refactor-session.md` | `2026-08-01-auth-refactor-session.md` |
 | Workspace title (`cmux rename-workspace`) | `SAVI-1162` | a short descriptive title, e.g. `add-user-authentication` |
+
+A GitHub ref `#412` renders as the segment `issue-412` everywhere in this table (branch
+`feat/issue-412-add-auth`, worktree `.worktrees/issue-412`): `#` is never put in a name, and
+`detect_ref` reads `#412` back from `issue-412` only.
 
 ---
 

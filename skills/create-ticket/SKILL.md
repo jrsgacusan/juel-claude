@@ -120,7 +120,7 @@ The resolved source must be able to `create`:
 | `linear` | Yes | resolve `LINEAR_PREFIX` now: `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (anything but `authenticate`/`complete_authentication`); every Linear call below is written `<LINEAR_PREFIX>tool_name`. Neither does → STOP: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." |
 | `jira` | Yes | needs a connected Jira/Atlassian MCP |
 | `github` | Yes | needs `gh auth status` to pass and a GitHub remote |
-| `file` | Yes | writes into the spec directory (`config.docsRoot`'s `specs/`, or the configured directory) |
+| `file` | Yes | writes into `<docsRoot>/specs/`, where docsRoot is `config.docsRoot` if set, else `docs/.superpowers/` when it exists and is non-empty, else `docs/superpowers/` (the same directory `juel:daily-worktrees` lists) |
 | `inline` | No | `inline` cannot create: STOP with "This project's work source is inline text, which has nowhere to store a ticket. Configure `tracker` in .claude/workflow.json or a `## Work Source` block, then re-run." |
 
 State the result in one line before Step 1, e.g. `Work source: github (from CLAUDE.md Work Source block)`.
@@ -195,8 +195,8 @@ Extract from input if mentioned, keeping only the fields the resolved source sup
 
 | Source | What to select |
 |---|---|
-| `linear` | MANDATORY. Ask the user to type a project name or keyword (offer `tracker.project` as the default when set), then call `<LINEAR_PREFIX>list_projects(query="<input>")` and present matches with AskUserQuestion |
-| `jira` | MANDATORY. Project (offer `tracker.project` first), then issue type (Bug / Task / Story as the project defines them) |
+| `linear` | MANDATORY. Ask the user to type a project name or keyword (offer the project the source resolved with as the default: `tracker.project`, the Work Source block's `project`, or the legacy `linear-project`), then call `<LINEAR_PREFIX>list_projects(query="<input>")` and present matches with AskUserQuestion |
+| `jira` | MANDATORY. Project (offer the resolved project first: `tracker.project` or the Work Source block's `project`), then issue type (Bug / Task / Story as the project defines them) |
 | `github` | No selection: the repo is the scope. Say so in one line, e.g. `Scope: github.com/owner/repo` |
 | `file` | No selection: the resolved spec directory. Say so in one line |
 
