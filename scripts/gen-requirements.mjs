@@ -67,6 +67,11 @@ const CONTEXT_VOCAB = new Set([
 // throw otherwise) so requirements.json can always render an install hint.
 const DEFINITIONS = {
   // --- mcp ---------------------------------------------------------------
+  fleet: {
+    kind: 'mcp',
+    label: 'Sphere fleet MCP',
+    install: "Add the fleet HTTP MCP (https://fleet.spheretechnology.com/api/mcp, with a personal access token) to the project's .mcp.json, then restart the session",
+  },
   linear: {
     kind: 'mcp',
     label: 'Linear MCP',
