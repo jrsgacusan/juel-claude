@@ -13,7 +13,8 @@
     "linear",
     "code-review",
     "worktrees",
-    "cmux"
+    "cmux",
+    "fleet"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
