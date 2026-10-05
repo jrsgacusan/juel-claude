@@ -280,7 +280,6 @@
         "work-source-list-capable"
       ],
       "soft": [
-        "linear",
         "resolved-install-command"
       ]
     },

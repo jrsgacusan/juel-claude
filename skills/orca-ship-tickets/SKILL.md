@@ -304,7 +304,9 @@ From the response keep, per item:
   `"$ORCA" terminal list --worktree <sel> --json`; never dual-send to the old and new handles.
 
 `--linear-issue` links the item even when Orca's Linear is disconnected, and the link comes back as
-`linkedLinearIssue`. Pass the bare ref; a full issue URL works too.
+`linkedLinearIssue`. Pass the bare ref; a full issue URL works too. **Pass `--linear-issue` only
+when the resolved work source is `linear`.** For any other source, drop the flag from both
+commands in this step; an item with no ref uses its slug for `--name`.
 
 **When the repo's untracked set is non-empty, do not use `--agent` here.** The agent must not start
 before phase 4's copy lands. Create bare, run phase 4, then start the agent yourself:

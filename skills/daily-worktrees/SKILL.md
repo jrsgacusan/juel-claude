@@ -3,12 +3,6 @@ name: daily-worktrees
 description: Use when starting your workday and need to see work items assigned to you (Linear, Jira, GitHub Issues, or a spec directory), or when setting up worktrees for multiple items in parallel
 metadata:
   requires:
-    mcp:
-      - id: linear
-        hard: false
-        why: phase 2 fetches open todo work items assigned to the user, when Linear resolves as the provider
-        check: none
-        fallback: falls back to the next available provider
     cli:
       - id: git
         hard: true
@@ -80,7 +74,6 @@ Fetch open work items from the resolved work source and create git worktrees for
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
 | AskUserQuestion | context | HARD | always available interactively | STOP → selection is interactive |
 | work source with `list` | context | HARD | provider capability | STOP → paste refs, or point at a spec directory |
-| Linear MCP | mcp | SOFT | **none — render as `?`** | falls back to the next available provider |
 
 ## Phases
 
@@ -135,15 +128,18 @@ Call the resolved work source's `list`:
 list({ assignee: "me", project: <resolved project/repo/dir from Step 1>, status: "todo" })
 ```
 
-For `linear` specifically: resolve `LINEAR_PREFIX` first — accept either `mcp__linear__` or
-`mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix; same
-detection rule `juel:start`'s Step 2 uses), then call:
+**Provider recipes.** Use the row for the resolved provider only, and reuse it for the rest of
+the run (Steps 6 and 7 read `update_status` from the same row). This table is the only place in
+this skill that names a provider's tools.
 
-```
-<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")
-```
+| Provider | `list` (todo, assigned to me) | `update_status` → `in_progress` |
+|---|---|---|
+| `linear` | resolve `LINEAR_PREFIX` (`mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>save_issue(id: <id>, state: "In Progress")` (`save_issue` is the only write verb) |
+| `jira` | the connected Jira/Atlassian MCP's JQL search tool with `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | look up the transition named by `config.tracker.statusMap.in_progress`, then the MCP's transition tool. No `statusMap` → print the skip note |
+| `github` | `gh issue list --assignee @me --state open --json number,title,url,labels`, keeping issues without a `status:in-progress` or `status:in-review` label | `gh issue edit <n> --add-label status:in-progress --remove-label status:todo` (label-emulated; create the label once with `gh label create` if missing) |
+| `file` | every `*.md` in the spec directory whose `Status:` line (or frontmatter `status`) is `todo` or absent | rewrite that file's status marker to `in_progress` |
 
-The verb is **`list_issues`** — not `list_tickets`, not `search_issues`.
+`inline` cannot list: see the edge case below.
 
 **IMPORTANT:** Only fetch work items in `todo` status. Do NOT fetch `in_progress` items — those
 are already being worked on. This rule is correct and provider-neutral: it holds regardless of
@@ -208,6 +204,10 @@ Example:
 - Branch: `feat/asw-123-add-user-authentication`
 - Worktree: `.worktrees/asw-123`
 
+**Items with no ref** (a `file` spec, or a GitHub issue in a repo whose pattern has no ticket
+segment) use `{type}/{slug}` for the branch and `<slug>` for the worktree directory. Never a
+literal `null`, an empty segment, or a dangling `-`.
+
 ### Step 4: Check Existing Branches/Worktrees
 
 **Before presenting tickets, check if work already exists:**
@@ -259,15 +259,10 @@ For each selected item with existing branch/worktree, ask:
 - "Start fresh" - delete old branch, create new
 
 **Auto-update status:** If the item has an existing branch/worktree and the user reuses it, write
-`in_progress` through the resolved work source's `update_status`. For `linear` specifically:
-resolve `LINEAR_PREFIX` (accept either `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever
-exposes a domain tool — never hardcode either), then call:
-```
-<LINEAR_PREFIX>save_issue(id: item_id, state: "In Progress")
-```
-`save_issue` is the sole create-or-update verb — `update_issue` does not exist as a tool. If the
-provider has no `update_status` capability, print `Status: skipped — provider '<name>' has no
-status field configured` and continue; never block worktree reuse on it.
+`in_progress` through the resolved work source's `update_status`, using that provider's row in
+Step 2's recipe table. If the provider has no `update_status` capability,
+print `Status: skipped — provider '<name>' has no status field configured` and continue; never
+block worktree reuse on it.
 
 ### Step 7: Create Worktrees
 
@@ -331,13 +326,17 @@ For each selected ticket:
    # for p in $config_worktreeCopy; do EXTRA_PATTERNS="$EXTRA_PATTERNS -o -name $p"; done
 
    # copy_untracked SRC DST — portable, untracked-only, no glob-abort.
+   # No numbered positional parameters: the skill loader replaces them with words from the
+   # user's request, so the two arguments are read through "$@" instead.
    copy_untracked() {
-     find "$1" -maxdepth 1 \( \
+     src=; dst=
+     for a in "$@"; do if [ -z "$src" ]; then src=$a; else dst=$a; fi; done
+     find "$src" -maxdepth 1 \( \
            -name '.env' -o -name '.env.*' -o -name '*.local' \
         -o -name '.envrc' -o -name '.npmrc' -o -name '.tool-versions' \
         $EXTRA_PATTERNS \) -type f -print | while IFS= read -r f; do
-       git -C "$1" ls-files --error-unmatch "${f#"$1"/}" >/dev/null 2>&1 && continue
-       cp -p "$f" "$2/"
+       git -C "$src" ls-files --error-unmatch "${f#"$src"/}" >/dev/null 2>&1 && continue
+       cp -p "$f" "$dst/"
      done
    }
 
@@ -369,14 +368,10 @@ For each selected ticket:
    ```
    If nothing resolves and verifies, that is not an error — skip this step with a one-line note and
    let the user install dependencies themselves.
-5. **Update the work item's status to `in_progress`** through the resolved work source (same call
-   and degrade rule as Step 6's "Auto-update status" above — reuse the `LINEAR_PREFIX` resolved
-   once for this run, never re-derive it):
-   ```
-   <LINEAR_PREFIX>save_issue(id: item_id, state: "In Progress")
-   ```
-   A missing `update_status` capability is not an error — print the one-line skip note and
-   continue; the worktree is already created.
+5. **Update the work item's status to `in_progress`** through the resolved work source's
+   `update_status` (same recipe row from Step 2 and same degrade rule as Step 6's "Auto-update
+   status" above). A missing `update_status` capability is not an
+   error — print the one-line skip note and continue; the worktree is already created.
 
 ### Step 8: Report & Offer Planning
 
@@ -439,9 +434,19 @@ wins):
 `tracker.project` is consumed by Step 1 (preferred over basename guessing); `tracker.type` selects
 the provider this whole skill resolves against.
 
-**Deprecated fallback.** When neither `workflow.json` nor `workflow.local.json` exists, the legacy
-CLAUDE.md block below is still read (precedence step 4 — see `references/resolution.md` §2's
-"Backwards compatibility" note):
+**Project memory form.** A repo that keeps its tracker in CLAUDE.md or AGENTS.md instead of
+`workflow.json` declares it with a provider-neutral block (precedence step 4 in
+`references/resolution.md` §1). Every juel skill that resolves a work source reads the same block:
+
+```markdown
+## Work Source
+- type: github            # linear | jira | github | file | inline | none
+- project: PROJECT_NAME   # linear/jira only; github uses the repo, file uses docsRoot/specs
+```
+
+**Deprecated fallback.** When neither `workflow.json`, `workflow.local.json` nor a `## Work Source`
+block exists, the legacy CLAUDE.md block below is still read (precedence step 4 — see
+`references/resolution.md` §2's "Backwards compatibility" note):
 
 ```markdown
 ## Linear Worktrees Config

@@ -202,16 +202,27 @@ be checked (or degraded around, per the detection rule above) independently ever
 
 ### 4.2 `jira`
 
-Not implemented in v1.0 (deferred — see spec §14). Capability table above reflects intended shape:
-`fetch`/`list`/`create`/`url` map onto Jira's REST API directly; `update_status` needs an explicit
-`statusMap` (config) since Jira workflow states are project-specific and have no fixed vocabulary.
+Through whichever Jira/Atlassian MCP is connected; resolve its tools by capability, never a
+hardcoded prefix. `list` is a JQL search (`assignee = currentUser() AND project = <key> AND
+statusCategory = "To Do"`); `fetch` reads one issue; `create` creates one in the selected project
+and issue type; `update_status` needs an explicit `statusMap` (config) naming the transition for
+each normalized status, since Jira workflow states are project-specific. No `statusMap` → the
+one-line skip.
 
 ### 4.3 `github`
 
-Not implemented in v1.0. `update_status` is **emulated** via labels (e.g. `status:in-progress`)
-since GitHub Issues has only an open/closed axis, no native todo/in-progress/in-review distinction
-— a convention the user must maintain by hand (spec §7.11). `fetch`/`list`/`create`/`url` map onto
-`gh issue view` / `gh issue list` / `gh issue create` / the issue's HTML URL.
+Through `gh`. `update_status` is **emulated** via labels (`status:todo`, `status:in-progress`,
+`status:in-review`) since GitHub Issues has only an open/closed axis — a convention the user must
+maintain by hand (spec §7.11).
+
+```
+fetch(n)          → gh issue view <n> --json number,title,body,url,labels,assignees
+list(filters)     → gh issue list --assignee @me --state open --json number,title,url,labels
+                    (todo = no status:in-progress / status:in-review label)
+update_status     → gh issue edit <n> --add-label status:<s> --remove-label status:<previous>
+create(fields)    → gh issue create --title … --body-file <tmp> [--label …] [--assignee …]
+url(item)         → item.url
+```
 
 ### 4.4 `file`
 
