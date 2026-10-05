@@ -71,8 +71,10 @@ which ones were closed; tick them then.
 
 ## Brief format
 
-Each brief arrives in this prompt as a fenced block. Write it unchanged into the item's worktree at
-`docs/superpowers/specs/<YYYY-MM-DD>-<item-lower>-brief.md` before starting its worker.
+Each brief arrives in this prompt as a fenced block. Write it unchanged to
+`<your working directory>/briefs/<item>.md` and pass that **absolute** path to the worker. Never
+write it inside the item's worktree: an untracked file there makes `ship-ticket`'s clean-tree
+preflight stop the worker before it starts.
 
 ```markdown
 ---
@@ -130,17 +132,24 @@ For each item:
 2. `worktree_create(projectId, branch: <brief branch>, baseBranch: <brief baseBranch>, name: <item>,
    requestId: <wtRequestId>)`. Record `worktreeId`. Read the checkout path from the response, or
    from `worktree_status(worktreeId)`.
-3. Write the brief into the worktree (path above).
-4. Start the worker as your child with `delegate_start` (it parents the child to you, so its reports
-   come back to you as turns): provider `claude`, mode `single`, model and effort from the worker
-   config below, `worktreeId` (or `workingDirectory` = the checkout path if the tool rejects a
-   worktree id for a child), `requestId: <chatRequestId>`, and this prompt, exactly:
+3. Write the brief to `briefs/<item>.md` in your working directory (see "Brief format").
+4. Start the worker as your child, so its reports come back to you as turns. Load the
+   child-creation tool with `tool_search` (`delegate_start`, the alias of `chat_create` that parents
+   the child to you; if only `chat_create` is offered, pass `parentId` = your own chat id). Pass
+   provider `claude`, mode `single`, model and effort from the worker config below, the item's
+   `worktreeId` (or `workingDirectory` = the checkout path if the tool rejects a worktree id for a
+   child), `requestId: <chatRequestId>`, and this prompt, exactly:
 
    ```
    /juel:ship-ticket --unattended --brief <brief path> [--quiet-hours <HH:MM-HH:MM@tz>]
    ```
 
    Pass `--quiet-hours` only when quiet hours are configured. Record `chatId`; state → `dispatched`.
+5. **Verify placement before the next dispatch.** Children inherit their parent's placement by
+   default, and you are project-scoped. Read `chat_status(chatId)` and confirm the child's working
+   directory is this item's checkout. If it is not, `chat_cancel` that child, mark the row `failed`,
+   write one open loop (`fleet placed the worker outside its worktree — dispatch blocked`), and
+   dispatch nothing more this batch: every later worker would land in the same wrong place.
 
 ## Worker reports
 
@@ -155,8 +164,12 @@ Workers speak in single-line reports. Parse by prefix:
 | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` | see below |
 | `DONE item=<item> pr=<url>` | state → `done`, free the slot, dispatch the next `queued` item |
 
-**Missed ACK.** If a worker's first turn ends and its row is still `dispatched`, re-dispatch once:
-same attempt, same recorded request ids. A second miss → `failed`, open loop, free the slot.
+**Missed ACK.** If a worker's first turn ends and its row is still `dispatched`, do not create
+anything again: the recorded request ids would only replay the create that already happened. Send
+one recovery turn to the same worker instead, `chat_message(chatId, message: <the same
+/juel:ship-ticket prompt>)` (or `chat_resume(chatId)` if `chat_status` shows it stopped), and
+record `ackRetry: 1` in the row's `updated` cell. If that turn also ends without `ACK` → `failed`,
+open loop, free the slot.
 
 **Escalations.** Answer with `chat_message` to that worker only when the brief already decides the
 question (for example "Out: mobile" answers "should I also change the mobile client?" with no). In
@@ -164,8 +177,10 @@ every other case — brief-violation, a red gate twice, merge conflict, a missin
 cannot run here, babysit-pr stopping — write an open loop with the worker's `needs=` text, state →
 `escalated`, free the slot, and dispatch the next item.
 
-**A worker that dies.** If `chat_status` on a worker you are about to message shows it failed or
-stopped without a `DONE` or `ESCALATION`, mark it `failed`, write an open loop, free the slot.
+**A worker that ends silently.** Whenever a worker's turn ends and its output has neither `DONE`
+nor `ESCALATION`, read `chat_status(chatId)`. Still running (a turn queued behind it) → keep the
+row. Idle, stopped or failed → mark it `failed` with an open loop quoting its last line, free the
+slot, and dispatch the next item. A slot is never held by a worker that is no longer running.
 
 ## Quiet hours
 

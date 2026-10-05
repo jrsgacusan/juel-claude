@@ -27,5 +27,10 @@ grep -q 'without `--brief` is refused' "$SKILL" && pass "unattended requires bri
 for l in 'PHASE <n> <item>' 'PR item=<item> url=<url> draft' 'DONE item=<item> pr=<url>'; do
   grep -qF "$l" "$SKILL" && pass "line $l" || fail "line $l"
 done
+grep -q 'reason=preflight' "$SKILL" && pass "preflight stop escalates" || fail "preflight stop escalation"
+grep -q 'Clean up before escalating' "$SKILL" && pass "cleanup before escalation" || fail "cleanup before escalation"
+grep -q 'gh pr create --draft --base <baseBranch>' "$SKILL" && pass "draft PR uses the brief base" || fail "draft PR base"
+grep -q 'the `--brief`.s `baseBranch` → explicit argument' "$SKILL" && pass "brief base heads the chain" || fail "brief base chain"
+grep -q 'with no `gh`, there is no PR yet' "$SKILL" && pass "no-gh unattended path" || fail "no-gh unattended path"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
