@@ -18,7 +18,7 @@ grep -qi 'deterministic' "$REF" && grep -q 'requestId' "$REF" && pass "determini
 grep -q 'never re-run automatically\|never re-run' "$REF" && pass "failed never auto-rerun" || fail "failed rerun rule"
 grep -qi 'never poll' "$REF" && pass "no polling" || fail "no polling"
 grep -q 'Never merge' "$REF" && pass "never merge" || fail "never merge"
-grep -q 'juel-brief: 1' "$REF" && pass "brief format" || fail "brief format"
+grep -q 'juel_brief: 1' "$REF" && pass "brief format" || fail "brief format"
 grep -q -- '--unattended --brief' "$REF" && pass "child command" || fail "child command"
 grep -q 'maxParallel' "$REF" && pass "capacity gate" || fail "capacity gate"
 grep -qi 'slug' "$REF" && pass "slug when ref is null" || fail "slug rule"

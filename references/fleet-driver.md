@@ -76,7 +76,7 @@ Each brief arrives in this prompt as a fenced block. Write it unchanged into the
 
 ```markdown
 ---
-juel-brief: 1
+juel_brief: 1
 item:
   ref: SAVI-1162        # null when the source has no ref
   slug: add-auth
