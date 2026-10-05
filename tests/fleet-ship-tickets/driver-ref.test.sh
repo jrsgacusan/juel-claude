@@ -23,5 +23,9 @@ grep -q -- '--unattended --brief' "$REF" && pass "child command" || fail "child 
 grep -q 'maxParallel' "$REF" && pass "capacity gate" || fail "capacity gate"
 grep -qi 'slug' "$REF" && pass "slug when ref is null" || fail "slug rule"
 grep -qi 'capability probe' "$REF" && pass "capability probe" || fail "capability probe"
+grep -q 'clean-tree' "$REF" && pass "brief placement reason stated" || fail "brief placement reason"
+grep -q 'Verify placement' "$REF" && pass "child placement verified" || fail "child placement check"
+grep -q 'do not create' "$REF" && grep -q 'ackRetry' "$REF" && pass "ACK recovery reuses the chat" || fail "ACK recovery"
+grep -q 'never held by a worker that is no longer running' "$REF" && pass "silent end frees the slot" || fail "silent end rule"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

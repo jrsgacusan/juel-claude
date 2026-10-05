@@ -145,14 +145,14 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight). Inside it, outward actions are held, not performed. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a fleet worker,
-`/juel:ship-ticket --unattended --brief docs/superpowers/specs/2026-10-06-savi-1162-brief.md --quiet-hours 22:00-07:00@Asia/Manila`
+`/juel:ship-ticket --unattended --brief /persist/fleet/projects/<driver-dir>/briefs/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
 
 ## Base branch & repo conventions
 
 Resolved **once**, before Phase 5, then reused for the rest of the run (Phase 7's push, PR title,
 PR body, and trailers all read the same resolved values — never re-derive mid-run).
 
-**Base branch**, in order: explicit argument → `config.baseBranch` →
+**Base branch**, in order: the `--brief`'s `baseBranch` → explicit argument → `config.baseBranch` →
 `git config --get claude.baseBranch` → `git symbolic-ref --short refs/remotes/<remote>/HEAD`
 (if missing, `git remote set-head <remote> --auto` and retry once) →
 `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` →
@@ -293,6 +293,10 @@ literal `null` or an empty string.
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
 
+**A preflight STOP is reported too.** The `ACK` line comes before the preflight block, so a run
+that then stops on preflight must not end silently: after the preflight block, print
+`ESCALATION item=<item> phase=0 reason=preflight needs=<each failing check>` and stop.
+
 **Escalations are a fixed list.** On any of these, print the `ESCALATION` line and end the run.
 Nothing else stops an unattended run, and nothing on this list is ever worked around:
 
@@ -305,6 +309,16 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
+
+**Clean up before escalating.** An escalation raised after Phase 6 has started its stack runs Phase
+6 step 7's cleanup first, then prints the `ESCALATION` line. A cleanup that fails adds
+`cleanup-failed:<identifiers still live>` to `needs=`, so the human knows what is still running.
+
+**Branch and base come from the brief.** With `--brief`, the brief's `branch` and `baseBranch` are
+the resolved values for this run: they head the base-branch chain in "Base branch & repo
+conventions", Phase 5 reviews against `baseBranch`, and Phase 7 opens the PR with
+`--base <baseBranch>`. Before Phase 1, check that the checkout's current branch is the brief's
+`branch`; a mismatch is `ESCALATION item=<item> phase=0 reason=preflight needs=checkout on <branch>`.
 
 **Quiet hours.** With `--quiet-hours`, check the window at the moment of each outward action, not
 once at the start — a run that starts before the window and acts inside it must still hold:
@@ -586,7 +600,7 @@ the evidence directory. Ask to proceed to PR.
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
    - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist).
 3. Open the PR, or degrade if `gh` is unavailable:
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --title "<title>" --body-file <tmp>`, then print the `PR` line. Marking it ready is the human's call.
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. Marking it ready is the human's call.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3. For Linear specifically: resolve the active prefix — accept either `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then call `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)` — `save_issue` is the sole create-or-update verb; no other write verb exists for this. **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.** Under `--quiet-hours` inside the window, or when the provider has `update_status` but this host cannot reach it, print `HELD item=<item> action=set status in_review via <source>` instead of writing.
 5. Return the PR URL — or, if `gh` was unavailable, the compare URL — to the user.
@@ -597,9 +611,12 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 
 1. If Phase 7 had no `gh` (compare URL only), skip this phase with one line:
    `Phase 8 skipped: gh unavailable, no PR to watch`.
-   Under `--unattended`, skip it too: the PR is a draft that nobody reviews until the human marks it
-   ready. Print `HELD item=<item> action=mark PR <n> ready, then /juel:babysit-pr <n>`, then the
-   `DONE` line, and end the run.
+   Under `--unattended` with no `gh`, there is no PR yet: print
+   `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>), then /juel:babysit-pr`,
+   then `DONE item=<item> pr=<compare-url>`, and end the run.
+   Under `--unattended` with a PR, skip this phase too: the PR is a draft that nobody reviews until
+   the human marks it ready. Print `HELD item=<item> action=mark PR <n> ready, then /juel:babysit-pr <n>`,
+   then the `DONE` line, and end the run.
 2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
    number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
    order. Do not re-resolve the toolchain.

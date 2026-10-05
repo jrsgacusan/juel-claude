@@ -24,5 +24,6 @@ grep -qi 'not monitoring' "$SKILL" && pass "says not monitoring" || fail "monito
 grep -q 'projectId' "$SKILL" && pass "projectId resolution" || fail "projectId"
 grep -qi 'slug' "$SKILL" && pass "slug when ref is null" || fail "slug rule"
 grep -q 'fleet-ship-tickets' "$ROOT/README.md" && pass "README row" || fail "README row"
+grep -q 'Names are unique within the batch' "$SKILL" && pass "duplicate slugs suffixed" || fail "duplicate slug rule"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

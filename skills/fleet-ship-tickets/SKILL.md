@@ -179,6 +179,11 @@ source has none), `slug` (kebab-case from the title, ≤ 6 words), `title`, `url
 `source`, `labels`, description, acceptance criteria. The item's name everywhere after this is its
 ref, or its slug when the ref is null — never `null`, never empty.
 
+**Names are unique within the batch.** Two items with no ref and the same slug would share a ledger
+row, a branch and a brief. Before Step 4, give every repeat of a slug a suffix (`-2`, `-3`, … in
+selection order) and use that final name for the branch, the brief, the ledger row and every report
+line.
+
 ### Step 4: Draft and approve briefs (MANDATORY)
 
 Resolve the repo's conventions once: remote (one → it, else `origin`, else ask), base branch
