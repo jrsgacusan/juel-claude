@@ -24,7 +24,7 @@ skill would otherwise hardcode or re-derive per phase). Stop at the first hit.
 1. Explicit skill argument
 2. <repo>/.claude/workflow.local.json      (untracked, personal)
 3. <repo>/.claude/workflow.json            (committed, team)
-4. CLAUDE.md / AGENTS.md declarations
+4. CLAUDE.md / AGENTS.md declarations    (e.g. the `## Work Source` block: `- type:` / `- project:`)
 5. Repo evidence (manifests, git history, .github templates)
 6. Ask the user ONCE, offer to persist
 7. Documented default — or, for commands, SKIP THE GATE with a note
@@ -85,9 +85,13 @@ worktree, so config follows the work with no new plumbing.
 | Unknown top-level or nested key | Ignored silently, for forward compatibility with newer schema versions |
 | A configured command whose binary does not resolve (`command -v`, or `-x` for a `./`-relative path) | Warn, treat that command as unresolved — falls through the rest of the precedence chain for that key, same as if it had never been configured |
 
-**Backwards compatibility:** when neither `workflow.json` nor `workflow.local.json` exists, the
-legacy `## Linear Worktrees Config` markdown block in `CLAUDE.md` is still read, as a documented
-deprecated fallback (precedence step 4).
+**Project memory form:** a repo can declare its tracker in CLAUDE.md or AGENTS.md instead of
+`workflow.json`, with a provider-neutral `## Work Source` block (`- type: linear|jira|github|file|inline|none`,
+`- project: <name-or-id>`). It is precedence step 4, read by every skill that resolves a work source.
+
+**Backwards compatibility:** when neither `workflow.json`, `workflow.local.json` nor a
+`## Work Source` block exists, the legacy `## Linear Worktrees Config` markdown block in `CLAUDE.md`
+is still read, as a documented deprecated fallback (precedence step 4).
 
 ### Absent-config behavior table
 
