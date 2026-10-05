@@ -349,7 +349,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `open-pr` | context | `gh` present, in a repo, `gh pr view --json number` succeeds | `gh` present but it fails | when `gh` itself is absent |
 | `plan-file` | context | — | — | yes — depends on which ticket/plan is in scope; doctor doesn't know the target |
 | `verification-criteria` | context | — | — | yes — same reason as `plan-file` |
-| `work-source-list-capable` | context | tied to `LINEAR_STATE`: `working` → present | `LINEAR_STATE` is `auth_needed` or `absent` → missing (soft-degradable: paste refs, or point at a spec directory) | |
+| `work-source-list-capable` | context | any one of: `LINEAR_STATE` is `working`; `gh auth status` succeeds and `github-remote` is present; a connected Jira/Atlassian MCP | none of those (soft-degradable: paste refs, or point at a spec directory) | |
 | `worktree-root-cwd` | context | cwd equals `git rev-parse --show-toplevel` | it's a subdirectory of the repo | when there's no git repo at all |
 | `writable-cwd` | context | `test -w .` | it fails | |
 | `permission-mode-auto` | perm | — | — | yes — depends on the flag this *session* was launched with; no reliable check from inside a running command |

@@ -1,6 +1,6 @@
 ---
 name: cmux-ship-tickets
-description: Use when starting your workday in CMUX to ship multiple Linear tickets in parallel. Wraps juel:daily-worktrees + per-item CMUX workspace creation + auto-launch of the resolved agent running `/juel:ship-ticket`. Triggers "ship my tickets", "start my day", "/juel:cmux-ship-tickets".
+description: Use when starting your workday in CMUX to ship multiple work items in parallel. Wraps juel:daily-worktrees + per-item CMUX workspace creation + auto-launch of the resolved agent running `/juel:ship-ticket`. Triggers "ship my tickets", "start my day", "/juel:cmux-ship-tickets".
 metadata:
   requires:
     mcp:
@@ -298,6 +298,10 @@ Collect the list of newly-created or reused worktrees with absolute paths and re
 `ref` is never left null in this handoff — when no tracker ref was resolved, it holds the
 descriptive slug used for the worktree dir instead (per `references/resolution.md` §5's
 ref-optional naming table), never a placeholder like `none`/`NOREF`.
+
+For a `file` item, the `$ref` sent in the `/juel:ship-ticket $ref` prompt is the item's
+absolute spec path, not its slug: `ship-ticket` treats a bare slug as a ticket id and would never
+see the requirements.
 
 ### Step 2: Confirm CMUX launch
 

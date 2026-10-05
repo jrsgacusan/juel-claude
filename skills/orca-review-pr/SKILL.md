@@ -428,7 +428,7 @@ If nothing resolved, skip this step and say so in one line.
 "$ORCA" worktree set --worktree "id:$REPO_ID::$WT_PATH" --linear-issue "$REF" --json
 ```
 
-Only when a ref resolved. The link works even when Orca's Linear is disconnected.
+Only when a ref resolved **and the project's work source is `linear`** (`tracker.type` in `.claude/workflow.json`, a `## Work Source` block, or the legacy `## Linear Worktrees Config` block). For any other source, skip the link with one line. The link works even when Orca's Linear is disconnected.
 
 Report the PR, the work item (or "no ref"), the worktree path, the checked-out branch, the terminal
 handle, and whether the install tab opened. Include this teardown warning verbatim:
