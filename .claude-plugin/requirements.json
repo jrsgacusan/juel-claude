@@ -196,6 +196,11 @@
       "label": "acceptance criteria to verify",
       "install": "Provide acceptance criteria via the work item or the spec file, or answer when this skill asks for concrete verification steps"
     },
+    "work-source-create-capable": {
+      "kind": "context",
+      "label": "work-source provider with create capability",
+      "install": "Configure a tracker that can create items (Linear, Jira, GitHub, or a spec directory) as `tracker` in .claude/workflow.json or a `## Work Source` block in CLAUDE.md/AGENTS.md"
+    },
     "work-source-list-capable": {
       "kind": "context",
       "label": "work-source provider with list capability",
@@ -262,14 +267,15 @@
       ],
       "soft": []
     },
-    "create-linear-ticket": {
+    "create-ticket": {
       "hard": [
         "interactive-user",
-        "linear",
-        "superpowers:brainstorming"
+        "superpowers:brainstorming",
+        "work-source-create-capable"
       ],
       "soft": [
-        "git-repo"
+        "git-repo",
+        "linear"
       ]
     },
     "daily-worktrees": {

@@ -4,7 +4,7 @@ This file is **not** read at runtime, for the same reason as `references/preflig
 `references/strict-protocol.md`: no `SKILL.md` links to it, and progressive disclosure (a sibling
 file loaded only if the model chooses to) cannot deliver an "always resolve work items this way"
 guarantee. It exists so Phase C's skills (`start`, `daily-worktrees`, `ship-ticket`,
-`create-linear-ticket`, and later `compact-context`/`cmux-review-pr`) share one canonical
+`create-ticket`, and later `compact-context`/`cmux-review-pr`) share one canonical
 work-item shape, one normalized status vocabulary, one provider capability table, and — critically
 — **one set of Linear tool names**, instead of each skill re-deriving (and disagreeing on) its own.
 
@@ -48,7 +48,7 @@ update; `daily-worktrees` lists issues by assignee+project+state, reads id/title
 | `acceptance_criteria` | No | derived from `description` (`## Acceptance Criteria`, `## Done When`, `## Outcome` headings, else `- [ ]` checkboxes); the highest-value derived field — six call sites across `ship-ticket` phases 2 and 6, `start` phase 3, PR body QA instructions |
 | `status` | No | normalized read/write target for `update_status` (`daily-worktrees` phases 6–7, `ship-ticket` phase 7) |
 | `url` | No | PR-body Linear link section (`ship-ticket` phase 7) |
-| `labels` | No | read by `daily-worktrees` phase 3's branch-type inference table (`skills/daily-worktrees/SKILL.md:119`: "Title/labels contain 'bug', 'fix', 'error'" → `fix`); also carried for `create-linear-ticket` authoring parity |
+| `labels` | No | read by `daily-worktrees` phase 3's branch-type inference table (`skills/daily-worktrees/SKILL.md:119`: "Title/labels contain 'bug', 'fix', 'error'" → `fix`); also carried for `create-ticket` authoring parity |
 | `branch_hint` | No | seeds branch naming when `slug`/`type` are absent |
 | `parent` | No | gates the "branch from the parent tip" guidance (spec §7.11); only Linear/Jira expose it |
 | `source` | No | which provider produced the item — drives capability-flag branching (§3 below), never branched on by name elsewhere |
@@ -141,16 +141,16 @@ prefix resolved.
 | fetch one issue | `get_issue` | VERIFIED | live tool listing, 2026-08-03 |
 | get issue status | `get_issue_status` | VERIFIED | live tool listing, 2026-08-03 |
 | get project | `get_project` | VERIFIED | live tool listing, 2026-08-03 |
-| get team | `get_team` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` team resolution |
+| get team | `get_team` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-ticket` team resolution |
 | get user | `get_user` | VERIFIED | live tool listing, 2026-08-03 |
 | list issues | `list_issues` | VERIFIED | live tool listing, 2026-08-03 |
 | list projects | `list_projects` | VERIFIED | live tool listing, 2026-08-03 |
 | list teams | `list_teams` | VERIFIED | live tool listing, 2026-08-03 |
-| list users | `list_users` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` assignee resolution |
+| list users | `list_users` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-ticket` assignee resolution |
 | list comments | `list_comments` | VERIFIED | live tool listing, 2026-08-03 |
-| list cycles | `list_cycles` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` cycle field |
+| list cycles | `list_cycles` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-ticket` cycle field |
 | list issue statuses | `list_issue_statuses` | VERIFIED | live tool listing, 2026-08-03 |
-| list issue labels | `list_issue_labels` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-linear-ticket` labels field |
+| list issue labels | `list_issue_labels` | VERIFIED | live tool listing, 2026-08-03 — needed for `create-ticket` labels field |
 | create **or** update an issue | `save_issue` | VERIFIED | live tool listing, 2026-08-03 — `save_*` is confirmed upsert: creates when no matching issue is targeted, updates when one is |
 | create **or** update a comment | `save_comment` | VERIFIED | live tool listing, 2026-08-03 — **never call automatically; see the mandatory confirmation rule in §5** |
 | delete a comment | `delete_comment` | VERIFIED | live tool listing, 2026-08-03 |
@@ -279,14 +279,14 @@ open, or a worktree setup must never silently also drop a comment). This is a ha
 capability-flag default; it applies even when the provider's `create`/`update_status` flags are
 otherwise satisfied.
 
-## 6. Authoring templates (extracted from `create-linear-ticket`, provider-neutral)
+## 6. Authoring templates (extracted from `create-ticket`, provider-neutral)
 
-Extracted verbatim from `skills/create-linear-ticket/SKILL.md` Steps 5–7 (Steps 4–6 before the
+Extracted verbatim from `skills/create-ticket/SKILL.md` (formerly `create-linear-ticket`) Steps 5–7 (Steps 4–6 before the
 scoping phase was added at the front) so the description
 templates, AC rules, code-sample policy, and mandatory preview step are available to any future
 provider-neutral authoring flow (spec §7.11: a thin `create-work-item` dispatcher for other
 providers is deferred past v1.0, but its authoring half should not have to be re-derived from
-scratch when that dispatcher is built). **`create-linear-ticket` itself is not modified by this
+scratch when that dispatcher is built). **`create-ticket` (formerly `create-linear-ticket`) was not modified by this
 task** — a later task points it at this file instead of carrying this content inline.
 
 ### 6.1 Code samples policy — diagnostic only, never descriptive
@@ -368,4 +368,4 @@ Create this ticket? [Yes / Edit / Cancel]
 
 If user says **Edit**: apply their changes and re-preview. If **Cancel**: stop. If **Yes**: proceed.
 This step is MANDATORY for any provider-neutral authoring flow, exactly as it is today for
-`create-linear-ticket` — never create a work item without showing this preview first.
+`create-ticket` — never create a work item without showing this preview first.
