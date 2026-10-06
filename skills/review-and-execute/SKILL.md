@@ -91,6 +91,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `[base-branch]` | auto-detected — see "Base branch detection" in Step 1 | Branch to diff against |
+| `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
 
 Usage: `/review-and-execute` or `/review-and-execute main`
 
@@ -214,6 +215,10 @@ The plan should:
 - Include verification commands for each task
 
 ### Step 4: Dispatch Codex
+
+**With `--executor session`:** do not dispatch Codex. Execute the plan written in Step 3 in this
+session with `Skill("superpowers:executing-plans")`, the same path as when Codex is not installed,
+then go on to the next step. Without the flag:
 
 Run Codex CLI non-interactively to execute the plan written in Step 3 (use the exact filename, including any `-vN` suffix):
 

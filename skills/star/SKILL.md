@@ -145,7 +145,7 @@ evidence; it completes when STAR goes idle or is stopped.
 
 | Command | Run from | Effect |
 |---|---|---|
-| `/juel:star` | an Orca terminal whose cwd is STAR's home | Start STAR, or resume it: the two are the same command |
+| `/juel:star` | an Orca terminal whose cwd is STAR's home, in a Claude Code session started on Fable 5.1 (`claude --model fable`) | Start STAR, or resume it: the two are the same command |
 | `/juel:star add <refs…>` | any Claude session inside a project repo | Put items in STAR's inbox and nudge it |
 | `/juel:star status` | anywhere | Print the Needs-you block and counts per state. Read-only |
 | `/juel:star away` | anywhere, or tell STAR "I'm leaving" | Write the handoff file and switch to away mode (below) |
@@ -239,15 +239,39 @@ Settings in `star.json`:
 {
   "maxParallel": 3,                                      // build pool
   "maxInReview": 3,                                      // review pool
-  "worker":   { "agent": "claude", "model": "opus",    "effort": "high" },
-  "reviewer": { "agent": "codex",  "model": "default", "effort": null },
+  "stages": {                                            // the best model for each stage's kind of work
+    "brief":   { "agent": "claude", "model": "opus",        "effort": "xhigh" },
+    "build":   { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
+    "fix":     { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
+    "review":  { "agent": "codex",  "model": "gpt-6-astra", "effort": "xhigh" },
+    "babysit": { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" }
+  },
+  "worker":   { "agent": "claude", "model": "opus",        "effort": "xhigh" },   // a stage with no entry, and the fallback
+  "reviewer": { "agent": "codex",  "model": "gpt-6-astra", "effort": "xhigh" },   // the same, for review
   "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // null = off
 }
 ```
 
+Each stage runs on `stages.<stage>`; a stage with no entry there (or a home with no `stages`
+block) runs on `worker`, and review on `reviewer`. The defaults are the owner's choice of the best
+model for each kind of work, by benchmark, among the models the two installed agents can run:
+
+| Stage | Default | Why this one |
+|---|---|---|
+| STAR itself | Fable 5.1 (the model the STAR session is started on; not a setting here) | the strongest rule-following of the Claude models, with top-level reasoning |
+| brief, build, fix, babysit | Opus 5.5, xhigh | the best agentic coding and plain coding available, and it acts on an Orca dispatch. Fable 5.1 scores higher on rule-following but, started as an Orca worker, it treated the dispatch as pasted text and did nothing until told to go ahead (tried 2026-10-07): do not put it on a worker stage without trying that again |
+| review | GPT-6-Astra, xhigh | the highest reasoning score, and a different model family from the builder |
+
+`executor` says who runs a written plan inside a stage: `session` (the worker's own model, the
+default here, because the Claude models lead agentic coding) or `codex` (dispatch `codex exec`).
+The reviewer must stay a different model family from the builder: a review by the builder's own
+family is a weaker second opinion. Effort is `xhigh` on every stage. These are the most capable models and
+they use more of the Claude and Codex usage limits than a mid-tier setup; `max` effort costs
+about three times `xhigh` for a gain the benchmark cannot show reliably, so it is not the
+default.
+
 A model of `default` means: pass neither `--model` nor `--effort`. Model ids come from the CLIs,
-never from memory. Never pick a top-tier model (frontier, toughest, most capable) unless the user
-asked for one; `opus` is the mid tier.
+never from memory.
 
 ### The queue: `open-loops.md`
 
@@ -608,11 +632,11 @@ Every stage is its own Orca task and a fresh worker.
 
 | Stage | Worktree | Agent | Prompt |
 |---|---|---|---|
-| brief | the project's main checkout (`path:<repo path>`), read-only | worker | `/juel:star draft-brief <ref> --project <name> --item <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback]` (the row's raw `ref`, then its item name) |
-| build | a new Orca worktree in that project, set up as below | worker | `/juel:ship-ticket --unattended --brief HOME_DIR/briefs/<project>/<item>.md [--quiet-hours <window>]` |
-| review | the item's worktree | reviewer | the reviewer prompt below |
-| fix | the item's worktree | worker | `/juel:ship-ticket --unattended --brief <brief> --fix-review HOME_DIR/reviews/<project>/<item>-r<k>.md [--quiet-hours <window>]` |
-| babysit | the item's worktree | worker | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed HOME_DIR/reviews/<project>/<item>-r<k>.md --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the review file of the round that said SAFE: the worker's proof before it marks the PR ready) |
+| brief | the project's main checkout (`path:<repo path>`), read-only | `stages.brief` | `/juel:star draft-brief <ref> --project <name> --item <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback]` (the row's raw `ref`, then its item name) |
+| build | a new Orca worktree in that project, set up as below | `stages.build` | `/juel:ship-ticket --unattended --brief HOME_DIR/briefs/<project>/<item>.md [--executor session] [--quiet-hours <window>]` |
+| review | the item's worktree | `stages.review` | the reviewer prompt below |
+| fix | the item's worktree | `stages.fix` | `/juel:ship-ticket --unattended --brief <brief> --fix-review HOME_DIR/reviews/<project>/<item>-r<k>.md [--executor session] [--quiet-hours <window>]` |
+| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed HOME_DIR/reviews/<project>/<item>-r<k>.md --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--executor session] [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the review file of the round that said SAFE: the worker's proof before it marks the PR ready) |
 
 **Build worktree.** Orca picks the new worktree's branch name (`<user>/<name>` when the repo has a
 git username, else `<name>`) and cannot be told otherwise, and `ship-ticket` escalates when the
@@ -659,9 +683,16 @@ orca orchestration worker-start --task <task_id> --worktree path:<worktree> \
   --agent <agent> [--model <model> --effort <effort>] --json
 ```
 
+`<agent>`, `<model>` and `<effort>` come from `stages.<stage>` (else `worker`, or `reviewer` for
+review). `--executor session` is added to the prompt when that entry says `"executor": "session"`.
+
 `worker-start` exits 0 only for `ready`. Any other result: retry once with `--retry-of <dispatch_id>`
 and the same placement; a second failure → `failed`, queued. A rejected effort retries once with the
-next lower listed level. `--quiet-hours <window>` is `star.json`'s `quietHours` rendered as
+next lower listed level. A stage whose model cannot start at all (the agent is not installed, or
+the launch refuses the model: no access, no credits) falls back to `worker` (review: `reviewer`)
+once, and the queue gets one `--kind held` "<stage> for <item> ran on <fallback model>: <what the
+launch said>"; when the fallback is the very setting that failed, it is the ordinary failure above.
+A worker that starts and then sits on a usage-limit screen is the probe's `stuck: usage limit`. `--quiet-hours <window>` is `star.json`'s `quietHours` rendered as
 `HH:MM-HH:MM@tz` (for example `22:00-07:00@Asia/Manila`); omit the flag when it is null. A window
 is never judged by hand: `sh S/../ship-ticket/quiet-hours.sh "<window>"` prints `inside` or
 `outside`;
@@ -693,8 +724,8 @@ or
 VERDICT item=<item> round=<k> NOT-SAFE findings=<n> head=<sha>
 ```
 
-The reviewer agent is `reviewer` from `star.json` (default `codex`); without the codex CLI it is
-`claude` on a model other than the worker's, and STAR says so.
+The reviewer is `stages.review` from `star.json` (default: `codex` on GPT-6-Astra); without the
+codex CLI it is `claude` on a model other than the builder's, and STAR says so.
 
 ## Brief worker mode: `draft-brief`
 
@@ -998,4 +1029,5 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
 | A project not registered with Orca | `--kind held` "register <repo> with Orca"; its inbox file stays until it is |
 | `codex` missing | The reviewer runs on claude with a different model; say so |
+| A stage's model is refused at launch (no access, no credits) | The stage falls back to `worker` once and the queue says which model ran |
 | The home has uncommitted edits by the user | `git add -A` in the tick's commit includes them; never discard them |

@@ -1,8 +1,46 @@
 {
   "maxParallel": 3,
   "maxInReview": 3,
-  "worker": { "agent": "claude", "model": "opus", "effort": "high" },
-  "reviewer": { "agent": "codex", "model": "default", "effort": null },
+  "stages": {
+    "brief": {
+      "agent": "claude",
+      "model": "opus",
+      "effort": "xhigh"
+    },
+    "build": {
+      "agent": "claude",
+      "model": "opus",
+      "effort": "xhigh",
+      "executor": "session"
+    },
+    "fix": {
+      "agent": "claude",
+      "model": "opus",
+      "effort": "xhigh",
+      "executor": "session"
+    },
+    "review": {
+      "agent": "codex",
+      "model": "gpt-6-astra",
+      "effort": "xhigh"
+    },
+    "babysit": {
+      "agent": "claude",
+      "model": "opus",
+      "effort": "xhigh",
+      "executor": "session"
+    }
+  },
+  "worker": {
+    "agent": "claude",
+    "model": "opus",
+    "effort": "xhigh"
+  },
+  "reviewer": {
+    "agent": "codex",
+    "model": "gpt-6-astra",
+    "effort": "xhigh"
+  },
   "quietHours": null,
   "run": null,
   "terminal": null,

@@ -135,6 +135,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 | `[pr-number]` | (required) | GitHub PR number to fetch review comments from |
 | `--unattended` | off | No human answers (a `juel:star` worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
 | `--brief <path>` | — | An approved `juel_brief: 1` brief. A reviewer request that needs work outside its Scope (or listed under Out) is not built: see below |
+| `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
 | `--only <ids>` | all unanswered feedback | Comma-separated comment / review ids to act on this run. Every other thread is still read as context, but is never re-classified, planned or answered |
 
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
@@ -369,6 +370,10 @@ The plan must:
 - Include verification commands per task
 
 ### Step 4: Dispatch Codex
+
+**With `--executor session`:** do not dispatch Codex. Execute the plan in this session with
+`Skill("superpowers:executing-plans")`, the same path as when Codex is not installed. Without the
+flag:
 
 Run Codex CLI non-interactively with the workspace-write sandbox:
 

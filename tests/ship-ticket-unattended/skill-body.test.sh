@@ -88,5 +88,9 @@ g "W4 the gate's own exit codes are not a red gate" 'gate-unavailable'
 g "W5 every invoked skill is told the run is unattended" 'Unattended run: the approved brief'
 g "W6 verification steps the user gave in a decision count" 'verification steps given under `## Decisions`'
 grep -q 'id: orca' "$SKILL" && pass "W7 orca is declared (a worker asks the coordinator through it)" || fail "W7 orca not declared"
+# Who runs the plan
+g "X1 the plan executor is a choice" '| `--executor <session|codex>` |'
+g "X2 session means this session runs the plan" 'superpowers:executing-plans'
+grep -qF -- '--executor' "$ROOT/skills/review-and-execute/SKILL.md" && pass "X3 review-and-execute takes the same choice" || fail "X3 review-and-execute --executor"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
