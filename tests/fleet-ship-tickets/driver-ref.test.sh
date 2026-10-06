@@ -39,5 +39,8 @@ grep -q 'isDraft,reviewDecision,headRefOid,mergeable,statusCheckRollup' "$REF" &
 grep -q 'maxInReview' "$REF" && pass "separate review pool" || fail "review pool"
 grep -q 'never ask a worker to' "$REF" && pass "merge never delegated" || fail "merge never delegated"
 grep -q 'MERGED item=<item>' "$REF" && pass "ready becomes done only on merge" || fail "MERGED handling"
+grep -q 'only when the row is `dispatched`; otherwise ignore it' "$REF" && pass "ACK guarded by state" || fail "ACK guard"
+grep -q 'falling back to `state`' "$REF" && pass "commit statuses read" || fail "status contexts"
+grep -q 'mergeable: UNKNOWN' "$REF" && pass "UNKNOWN mergeable re-checked" || fail "UNKNOWN mergeable"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

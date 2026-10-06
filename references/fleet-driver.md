@@ -224,7 +224,8 @@ next round starts when a review slot is free) or an `ESCALATION`.
 Send the worker: `chat_message(<worker chatId>, message: "CONTINUE item=<item> phase=8")`. The worker
 runs `/juel:babysit-pr` unattended: it marks the PR ready (after the quiet window if inside it),
 answers reviewer feedback in batches, pushes fixes, and ends with `READY item=<item> pr=<url>
-head=<sha>` or an `ESCALATION`. This turn can last hours; that is normal.
+head=<sha> cursor=<iso>` or an `ESCALATION`. It waits for CI to finish before `READY`. This turn can last
+hours, and up to 72 h without reviewer activity before it escalates; that is normal.
 
 ## Step 10: verify the exact head
 
@@ -234,12 +235,15 @@ On `READY`, check the PR yourself when `gh` is available:
 gh pr view <url> --json isDraft,reviewDecision,headRefOid,mergeable,statusCheckRollup
 ```
 
-It passes when `isDraft` is false, `reviewDecision` is `APPROVED`, `headRefOid` equals the reported
-`head`, `mergeable` is `MERGEABLE`, and every check's conclusion is `SUCCESS`, `NEUTRAL` or
-`SKIPPED`. Then: state → `ready`, record `head`, free the review slot, and write the open loop
+It passes when `isDraft` is false; `reviewDecision` is `APPROVED` (or null on a repo that requires
+no review, with an `APPROVED` review after the last commit); `headRefOid` equals the reported `head`;
+`mergeable` is `MERGEABLE`; and every check passed. A check entry carries `conclusion` (check runs)
+or `state` (commit statuses): read `conclusion`, falling back to `state`, and accept `SUCCESS`,
+`NEUTRAL` or `SKIPPED`. A check still pending, or `mergeable: UNKNOWN` (GitHub is still computing it
+after a push), is not a failure: check once more after a minute before deciding. Then: state → `ready`, record `head`, free the review slot, and write the open loop
 `merge PR #<n> — approved, green, head <sha7>`.
 
-- The head moved, or new feedback is waiting → send `CONTINUE item=<item> phase=8` again (once);
+- The head moved, or new feedback is waiting → send `CONTINUE item=<item> phase=8 since=<cursor>` again (once);
   still not passing on the second `READY` → `escalated` with what failed.
 - A check is failing or pending, or approval is missing → `escalated`, open loop naming the check
   or the missing approval.
@@ -253,13 +257,13 @@ Workers speak in single-line reports. Parse by prefix:
 
 | Line | Do |
 |---|---|
-| `ACK <item> <worktree>` | state → `acked` |
-| `PHASE <n> <item>` | state → `running` (build turns only) |
+| `ACK <item> <worktree>` | state → `acked`, only when the row is `dispatched`; otherwise ignore it |
+| `PHASE <n> <item>` | state → `running`, only when the row is `acked` or `running`; otherwise ignore it |
 | `HELD item=<item> action=<action>` | append an open loop with reason `quiet hours` or `no connector`; keep the state |
 | `PR item=<item> url=<url> draft` | record the PR |
 | `DONE item=<item> pr=<url>` | build finished: state → `pr-draft`, free the build slot. If `pr` is a compare URL (no `/pull/`), there is no PR to review: state → `escalated` (the worker already sent a `HELD` to open it) |
 | `FIXED item=<item> head=<sha>` | state → `pr-draft`, record `head`, free the build slot |
-| `READY item=<item> pr=<url> head=<sha>` | step 10 |
+| `READY item=<item> pr=<url> head=<sha> cursor=<iso>` | record `head` and `cursor`; step 10 |
 | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` | see below |
 
 **Missed ACK.** If a worker's first turn ends and its row is still `dispatched`, do not create

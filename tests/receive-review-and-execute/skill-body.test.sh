@@ -13,5 +13,7 @@ grep -q 'do not execute anything, including the' "$SKILL" && pass "no partial ex
 grep -q 'AMBIGUOUS: <author> <file:line>' "$SKILL" && pass "ambiguous findings reported" || fail "AMBIGUOUS line"
 grep -q 'Ask via\|ask via' "$SKILL" && pass "interactive path kept" || fail "interactive path"
 
+grep -q 'prints `STOPPED: <reason>`' "$SKILL" && pass "every unattended stop is reported" || fail "STOPPED line"
+grep -q '| AskUserQuestion | context | HARD |' "$SKILL" && pass "interactive runs still stop headless" || fail "AskUserQuestion HARD"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

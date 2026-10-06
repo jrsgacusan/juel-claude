@@ -283,14 +283,14 @@ literal `null` or an empty string.
 
 | When | Line |
 |---|---|
-| very first output, before the preflight block | `ACK <item> <worktree-path>` |
+| very first output of the **build turn** only, before the preflight block (never on a `REVIEW-FINDINGS` or `CONTINUE` turn) | `ACK <item> <worktree-path>` |
 | start of each phase | `PHASE <n> <item>` |
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
 | build finished, draft PR open (end of the first turn) | `DONE item=<item> pr=<url>` |
 | review findings fixed and pushed (a `REVIEW-FINDINGS` turn) | `FIXED item=<item> head=<sha>` |
-| approved, green and pushed (a `CONTINUE` turn) | `READY item=<item> pr=<url> head=<sha>` |
+| approved, green and pushed (a `CONTINUE` turn) | `READY item=<item> pr=<url> head=<sha> cursor=<iso>` |
 
 **Turns.** An unattended worker owns its item across several turns, all in the same chat:
 
@@ -304,9 +304,13 @@ literal `null` or an empty string.
    full, including cleanup and the regression gate. Commit, `git push`, and print
    `FIXED item=<item> head=<sha>` with each rejected finding and its reason listed above it. Never
    force-push.
-3. **`CONTINUE item=<item> phase=8`**: run Phase 8 unattended (below). Its last line is `READY` or an
-   `ESCALATION`. The driver may send `CONTINUE` again when its own check of the PR finds the head
-   moved; run Phase 8 again from its step 2.
+3. **`CONTINUE item=<item> phase=8 [since=<iso>]`**: run Phase 8 unattended (below). Its last line is
+   `READY` or an `ESCALATION`. The driver may send `CONTINUE` again, with the `since` cursor from the
+   last `READY`, when its own check of the PR finds the head moved; run Phase 8 again from its step 2
+   and pass `--since <iso>` so comments already answered are not answered twice.
+
+`REVIEW-FINDINGS` and `CONTINUE` turns re-run the preflight per protocol rule 1 but never print
+`ACK` or `PHASE` lines: those belong to the build turn.
 
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
@@ -621,7 +625,7 @@ the evidence directory. Ask to proceed to PR.
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
    - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist).
 3. Open the PR, or degrade if `gh` is unavailable:
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. Marking it ready is the human's call.
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. It is marked ready once, in Phase 8, only after the second-model review says SAFE.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 

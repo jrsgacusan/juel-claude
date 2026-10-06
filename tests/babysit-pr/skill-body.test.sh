@@ -25,5 +25,10 @@ grep -q 'READY item=<item> pr=<url> head=<pushed sha>' "$SKILL" && pass "unatten
 grep -q 'Never mark it ready a second time' "$SKILL" && pass "marked ready once" || fail "mark-ready once"
 grep -q '\*\*deferred\*\*' "$SKILL" && pass "quiet hours defer reviewer-facing actions" || fail "quiet-hours deferral"
 grep -q 'Fixes, gates and pushes never wait' "$SKILL" && pass "pushes continue in quiet hours" || fail "pushes in quiet hours"
+grep -q 'wait for CI and the approval' "$SKILL" && pass "READY waits for CI" || fail "READY waits for CI"
+grep -q 'Nothing deferred is lost' "$SKILL" && pass "deferred actions flushed or held" || fail "deferred flush"
+grep -q '| `--since <iso>` |' "$SKILL" && pass "resumable cursor" || fail "--since cursor"
+grep -q 'reason=no-review' "$SKILL" && pass "review wait is bounded" || fail "no-review bound"
+grep -q 'when `decision` is null' "$SKILL" && pass "approval without required review" || fail "null decision approval"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
