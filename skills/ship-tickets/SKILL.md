@@ -22,6 +22,10 @@ metadata:
         hard: true
         why: worktree branch renames and the shared state directory under the git common dir
         check: "command -v git"
+      - id: claude
+        hard: true
+        why: build, fix and babysit workers run the configured worker agent, claude by default
+        check: "command -v claude"
       - id: codex
         hard: false
         why: the second-model reviewer runs as a codex worker
@@ -46,7 +50,7 @@ metadata:
         check: "ORCA_TERMINAL_HANDLE is set"
       - id: interactive-user
         hard: true
-        why: brief approval, relayed worker questions and open-loop decisions use AskUserQuestion
+        why: intake (source selection and brief approval) uses AskUserQuestion; the coordinator loop never does
       - id: work-source-list-capable
         hard: false
         why: intake lists the user's open items
@@ -116,6 +120,7 @@ everything important in files.
 | orca | cli | HARD | `resolve_bin orca` against PATH, then the app-bundle candidate | STOP → https://www.onorca.dev |
 | gh | cli | HARD | `gh auth status` | STOP → `gh auth login` |
 | git | cli | HARD | `command -v git` | STOP |
+| claude | cli | HARD | `command -v claude` (or the configured `ship.worker.agent`) | STOP → install the worker agent CLI |
 | codex | cli | SOFT | `command -v codex` | the reviewer runs as a claude worker on a model other than the builders' |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
@@ -160,7 +165,7 @@ Read from `<repo>/.claude/workflow.json` (`.claude/workflow.local.json` deep-mer
   "maxParallel": 3,                                      // build pool, default 3
   "maxInReview": 3,                                      // review + babysit pool, default 3
   "worker":   { "agent": "claude", "model": "opus",    "effort": "high" },
-  "reviewer": { "agent": "codex",  "model": "default", "effort": "high" },
+  "reviewer": { "agent": "codex",  "model": "default", "effort": null },     // default + null effort: the CLI's own defaults
   "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // absent = off
 }
 ```
@@ -192,8 +197,8 @@ never committed:
 - `open-loops.md` — `- [ ] <iso time> <item> — <action> — <reason> — notify: pending|sent|print-only`
 - `questions.md` — one line per worker question relayed to the user: `<message id> <item> <deadline> open|answered|expired`
 - `briefs/<item>.md`, `reviews/<item>-r<k>.md` (each reviewer's whole output),
-  `reviews/<item>-r<k>-fix.md` (the fix worker's outcome per finding), `gates/<item>.txt` (the build's
-  resolved gates)
+  `reviews/<item>-r<k>-fix.md` (the fix worker's outcome per finding), `gates/<item>.json` (the build's
+  resolved gate manifest)
 
 `<git-common-dir>/juel/gate.lock` is the heavy-gate lock workers share through `juel:ship-ticket`'s
 `gate-lock.sh`.
@@ -207,7 +212,7 @@ States:
 | `pr-draft` | — | draft PR open; waiting for a review slot |
 | `reviewing` | review | second-model reviewer running, or `findings waiting` for a build slot |
 | `fixing` | build | fix worker running (`ship-ticket --fix-review`) |
-| `babysit-queued` | — | must be babysat again (head moved, or new feedback at verification); waiting for a review slot |
+| `babysit-queued` | — | waiting for a review slot to start babysitting (after SAFE, or again when the head moved or new feedback arrived at verification) |
 | `babysitting` | review | babysit worker running (`babysit-pr --unattended --mark-ready`) |
 | `verifying` | review | `READY` received; exact-head check pending (checks still running or mergeable `UNKNOWN`) |
 | `ready` | — | approved, green, verified on the exact head; waiting for your merge |
@@ -328,8 +333,10 @@ Never call AskUserQuestion inside the loop: it blocks every other item until you
 printed and notified, and your answer arrives as an ordinary message between ticks.
 
 **Persist before acting.** Write the row before every `task-create` (state, stage, round), record
-the task id right after `task-create` and the dispatch id right after `worker-start`, and append a
-message to `processed.log` before acknowledging its delivery. On `resume` or after a compaction,
+the task id right after `task-create` and the dispatch id right after `worker-start`. Write the whole ledger right after each message's
+transition (and its saved artifacts), then append the message to
+`processed.log`, and only then acknowledge the delivery — never batch ledger writes to the end of a
+tick, or a restart finds the message logged but its transition missing. On `resume` or after a compaction,
 a message already in `processed.log` is skipped, and a row whose stage has a task but no dispatch is
 reconciled with `orca orchestration dispatch-show --task <id> --json` before anything is started
 again. This is what stops a restart from starting a second worker on the same item.
@@ -343,10 +350,10 @@ again. This is what stops a restart from starting a second worker on the same it
 
    | Message | Action |
    |---|---|
-   | `worker_done`, body starts `DONE item=… pr=<url>` | save its `GATES` line to `gates/<item>.txt`; state `pr-draft`; free the build slot. A compare URL instead of a PR (no `/pull/`) → `escalated` (the `HELD` line asks you to open it) |
-   | `worker_done`, `FIXED item=… head=<sha>` | save the body to `reviews/<item>-r<k>-fix.md` (the worker wrote it there too); state `pr-draft`, record head; free the build slot |
+   | `worker_done`, body starts `DONE item=… pr=<url>` | save the JSON after `GATES` to `gates/<item>.json`; state `pr-draft`; free the build slot. A compare URL instead of a PR (no `/pull/`) → `escalated` (the `HELD` line asks you to open it) |
+   | `worker_done`, `FIXED item=… head=<sha>` | save the body to `reviews/<item>-r<k>-fix-receipt.md`, never over the worker's own `reviews/<item>-r<k>-fix.md` (write that one from the body only if the worker left none); state `pr-draft`, record head; free the build slot |
    | `worker_done` from a reviewer | **Save every reviewer body** to `reviews/<item>-r<k>.md` first, then read its last line |
-   | `VERDICT item=… round=<k> SAFE` | state `babysitting` (the review slot carries over); start the babysit stage |
+   | `VERDICT item=… round=<k> SAFE` | state `babysit-queued` (the review slot frees; `babysit-queued` rows are first in line for the next one, so a memory hold just waits a tick); step 3 starts the babysit stage, and the row becomes `babysitting` only once `worker-start` reports `ready` |
    | `VERDICT … NOT-SAFE`, round 1 or 2 | state `reviewing` with `findings waiting` until a build slot frees, then state `fixing` (the review slot frees) and start the fix stage |
    | `VERDICT … NOT-SAFE`, round 3 | `escalated`: "review still NOT SAFE after 3 rounds — see reviews/<item>-r3.md" |
    | no `VERDICT` line from a reviewer | start the same round once more; a second miss → `escalated` |
@@ -354,7 +361,7 @@ again. This is what stops a restart from starting a second worker on the same it
    | `ESCALATION item=… phase=… reason=… needs=…` in a `worker_done` | `escalated`; open loop with `needs=`; notify; free the slot |
    | an `escalation` message (the worker may still be running) | open loop and notify, but keep the row and its slot until that worker's `worker_done` arrives or it is found settled (step 4) |
    | `HELD item=… action=…` lines in any body | one open loop each |
-   | `question` (a worker's `orca orchestration ask`) | answer with `orca orchestration reply --id <msg_id> --body <answer>` when the brief decides it. Otherwise add it to `questions.md` with a deadline 30 min out, print it, notify, and keep looping; the worker stays blocked and keeps its slot |
+   | `question` (a worker's `orca orchestration ask`) | answer with `orca orchestration reply --id <msg_id> --body <answer>` when the brief decides it. Inside quiet hours, reply at once "No answer during quiet hours: escalate this." (the worker escalates `unanswered-question`, so nothing pings you and no slot waits overnight). Otherwise add it to `questions.md` with a deadline 30 min after the notification is sent, print it, notify, and keep looping; the worker stays blocked and keeps its slot |
    | any `worker_done` whose body lacks the line its stage owes | `failed`; open loop quoting the body; free the slot. Never re-run automatically |
 
    After processing each settled `worker_done`: `orca orchestration worker-release --dispatch <id>`.
@@ -368,19 +375,21 @@ again. This is what stops a restart from starting a second worker on the same it
      escalate this.", mark it `expired`; the worker escalates `unanswered-question`.
    - **Settlement.** For every row in a worker stage, `orca orchestration worker-show --dispatch <id>
      --json`. A worker that has settled without a processed `worker_done` at the previous tick as
-     well → `failed`, open loop, free the slot. (A report can lag its settlement by a tick; two
-     ticks cannot.)
+     well → `failed`, open loop, free the slot, and release its dispatch
+     (`worker-release --dispatch <id>`). The same release follows every `worker-stop`. (A report
+     can lag its settlement by a tick; two ticks cannot.)
    - **Stuck workers.** Read each worker that has not reported since the last tick once with
      `orca orchestration worker-read --dispatch <id> --limit 30 --json`: a worker stuck at a dialog,
      a model or login prompt, or a usage limit never reports on its own — `worker-stop` it, mark
      the row `failed`, open loop with what it shows. Never answer a TUI prompt for a worker.
-   - **Verifying rows.** Run the exact-head check again (once; see below).
+   - **Verifying rows.** Only rows whose `retry-not-before` time has passed, set in an earlier
+     tick: run the exact-head check again (once; see below).
    - **Ready rows.** `gh pr view <n> --json state,headRefOid` — `MERGED` → `done`. Head moved since
      verification → `babysit-queued` if `restarts` is 0 (then `restarts` = 1); otherwise
      `escalated`. One restart budget per item, shared with the verification step.
    - **Notifications.** Every open loop still `notify: pending` whose quiet window is over is sent
      now and marked `sent` (or `print-only` when no notification tool exists).
-5. **Write `ledger.md`** (the whole file) and print one status line: counts per state, slots in use,
+5. **Write `ledger.md`** once more (it was already written after every change) and print one status line: counts per state, slots in use,
    new open loops.
 
 ## Stages
@@ -393,24 +402,36 @@ idle agent holds memory between stages.
 | build | a new one, created as below | worker | `/juel:ship-ticket --unattended --brief <BATCH>/briefs/<item>.md [--quiet-hours <window>]` |
 | review | the item's worktree | reviewer | the reviewer prompt below |
 | fix | the item's worktree | worker | `/juel:ship-ticket --unattended --brief <BATCH>/briefs/<item>.md --fix-review <BATCH>/reviews/<item>-r<k>.md [--quiet-hours <window>]` |
-| babysit | the item's worktree | worker | `/juel:babysit-pr <n> --unattended --mark-ready --item <item> --brief <BATCH>/briefs/<item>.md --gates "<gates from gates/<item>.txt, non-null commands ;-separated>" [--since <cursor>] [--quiet-hours <window>]` |
+| babysit | the item's worktree | worker | `/juel:babysit-pr <n> --unattended --mark-ready --item <item> --brief <BATCH>/briefs/<item>.md --gates-file <BATCH>/gates/<item>.json [--since <cursor>] [--quiet-hours <window>]` |
 
-**Build worktree.** Orca names a new worktree's branch `<user>/<name>` and cannot be told otherwise,
-and `ship-ticket` escalates when the checkout is not on the brief's branch. So create the worktree
-first, without an agent, then rename the branch and copy the untracked files, and only then start
-the worker:
+**Build worktree.** Orca picks the new worktree's branch name (`<user>/<name>` when the repo has a
+git username, else `<name>`) and cannot be told otherwise, and `ship-ticket` escalates when the
+checkout is not on the brief's branch. So set the worktree up first, without an agent, and only
+then start the worker:
 
-```sh
-orca worktree create --repo "id:<REPO_ID>" --name "<item>" --base-branch "<remote>/<baseBranch>" \
-  --no-parent --setup run --json          # keep result.worktree.path as <worktree>
-git -C "<worktree>" branch -m "<brief branch>"
-```
+1. **Reuse first.** If `git worktree list --porcelain` shows a worktree on `refs/heads/<brief
+   branch>`, use its path and skip to step 4.
+2. **Create.** `orca worktree create --repo "id:<REPO_ID>" --name "<item>" --base-branch
+   "<remote>/<baseBranch>" --no-parent --setup run --json`; keep `result.worktree.path` as
+   `<worktree>`.
+3. **Put it on the brief's branch.** If `git show-ref --verify --quiet refs/heads/<brief branch>`
+   succeeds (a branch left by an earlier attempt), `git -C <worktree> switch <brief branch>`, then
+   delete Orca's branch; otherwise `git -C <worktree> branch -m <brief branch>`. A non-zero exit →
+   `failed` with an open loop; never start a worker on the wrong branch. Git is authoritative;
+   Orca's view of the branch can lag for a moment.
+4. **Copy untracked files** from the main checkout, under `sh` so a pattern that matches nothing
+   cannot abort it (zsh does), and never overwrite a tracked file:
 
-Then copy untracked project files from the main checkout into `<worktree>` (`.env`, `.env.*`,
-`*.local`, `.envrc`, `.npmrc`, `.tool-versions`, only when `git ls-files --error-unmatch` says they
-are untracked) and the `.claude/` directory, and check each one landed. Git is authoritative for the
-branch name; Orca's view of it can lag for a moment. A worktree that already exists for the item's
-branch is reused, never duplicated.
+   ```sh
+   sh -c 'cd "<main checkout>" && find . -maxdepth 1 -type f \( -name ".env" -o -name ".env.*" \
+     -o -name "*.local" -o -name ".*.local" -o -name ".envrc" -o -name ".npmrc" -o -name ".tool-versions" \) \
+     | while IFS= read -r f; do git ls-files --error-unmatch "$f" >/dev/null 2>&1 || cp -p "$f" "<worktree>/$f"; done
+     git ls-files --others --exclude-standard .claude; git ls-files --others --ignored --exclude-standard .claude' \
+     | while IFS= read -r f; do mkdir -p "<worktree>/$(dirname "$f")"; cp -p "<main checkout>/$f" "<worktree>/$f"; done
+   ```
+
+   Only untracked or ignored files under `.claude/` are copied; tracked ones arrive with the
+   checkout. Then check each copied file exists in `<worktree>`.
 
 **Starting a stage** (after the build worktree exists):
 
@@ -466,7 +487,8 @@ passed — read `conclusion`, falling back to `state` for commit statuses, and a
 - **Pass** → state `ready`, free the review slot, open loop
   `merge PR #<n> — approved, green, head <sha7>`, notify.
 - **Pending checks or `mergeable: UNKNOWN`** → stay `verifying`, keep the review slot, record
-  `verify: retry <time>`; housekeeping checks once more at the next tick. Still not passing then →
+  `retry-not-before <now + 2 min>` in the row's `verify` cell; housekeeping checks once more after
+  that time, in a later tick. Still not passing then →
   `escalated` naming what is pending.
 - **Head moved or new feedback** → `babysit-queued` if `restarts` is 0 (then 1), else `escalated`.
 - **Anything else** → `escalated` naming the failing check or the missing approval.

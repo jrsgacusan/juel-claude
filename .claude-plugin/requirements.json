@@ -408,6 +408,7 @@
     },
     "ship-tickets": {
       "hard": [
+        "claude",
         "gh",
         "git",
         "git-repo",

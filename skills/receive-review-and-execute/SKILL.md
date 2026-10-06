@@ -136,6 +136,9 @@ Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute
   `BRIEF-VIOLATION: <author> <file:line> <request, trimmed> — <the scope line it breaks>` and stop
   before executing anything, so the human decides. Without `--brief`, scope is not checked.
 - With `--only`, phase 5 classifies only the listed items; the rest are context.
+- Heavy verification steps in the remediation plan (full test suites, builds) are written as
+  `juel:ship-ticket`'s `gate-lock.sh` line (`sh <gate-lock.sh> --holder <pr> -- <command>`), so they
+  wait their turn behind other unattended workers; targeted single-file tests run directly.
 - Any other STOP (a preflight STOP, a dirty tree, a missing PR) prints `STOPPED: <reason>` as its
   last line, so the caller never mistakes it for a run with nothing to fix.
 - Everything else runs as normal.

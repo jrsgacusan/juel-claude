@@ -19,5 +19,6 @@ grep -q 'fleet' "$SKILL" && fail "no fleet wording" || pass "no fleet wording"
 grep -q '| `--brief <path>` |' "$SKILL" && pass "S5 brief accepted" || fail "S5 --brief"
 grep -q 'BRIEF-VIOLATION:' "$SKILL" && pass "S5 out-of-scope requests stop" || fail "S5 BRIEF-VIOLATION"
 grep -q '| `--only <ids>` |' "$SKILL" && pass "S14 only listed items acted on" || fail "S14 --only"
+grep -q 'gate-lock.sh' "$SKILL" && pass "T9 executor heavy commands locked" || fail "T9 executor lock"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
