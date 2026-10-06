@@ -1,6 +1,6 @@
 ---
 name: star
-description: Use to run STAR, a permanent local coordinator that ships work items to merged-ready PRs across all your projects. STAR lives in its own git repo (~/juel-star) - a queue with Answer slots, a ledger, briefs, release records and shared memory notes. Hand it work from any session with "/juel:star add <refs>"; a worker drafts a brief per item for your approval, then Orca workers build, a second model reviews the draft PR, fixes land, and the PR is babysat until it is approved, green and verified on its exact head. STAR never reads big output, recovers by itself after compaction, and never merges. Triggers "start STAR", "add this to STAR", "what does STAR need from me", "/juel:star".
+description: Use to run STAR, a local coordinator that ships a project's work items to merged-ready PRs. Type "/juel:star <refs>" in the project - the session becomes the coordinator, or hands the refs to the one already running, and its state lives inside the project, git-ignored, under docs/superpowers/context/star - a queue with Answer slots, a ledger, briefs, release records and memory notes. A worker drafts a brief per item for your approval, then Orca workers build, a second model reviews the draft PR, fixes land, and the PR is babysat until it is approved, green and verified on its exact head. STAR never reads big output, recovers by itself after compaction, and never merges. Triggers "start STAR", "add this to STAR", "what does STAR need from me", "/juel:star".
 metadata:
   requires:
     mcp:
@@ -20,11 +20,11 @@ metadata:
         check: "gh auth status"
       - id: git
         hard: true
-        why: the docs repo is a git repo committed after every tick
+        why: star-home.sh finds the project's main checkout with it, and workers branch and push
         check: "command -v git"
       - id: python3
         hard: true
-        why: loops.sh, pr-verify.sh, worker-probe.sh, release-record.sh and the session hook run on it
+        why: star-home.sh, loops.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh and the session hook run on it
         check: "command -v python3"
       - id: claude
         hard: true
@@ -44,10 +44,10 @@ metadata:
         hard: true
         why: run-create binds the orchestration run to the calling terminal, which must be an Orca terminal
         check: "ORCA_TERMINAL_HANDLE is set"
-      - id: star-home
+      - id: git-repo
         hard: true
-        why: STAR's standing instructions, hook and files are tied to its docs repo being the session's cwd
-        check: "cwd is $JUEL_STAR_HOME or ~/juel-star"
+        why: STAR's state lives inside the project it is invoked in
+        check: "git rev-parse --show-toplevel"
       - id: interactive-user
         hard: true
         why: the first run asks for quiet hours; the loop itself never asks through AskUserQuestion
@@ -65,14 +65,15 @@ metadata:
 
 # STAR
 
-STAR is one long-running coordinator session for shipping work across all your projects. It plans,
-hands out work, checks results and keeps the queue; it never writes code and never reads big
-output. Real work goes to Orca workers: a fresh agent per stage, in the item's own worktree, that
-reports in at most 12 lines and is released. Everything that matters lives in files in STAR's own
-git repo, never only in chat, so a compacted or restarted STAR reads them and carries on. It follows
-the artifact "My 24/7 Agent Setup". **You merge; nothing here does.**
+STAR is one long-running coordinator session for shipping one project's work. You start it by
+typing `/juel:star` in the project; that session plans, hands out work, checks results and keeps
+the queue. It never writes code and never reads big output. Real work goes to Orca workers: a
+fresh agent per stage, in the item's own worktree, that reports in at most 12 lines and is
+released. Everything that matters lives in files inside the project, in a git-ignored folder,
+never only in chat, so a compacted or restarted STAR reads them and carries on. It follows the
+artifact "My 24/7 Agent Setup". **You merge; nothing here does.**
 
-**Announce:** "Using juel:star." (in `add`, `status` and `draft-brief` modes: say which mode.)
+**Announce:** "Using juel:star." (in hand-over, `status` and `draft-brief` modes: say which mode.)
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -107,10 +108,11 @@ the artifact "My 24/7 Agent Setup". **You merge; nothing here does.**
 
 ## Preflight
 
-`add`, `status`, `away`, `back`, `stop` and `draft-brief` are not a start: they skip this table (each states its
-own needs below) and the task list, and announce their own mode. Only a bare `/juel:star` is the
-start mode. `stop` typed in STAR's own session is the Stop rule below, nothing more: it does not
-run the start sequence first.
+`status`, `away`, `back`, `stop` and `draft-brief` are not a start: they skip this table (each
+states its own needs below) and the task list, and announce their own mode. So does a
+`/juel:star <refs>` that finds STAR already running for this project in another terminal: it
+hands the refs over and ends. Everything else is the start mode. `stop` typed in STAR's own
+session is the Stop rule below, nothing more: it does not run the start sequence first.
 
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
@@ -123,7 +125,7 @@ run the start sequence first.
 | codex | cli | SOFT | `command -v codex` | the reviewer runs as a claude worker on a model other than the builders' |
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
 | running in an Orca terminal | context | HARD | `[ -n "$ORCA_TERMINAL_HANDLE" ]` | STOP → start Claude Code from an Orca terminal and re-run there |
-| running in STAR's home | context | HARD | cwd is `$JUEL_STAR_HOME`, else `~/juel-star` | STOP → `mkdir -p ~/juel-star`, open an Orca terminal there, start Claude Code and run `/juel:star` |
+| inside a git repository | context | HARD | `git rev-parse --show-toplevel` | STOP → run `/juel:star` from inside the project's repository |
 | AskUserQuestion | context | HARD | always available interactively | STOP → the first run asks one setup question |
 | juel:ship-ticket, juel:babysit-pr, juel:receive-review-and-execute | skill | HARD | ship with this plugin | STOP |
 
@@ -131,8 +133,8 @@ run the start sequence first.
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
-1. Preflight — binaries, the Orca runtime and terminal, STAR's home
-2. Create the docs repo from the template, or load the existing one
+1. Preflight — binaries, the Orca runtime and terminal, the project's repository
+2. Create the project's STAR folder with `star-home.sh init`, or load the existing one
 3. Bind the Orca run, start caffeinate, register the heartbeat
 4. Reconcile every row in a worker stage
 5. Tick until idle or stopped
@@ -143,95 +145,116 @@ evidence; it completes when STAR goes idle or is stopped.
 
 ## Commands
 
-| Command | Run from | Effect |
-|---|---|---|
-| `/juel:star` | an Orca terminal whose cwd is STAR's home, in a Claude Code session started on Fable 5.1 (`claude --model fable`) | Start STAR, or resume it: the two are the same command |
-| `/juel:star add <refs…>` | any Claude session inside a project repo | Put items in STAR's inbox and nudge it |
-| `/juel:star status` | anywhere | Print the Needs-you block and counts per state. Read-only |
-| `/juel:star away` | anywhere, or tell STAR "I'm leaving" | Write the handoff file and switch to away mode (below) |
-| `/juel:star back` | anywhere, or tell STAR "I'm back" | Print the latest summary and the queue; leave away mode |
-| `/juel:star stop` | STAR's session | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
-| `/juel:star draft-brief <ref> --project <name> --out <path>` | a brief worker, never the user | Worker mode, below |
+Typed in the project (its main checkout, a linked worktree or any subfolder):
 
-STAR's home is `$JUEL_STAR_HOME` when set, else `~/juel-star`. Below, `HOME_DIR` is its absolute
-path and `S` is this skill's directory (`${CLAUDE_PLUGIN_ROOT}/skills/star` when that is set, else
-the directory of this file). Scripts are run as `sh S/<name>.sh`.
+| Command | Effect |
+|---|---|
+| `/juel:star SPH-11 and SPH-12` | STAR is not running for this project: this session becomes the coordinator, adds both refs and starts. STAR is running in another live terminal: this session hands the refs to it and stays free |
+| `/juel:star` | Start STAR for this project, or resume it: the two are the same command |
+| `/juel:star status` | Print the Needs-you block and counts per state. Read-only |
+| `/juel:star away` (or tell STAR "I'm leaving") | Write the handoff file and switch to away mode (below) |
+| `/juel:star back` (or tell STAR "I'm back") | Print the latest summary and the queue; leave away mode |
+| `/juel:star stop` | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
+| `/juel:star draft-brief <ref> --project <name> --out <path>` | Worker mode, below: a brief worker's command, never the user's |
 
-### `add`
+`S` is this skill's directory (`${CLAUDE_PLUGIN_ROOT}/skills/star` when that is set, else the
+directory of this file); scripts are run as `sh S/<name>.sh`. `HOME_DIR` is the project's STAR
+folder, and it is never worked out by hand: `sh S/star-home.sh path` prints it and
+`sh S/star-home.sh init` creates it. It is `<main checkout>/docs/superpowers/context/star` (under
+the project's own docs folder when it has configured another), so every worktree of a project
+shares one folder and a project has exactly one STAR.
 
-Needs: a git repo, and STAR's home to exist. No Orca terminal needed.
+The session that becomes the coordinator should be an Orca terminal running Claude Code on
+Fable 5.1 (`claude --model fable`); the stage table under "STAR's home" says why. The skill does
+not check the session's model.
 
-1. Repo path = the main checkout: the first `worktree ` line of `git worktree list --porcelain`
-   (right from a linked worktree, a subdirectory or a submodule). Project name = the name
-   `HOME_DIR/projects.md` already has for that repo path, else its basename (STAR settles the name
-   at ingest; the `repo:` line is what identifies the project).
-2. `mkdir -p HOME_DIR/inbox`, then write `HOME_DIR/inbox/<UTC YYYYMMDDTHHMMSSZ>-<project>-<4 random hex>.md`
-   (never overwrite an existing inbox file; pick another suffix):
+### Reading the command
 
-   ```
-   project: <name>
-   repo: <absolute repo path>
-   refs:
-   - <ref or absolute spec path>
-   note: <anything the user said about these items, one line; omit when nothing>
-   ```
-3. Nudge STAR: read `terminal` from `HOME_DIR/star.json` and run
-   `orca terminal send --terminal <handle> --text "inbox" --enter`. When `terminal` is null, the
-   command fails, or STAR's Resume block says `state: stopped`, say: "STAR is not running; the item
-   waits in the inbox and is picked up when you start it."
-4. When `HOME_DIR` does not exist, write nothing and say how to create it (the star-home row above),
-   naming `$JUEL_STAR_HOME` when that is set. A custom home must be exported in the user's
-   shell profile, not only in STAR's terminal: `add`, `away`, `back` and `status` run in other sessions
-   and look in `~/juel-star` when they cannot see the variable.
+Everything after `/juel:star` is read as words. A first word of `status`, `away`, `back`, `stop`
+or `draft-brief` is that command. Otherwise every word that is a work-item ref (`SPH-11`, `#412`)
+or a path to a spec file is a ref, and the rest is ignored: `SPH-11 and SPH-12`, `SPH-11, SPH-12`
+and `add SPH-11 SPH-12` are the same request. Words that say something about the items ("the
+second one is urgent") go into the inbox file's `note:` line.
+
+### Coordinator, or hand-over
+
+1. `HOME_DIR=$(sh S/star-home.sh path)`. Exit 1 (not inside a project's repository) → say so in one
+   line and stop. `path` creates nothing.
+2. When `HOME_DIR/star.json` exists, read its `terminal`. It names a terminal that is not this
+   session's `$ORCA_TERMINAL_HANDLE` and that `orca terminal list --limit 500 --json` still lists
+   (and the user did not say "take over") → **hand-over**: STAR is running there, and this session hands the refs to it. Write them as an
+   inbox file (below), nudge it with `orca terminal send --terminal <handle> --text "inbox" --enter`,
+   say "STAR for <project> runs in <handle>; I handed it <refs>", and end. With no refs, say where
+   it runs and print `status`. Hand-over needs no Orca terminal. The list cannot be read → write
+   the inbox file, say that it could not be checked whether STAR is running, and end: never become
+   a second coordinator on a guess.
+3. Otherwise **this session becomes the coordinator**: run the Preflight table (a STOP there leaves
+   the project untouched: nothing was created yet), then `sh S/star-home.sh init`, write any refs as
+   an inbox file, then the start sequence ("Start, resume, stop"). The first tick ingests them.
+
+An inbox file is `HOME_DIR/inbox/<UTC YYYYMMDDTHHMMSSZ>-<4 random hex>.md` (never overwrite an existing inbox file;
+pick another suffix):
+
+```
+repo: <absolute path of the main checkout>
+refs:
+- <ref or absolute spec path>
+note: <anything the user said about these items, one line; omit when nothing>
+```
 
 A message to STAR that says only `inbox` means "run a tick now".
 
 ### `status`
 
-`sh S/loops.sh --file HOME_DIR/open-loops.md list`, then counts per state from `ledger.md`. Print
-both. Nothing else.
+`HOME_DIR=$(sh S/star-home.sh path)`. No `star.json` there → "STAR has not been started in this
+project." Otherwise `sh S/loops.sh --file HOME_DIR/open-loops.md list`, then counts per state from
+`ledger.md`. Print both. Nothing else.
 
-### `away` and `back`
+### `away`, `back` and `stop` from another session
 
-In STAR's own session these run directly (see "Handoff"). From any other session they need only
-STAR's home: write `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` containing the single
-line `control: away` (or `control: back`), then nudge STAR exactly as `add` does. STAR not running →
-say so; the control file waits in the inbox.
+In STAR's own session these run directly (see "Handoff" and "Stop"). From any other session of
+the project: write `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` containing the single
+line `control: away` (or `control: back`, `control: stop`), then nudge STAR as in hand-over. STAR
+not running → say so; the control file waits in the inbox.
 
 ## STAR's home
 
-Created on the first `/juel:star` in a home without `star.json` (an empty folder, or one that so far
-holds only the `inbox/` an early `add` made; inbox files there are kept and ingested): copy `S/template/` into it (rename `gitignore`
-to `.gitignore`), `mkdir -p inbox briefs reviews gates releases drafts`, `git init`, commit
-`star: init`. Ask once, with AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking
-or status changes while you're away?") and write it to `star.json`. Then tell the user where the
-queue is: `HOME_DIR/open-loops.md`.
+`sh S/star-home.sh init` creates it the first time `/juel:star` runs in a project: the queue, the
+ledger and `star.json` from `S/template/`, the folders below, and one line in the repository's
+`.git/info/exclude` so git ignores it (never `.gitignore`: nothing shows as a change, and a
+read-only repository is fine). It records the project in `star.json` as
+`"project": {"name": <the main checkout's folder name>, "repo": <its path>}`. On the first start
+(`run` in `star.json` is still null, which is true exactly once) STAR adds what it learns about
+the project to that block, as `orcaRepo` (the id from `orca repo list --json`, by repo path),
+`source` (the work source), `base` (the base branch) and `remote`. Then it asks once, with
+AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking or status changes while
+you're away?"), writes it to `star.json`, and tells the user where the queue is:
+`HOME_DIR/open-loops.md`.
+
+These files are plain local files. They are not a repository of their own: nothing is committed
+or pushed, and the standing instructions a session needs after a compaction come from the
+plugin's session hook ("Recovery").
 
 ```
-CLAUDE.md               standing instructions; Claude Code re-reads it after every compaction
-star.json               settings (below) plus run id, STAR's terminal handle, caffeinate pid, heartbeat id, "notified", "away"
+star.json               settings (below) plus "project", run id, STAR's terminal handle, caffeinate pid, heartbeat id, "notified", "away"
 open-loops.md           Resume block, then Needs you, then Waiting on others   (written only through loops.sh)
 open-loops-archive.md   closed items
 open-loops.md.seq       the highest queue id ever used (so an id is never handed out twice)
 handoff.md              the "before you go" lists and the summaries written while the user is away (handoff.sh)
 sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
-ledger.md               one row per item, all projects
+ledger.md               one row per item
 processed.log           <message id> <dispatch> <iso time>
-projects.md             | name | repo path | orca repo id | work source | base branch | remote |
-inbox/                  one file per add; deleted once ingested (not committed)
+inbox/                  one file per hand-over; deleted once ingested
 briefs/<project>/<item>.md
 reviews/<project>/<item>-r<k>.md   and   <item>-r<k>-fix.md
 gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
-memory/global.md, memory/<project>.md
+memory/<project>.md
 ```
 
-Every path keyed by an item is also keyed by its project, so the same item name in two projects
-never collides. A project is its repo path: `projects.md` maps each path to one name, set the
-first time the path is seen and never changed. An inbox file is matched to a project by its
-`repo:` path, never by name; a new repo whose basename is already taken by another path is named
-`<parent dir>-<basename>`.
+`<project>` is the name in `star.json`. A folder holds one project; the name stays in the paths,
+the queue and the ledger so every file says what it belongs to.
 
 Settings in `star.json`:
 
@@ -332,7 +355,7 @@ every other character becomes `-`, a leading `.` or `-` is dropped, and it is cu
 The raw reference stays in the `ref` column and is what the brief worker fetches.
 
 A ref that already has a row in that project which is not `done` or `dropped` is the same item: no new row
-(a second `add`, or an inbox file read twice after a restart, changes nothing; say so in the status
+(a ref handed over twice, or an inbox file read twice after a restart, changes nothing; say so in the status
 line). A name is used once per project, ever: a different ref that maps to a taken name, and
 a ref whose earlier row is `done` or `dropped` and is added again, get `-2`, `-3`. The new row
 then has its own brief, reviews and queue items, and an answer can never land on the old row.
@@ -368,15 +391,15 @@ worker except "Fill slots", so a restarted stage waits for its pool like any oth
 
 ## Start, resume, stop
 
-`/juel:star` in a home that already has rows is a resume; there is no separate command.
+`/juel:star` in a project whose folder already has rows is a resume; there is no separate command.
 
-**One STAR per home.** Before anything else: when `star.json` has a `terminal` that is not this
-session's `$ORCA_TERMINAL_HANDLE`, run `orca terminal list --limit 500 --json`. The handle is still
-listed → STOP and say "STAR is already running in <handle>: use that session, or close it and run
-`/juel:star` here. If that session is dead but its terminal is still open, say 'take over'." The
-list cannot be read, STOP too: no answer is not proof that the other session is gone. Only a
-handle that a readable list no longer has is a closed session. Two coordinators would fill the
-same slot twice and overwrite each other's ledger.
+**One STAR per home**, and a home is one project's folder. "Coordinator, or hand-over" above
+already decided that this session is to be the coordinator: `star.json` named no terminal, or
+this one, or one that `orca terminal list --limit 500 --json` no longer lists (a closed session).
+A handle that is still listed belongs to a running STAR, and this session handed its refs over
+and ended. When the list cannot be read, STOP: no answer is not proof that the other session is
+gone. If that session is dead but its terminal is still open, the user says "take over" here.
+Two coordinators would fill the same slot twice and overwrite each other's ledger.
 
 Then claim the home: write this session's handle to `star.json` at once and read it back after
 the next command. Another handle there means a second STAR started in the same moment: STOP.
@@ -390,16 +413,6 @@ session's own heartbeat job (find it with `CronList` by its prompt: the id in `s
 belongs to the other session), do nothing else (no slot, no ledger write, no ack), say "STAR now
 runs in <handle>", and end the turn.
 
-0. **Bring an older home up to date**, silently: a ledger whose header has no `counters` column
-   gets it before `updated` (header, separator, and `-` in every row); a `star.json` with
-   `notifiedThrough` gets `"notified": []` in its place and `"away": null` when missing. Old cell
-   contents are converted in the same pass, always the same way: `retry-not-before <iso>` → `retry=<iso>`
-   in `verify`; `moved 1` in `verify` → `moved=1` in `counters`; a `reviewing` row marked
-   `findings waiting` → state `fix-queued`, stage `fix`, and the mark removed; `HOLD: memory` in
-   `updated` is dropped; an `updated` cell that is not one UTC time → the time of the migration.
-   A migrated `babysit-queued`, `babysitting` or `verifying` row whose newest review file has no
-   `head=` on its first line → `pr-draft`: the review proof babysit now needs was never written
-   for it, so it gets a new review. Commit it as `star: migrate`.
 1. `orca orchestration run-use --id <run from star.json> --json`; when that run no longer exists,
    `orca orchestration run-create --objective "STAR" --json`. Record the run id and
    `$ORCA_TERMINAL_HANDLE` in `star.json`.
@@ -412,7 +425,7 @@ runs in <handle>", and end the turn.
    the time. Jobs fire only while the session is idle and die with the session, which is why every
    start registers a fresh one. A recurring job also expires by itself after 7 days: any tick that
    finds `heartbeatAt` 6 or more days old deletes the job and registers a new one, the same way.
-   No scheduler tool → skip it and say so: an idle STAR then wakes only on `add` or the user, so
+   No scheduler tool → skip it and say so: an idle STAR then wakes only on a hand-over nudge or the user, so
    away summaries and answers typed into the queue file wait for one of those.
 4. **Reconcile** every row in a worker stage with `sh S/worker-probe.sh <dispatch>`:
    `ok` or `quiet …` → keep it. `settled <state>` → its report is in the run's inbox; the settlement rule below
@@ -442,8 +455,9 @@ its first tick) deletes every `control: stop` file it finds: a stop older than t
 already happened, and must not stop STAR again.
 
 **Stop** (`/juel:star stop`, the user says stop, or a `control: stop` file): finish the current tick, kill the recorded
-caffeinate (only when `ps -p <pid> -o comm=` still prints `caffeinate`), delete the heartbeat, `loops.sh resume --state stopped --next "run /juel:star to resume"`,
-commit, and print the queue. Workers still running are left alone.
+caffeinate (only when `ps -p <pid> -o comm=` still prints `caffeinate`), delete the heartbeat, `loops.sh resume --state stopped --next "run /juel:star to resume"`, set
+`"terminal": null` in `star.json` (the claim is released, so the session hook goes quiet and the
+next `/juel:star` in this project becomes the coordinator), and print the queue. Workers still running are left alone.
 
 ## The tick
 
@@ -463,7 +477,7 @@ again and do not count anything; do only what comes after the row (`worker-relea
 
 **Match by dispatch, not by name.** A message belongs to the row whose `dispatch` cell equals the
 message's dispatch id (`payload.dispatchId`); the `item=` in its first line must then be that row's
-item. Item names repeat across projects, so a name alone never selects a row. A message changes no
+item. Item names can repeat, so a name alone never selects a row. A message changes no
 row, and is queued as `--kind held` with its first line, when its dispatch is in no row (or it
 carries no dispatch id: `--project - --item <the dispatch id, or unmatched>`), when its
 row is `done` or `dropped`, or when the row has moved on to a newer dispatch (a superseded attempt:
@@ -495,12 +509,14 @@ message into the same end state.
 1. **Inbox.** Read `HOME_DIR/inbox/*.md` in file-name order (the names start with a UTC time, so
    that is the order they were written in). A file whose only line is `control: away`,
    `control: back` or `control: stop` is that command: run it (see "Handoff" and "Stop") and delete
-   the file. For each other file: find its project in
-   `projects.md` by repo path, never by name, and learn a path seen for the first time (orca repo id from
-   `orca repo list --json` by repo path; not registered → `--kind held` "register <repo> with Orca:
-   orca repo add" and leave the file: the queue keeps one such item, however many ticks pass). Add
-   one `inbox` row per ref with its item name (the naming rule above) and the raw reference in
-   `ref`, skipping a ref that already has an open row, write the ledger, then delete the file.
+   the file. For each other file: its `repo:` must be this project's (`project.repo` in
+   `star.json`); a file for another repository is not ingested: queue `--kind held` "inbox file for
+   <repo>: STAR here ships <project> only" and delete it. The project is not registered with Orca
+   (no repo id in `star.json`, and `orca repo list --json` has no entry for the repo path) →
+   `--kind held` "register this repo with Orca: orca repo add" and leave the file: the queue keeps
+   one such item, however many ticks pass. Otherwise add one `inbox` row per ref with its item
+   name (the naming rule above) and the raw reference in `ref`, skipping a ref that already has an
+   open row, write the ledger, then delete the file.
 2. **Answers.** `sh S/loops.sh answers` prints one line per answered item. Act, then
    `loops.sh close <id>` (exit 4 means it is already closed: carry on). A command word counts only when it is
    the whole answer: lower-case it, strip punctuation, and compare all of it with `approve`, `yes`,
@@ -613,17 +629,14 @@ message into the same end state.
    - `verifying` rows past the `retry=` time in `verify`, and every `ready` row: the exact-head check (below).
    - Notifications (below).
    - Away: `sh S/handoff.sh --home HOME_DIR due` printing `due` → `sh S/handoff.sh --home HOME_DIR summary`.
-6. **Write and commit** (one `git commit` per tick that changed files). `loops.sh resume …` with the current pools and the next step;
-   `loops.sh waiting "<one line per PR in review, per blocked question>"`; then, when anything
-   changed: `git -C HOME_DIR add -A && git -C HOME_DIR commit -q -m "star: <n> transitions, <m> loops"`,
-   and `git push` when a remote named `origin` exists. A failed push is noted in the Resume block's
-   `next:` line and retried next tick; it is never fatal. Print one status line: counts per state,
-   then every open queue item.
+6. **Write.** `loops.sh resume …` with the current pools and the next step;
+   `loops.sh waiting "<one line per PR in review, per blocked question>"`. Nothing is committed:
+   the folder is plain files. Print one status line: counts per state, then every open queue item.
 
 **Active or idle.** While any row is in `inbox`, `briefing`, `queued`, `building`, `pr-draft`,
 `reviewing`, `fix-queued`, `fixing`, `babysit-queued`, `babysitting` or `verifying`, stay in the turn and tick
 again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
-`state: idle` and STAR ends its turn. It is woken by an `add` nudge, by the user, or by the
+`state: idle` and STAR ends its turn. It is woken by a hand-over nudge, by the user, or by the
 heartbeat, and each wake runs one tick.
 
 ## Stages
@@ -707,7 +720,7 @@ script said>". A window that cannot be judged never lets something out.
 You are reviewing a draft pull request you did not write, as a second, independent reviewer.
 Do not edit, commit, push or comment anywhere in the repo or on GitHub. Read only.
 Brief (the approved contract): <brief path>
-Notes for this project: <HOME_DIR>/memory/global.md and <HOME_DIR>/memory/<project>.md
+Notes for this project: <HOME_DIR>/memory/<project>.md
 Previous round (rounds 2 and 3 only): <review path of round k-1> and its -fix.md beside it. Judge
 each rejection on its merits; a prior rejection is evidence, not a verdict.
 Run: git fetch <remote> <baseBranch> && git diff <remote>/<baseBranch>...HEAD
@@ -736,7 +749,7 @@ Where a step below says ask, it sends `orca orchestration ask --question "<quest
 waits for the reply; a reply of "No answer … escalate this." ends the run with
 `ESCALATION item=<name> phase=0 reason=unanswered-question needs=<the question>`.
 
-1. Read `<HOME_DIR>/memory/global.md` and `<HOME_DIR>/memory/<project>.md` (HOME_DIR is two levels
+1. Read `<HOME_DIR>/memory/<project>.md` (HOME_DIR is two levels
    above `--out`'s directory). Then, before step 2, when a file already exists at `--out`, read its
    `## Feedback` section: the user's dated answers to earlier runs of this stage. `--feedback` is
    a bare flag that says there is something new there; the text itself is never put in the prompt,
@@ -794,7 +807,7 @@ old PR.
    star:
      home: <HOME_DIR>
      project: <project>
-     notes: [<HOME_DIR>/memory/global.md, <HOME_DIR>/memory/<project>.md]
+     notes: [<HOME_DIR>/memory/<project>.md]
      reviews: <HOME_DIR>/reviews/<project>
      gates: <HOME_DIR>/gates/<project>/<item>.json
    ---
@@ -849,9 +862,8 @@ STAR writes for the user only what shipping needs, and sends none of it by itsel
 
 ## Memory notes
 
-`memory/global.md` and `memory/<project>.md` are read by every worker before it starts (the brief
-lists them). Workers add to them only through a `NOTE:` line in their report, which STAR appends to
-`memory/<project>.md`. The user edits or deletes notes freely. When a project file passes 80 lines,
+`memory/<project>.md` is read by every worker before it starts (the brief lists it). Workers add
+to it only through a `NOTE:` line in their report, which STAR appends to it. The user edits or deletes notes freely. When a project file passes 80 lines,
 queue `--kind held` "trim memory/<project>.md" instead of trimming it yourself.
 
 ## Pools and the memory check
@@ -977,10 +989,13 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 
 ## Recovery
 
-- **Compaction:** Claude Code re-reads `HOME_DIR/CLAUDE.md`, and the plugin's session hook repeats
-  the instruction: run `/juel:star` if you are not in a tick. Nothing is needed from the user.
+- **Compaction:** the plugin's session hook tells the session that owns STAR for this project
+  (the terminal named in `star.json`) that it is the coordinator and to run `/juel:star` if it is
+  not in a tick. Other sessions in the same repository hear nothing. Nothing is needed from the
+  user.
 - **A closed session:** workers keep running and their reports wait in the Orca run. The user
-  reopens a terminal in STAR's home (`claude --continue`, or a new session) and runs `/juel:star`.
+  runs `/juel:star` in the project again, from any Orca terminal: the old terminal is no longer
+  listed, so the new session takes over.
 - **An Orca restart:** every worker is gone. The reconcile step restarts review, babysit and brief
   stages once and queues lost builds and fixes for the user.
 - **A stop in the middle of a tick:** nothing is lost and nothing runs twice. A message not yet in
@@ -1014,20 +1029,22 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Picking a row for a message by its `item=` name | By dispatch id; the name only confirms it |
 | Writing a note or a count into `updated` | `updated` is a time. Counts go in `counters` |
 | Working out the quiet window in your head | `quiet-hours.sh` says `inside` or `outside` |
+| Working out the STAR folder's path yourself | `star-home.sh path` prints it; `init` creates it |
 
 ## Edge cases
 
 | Situation | Handling |
 |---|---|
-| `add` while STAR is stopped | The inbox file is written; the item waits in the inbox |
-| The same ref added twice | One row. The second add changes nothing |
+| Refs given while STAR is stopped | The invoking session becomes the coordinator and ingests them |
+| The same ref given twice | One row. The second time changes nothing |
 | The user merges or closes a PR before STAR reached `ready` | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
-| A custom `JUEL_STAR_HOME` | Workers do not inherit it and do not need it: every path they use comes from the brief's `star:` block, and the gate lock is not under the home |
 | The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
-| A second `/juel:star` in another terminal on the same home | Refused while the first terminal is still open in Orca |
-| The same item name in two projects | Rows, briefs, reviews and records are all keyed by project |
+| A second `/juel:star` in another terminal of the same project | It hands its refs to the running STAR and ends; it never becomes a second coordinator |
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
-| A project not registered with Orca | `--kind held` "register <repo> with Orca"; its inbox file stays until it is |
+| The project is not registered with Orca | `--kind held` "register this repo with Orca: orca repo add"; inbox files stay until it is |
 | `codex` missing | The reviewer runs on claude with a different model; say so |
 | A stage's model is refused at launch (no access, no credits) | The stage falls back to `worker` once and the queue says which model ran |
-| The home has uncommitted edits by the user | `git add -A` in the tick's commit includes them; never discard them |
+| `/juel:star` typed in a linked worktree or a subfolder | The same folder as the main checkout: one STAR per project |
+| `/juel:star` typed outside a git repository | One line: STAR needs a project repository. Nothing is created |
+| The STAR folder was deleted | That project's state is gone; the next `/juel:star` starts fresh. Stop STAR first: workers still running would report to nobody |
+| Two projects each run a STAR | Each has its own queue and its own 3 + 3 slots; the gate lock and the memory check are shared by the machine |

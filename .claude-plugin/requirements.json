@@ -186,11 +186,6 @@
       "label": "run",
       "install": "Built-in Claude Code skill"
     },
-    "star-home": {
-      "kind": "context",
-      "label": "running in STAR's docs repo",
-      "install": "Open an Orca terminal in ~/juel-star (or $JUEL_STAR_HOME) and run /juel:star there; the first run creates the files"
-    },
     "superpowers": {
       "kind": "skill",
       "label": "superpowers",
@@ -429,6 +424,7 @@
         "claude",
         "gh",
         "git",
+        "git-repo",
         "interactive-user",
         "juel:babysit-pr",
         "juel:receive-review-and-execute",
@@ -436,8 +432,7 @@
         "orca",
         "orca-runtime",
         "orca-terminal",
-        "python3",
-        "star-home"
+        "python3"
       ],
       "soft": [
         "codex",
