@@ -118,6 +118,7 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--item <item>` | — | The work item's name for report lines (its ref, or its slug) |
 | `--mark-ready` | off | Mark a draft PR ready for review once, in Phase 1 (deferred while inside `--quiet-hours`) |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Window in which marking ready, replies and review requests wait; pushes still happen |
+| `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
 Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
 or as a fleet worker `/juel:babysit-pr 412 --unattended --mark-ready --item SAVI-1162 --gates "make test" --quiet-hours 22:00-07:00@Asia/Manila`
@@ -129,13 +130,23 @@ is there to answer, so every place below that tells the user something or asks t
 
 | Normally | With `--unattended` |
 |---|---|
-| Phase 2 waits in the background (Claude Code) | Always the foreground form with `--max-seconds 540`, repeated on `wake: timeout`: a background wait may never wake a headless session |
+| Phase 2 waits in the background (Claude Code) | Always the foreground form with `--max-seconds 540`, repeated on `wake: timeout`: a background wait may never wake a headless session. The same applies whenever `--quiet-hours` is set, unattended or not, so deferred commands run within minutes of the window ending |
+| `approved` wake needs `reviewDecision: APPROVED` | also on each `timeout` wake when `decision` is null (the base branch requires no review): `gh pr view <pr> --json reviews,commits` → an `APPROVED` review submitted after the last commit, and no `CHANGES_REQUESTED` after it, counts as approved → Phase 4 |
+| no limit on waiting | 72 h with no new feedback since the PR was marked ready → `ESCALATION item=<item> phase=8 reason=no-review needs=a reviewer`, after flushing (below) |
 | `errors`: tell the user, wait again | wait again; three `errors` in a row → `ESCALATION item=<item> phase=8 reason=pr-state-errors needs=<the error>` |
 | `silence`: tell the user once | say nothing; wait again with `--silence-hours 0` |
 | `receive-review-and-execute` asks about ambiguous findings or merge conflicts | invoke it with `--unattended`; its `AMBIGUOUS:` lines → `ESCALATION item=<item> phase=8 reason=ambiguous-review needs=<each ambiguous finding>`; its `CONFLICT:` line → `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | two red gates in a row: stop and ask | `ESCALATION item=<item> phase=8 reason=gate-red needs=<command and output>` |
 | merge conflicts: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
-| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha>` (only on "Ready for you to merge"); any other outcome is an `ESCALATION` with the reason |
+| `receive-review-and-execute` prints `STOPPED: <reason>` | `ESCALATION item=<item> phase=8 reason=remediation-stopped needs=<reason>`; never read it as "zero actionable" |
+| Phase 4 ends after the push | **wait for CI and the approval** before reporting: poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`. Any `fail` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing check names>`. Then re-read `reviewDecision`: if the push dismissed the approval, go back to Phase 2 (the re-request is a reviewer-facing action, subject to quiet hours) |
+| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green); any other outcome is an `ESCALATION` with the reason |
+
+**Nothing deferred is lost.** Before printing `READY`, run every deferred command; if the quiet
+window is still on, keep waiting in Phase 2 (feedback that arrives meanwhile is handled as usual)
+until it ends, then run them. Before printing an `ESCALATION`, print one
+`HELD item=<item> action=<the deferred command>` line per command that has not run, so the driver
+records it as an open loop.
 
 **Quiet hours.** With `--quiet-hours`, check the window at the moment of each reviewer-facing
 action, not once at the start (`now=$(TZ="<tz>" date +%H:%M)`; inside when start <= end:
@@ -158,8 +169,8 @@ order, at the first wake after the window ends. Fixes, gates and pushes never wa
    key that resolves to nothing is skipped with a one-line note.
 5. Script: `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/pr-state.sh` when `CLAUDE_PLUGIN_ROOT` is
    set, otherwise `pr-state.sh` next to this SKILL.md.
-6. Cursor: the PR's `createdAt`, so feedback that arrived before this skill started is handled
-   in round 1. Quiet-since: now.
+6. Cursor: `--since` when given, else the PR's `createdAt`, so feedback that arrived before this
+   skill started is handled in round 1. Quiet-since: now.
 7. With `--mark-ready` and a draft PR (`gh pr view <pr> --json isDraft`): `gh pr ready <pr>`, once,
    or defer it per "Unattended mode" when inside `--quiet-hours`. A PR that is already ready is left
    alone. Never mark it ready a second time.
