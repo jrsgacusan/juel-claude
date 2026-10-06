@@ -1,16 +1,15 @@
 #!/bin/sh
-# Guards on skills/ship-ticket/SKILL.md: unattended/brief mode for fleet workers.
+# Guards on skills/ship-ticket/SKILL.md: unattended, brief and fix modes for juel:ship-tickets workers.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SKILL="$ROOT/skills/ship-ticket/SKILL.md"
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
-for f in '--unattended' '--brief <path>' '--quiet-hours <HH:MM-HH:MM@tz>'; do
+for f in '--unattended' '--brief <path>' '--quiet-hours <HH:MM-HH:MM@tz>' '--fix-review <file>'; do
   grep -q -- "$f" "$SKILL" && pass "flag $f" || fail "flag $f"
 done
 grep -q '## Unattended mode' "$SKILL" && pass "section" || fail "section"
-grep -q 'ACK <item> <worktree-path>' "$SKILL" && pass "ack line" || fail "ack line"
 grep -q 'ESCALATION item=' "$SKILL" && pass "escalation line" || fail "escalation line"
 for r in 'brief-violation' 'codex-failed' 'verification-failed' 'gate-red' 'merge-conflict' 'needs-human-input' 'stack-unavailable'; do
   grep -qi "$r" "$SKILL" && pass "escalation: $r" || fail "escalation: $r"
@@ -31,15 +30,19 @@ grep -q 'reason=preflight' "$SKILL" && pass "preflight stop escalates" || fail "
 grep -q 'Clean up before escalating' "$SKILL" && pass "cleanup before escalation" || fail "cleanup before escalation"
 grep -q 'gh pr create --draft --base <baseBranch>' "$SKILL" && pass "draft PR uses the brief base" || fail "draft PR base"
 grep -q 'the `--brief`.s `baseBranch` → explicit argument' "$SKILL" && pass "brief base heads the chain" || fail "brief base chain"
-grep -q 'with no `gh`, there is no PR yet' "$SKILL" && pass "no-gh unattended path" || fail "no-gh unattended path"
 for p in linear jira github file; do
   grep -q "^   | \`$p\` |" "$SKILL" && pass "phase 7 status row $p" || fail "phase 7 status row $p"
 done
 grep -q 'ship a Linear ticket' "$SKILL" && fail "description is source-neutral" || pass "description is source-neutral"
-for l in 'FIXED item=<item> head=<sha>' 'READY item=<item> pr=<url> head=<sha>' 'REVIEW-FINDINGS item=<item> round=<k>' 'CONTINUE item=<item> phase=8'; do
-  grep -qF "$l" "$SKILL" && pass "turn line $l" || fail "turn line $l"
+for gone in 'REVIEW-FINDINGS' 'CONTINUE item=' 'ACK <item>' 'fleet-ship-tickets'; do
+  grep -q -- "$gone" "$SKILL" && fail "removed: $gone" || pass "removed: $gone"
 done
-grep -q -- '--unattended --mark-ready --item <item>' "$SKILL" && pass "phase 8 hands off to babysit unattended" || fail "phase 8 unattended babysit"
-grep -q 'skip this phase too' "$SKILL" && fail "phase 8 no longer skipped under unattended" || pass "phase 8 no longer skipped under unattended"
+grep -q 'first line of the `worker_done` body' "$SKILL" && pass "report rides worker_done" || fail "worker_done body"
+grep -q 'FIXED item=<item> head=<sha>' "$SKILL" && pass "fix mode line" || fail "FIXED line"
+grep -q 'Phases 1–3 are SKIPPED' "$SKILL" && pass "fix mode skips planning" || fail "fix mode phases"
+grep -q 'gate.lock' "$SKILL" && grep -q 'mkdir' "$SKILL" && pass "gate lock" || fail "gate lock"
+grep -q 'older than 2 h' "$SKILL" && pass "stale lock reclaimed" || fail "stale lock"
+grep -q 'Under `--unattended`, this phase is SKIPPED' "$SKILL" && pass "phase 8 left to the coordinator" || fail "phase 8 unattended"
+grep -q 'HELD item=<item> action=open a draft PR from <compare-url>' "$SKILL" && pass "no-gh unattended path" || fail "no-gh unattended path"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

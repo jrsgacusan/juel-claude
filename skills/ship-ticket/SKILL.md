@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as a fleet worker under juel:fleet-ship-tickets, escalating real decisions and opening a draft PR.
+description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as an Orca worker under juel:ship-tickets, escalating real decisions and stopping at a draft PR; --fix-review applies a second-model review's findings.
 metadata:
   requires:
     mcp:
@@ -142,10 +142,12 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `[base-branch]` | auto-detected — see "Base branch & repo conventions" below | Branch to diff/PR against |
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
+| `--fix-review <file>` | off | Fix mode for a NOT-SAFE second-model review; requires `--unattended --brief`. See "Unattended mode" |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight). Inside it, outward actions are held, not performed. See "Unattended mode" |
 
-Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a fleet worker,
-`/juel:ship-ticket --unattended --brief /persist/fleet/projects/<driver-dir>/briefs/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
+Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:ship-tickets` worker,
+`/juel:ship-ticket --unattended --brief <batch-dir>/briefs/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
+(add `--fix-review <batch-dir>/reviews/SAVI-1162-r1.md` for a fix stage)
 
 ## Base branch & repo conventions
 
@@ -271,52 +273,46 @@ log entry. Without that flag, every rule in this section applies unchanged.
 
 ## Unattended mode
 
-`--unattended` is how `juel:fleet-ship-tickets` runs this skill as a worker on the fleet, where no
-human answers checkpoints. The human already approved the scope as a brief, and keeps the merge.
-`--unattended` without `--brief` is refused: print `ESCALATION item=unknown phase=0
-reason=no-brief needs=an approved brief` and stop.
+`--unattended` is how `juel:ship-tickets` runs this skill as an Orca worker, where no human answers
+checkpoints. The human already approved the scope as a brief, and keeps the merge. `--unattended`
+without `--brief` is refused: print `ESCALATION item=unknown phase=0 reason=no-brief needs=an
+approved brief` and stop.
 
 **Item name.** `item` below is the brief's `item.ref`, or `item.slug` when the ref is null. Never a
 literal `null` or an empty string.
 
-**Report lines.** The driver parses single lines by prefix, so print each exactly, on its own line:
+**Report lines.** The coordinator parses single lines by prefix, so print each exactly, on its own
+line:
 
 | When | Line |
 |---|---|
-| very first output of the **build turn** only, before the preflight block (never on a `REVIEW-FINDINGS` or `CONTINUE` turn) | `ACK <item> <worktree-path>` |
 | start of each phase | `PHASE <n> <item>` |
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished, draft PR open (end of the first turn) | `DONE item=<item> pr=<url>` |
-| review findings fixed and pushed (a `REVIEW-FINDINGS` turn) | `FIXED item=<item> head=<sha>` |
-| approved, green and pushed (a `CONTINUE` turn) | `READY item=<item> pr=<url> head=<sha> cursor=<iso>` |
+| build finished, draft PR open | `DONE item=<item> pr=<url>` |
+| review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
 
-**Turns.** An unattended worker owns its item across several turns, all in the same chat:
+**Reporting.** You are an Orca worker. The run's final line (`DONE`, `FIXED` or `ESCALATION`) is
+the first line of the `worker_done` body, followed by every `HELD` line from the run; print the
+same lines to the terminal as well. Report `--outcome failed` for an `ESCALATION`, `succeeded`
+otherwise.
 
-1. **Build turn** (the first prompt): Phases 1–7, ending at a draft PR with `DONE`. End the turn
-   there; Phase 8 waits for the driver. Its task stays pending.
-2. **`REVIEW-FINDINGS item=<item> round=<k>`**, followed by a second-model reviewer's findings: treat
-   them as Phase 5 treats review findings. Validate each one with
-   `superpowers:receiving-code-review` against the brief (a finding outside the brief's scope is a
-   `brief-violation` escalation, never silently built), write a `-vN` review plan, execute it as
-   Phase 4 does (rule 4: `codex exec` backgrounded, watched and waited on), then re-run Phase 6 in
-   full, including cleanup and the regression gate. Commit, `git push`, and print
-   `FIXED item=<item> head=<sha>` with each rejected finding and its reason listed above it. Never
-   force-push.
-3. **`CONTINUE item=<item> phase=8 [since=<iso>]`**: run Phase 8 unattended (below). Its last line is
-   `READY` or an `ESCALATION`. The driver may send `CONTINUE` again, with the `since` cursor from the
-   last `READY`, when its own check of the PR finds the head moved; run Phase 8 again from its step 2
-   and pass `--since <iso>` so comments already answered are not answered twice.
-
-`REVIEW-FINDINGS` and `CONTINUE` turns re-run the preflight per protocol rule 1 but never print
-`ACK` or `PHASE` lines: those belong to the build turn.
+**Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
+when a second-model review says NOT SAFE; the file holds that review's findings.
+Phases 1–3 are SKIPPED (the spec and plan already exist under `docsRoot`; reuse them). Validate each finding with
+`superpowers:receiving-code-review` against the brief; a finding outside the brief's scope is a
+`brief-violation` escalation, never silently built. Write a `-vN` review plan, and Phase 4 executes
+it (rule 4: `codex exec` backgrounded, watched and waited on). Phase 5 is SKIPPED (the findings are
+the review). Phase 6 runs in full, including cleanup and the regression gate. Commit, `git push`
+(never force), and Phases 7–8 are SKIPPED: the PR already exists. The final line is
+`FIXED item=<item> head=<sha>`, with each rejected finding and its reason listed above it.
 
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
 
-**A preflight STOP is reported too.** The `ACK` line comes before the preflight block, so a run
-that then stops on preflight must not end silently: after the preflight block, print
+**A preflight STOP is reported too.** An unattended run that stops on preflight must not end
+silently: after the preflight block, print
 `ESCALATION item=<item> phase=0 reason=preflight needs=<each failing check>` and stop.
 
 **Escalations are a fixed list.** On any of these, print the `ESCALATION` line and end the run.
@@ -329,8 +325,6 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 5. `merge-conflict` — a merge conflict with the base branch.
 6. `needs-human-input` — phase 6 needs a secret, a paid service or a real account it cannot self-serve.
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
-8. Whatever `juel:babysit-pr` escalates in Phase 8 (an ambiguous reviewer comment, a red gate twice,
-   a merge conflict): it prints its own `ESCALATION` line; do not print a second one.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -353,13 +347,25 @@ now=$(TZ="<tz>" date +%H:%M)
 ```
 
 Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready, replying to
-reviewers and re-requesting review wait inside `juel:babysit-pr` until the window ends (it gets the
-same `--quiet-hours`). Pushing commits and opening a **draft** PR are not outward in this sense and
-proceed.
+reviewers and re-requesting review happen later, in the babysit stage, which gets the same window.
+Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
+
+**Gate lock.** Under `--unattended`, the Phase 6 regression gate runs under
+`<git-common-dir>/juel/gate.lock`, so two workers never run heavy test or build gates at once.
+Acquire it with `mkdir`, which is atomic: on success write `<item> <pid> <start epoch>` into `holder`
+inside it; on failure wait 30 s and try again, in foreground calls of at most 540 s. A lock
+older than 2 h whose pid is no longer running (`kill -0 <pid>` fails) is stale: `rm -rf` it and try again.
+Release it with `rm -rf` after the gate, whether the gate passed or not.
+
+```sh
+LOCK="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/juel/gate.lock"
+mkdir -p "$(dirname "$LOCK")"
+if mkdir "$LOCK" 2>/dev/null; then printf '%s %s %s\n' "<item>" "$$" "$(date +%s)" > "$LOCK/holder"; else echo busy; fi
+```
 
 **Status writes without a connector.** When the resolved provider supports `update_status` but this
-host cannot reach it (the fleet VM may have no Linear or Jira connector), print a `HELD` line
-instead of failing. The human's local session flushes it.
+host cannot reach it, print a `HELD` line instead of failing. The coordinator records it as an open
+loop for the human.
 
 ## Workflow
 
@@ -600,7 +606,8 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    method (`juel:verify` / `run` / user-confirmed), the evidence (request/response, log lines,
    screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
    items may be collapsed into one "looks good" line.
-5. **Run the final regression gate.** Re-run every toolchain command resolved in Phase 4 that is
+5. **Run the final regression gate** (under `--unattended`, inside the gate lock from "Unattended
+   mode"). Re-run every toolchain command resolved in Phase 4 that is
    non-null — `test`, `lint`, `typecheck`, and `build` (reuse the resolved set; do not re-derive).
    All must be green. A command that resolved to `null` in Phase 4 reports its one-line skip note
    and does not block the gate — including `build` resolving `null` on ecosystems where `install`
@@ -645,18 +652,13 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 
 1. If Phase 7 had no `gh` (compare URL only), skip this phase with one line:
    `Phase 8 skipped: gh unavailable, no PR to watch`.
-   Under `--unattended` with no `gh`, there is no PR yet: print
-   `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>), then /juel:babysit-pr`,
-   then `DONE item=<item> pr=<compare-url>`, and end the run.
-   Under `--unattended` with a PR, the build turn ends here with the `DONE` line; this phase runs
-   only when the driver sends `CONTINUE item=<item> phase=8`, after the second-model review said
-   SAFE.
+   Under `--unattended`, this phase is SKIPPED: `juel:ship-tickets` starts babysitting as its own
+   stage after the second-model review says SAFE. End the run with the `DONE` line. With no `gh`,
+   print `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>)` before
+   `DONE item=<item> pr=<compare-url>`.
 2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
    number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
    order. Do not re-resolve the toolchain.
-   Under `--unattended`, add `--unattended --mark-ready --item <item>` and, when given to this run,
-   the same `--quiet-hours <window>`. babysit-pr marks the draft ready once, handles every review
-   round without asking, and prints the final `READY` or `ESCALATION` line itself.
 3. There are no per-round confirmations inside this phase. The user is asked only by
    `juel:receive-review-and-execute` (ambiguous findings), merge conflicts, red gates, and
    long silence or repeated errors.
