@@ -53,6 +53,7 @@ const CONTEXT_VOCAB = new Set([
   'cmux-session',
   'orca-runtime',
   'orca-repo-registered',
+  'orca-terminal',
   'interactive-user',
   'writable-cwd',
   'work-source-list-capable',
@@ -237,6 +238,11 @@ const DEFINITIONS = {
     kind: 'context',
     label: 'repo registered with Orca',
     install: 'Run `orca repo add` for this repo, or add it from the Orca app',
+  },
+  'orca-terminal': {
+    kind: 'context',
+    label: 'running inside an Orca terminal',
+    install: 'Start Claude Code from an Orca terminal so the orchestration run can bind to it (`orca orchestration run-current` works there)',
   },
   'interactive-user': {
     kind: 'context',

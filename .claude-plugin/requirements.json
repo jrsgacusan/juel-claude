@@ -136,6 +136,11 @@
       "label": "reachable Orca runtime",
       "install": "Launch Orca, or run `orca open`, then re-run — `orca status` must report runtimeReachable: true"
     },
+    "orca-terminal": {
+      "kind": "context",
+      "label": "running inside an Orca terminal",
+      "install": "Start Claude Code from an Orca terminal so the orchestration run can bind to it (`orca orchestration run-current` works there)"
+    },
     "orchestration": {
       "kind": "skill",
       "label": "Orca orchestration skill",
@@ -399,6 +404,26 @@
         "playwright-video",
         "pr-review-toolkit",
         "run"
+      ]
+    },
+    "ship-tickets": {
+      "hard": [
+        "gh",
+        "git",
+        "git-repo",
+        "interactive-user",
+        "juel:babysit-pr",
+        "juel:receive-review-and-execute",
+        "juel:ship-ticket",
+        "orca",
+        "orca-repo-registered",
+        "orca-runtime",
+        "orca-terminal"
+      ],
+      "soft": [
+        "codex",
+        "linear",
+        "work-source-list-capable"
       ]
     },
     "so-what": {
