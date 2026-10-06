@@ -170,6 +170,16 @@ unset STUB_DELAY
 check "wait: a gh call slower than the budget ends as timeout with the reason" 'd["wake"] == "timeout" and "timed out" in d.get("error", "")'
 if [ $((t1 - t0)) -le 3 ]; then echo "ok   wait: a slow first snapshot cannot overrun --max-seconds"; else echo "FAIL wait: slow first snapshot overran --max-seconds ($((t1 - t0))s)"; fails=$((fails + 1)); fi
 
+# The snapshot says whether the PR is a draft and what it targets, so a PR someone turned back
+# into a draft, or retargeted, is never reported ready.
+fixture draftbase pr.json '{"state":"OPEN","reviewDecision":"APPROVED","headRefOid":"h","isDraft":true,"baseRefName":"release","author":{"login":"me"},"url":"https://github.com/o/r/pull/12"}'
+fixture draftbase reviews.json ''
+fixture draftbase inline.json ''
+fixture draftbase comments.json ''
+run draftbase 12
+check "snapshot carries draft and base" 'd["draft"] is True and d["base"] == "release"'
+run draftbase 12 --wait --interval 0
+check "wait: an approved PR that is a draft again wakes as draft, not approved" 'd["wake"] == "draft"'
 STUB_FAIL=1; export STUB_FAIL
 run wait-feedback 10 --wait --interval 0
 check "wait: three errors in a row wake with errors" 'd["wake"] == "errors" and "exited 1" in d["error"]'

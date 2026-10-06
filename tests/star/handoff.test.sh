@@ -116,5 +116,16 @@ B="$TMP/b"; mkdir -p "$B"; cp "$T/open-loops.md" "$T/ledger.md" "$B/"; printf '[
 STAR_NOW=2026-10-07T13:00:00Z sh "$SCRIPT" --home "$B" start >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && [ ! -e "$B/handoff.md" ] && pass "a broken star.json stops start before anything is written" || fail "broken star.json (rc=$rc)"
 
+# Second stress pass
+D="$TMP/d"; mkdir -p "$D"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$D/"
+HD() { STAR_NOW="$1" STAR_MEM_GB=5 sh "$SCRIPT" --home "$D" "$2" ${3:-}; }
+HD 2026-10-07T12:00:00Z start >/dev/null; HD 2026-10-07T16:00:00Z summary >/dev/null; rm -f "$D/handoff.md"
+HD 2026-10-07T17:00:00Z start >/dev/null 2>&1
+[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["away"])' "$D/star.json")" = 2026-10-07T12:00:00Z ] && [ -f "$D/handoff.md" ] && pass "a deleted handoff file is rewritten without moving the away time" || fail "start reset the away time"
+head -3 "$T/ledger.md" | tail -2 >> "$D/ledger.md"
+printf '| a | a | p | /w/a | building | - | 1 | t | d | 0 | - | abc | - | - | - | 2026-10-07T12:00:00Z |\n' >> "$D/ledger.md"
+HD 2026-10-07T20:30:00Z summary >/dev/null
+sed -n '/^### 2026-10-07T20:30:00Z/,/^### /p' "$D/handoff.md" | grep -q 'Items: building 1$' && pass "a pasted second header row is not an item" || fail "second header row counted ($(grep -m1 'Items:' "$D/handoff.md"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

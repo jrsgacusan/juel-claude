@@ -1,12 +1,13 @@
 #!/bin/sh
 # Reports what changed on a PR since a cursor, as one JSON object on stdout:
-#   {"state","decision","head","author","url","new_feedback":[...],"reviewers","cursor"}
+#   {"state","decision","head","draft","base","author","url","new_feedback":[...],"reviewers","cursor"}
 # Feedback = review bodies, inline comments and conversation comments from humans other than
 # the PR author. Bots ([bot] logins or type Bot) are ignored. Failures print {"error": "..."}.
 # Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60); under
 # --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
-# happens: feedback | approved | closed | errors (3 in a row) | silence | timeout.
+# happens: feedback | approved | draft (approved, but someone made it a draft again) | closed |
+# errors (3 in a row) | silence | timeout.
 exec python3 - "$@" <<'PY'
 import argparse
 import json
@@ -51,7 +52,7 @@ def is_bot(user):
 
 
 def snapshot(pr, since, repo):
-    view_args = ["pr", "view", pr, "--json", "state,reviewDecision,headRefOid,author,url"]
+    view_args = ["pr", "view", pr, "--json", "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url"]
     if repo:
         view_args += ["-R", repo]
     view = json.loads(gh(view_args))
@@ -98,7 +99,8 @@ def snapshot(pr, since, repo):
     items.sort(key=lambda i: ts(i["at"]))
     cursor = items[-1]["at"] if items else since
     return {"state": view["state"], "decision": view.get("reviewDecision") or None,
-            "head": view.get("headRefOid"), "author": author, "url": url,
+            "head": view.get("headRefOid"), "draft": bool(view.get("isDraft")),
+            "base": view.get("baseRefName"), "author": author, "url": url,
             "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor}
 
 
@@ -108,7 +110,7 @@ def wake_reason(snap):
     if snap["new_feedback"]:
         return "feedback"
     if snap["decision"] == "APPROVED":
-        return "approved"
+        return "draft" if snap["draft"] else "approved"
     return None
 
 

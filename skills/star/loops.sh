@@ -11,7 +11,10 @@
 # like a heading, an item or an "Answer:" line is written as a "> " quote.
 # add returns the id of an open item with the same kind, project, item, title and body instead
 # of adding it twice. close writes the archive first, so a failed close never loses the item.
-# Exit: 0 ok, 2 file or section missing, 3 git conflict markers, 4 unknown id, 64 usage.
+# An id is never handed out twice: the highest one used is kept in <queue>.seq, so an editor
+# that saves an old copy over the queue cannot bring an id back for a different ask.
+# Exit: 0 ok, 2 a file or section is missing or cannot be read or written, 3 git conflict
+# markers, 4 unknown id, 64 usage.
 exec python3 - "$@" <<'PY'
 import argparse
 import fcntl
@@ -22,7 +25,7 @@ from datetime import datetime, timezone
 
 ITEM_RE = re.compile(r"^### (N-(\d+)) · (.*?) · (.*?) · (.*)$")
 SECTIONS = ("## Resume", "## Needs you", "## Waiting on others")
-ANSWER_RE = re.compile(r"^\s{0,3}(?:\*\*)?answer:(?:\*\*)?", re.IGNORECASE)
+ANSWER_RE = re.compile(r"^\s{0,3}(?:\*\*)?answer\s?:(?:\*\*)?", re.IGNORECASE)
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 VALUE_FLAGS = ("--file", "--kind", "--project", "--item", "--title", "--body", "--state", "--run", "--pools", "--next")
 
@@ -34,7 +37,7 @@ def die(code, msg):
 
 def load(path):
     try:
-        lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+        lines = open(path, encoding="utf-8", errors="surrogateescape").read().split("\n")
     except FileNotFoundError:
         die(2, f"{path} not found")
     except OSError as e:
@@ -48,9 +51,16 @@ def save(path, lines):
     tmp = f"{path}.tmp.{os.getpid()}"
     if lines and lines[-1] != "":
         lines = lines + [""]
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    os.replace(tmp, path)
+    try:  # bytes that were not UTF-8 go back out exactly as they came in
+        with open(tmp, "w", encoding="utf-8", errors="surrogateescape") as f:
+            f.write("\n".join(lines))
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def section(lines, title):
@@ -90,8 +100,8 @@ def flat(text):
 
 def name(flag, value):
     """A project or item name is matched exactly later, so it is refused rather than changed."""
-    if CONTROL_RE.search(value) or " · " in value or not value.strip():
-        die(64, f"{flag} must be one line without ' · ' (got {value!r})")
+    if CONTROL_RE.search(value) or "·" in value or not value.strip():
+        die(64, f"{flag} must be one line without '·' (got {value!r})")
     return value.strip()
 
 
@@ -135,15 +145,24 @@ def find(lines, item_id):
     return it
 
 
-def next_id(lines, archive):
+def next_id(lines, archive, seq):
+    """One above every id ever used: in the queue, in the archive, and the mark kept in seq."""
     nums = [int(m.group(2)) for l in lines for m in [ITEM_RE.match(l)] if m]
     if os.path.exists(archive):
-        nums += [int(m.group(2)) for l in open(archive, encoding="utf-8", errors="replace")
+        nums += [int(m.group(2)) for l in open(archive, encoding="utf-8", errors="surrogateescape")
                  for m in [ITEM_RE.match(l.rstrip("\n"))] if m]
-    return max(nums, default=0) + 1
+    if os.path.exists(seq):
+        mark = open(seq, encoding="utf-8").read().strip()
+        nums.append(int(mark) if mark.isdigit() else 0)
+    new = max(nums, default=0) + 1
+    with open(seq, "w", encoding="utf-8") as f:
+        f.write(f"{new}\n")
+    return new
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):  # bytes that were not UTF-8 are printed as they are
+        stream.reconfigure(errors="surrogateescape")
     p = argparse.ArgumentParser(prog="loops.sh")
     home = os.environ.get("JUEL_STAR_HOME") or os.path.expanduser("~/juel-star")
     p.add_argument("--file", default=os.path.join(home, "open-loops.md"))
@@ -205,7 +224,10 @@ def main():
         if same:  # a replayed message asks again; the open item is still the one to answer
             print(same["id"])
             return
-        new_id = f"N-{next_id(lines, archive)}"
+        try:
+            new_id = f"N-{next_id(lines, archive, path + '.seq')}"
+        except OSError as e:
+            die(2, f"{e.filename}: {e.strerror}")
         start, end = section(lines, "Needs you")
         while end - 1 > start and not lines[end - 1].strip():
             end -= 1
@@ -219,8 +241,9 @@ def main():
             print("kept")
         else:
             k = field_line(lines, it, "Answer")
-            if k is None:
-                lines.insert(it["end"], f"Answer: {flat(args.text)}")
+            if k is None:  # the user deleted the line: put it back right under the item, above their notes
+                at = next((j for j in range(it["start"] + 1, it["end"]) if not lines[j].strip()), it["end"])
+                lines.insert(at, f"Answer: {flat(args.text)}")
             else:
                 lines[k] = f"Answer: {flat(args.text)}"
             save(path, lines)
@@ -234,15 +257,17 @@ def main():
         del lines[it["start"]:stop]
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         try:  # archive first: if it cannot be written, the item stays open
-            old = (open(archive, encoding="utf-8", errors="replace").read().split("\n")
+            old = (open(archive, encoding="utf-8", errors="surrogateescape").read().split("\n")
                    if os.path.exists(archive) else ["# Closed loops"])
-            rest = old[1:]
-            while rest and not rest[0].strip():
-                rest.pop(0)
-            save(archive, [old[0], ""] + block + [f"closed: {stamp}", ""] + rest)
+            # a close that failed after this point left its copy here: do not add a second one
+            if block[0] not in old:  # the whole heading: an old home may hold another item under this id
+                rest = old[1:]
+                while rest and not rest[0].strip():
+                    rest.pop(0)
+                save(archive, [old[0], ""] + block + [f"closed: {stamp}", ""] + rest)
+            save(path, lines)
         except OSError as e:
-            die(2, f"{archive}: {e.strerror}; {args.id} stays open")
-        save(path, lines)
+            die(2, f"{e.filename or archive}: {e.strerror}; {args.id} stays open")
         print("closed")
     elif args.cmd == "resume":
         start, end = section(lines, "Resume")
@@ -264,5 +289,8 @@ def main():
         save(path, lines)
 
 
-main()
+try:
+    main()
+except OSError as e:
+    die(2, f"{e.filename}: {e.strerror}")
 PY

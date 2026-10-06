@@ -97,12 +97,16 @@ slug = re.sub(r"[^a-z0-9]+", "-", a.item.lower()).strip("-") or "item"
 os.makedirs(os.path.join(a.home, "releases"), exist_ok=True)
 base = os.path.join(a.home, "releases", f"{date}-{a.project}-{slug}")
 pr_line = f"- PR: {d.get('url')} (#{d.get('number')}), "
-lock = open(os.path.join(a.home, "releases.lock"), "w")
+try:
+    lock = open(os.path.join(a.home, "releases.lock"), "w")
+except OSError as e:
+    err(f"{e.filename}: {e.strerror}")
 fcntl.flock(lock, fcntl.LOCK_EX)
 path, n = base + ".md", 1
 while os.path.exists(path):
-    if any(l.startswith(pr_line) for l in open(path, encoding="utf-8", errors="replace")):
-        print(path)  # this PR already has its record
+    # the record of this PR, even when the user re-indented or reworded around the line
+    if any(l.strip().startswith(pr_line.strip()) for l in open(path, encoding="utf-8", errors="replace")):
+        print(path)
         sys.exit(0)
     n += 1
     path = f"{base}-v{n}.md"
@@ -122,7 +126,10 @@ body = [
     "- Open follow-ups: " + ("; ".join(follow) if follow else "none"),
     "",
 ]
-with open(path, "x", encoding="utf-8") as f:
-    f.write("\n".join(body))
+try:
+    with open(path, "x", encoding="utf-8") as f:
+        f.write("\n".join(body))
+except OSError as e:
+    err(f"{e.filename}: {e.strerror}")
 print(path)
 PY

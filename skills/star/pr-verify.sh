@@ -6,7 +6,9 @@
 # PENDING means "ask again later" (checks running, mergeable not computed, gh unreachable or
 # its output unreadable). Where the repo has no review rule (empty reviewDecision), an approval
 # counts only when it was given on the current head commit: dates are not compared, because a
-# commit made earlier and pushed later carries an older date than the approval.
+# commit made earlier and pushed later carries an older date than the approval. Where the repo
+# has a review rule, GitHub's own reviewDecision is trusted as it stands (it follows the repo's
+# "dismiss stale approvals" setting).
 exec python3 - "$@" <<'PY'
 import argparse
 import json
@@ -70,10 +72,13 @@ reviews, checks = records(d, "reviews"), records(d, "statusCheckRollup")
 if reviews is None or checks is None:
     out("PENDING gh: unreadable output")
 a.head = a.head.strip().lower()
+state = d.get("state").upper() if isinstance(d.get("state"), str) else None
+if state not in ("OPEN", "MERGED", "CLOSED") or not isinstance(d.get("reviewDecision") or "", str):
+    out("PENDING gh: unreadable output")
 
-if d.get("state") == "MERGED":
+if state == "MERGED":
     out("MERGED " + ((d.get("mergeCommit") or {}).get("oid") or "unknown"))
-if d.get("state") == "CLOSED":
+if state == "CLOSED":
     out("FAIL closed")
 head = (d.get("headRefOid") or "").lower()
 if len(a.head) < 7:
