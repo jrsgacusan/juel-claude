@@ -10,8 +10,8 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
 grep -q '^name: star$' "$SKILL" && pass "name" || fail "name"
 grep -q 'juel:protocol v7' "$SKILL" && pass "protocol block" || fail "protocol block"
-for id in orca-terminal star-home; do grep -q "id: $id" "$SKILL" && pass "requires $id" || fail "requires $id"; done
-for m in '`/juel:star add' '`/juel:star status`' '`/juel:star stop`' 'draft-brief <ref> --project <name> --out <path>'; do
+for id in orca-terminal git-repo; do grep -q "id: $id" "$SKILL" && pass "requires $id" || fail "requires $id"; done
+for m in '`/juel:star SPH-11 and SPH-12`' '`/juel:star status`' '`/juel:star stop`' 'draft-brief <ref> --project <name> --out <path>'; do
   grep -qF -- "$m" "$SKILL" && pass "mode $m" || fail "mode $m"
 done
 for s in inbox briefing brief-ready queued building pr-draft reviewing fixing babysit-queued babysitting verifying ready done escalated failed dropped; do
@@ -24,15 +24,14 @@ for k in approve-brief merge-pr escalation question restart-or-drop draft held; 
   grep -q -- "--kind $k" "$SKILL" && pass "queue kind $k" || fail "queue kind $k"
 done
 grep -q 'briefs/<project>/<item>.md' "$SKILL" && grep -q 'reviews/<project>/<item>-r<k>.md' "$SKILL" && pass "paths keyed by project" || fail "paths keyed by project"
-grep -q 'JUEL_STAR_HOME' "$SKILL" && pass "home override" || fail "home override"
-grep -q 'git init' "$SKILL" && grep -q 'template' "$SKILL" && pass "first run creates the docs repo" || fail "first run"
+grep -q 'star-home.sh init' "$SKILL" && pass "the folder is created by star-home.sh" || fail "star-home.sh init"
 grep -q 'orca terminal send --terminal' "$SKILL" && pass "add nudges STAR" || fail "add nudge"
-grep -q 'the item waits in the inbox' "$SKILL" && pass "add works when STAR is down" || fail "add when STAR is down"
+grep -q 'Refs given while STAR is stopped' "$SKILL" && pass "refs given while STAR is down start it" || fail "refs when STAR is down"
 grep -q 'at most 12 lines' "$SKILL" && grep -q 'never opens a review' "$SKILL" && pass "STAR reads one line, never the files" || fail "small-context rule"
 grep -q 'NOTE:' "$SKILL" && grep -q 'memory/<project>.md' "$SKILL" && pass "notes appended to project memory" || fail "memory notes"
 grep -q 'state: idle' "$SKILL" && grep -q 'ends its turn' "$SKILL" && pass "idle ends the turn" || fail "idle rule"
 grep -q 'restart-or-drop' "$SKILL" && grep -q 'restarts once' "$SKILL" && pass "restart recovery" || fail "restart recovery"
-grep -q 'git commit' "$SKILL" && grep -q 'never fatal' "$SKILL" && pass "commit per tick, push never fatal" || fail "commit rule"
+! grep -q 'git -C HOME_DIR' "$SKILL" && ! grep -q 'git init' "$SKILL" && pass "STAR's files are not a git repo: no commit step" || fail "commit step still there"
 grep -q 'silence means missed' "$SKILL" && pass "open items repeated" || fail "repeat rule"
 grep -q -- '--timeout-ms 540000' "$SKILL" && pass "bounded waits" || fail "bounded waits"
 grep -q '"maxParallel": 3' "$SKILL" && grep -q '"maxInReview": 3' "$SKILL" && pass "pool defaults" || fail "pool defaults"
@@ -68,7 +67,7 @@ grep -q 'control: away' "$SKILL" && pass "away works from any session" || fail "
 grep -q 'one place to answer' "$SKILL" && pass "handoff never collects answers" || fail "single answer place"
 # Stress test pass fixes
 T="$ROOT/skills/star/template"
-grep -q '`fix-queued`' "$SKILL" && [ "$(grep -c 'findings waiting' "$SKILL")" = 1 ] && pass "S12 a waiting fix is its own state" || fail "S12 fix-queued state"
+grep -q '`fix-queued`' "$SKILL" && ! grep -q 'findings waiting' "$SKILL" && pass "S12 a waiting fix is its own state" || fail "S12 fix-queued state"
 grep -q '| verify | counters | updated |' "$SKILL" && grep -q '| verify | counters | updated |' "$T/ledger.md" && pass "S12 counters have a ledger cell" || fail "S12 counters column"
 grep -q 'miss=1' "$SKILL" && grep -q 'unknown=' "$SKILL" && grep -q 'silent=' "$SKILL" && grep -q 'hold=' "$SKILL" && grep -q 'moved=' "$SKILL" && grep -q 'pending=' "$SKILL" && pass "S12 every counter is named" || fail "S12 counter names"
 grep -q '## Feedback' "$SKILL" && pass "S12 brief feedback is kept in the brief" || fail "S12 feedback storage"
@@ -83,10 +82,10 @@ grep -q 'PR was closed' "$SKILL" && grep -q '`babysit-queued`, `escalated` or `f
 grep -q 'must be clean' "$SKILL" && pass "S18 a restarted build needs a clean worktree" || fail "S18 dirty restart"
 grep -q 'quiet-hours.sh' "$SKILL" && pass "S6 quiet hours are decided by the script" || fail "S6 quiet-hours.sh"
 grep -q -- '--reviewed' "$SKILL" && grep -q 'VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>' "$SKILL" && pass "S5 babysit gets the SAFE review as proof" || fail "S5 SAFE proof"
-grep -q '"notified"' "$SKILL" && ! grep -q 'notifiedThrough' "$T/star.json" && [ "$(grep -c 'notifiedThrough' "$SKILL")" = 1 ] && pass "S14 notifications tracked per item" || fail "S14 notified list"
+grep -q '"notified"' "$SKILL" && ! grep -q 'notifiedThrough' "$T/star.json" && ! grep -q 'notifiedThrough' "$SKILL" && pass "S14 notifications tracked per item" || fail "S14 notified list"
 grep -q 'memory below 3 GB' "$SKILL" && pass "S14 a long memory hold reaches the user" || fail "S14 memory hold"
 grep -q 'plus 30 minutes' "$SKILL" && pass "S14 a question's deadline is set when it is asked" || fail "S14 question deadline"
-grep -q 'repo path, never by name' "$SKILL" && pass "S17 projects are matched by repo path" || fail "S17 project identity"
+grep -q 'another repository' "$SKILL" && pass "S17 an inbox file for another repo is not ingested" || fail "S17 project identity"
 grep -q 'ESCALATION item=<name> phase=0 reason=needs-human-input' "$SKILL" && ! grep -q 'item=<ref> phase=0' "$SKILL" && pass "S11 brief escalations carry the item name" || fail "S11 brief escalation name"
 grep -q 'first 12 lines' "$SKILL" && grep -q 'BRIEF-VIOLATION:' "$SKILL" && grep -q 'need no action' "$SKILL" && pass "S11 every report line has a rule" || fail "S11 report grammar"
 grep -q 'A-Za-z0-9._-' "$SKILL" && pass "S1 item names are safe as paths" || fail "S1 item name rule"
@@ -96,7 +95,6 @@ python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notified"]==[]
 grep -q 'A `question` is always answered with `reply`' "$SKILL" && grep -q 'An `escalation` answer for a row whose worker is still running' "$SKILL" && pass "R1 a waiting worker gets its reply, not a side message" || fail "R1 question vs running-worker rule"
 grep -q 'creating the file with only that section' "$SKILL" && grep -q 'before step 2' "$SKILL" && pass "R2 a brief-stage answer reaches the step that asked" || fail "R2 brief escalation answer"
 grep -q 'no-safe-verdict' "$SKILL" && grep -q 'a new review round' "$SKILL" && pass "R3 a head with no SAFE review goes back to review" || fail "R3 no-safe-verdict route"
-grep -q 'Bring an older home up to date' "$SKILL" && pass "R8 older homes are migrated on resume" || fail "R8 migration"
 # Second stress pass
 grep -q 'last=<message id>' "$SKILL" && grep -q 'already applied' "$SKILL" && pass "T3 a replayed message is recognised by the row itself" || fail "T3 replay by message id"
 grep -q 'cannot be read, STOP' "$SKILL" && grep -q 'read it back' "$SKILL" && grep -q 'take over' "$SKILL" && pass "T2 one STAR per home fails closed, with a way to take over" || fail "T2 coordinator lock"
@@ -104,7 +102,6 @@ grep -q 'a ref whose earlier row is `done` or `dropped`' "$SKILL" && pass "T4 a 
 grep -q -- '--project - --item' "$SKILL" && pass "T7 a message with no row has a place in the queue" || fail "T7 unmatched message"
 grep -q 'strip punctuation' "$SKILL" && grep -q 'no letter or digit' "$SKILL" && pass "T16 answers are read without their punctuation" || fail "T16 answer punctuation"
 grep -q 'clears every counter except `hold=` and `last=`' "$SKILL" && pass "T16 a retry answer clears the old counts" || fail "T16 counters on answer"
-grep -q 'retry-not-before <iso>` → `retry=<iso>`' "$SKILL" && pass "T16 the migration lists its conversions" || fail "T16 migration conversions"
 grep -q 'worker-stop' "$SKILL" && grep -q 'then `worker-release`' "$SKILL" && grep -q 'a dispatch STAR stopped itself' "$SKILL" && pass "T18 a stopped worker is released and its last report ignored" || fail "T18 stop then release"
 grep -q 'Before filling' "$SKILL" && pass "T18 the PR check runs before slots are filled" || fail "T18 PR check order"
 grep -q 'the time the message was sent plus 30 minutes' "$SKILL" && pass "T21 a replayed question is the same item" || fail "T21 question deadline"
@@ -118,9 +115,7 @@ grep -q 'STAR answered' "$SKILL" && pass "what STAR decided for a worker is on r
 grep -q 'Answer on' "$T/open-loops.md" && pass "the queue file says how to answer" || fail "template answer hint"
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
-g "V1 away, back and stop are not a start" '`add`, `status`, `away`, `back`, `stop` and `draft-brief`'
-g "V2 a home with only an inbox is still created" 'a home without `star.json`'
-g "V2 add creates the inbox folder" 'mkdir -p HOME_DIR/inbox'
+g "V1 away, back and stop are not a start" '`status`, `away`, `back`, `stop` and `draft-brief` are not a start'
 g "V3 every tick checks it still owns the home" "is not this session's handle"
 g "V4 the heartbeat is renewed before it expires" 'heartbeatAt'
 g "V5 a lost build leaves its pool" 'and set the row to `failed`'
@@ -142,7 +137,6 @@ g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 
 g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
 g "V22 an approval of an earlier commit is said so" 'approved on an earlier commit'
 g "V23 the feedback cursor is passed back as it is" 'opaque'
-g "V24 a custom home is set where every session sees it" 'shell profile'
 g "V26 a lost queue item is noticed" '`missing`'
 g "V29 inbox files are read in order" 'in file-name order'
 g "V30 back runs a tick" 'then run a tick'
@@ -162,5 +156,15 @@ for k in ("build", "fix", "babysit"):
 assert s["review"] == {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}, s["review"]
 assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and d["reviewer"] == s["review"]
 PY2
+# STAR lives in the project
+! grep -q 'juel-star' "$SKILL" && ! grep -q 'JUEL_STAR_HOME' "$SKILL" && pass "P1 no separate home to set up" || fail "P1 old home instructions left"
+g "P2 the folder is inside the project" 'context/star'
+g "P3 refs can be given in plain words" 'SPH-11 and SPH-12'
+g "P4 the invoking session becomes the coordinator" 'this session becomes the coordinator'
+g "P5 refs are handed to a STAR that is already running" 'hands the refs to it'
+g "P6 stop releases the claim" '"terminal": null'
+! grep -q 'HOME_DIR/CLAUDE.md' "$SKILL" && grep -q 'come from the' "$SKILL" && grep -q 'session hook' "$SKILL" && pass "P7 the standing rules come from the session hook" || fail "P7 standing rules"
+! grep -q 'projects\.md' "$SKILL" && ! grep -q 'global\.md' "$SKILL" && pass "P8 one project per folder: no registry, no global notes" || fail "P8 registry or global notes left"
+g "P9 a ref for another repo is refused" 'another repository'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

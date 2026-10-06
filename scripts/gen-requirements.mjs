@@ -54,7 +54,6 @@ const CONTEXT_VOCAB = new Set([
   'orca-runtime',
   'orca-repo-registered',
   'orca-terminal',
-  'star-home',
   'interactive-user',
   'writable-cwd',
   'work-source-list-capable',
@@ -244,11 +243,6 @@ const DEFINITIONS = {
     kind: 'context',
     label: 'running inside an Orca terminal',
     install: 'Start Claude Code from an Orca terminal so the orchestration run can bind to it (`orca orchestration run-current` works there)',
-  },
-  'star-home': {
-    kind: 'context',
-    label: "running in STAR's docs repo",
-    install: 'Open an Orca terminal in ~/juel-star (or $JUEL_STAR_HOME) and run /juel:star there; the first run creates the files',
   },
   'interactive-user': {
     kind: 'context',
