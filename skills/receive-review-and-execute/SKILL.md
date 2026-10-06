@@ -137,13 +137,15 @@ Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute
   before executing anything, so the human decides. Without `--brief`, scope is not checked.
 - With `--only`, phase 5 classifies only the listed items; the rest are context.
 - Heavy verification steps in the remediation plan (full test suites, builds) are written as
-  `juel:ship-ticket`'s `gate-lock.sh` line (`sh <gate-lock.sh> --holder <pr> -- <command>`), so they
+  `juel:ship-ticket`'s `gate-lock.sh` line (`sh <gate-lock.sh> --holder <pr> -- <command>`, prefixed
+  with `JUEL_GATE_LOCK=<star.home>/gate.lock` when `--brief` has a `star:` block), so they
   wait their turn behind other unattended workers; targeted single-file tests run directly.
 - Any other STOP (a preflight STOP, a dirty tree, a missing PR) prints `STOPPED: <reason>` as its
   last line, so the caller never mistakes it for a run with nothing to fix.
 - Everything else runs as normal.
 
-If no PR number is provided, ask the user for it before proceeding. Do not guess.
+If no PR number is provided, ask the user for it before proceeding. Do not guess. Under
+`--unattended`, never ask: print `STOPPED: missing PR number` and stop.
 
 ## Workflow
 
@@ -187,7 +189,8 @@ If the user did not supply a PR number, ask:
 
 > "Which PR number should I receive review feedback from?"
 
-Do not proceed until you have a valid integer PR number.
+Do not proceed until you have a valid integer PR number. (Under `--unattended` this step never
+asks: `STOPPED: missing PR number`.)
 
 ### Step 0a: Sync with the integration branch
 
@@ -206,7 +209,8 @@ git status --porcelain
 2. The working tree must be clean. If it is not, STOP: commit or stash first.
 3. The integration branch is `baseRefName`, the PR's own target (`dev` in gitflow repos, `main`
    elsewhere). Resolve the remote: exactly one remote, use it; one named `origin`, use that;
-   otherwise ask once.
+   otherwise ask once (under `--unattended`: print `STOPPED: cannot pick a remote among <names>`
+   and stop).
 4. Merge it in:
 
    ```bash

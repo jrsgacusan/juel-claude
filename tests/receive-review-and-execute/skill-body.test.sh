@@ -20,5 +20,8 @@ grep -q '| `--brief <path>` |' "$SKILL" && pass "S5 brief accepted" || fail "S5 
 grep -q 'BRIEF-VIOLATION:' "$SKILL" && pass "S5 out-of-scope requests stop" || fail "S5 BRIEF-VIOLATION"
 grep -q '| `--only <ids>` |' "$SKILL" && pass "S14 only listed items acted on" || fail "S14 --only"
 grep -q 'gate-lock.sh' "$SKILL" && pass "T9 executor heavy commands locked" || fail "T9 executor lock"
+# Stress test pass fixes
+grep -q 'STOPPED: missing PR number' "$SKILL" && pass "S4 a missing PR number never asks unattended" || fail "S4 missing PR"
+grep -q 'STOPPED: cannot pick a remote' "$SKILL" && pass "S4 an unclear remote never asks unattended" || fail "S4 remote"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
