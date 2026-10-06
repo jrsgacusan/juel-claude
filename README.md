@@ -126,6 +126,7 @@ on you:
 | `cmux-review-pr` | Workspace plumbing for a PR review: worktree, agent-aware session naming, linked work-item ref, then auto-launch the resolved agent running the review skill inside an isolated CMUX workspace. |
 | `review-pr` | Review the current diff, graded against a linked work item when one resolves: `pr-review-toolkit:review-pr` in parallel, requirement-alignment assessment, technically-rigorous finding validation, then a consolidated report with every finding sorted into Confirmed / Rejected / Ambiguous. |
 | `orca-ship-tickets` | Ship several work items in parallel through Orca: one Orca worktree per item, agent already running `/juel:ship-ticket`. Fire and forget. |
+| `ship-tickets` | Ship several work items unattended on this Mac through Orca. You approve one brief per item, then this session coordinates them 3 at a time from a queue: build, a second-model review of the draft PR, fixes, mark-ready and babysitting, until each PR is approved, green and verified on its exact head. Workers report back to this session, and you merge. |
 | `orca-review-pr` | Review a PR in its own Orca worktree, checked out on the real PR head branch, agent already running `/juel:review-pr`. |
 
 19 skills.
