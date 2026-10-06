@@ -44,5 +44,6 @@ grep -q '| `--gates-file <path>` |' "$SKILL" && pass "T11 gate manifest accepted
 grep -q 'whose approval is now older than the last commit' "$SKILL" && pass "T8 stale approval re-requested" || fail "T8 stale approval"
 grep -q 'background, like `codex exec`' "$SKILL" && pass "T1 gates run backgrounded" || fail "T1 backgrounded gates"
 grep -q 'at most 12 lines' "$SKILL" && pass "report capped at 12 lines" || fail "12-line cap"
+grep -q 'DRAFT <path>' "$SKILL" && grep -q 'candidate decisions' "$SKILL" && pass "ambiguous review comes with a draft" || fail "DRAFT on ambiguous review"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
