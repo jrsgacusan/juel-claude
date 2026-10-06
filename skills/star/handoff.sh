@@ -10,7 +10,8 @@
 # start while already away changes nothing (the summaries stay); end while not away prints
 # "not away". Every command holds handoff.lock, so runs never overwrite each other. A ledger
 # row with the wrong number of cells is counted and reported, never silently left out.
-# Exit: 0 ok, 1 not possible (summary while not away, star.json missing or broken), 64 usage.
+# Exit: 0 ok, 1 not possible (summary while not away, star.json missing or broken), 64 usage
+# (which includes a STAR_NOW that is not a time).
 # STAR_NOW (ISO UTC) and STAR_MEM_GB override the clock and the memory reading, for tests.
 exec python3 - "$@" <<'PY'
 import argparse
@@ -174,6 +175,8 @@ except SystemExit as e:
     sys.exit(64 if e.code not in (0, None) else 0)
 
 home = a.home
+if parse(now()) is None:
+    die(64, f"STAR_NOW is not an ISO time: {os.environ.get('STAR_NOW')!r}")
 path = os.path.join(home, "handoff.md")
 star(home)  # stop here when this is not a STAR home, before anything is created in it
 lock = open(os.path.join(home, "handoff.lock"), "w")

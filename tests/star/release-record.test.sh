@@ -83,5 +83,16 @@ chmod 555 "$H/releases"; sed -e 's/"number":12/"number":16/' -e 's#pull/12#pull/
 err=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged16.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 16 2>&1); rc=$?; chmod 755 "$H/releases"
 [ "$rc" -eq 1 ] && case "$err" in "error: "*) true ;; *) false ;; esac && pass "a read-only releases folder is one error line" || fail "read-only releases folder (rc=$rc: $(printf '%s' "$err" | head -1))"
 
+# what the suite did not notice when it was broken on purpose
+sed -e 's/"number":12/"number":17/' -e 's#pull/12#pull/17#' -e 's/"conclusion":"SUCCESS"/"conclusion":"FAILURE"/' "$TMP/merged.json" > "$TMP/merged17.json"
+out17=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged17.json" sh "$SCRIPT" --home "$H" --project lstn --item red --pr 17)
+grep -q 'Checks on the PR head at merge: ci: FAILURE' "$out17" && pass "a check that was red at merge is in the record" || fail "red check not recorded"
+sed -e 's/"number":12/"number":18/' -e 's#pull/12#pull/18#' "$TMP/merged.json" > "$TMP/merged18.json"
+before=$(cat "$out17"); out18=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged18.json" sh "$SCRIPT" --home "$H" --project lstn --item red --pr 18)
+[ "$out18" != "$out17" ] && [ "$(cat "$out17")" = "$before" ] && grep -q 'pull/18' "$out18" && pass "a second PR for an item never rewrites the first record" || fail "first record rewritten ($out18)"
+printf '{"number":19,"url":"u","state":"MERGED","reviews":{},"statusCheckRollup":[]}\n' > "$TMP/odd19.json"
+err=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/odd19.json" sh "$SCRIPT" --home "$H" --project lstn --item odd --pr 19 2>&1); rc=$?
+[ "$rc" -eq 1 ] && [ "$err" = "error: gh: unreadable output" ] && pass "reviews that are not a list are one error line" || fail "non-list reviews (rc=$rc: $err)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

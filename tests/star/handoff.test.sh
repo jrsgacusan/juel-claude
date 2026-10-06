@@ -127,5 +127,15 @@ printf '| a | a | p | /w/a | building | - | 1 | t | d | 0 | - | abc | - | - | - 
 HD 2026-10-07T20:30:00Z summary >/dev/null
 sed -n '/^### 2026-10-07T20:30:00Z/,/^### /p' "$D/handoff.md" | grep -q 'Items: building 1$' && pass "a pasted second header row is not an item" || fail "second header row counted ($(grep -m1 'Items:' "$D/handoff.md"))"
 
+# an away time nobody can read: due says so and still answers "due"
+G="$TMP/g"; mkdir -p "$G"; cp "$T/open-loops.md" "$T/ledger.md" "$G/"; printf '{"away": "not-a-time"}\n' > "$G/star.json"
+out=$(STAR_NOW=2026-10-07T13:00:00Z sh "$SCRIPT" --home "$G" due 2> "$TMP/due.err")
+[ "$out" = due ] && grep -q 'cannot read the away time' "$TMP/due.err" && pass "an unreadable away time is due, with the reason on stderr" || fail "unreadable away time ($out)"
+
+# a clock that is not a time changes nothing
+K="$TMP/k"; mkdir -p "$K"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$K/"
+STAR_NOW=not-a-clock sh "$SCRIPT" --home "$K" start >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 64 ] && [ ! -e "$K/handoff.md" ] && [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["away"])' "$K/star.json")" = None ] && pass "an impossible clock is exit 64 and writes nothing" || fail "impossible clock (rc=$rc)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

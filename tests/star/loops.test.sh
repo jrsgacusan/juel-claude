@@ -171,5 +171,85 @@ PY2
 LZ answers | LC_ALL=C grep -aq "^$id	held	p	f	done caf" && pass "'Answer :' with a space is read" || fail "Answer with a space before the colon"
 LZ add --kind held --project p --item g --title seven >/dev/null; LC_ALL=C grep -aq "$(printf 'caf\351')" "$Z" && pass "bytes that are not UTF-8 are kept as they were" || fail "non-UTF-8 bytes rewritten"
 
+# Final pass: what the owner can do to the file by hand
+mkdir -p "$TMP/o"; O="$TMP/o/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$O"
+LO() { sh "$SCRIPT" --file "$O" "$@"; }
+LO add --kind held --project p --item a --title one >/dev/null; LO add --kind held --project p --item b --title two >/dev/null; LO add --kind held --project p --item c --title three >/dev/null
+edit() { python3 - "$O" "$1" "$2" <<'PY2'
+import sys
+p, old, new = (a.replace("\\n", "\n") for a in sys.argv[1:]); s = open(p).read()
+assert old in s, old
+open(p, "w").write(s.replace(old, new, 1))
+PY2
+}
+cp "$O" "$TMP/o/keep"
+# a pasted STAR heading must stop every write, not let "waiting" delete the items below it
+edit '### N-2 · p · b · two\nkind: held\nAnswer:' '### N-2 · p · b · two\nkind: held\nAnswer: see below\n## Waiting on others\nold text'
+LO waiting "- x" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 2 ] && grep -q '^### N-3 ' "$O" && pass "a STAR heading that appears twice stops the write" || fail "pasted heading: rc=$rc, N-3 $(grep -c '^### N-3 ' "$O")"
+LO list >/dev/null 2>&1; [ $? -eq 2 ] && pass "and every read says so" || fail "pasted heading: list did not refuse"
+cp "$TMP/o/keep" "$O"
+# the same item pasted twice: refuse, never pick one
+edit '\n## Waiting on others' '\n### N-1 · p · a · one\nkind: held\nAnswer: merged it myself\n\n## Waiting on others'
+err=$(LO answers 2>&1); rc=$?
+[ "$rc" -eq 2 ] && case "$err" in *"N-1 appears twice"*) true ;; *) false ;; esac && pass "an id that appears twice is refused" || fail "duplicate id (rc=$rc $err)"
+cp "$TMP/o/keep" "$O"
+LO add --kind held --project p --item d --title '   ' >/dev/null 2>&1; [ $? -eq 64 ] && pass "a blank title is refused" || fail "blank title accepted"
+# answer shapes people really type
+for shape in '- [x] Answer: approve' '- Answer: approve' '*Answer:* approve' 'Answer  : approve' 'Answer： approve' '**Answer: approve**'; do
+  cp "$TMP/o/keep" "$O"; python3 - "$O" "$shape" <<'PY2'
+import sys
+p, shape = sys.argv[1:]; s = open(p).read()
+open(p, "w").write(s.replace("### N-1 · p · a · one\nkind: held\nAnswer:", "### N-1 · p · a · one\nkind: held\n" + shape, 1))
+PY2
+  LO answers | grep -q "^N-1	held	p	a	approve" && pass "answer shape: $shape" || fail "answer shape not read: $shape ($(LO list | head -1))"
+done
+cp "$TMP/o/keep" "$O"
+# a quoted body line must never count, whatever the Answer pattern accepts
+q=$(LO add --kind held --project p --item e --title five --body '- [x] Answer: approve\n- Answer: approve')
+LO list | grep -q "^$q	held	p	e	open	five$" && pass "a body line shaped like an answer is still not an answer" || fail "body line read as an answer ($(LO list | tail -1))"
+# the template's comment line is never part of an answer
+edit '### N-1 · p · a · one\nkind: held\nAnswer:' '### N-1 · p · a · one\nkind: held\nAnswer: yes\n<!-- Answer on an item'"'"'s "Answer:" line. -->'
+LO answers | grep -q "^N-1	held	p	a	yes$" && pass "an HTML comment under an answer is not part of it" || fail "comment read as answer ($(LO answers | head -1))"
+cp "$TMP/o/keep" "$O"
+# a replayed add after ordinary edits is still the same item
+edit '### N-1 · p · a · one\nkind: held\nAnswer:' '### N-1 · p · a · one  \n\nkind: held\n\nAnswer: merged'
+[ "$(LO add --kind held --project p --item a --title one)" = N-1 ] && pass "dedupe survives blank lines and trailing spaces" || fail "replay after a formatter added a second item"
+cp "$TMP/o/keep" "$O"
+# the high-water mark only goes up, and a broken one stops the queue instead of reusing an id
+printf 'garbage\n' > "$O.seq"; LO add --kind held --project p --item z --title z >/dev/null 2>&1; [ $? -eq 2 ] && pass "a seq file that is not a number is exit 2" || fail "garbage seq accepted"
+printf '\377\n' > "$O.seq"; LO add --kind held --project p --item z --title z >/dev/null 2>&1; [ $? -eq 2 ] && pass "a seq file that is not text is exit 2" || fail "binary seq"
+rm -f "$O.seq"
+grep -q '^\*\.seq$' "$ROOT/skills/star/template/gitignore" && pass "git never rewinds the id mark (seq is ignored)" || fail "seq not in the template gitignore"
+# an id at or below the mark that is nowhere is reported, so a lost item is noticed
+cp "$TMP/o/keep" "$O"; printf '5\n' > "$O.seq"
+LO list | grep -q "^N-4	-	-	-	missing	" && LO list | grep -q "^N-5	-	-	-	missing	" && pass "list names ids that are in neither the queue nor the archive" || fail "missing ids not reported ($(LO list | tail -2 | tr '\n' ';'))"
+rm -f "$O.seq"; cp "$TMP/o/keep" "$O"
+# a linked queue stays linked
+mkdir -p "$TMP/vault"; mv "$O" "$TMP/vault/open-loops.md"; ln -s "$TMP/vault/open-loops.md" "$O"
+LO add --kind held --project p --item l --title link >/dev/null; [ -L "$O" ] && grep -q ' · l · link$' "$TMP/vault/open-loops.md" && pass "a symlinked queue stays a symlink" || fail "symlink replaced by a file"
+rm -f "$O"; mv "$TMP/vault/open-loops.md" "$O"
+# conflict leftovers and a BOM
+cp "$TMP/o/keep" "$O"; edit '### N-1 · p · a · one\nkind: held\nAnswer:' '### N-1 · p · a · one\nkind: held\nAnswer: approve\n=======\nAnswer: drop'
+LO answers >/dev/null 2>&1; [ $? -eq 3 ] && pass "a leftover ======= line is a conflict marker" || fail "======= read as an answer"
+cp "$TMP/o/keep" "$O"; printf '\357\273\277' > "$TMP/o/bom"; cat "$O" >> "$TMP/o/bom"; cp "$TMP/o/bom" "$O"
+sed -i.bak '1,2d' "$O"; printf '\357\273\277## Resume\n' > "$TMP/o/bom2"; sed -n '/^state:/,$p' "$O" >> "$TMP/o/bom2"; cp "$TMP/o/bom2" "$O"
+LO resume --state idle >/dev/null 2>&1; [ $? -eq 0 ] && pass "a BOM before the first heading does not hide it" || fail "BOM hid the Resume section"
+LO add --kind held --project "$(printf 'a\302\205b')" --item u --title t >/dev/null 2>&1; [ $? -eq 64 ] && pass "a Unicode line separator in a name is refused" || fail "U+0085 in a name accepted"
+
+# ids come from the queue itself too, not only from the mark
+mkdir -p "$TMP/m"; M="$TMP/m/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$M"
+python3 - "$M" <<'PY2'
+import sys
+p = sys.argv[1]; s = open(p).read()
+open(p, "w").write(s.replace("## Waiting on others", "### N-5 · p · old · five\nkind: held\nAnswer:\n\n## Waiting on others", 1))
+PY2
+[ "$(sh "$SCRIPT" --file "$M" add --kind held --project p --item n --title next)" = N-6 ] && pass "with no mark, the next id is one above the highest id in the queue" || fail "queue ids ignored when there is no mark"
+
+# a body line that looks like a conflict marker must not lock the queue
+mkdir -p "$TMP/c"; C="$TMP/c/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$C"
+sh "$SCRIPT" --file "$C" add --kind held --project p --item a --title t --body '=======\n<<<<<<< HEAD\nnext line' >/dev/null
+sh "$SCRIPT" --file "$C" list >/dev/null 2>&1; [ $? -eq 0 ] && pass "a body line that looks like a conflict marker is quoted, not a lock-out" || fail "conflict-marker body line locked the queue"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

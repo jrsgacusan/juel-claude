@@ -14,7 +14,7 @@ cat "$STUB_JSON"
 EOF
 chmod +x "$TMP/bin/gh"; ln -s "$(command -v python3)" "$TMP/bin/python3"
 OK='"state":"OPEN","isDraft":false,"headRefOid":"abc1234def","mergeable":"MERGEABLE","mergeCommit":null'
-APPROVED='"reviewDecision":"APPROVED","reviews":[],"commits":[{"committedDate":"2026-10-01T00:00:00Z"}]'
+APPROVED='"reviewDecision":"APPROVED","reviews":[{"author":{"login":"ezra"},"state":"APPROVED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"}}]'
 GREEN='"statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"deploy","state":"SUCCESS"}]'
 # t <name> <expected line> <json body> [extra args]
 t() {
@@ -68,6 +68,17 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STAR_GH_TIMEOUT=abc STUB_JSON="$TMP/pr.json"
 t "a PR with no state is unreadable, never a pass" "PENDING gh: unreadable output" "\"state\":null,\"isDraft\":false,\"headRefOid\":\"abc1234def\",\"mergeable\":\"MERGEABLE\",\"mergeCommit\":null,$APPROVED,$GREEN"
 t "a lower-case merged state is still merged" "MERGED 9e8d7c6" "\"state\":\"merged\",\"isDraft\":false,\"headRefOid\":\"abc1234def\",\"mergeable\":\"UNKNOWN\",\"mergeCommit\":{\"oid\":\"9e8d7c6\"},$APPROVED,$GREEN"
 t "a review decision that is not text is unreadable" "PENDING gh: unreadable output" "$OK,\"reviewDecision\":[\"APPROVED\"],\"reviews\":[],$GREEN"
+
+# Final pass
+t "a review rule satisfied by an approval of an earlier commit passes, and says so" "PASS approval is on an earlier commit" "$OK,\"reviewDecision\":\"APPROVED\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"0ld0000aaa\"}}],$GREEN"
+t "required checks that have not reported block the pass" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$APPROVED,\"mergeStateStatus\":\"BLOCKED\",\"statusCheckRollup\":[]"
+t "a branch behind its base is pending, not a pass" "PENDING merge state: behind the base branch" "$OK,$APPROVED,\"mergeStateStatus\":\"BEHIND\",$GREEN"
+t "a clean merge state passes" "PASS" "$OK,$APPROVED,\"mergeStateStatus\":\"CLEAN\",$GREEN"
+for bad in '"headRefOid":7' '"mergeCommit":"x"' '"reviews":[{"author":"x","state":"APPROVED"}]' '"statusCheckRollup":[{"conclusion":7}]'; do
+  printf '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"","headRefOid":"abc1234def","reviews":[],"statusCheckRollup":[],%s}\n' "$bad" > "$TMP/pr.json"
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 2>&1); rc=$?
+  case "$out" in PASS*) echo "FAIL odd shape $bad printed PASS"; fails=$((fails + 1)) ;; *) [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] && echo "ok   odd shape $bad is one line, never a crash" || { echo "FAIL odd shape $bad (rc=$rc: $(printf '%s' "$out" | head -1))"; fails=$((fails + 1)); } ;; esac
+done
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
