@@ -1,14 +1,14 @@
 #!/bin/sh
-# Guards on skills/ship-tickets/SKILL.md: the local Orca coordinator.
+# Guards on skills/star/SKILL.md: the local Orca coordinator.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SKILL="$ROOT/skills/ship-tickets/SKILL.md"
+SKILL="$ROOT/skills/star/SKILL.md"
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$SKILL" ] || { echo "FAIL SKILL.md missing"; exit 1; }
 
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
-grep -q '^name: ship-tickets$' "$SKILL" && pass "name" || fail "name"
+grep -q '^name: star$' "$SKILL" && pass "name" || fail "name"
 grep -q 'juel:protocol v7' "$SKILL" && pass "protocol block" || fail "protocol block"
 grep -q 'id: orca-terminal' "$SKILL" && pass "Orca terminal precondition" || fail "Orca terminal precondition"
 grep -qi 'Approve / Edit / Drop' "$SKILL" && pass "brief approval" || fail "brief approval"
@@ -34,7 +34,7 @@ grep -q 'PushNotification' "$SKILL" && pass "notifies the user" || fail "notific
 grep -q '30 min' "$SKILL" && pass "unanswered questions escalate" || fail "question timeout"
 grep -q 'isDraft,reviewDecision,reviews,commits,headRefOid,mergeable,statusCheckRollup' "$SKILL" && pass "exact-head check" || fail "exact-head check"
 grep -qi 'Never merge' "$SKILL" && pass "never merge" || fail "never merge"
-grep -q 'ship-tickets' "$ROOT/README.md" && pass "README row" || fail "README row"
+grep -q 'star' "$ROOT/README.md" && pass "README row" || fail "README row"
 
 # Review fixes (team test pass)
 grep -q 'Never call AskUserQuestion inside the loop' "$SKILL" && pass "S4 questions never block the loop" || fail "S4 non-blocking questions"

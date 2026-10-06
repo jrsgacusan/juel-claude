@@ -1,0 +1,11 @@
+{
+  "maxParallel": 3,
+  "maxInReview": 3,
+  "worker": { "agent": "claude", "model": "opus", "effort": "high" },
+  "reviewer": { "agent": "codex", "model": "default", "effort": null },
+  "quietHours": null,
+  "run": null,
+  "terminal": null,
+  "caffeinatePid": null,
+  "heartbeat": null
+}

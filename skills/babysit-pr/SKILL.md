@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a juel:ship-tickets Orca worker, marks a draft ready once, escalates instead of asking and holds reviewer-facing actions during quiet hours. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
+description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a juel:star Orca worker, marks a draft ready once, escalates instead of asking and holds reviewer-facing actions during quiet hours. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
 metadata:
   requires:
     cli:
@@ -123,11 +123,11 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
 Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
-or as a `juel:ship-tickets` worker `/juel:babysit-pr 412 --unattended --mark-ready --item SAVI-1162 --gates "make test" --quiet-hours 22:00-07:00@Asia/Manila`
+or as a `juel:star` worker `/juel:babysit-pr 412 --unattended --mark-ready --item SAVI-1162 --gates "make test" --quiet-hours 22:00-07:00@Asia/Manila`
 
 ## Unattended mode
 
-`--unattended` is how a `juel:ship-tickets` Orca worker runs this skill after the second-model review said SAFE. Nobody
+`--unattended` is how a `juel:star` Orca worker runs this skill after the second-model review said SAFE. Nobody
 is there to answer, so every place below that tells the user something or asks them changes:
 
 | Normally | With `--unattended` |

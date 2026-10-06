@@ -1,5 +1,5 @@
 #!/bin/sh
-# Guards on skills/ship-ticket/SKILL.md: unattended, brief and fix modes for juel:ship-tickets workers.
+# Guards on skills/ship-ticket/SKILL.md: unattended, brief and fix modes for juel:star workers.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SKILL="$ROOT/skills/ship-ticket/SKILL.md"
 fails=0
