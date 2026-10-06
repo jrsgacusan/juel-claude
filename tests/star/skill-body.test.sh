@@ -166,5 +166,11 @@ g "P6 stop releases the claim" '"terminal": null'
 ! grep -q 'HOME_DIR/CLAUDE.md' "$SKILL" && grep -q 'come from the' "$SKILL" && grep -q 'session hook' "$SKILL" && pass "P7 the standing rules come from the session hook" || fail "P7 standing rules"
 ! grep -q 'projects\.md' "$SKILL" && ! grep -q 'global\.md' "$SKILL" && pass "P8 one project per folder: no registry, no global notes" || fail "P8 registry or global notes left"
 g "P9 a ref for another repo is refused" 'another repository'
+# Final review
+g "F1 finding out whether to hand over comes before the preflight" 'the one exception to rule 1'
+g "F2 take over is a command, not filler" 'whole text is `take over`'
+g "F3 an inbox file for another repo is kept, not deleted" 'leave the file where it is'
+g "F4 the worktree is created from the recorded repo id" '`<REPO_ID>` is `project.orcaRepo`'
+g "F5 a late registration is recorded" 'write it to `star.json` as `project.orcaRepo`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

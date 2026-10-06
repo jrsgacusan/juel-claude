@@ -77,6 +77,24 @@ i=0; while [ $i -lt 10 ]; do i=$((i + 1)); sh "$SCRIPT" --cwd "$RACE" init >/dev
 HRA="$RACE/docs/superpowers/context/star"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["project"]["name"]=="race"' "$HRA/star.json" && cmp -s "$HRA/ledger.md" "$ROOT/skills/star/template/ledger.md" && [ "$(grep -c 'context/star' "$RACE/.git/info/exclude")" = 1 ] && pass "ten init calls at once leave one intact folder" || fail "concurrent init"
 
+# Review: git lists the git directory, not the checkout, for a submodule and for a separate git dir
+mkrepo "$TMP/lib"; mkrepo "$TMP/super"; SUP=$(real "$TMP/super")
+(cd "$SUP" && git -c protocol.file.allow=always submodule add -q "$TMP/lib" libs/sub >/dev/null 2>&1 && git commit -q -m sub)
+HSUB=$(sh "$SCRIPT" --cwd "$SUP/libs/sub" init 2>/dev/null)
+[ "$HSUB" = "$SUP/libs/sub/docs/superpowers/context/star" ] && [ -f "$HSUB/star.json" ] && [ ! -e "$SUP/.git/modules/libs/sub/docs" ] && (cd "$SUP/libs/sub" && git check-ignore -q "$HSUB/star.json") && pass "a submodule's folder is in its checkout, not in the git directory" || fail "submodule ($HSUB)"
+git init -q --separate-git-dir "$TMP/sep.git" "$TMP/sep" && (cd "$TMP/sep" && git commit -q --allow-empty -m init); SEP=$(real "$TMP/sep")
+[ "$(sh "$SCRIPT" --cwd "$SEP" path 2>/dev/null)" = "$SEP/docs/superpowers/context/star" ] && [ ! -e "$TMP/sep.git/docs" ] && pass "a separate git dir: the folder is in the checkout" || fail "separate git dir ($(sh "$SCRIPT" --cwd "$SEP" path 2>&1))"
+(cd "$SEP" && git worktree add -q "$TMP/sepwt" -b w)
+[ "$(sh "$SCRIPT" --cwd "$SEP" path 2>/dev/null)" = "$SEP/docs/superpowers/context/star" ] && pass "a separate git dir with linked worktrees, from the main checkout" || fail "separate git dir, main checkout"
+sh "$SCRIPT" --cwd "$TMP/sepwt" init >/dev/null 2>&1; [ $? -eq 1 ] && [ ! -e "$TMP/sep.git/docs" ] && [ ! -e "$TMP/sepwt/docs" ] && pass "a linked worktree whose main checkout git cannot name is exit 1" || fail "separate git dir, linked worktree"
+
+# Review: a project folder that was moved keeps its name and gets its new path
+mkrepo "$TMP/before"; sh "$SCRIPT" --cwd "$TMP/before" init >/dev/null; mv "$TMP/before" "$TMP/after"; AFT=$(real "$TMP/after")
+HM=$(sh "$SCRIPT" --cwd "$AFT" init)
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["project"]; assert d=={"name":"before","repo":sys.argv[2]}, d' "$HM/star.json" "$AFT" 2>/dev/null && pass "a moved project keeps its name and records its new path" || fail "moved project"
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["project"]["orcaRepo"]="r1"; json.dump(d,open(p,"w"))' "$HM/star.json"; sh "$SCRIPT" --cwd "$AFT" init >/dev/null
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["project"]["orcaRepo"]=="r1"' "$HM/star.json" && pass "init keeps what STAR learned about the project" || fail "init dropped a learned field"
+
 # the template no longer ships a repo of its own
 T="$ROOT/skills/star/template"
 [ ! -e "$T/CLAUDE.md" ] && [ ! -e "$T/gitignore" ] && [ ! -e "$T/memory/global.md" ] && pass "the template has no CLAUDE.md, gitignore or global notes" || fail "template still ships repo files"
