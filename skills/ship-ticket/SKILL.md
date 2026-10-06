@@ -288,7 +288,25 @@ literal `null` or an empty string.
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| finished | `DONE item=<item> pr=<url>` |
+| build finished, draft PR open (end of the first turn) | `DONE item=<item> pr=<url>` |
+| review findings fixed and pushed (a `REVIEW-FINDINGS` turn) | `FIXED item=<item> head=<sha>` |
+| approved, green and pushed (a `CONTINUE` turn) | `READY item=<item> pr=<url> head=<sha>` |
+
+**Turns.** An unattended worker owns its item across several turns, all in the same chat:
+
+1. **Build turn** (the first prompt): Phases 1–7, ending at a draft PR with `DONE`. End the turn
+   there; Phase 8 waits for the driver. Its task stays pending.
+2. **`REVIEW-FINDINGS item=<item> round=<k>`**, followed by a second-model reviewer's findings: treat
+   them as Phase 5 treats review findings. Validate each one with
+   `superpowers:receiving-code-review` against the brief (a finding outside the brief's scope is a
+   `brief-violation` escalation, never silently built), write a `-vN` review plan, execute it as
+   Phase 4 does (rule 4: `codex exec` backgrounded, watched and waited on), then re-run Phase 6 in
+   full, including cleanup and the regression gate. Commit, `git push`, and print
+   `FIXED item=<item> head=<sha>` with each rejected finding and its reason listed above it. Never
+   force-push.
+3. **`CONTINUE item=<item> phase=8`**: run Phase 8 unattended (below). Its last line is `READY` or an
+   `ESCALATION`. The driver may send `CONTINUE` again when its own check of the PR finds the head
+   moved; run Phase 8 again from its step 2.
 
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
@@ -307,6 +325,8 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 5. `merge-conflict` — a merge conflict with the base branch.
 6. `needs-human-input` — phase 6 needs a secret, a paid service or a real account it cannot self-serve.
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
+8. Whatever `juel:babysit-pr` escalates in Phase 8 (an ambiguous reviewer comment, a red gate twice,
+   a merge conflict): it prints its own `ESCALATION` line; do not print a second one.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -328,8 +348,9 @@ now=$(TZ="<tz>" date +%H:%M)
 # inside when start <= end: start <= now < end; when the window crosses midnight: now >= start || now < end
 ```
 
-Inside the window, outward actions become `HELD` lines: the phase 7 status write, and anything that
-notifies a person. Pushing commits and opening a **draft** PR are not outward in this sense and
+Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready, replying to
+reviewers and re-requesting review wait inside `juel:babysit-pr` until the window ends (it gets the
+same `--quiet-hours`). Pushing commits and opening a **draft** PR are not outward in this sense and
 proceed.
 
 **Status writes without a connector.** When the resolved provider supports `update_status` but this
@@ -623,12 +644,15 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
    Under `--unattended` with no `gh`, there is no PR yet: print
    `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>), then /juel:babysit-pr`,
    then `DONE item=<item> pr=<compare-url>`, and end the run.
-   Under `--unattended` with a PR, skip this phase too: the PR is a draft that nobody reviews until
-   the human marks it ready. Print `HELD item=<item> action=mark PR <n> ready, then /juel:babysit-pr <n>`,
-   then the `DONE` line, and end the run.
+   Under `--unattended` with a PR, the build turn ends here with the `DONE` line; this phase runs
+   only when the driver sends `CONTINUE item=<item> phase=8`, after the second-model review said
+   SAFE.
 2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
    number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
    order. Do not re-resolve the toolchain.
+   Under `--unattended`, add `--unattended --mark-ready --item <item>` and, when given to this run,
+   the same `--quiet-hours <window>`. babysit-pr marks the draft ready once, handles every review
+   round without asking, and prints the final `READY` or `ESCALATION` line itself.
 3. There are no per-round confirmations inside this phase. The user is asked only by
    `juel:receive-review-and-execute` (ambiguous findings), merge conflicts, red gates, and
    long silence or repeated errors.

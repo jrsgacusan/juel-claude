@@ -36,5 +36,10 @@ for p in linear jira github file; do
   grep -q "^   | \`$p\` |" "$SKILL" && pass "phase 7 status row $p" || fail "phase 7 status row $p"
 done
 grep -q 'ship a Linear ticket' "$SKILL" && fail "description is source-neutral" || pass "description is source-neutral"
+for l in 'FIXED item=<item> head=<sha>' 'READY item=<item> pr=<url> head=<sha>' 'REVIEW-FINDINGS item=<item> round=<k>' 'CONTINUE item=<item> phase=8'; do
+  grep -qF "$l" "$SKILL" && pass "turn line $l" || fail "turn line $l"
+done
+grep -q -- '--unattended --mark-ready --item <item>' "$SKILL" && pass "phase 8 hands off to babysit unattended" || fail "phase 8 unattended babysit"
+grep -q 'skip this phase too' "$SKILL" && fail "phase 8 no longer skipped under unattended" || pass "phase 8 no longer skipped under unattended"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

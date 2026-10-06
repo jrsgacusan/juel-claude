@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. Invoked by juel:ship-ticket Phase 8. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
+description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a fleet worker, marks a draft ready once, escalates instead of asking and holds reviewer-facing actions during quiet hours. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
 metadata:
   requires:
     cli:
@@ -114,8 +114,36 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 |----------|---------|-------------|
 | `[pr-number]` | the current branch's PR | The PR to babysit |
 | `--gates "<cmd>;<cmd>"` | resolved once in Phase 1 | Gate commands, `;`-separated; ship-ticket passes its Phase 4 set |
+| `--unattended` | off | No human answers: see "Unattended mode". Requires `--item` |
+| `--item <item>` | — | The work item's name for report lines (its ref, or its slug) |
+| `--mark-ready` | off | Mark a draft PR ready for review once, in Phase 1 (deferred while inside `--quiet-hours`) |
+| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Window in which marking ready, replies and review requests wait; pushes still happen |
 
-Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`
+Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
+or as a fleet worker `/juel:babysit-pr 412 --unattended --mark-ready --item SAVI-1162 --gates "make test" --quiet-hours 22:00-07:00@Asia/Manila`
+
+## Unattended mode
+
+`--unattended` is how a fleet worker runs this skill after the second-model review said SAFE. Nobody
+is there to answer, so every place below that tells the user something or asks them changes:
+
+| Normally | With `--unattended` |
+|---|---|
+| Phase 2 waits in the background (Claude Code) | Always the foreground form with `--max-seconds 540`, repeated on `wake: timeout`: a background wait may never wake a headless session |
+| `errors`: tell the user, wait again | wait again; three `errors` in a row → `ESCALATION item=<item> phase=8 reason=pr-state-errors needs=<the error>` |
+| `silence`: tell the user once | say nothing; wait again with `--silence-hours 0` |
+| `receive-review-and-execute` asks about ambiguous findings or merge conflicts | invoke it with `--unattended`; its `AMBIGUOUS:` lines → `ESCALATION item=<item> phase=8 reason=ambiguous-review needs=<each ambiguous finding>`; its `CONFLICT:` line → `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
+| two red gates in a row: stop and ask | `ESCALATION item=<item> phase=8 reason=gate-red needs=<command and output>` |
+| merge conflicts: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
+| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha>` (only on "Ready for you to merge"); any other outcome is an `ESCALATION` with the reason |
+
+**Quiet hours.** With `--quiet-hours`, check the window at the moment of each reviewer-facing
+action, not once at the start (`now=$(TZ="<tz>" date +%H:%M)`; inside when start <= end:
+start <= now < end; across midnight: now >= start || now < end). Inside it, `gh pr ready`, Phase 3's
+replies (step 5) and review requests (step 6) are **deferred**: keep each composed body in its temp
+file and the pending commands in order, keep waiting in Phase 2, and run every deferred command, in
+order, at the first wake after the window ends. Fixes, gates and pushes never wait. A deferred
+`gh pr ready` means no reviewer sees the PR yet, so Phase 2 simply times out until the window ends.
 
 ## Phase 1: Resolve PR and gates
 
@@ -132,6 +160,9 @@ Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates
    set, otherwise `pr-state.sh` next to this SKILL.md.
 6. Cursor: the PR's `createdAt`, so feedback that arrived before this skill started is handled
    in round 1. Quiet-since: now.
+7. With `--mark-ready` and a draft PR (`gh pr view <pr> --json isDraft`): `gh pr ready <pr>`, once,
+   or defer it per "Unattended mode" when inside `--quiet-hours`. A PR that is already ready is left
+   alone. Never mark it ready a second time.
 
 ## Phase 2: Wait for feedback
 
@@ -155,7 +186,7 @@ Act on the printed object's `wake`:
 
 ## Phase 3: Remediate and push
 
-1. Invoke `/juel:receive-review-and-execute <pr>`. It merges the base branch, reads every
+1. Invoke `/juel:receive-review-and-execute <pr>` (`/juel:receive-review-and-execute <pr> --unattended` under `--unattended`). It merges the base branch, reads every
    thread, validates findings into actionable / rejected / ambiguous, asks the user about
    ambiguous ones, writes a plan and runs the executor. Keep its final per-finding outcome: it
    is the source for every reply below.
