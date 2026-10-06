@@ -118,6 +118,7 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--item <item>` | — | The work item's name for report lines (its ref, or its slug) |
 | `--mark-ready` | off | Mark a draft PR ready for review once, in Phase 1 (deferred while inside `--quiet-hours`) |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Window in which marking ready, replies and review requests wait; pushes still happen |
+| `--brief <path>` | — | The item's approved brief. Passed on to `receive-review-and-execute`, which refuses reviewer requests outside its scope |
 | `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
 Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
@@ -131,17 +132,18 @@ is there to answer, so every place below that tells the user something or asks t
 | Normally | With `--unattended` |
 |---|---|
 | Phase 2 waits in the background (Claude Code) | Always the foreground form with `--max-seconds 540`, repeated on `wake: timeout`: a background wait may never wake a headless session. The same applies whenever `--quiet-hours` is set, unattended or not, so deferred commands run within minutes of the window ending |
-| `approved` wake needs `reviewDecision: APPROVED` | also on each `timeout` wake when `decision` is null (the base branch requires no review): `gh pr view <pr> --json reviews,commits` → an `APPROVED` review submitted after the last commit, and no `CHANGES_REQUESTED` after it, counts as approved → Phase 4 |
+| `approved` wake needs `reviewDecision: APPROVED` | also on each `timeout` wake when `decision` is null or an empty string (`gh pr view` reports `""` when the base branch requires no review): `gh pr view <pr> --json reviews,commits` → an `APPROVED` review submitted after the last commit, and no `CHANGES_REQUESTED` after it, counts as approved → Phase 4 |
 | no limit on waiting | 72 h with no new feedback since the PR was marked ready → `ESCALATION item=<item> phase=8 reason=no-review needs=a reviewer`, after flushing (below) |
 | `errors`: tell the user, wait again | wait again; three `errors` in a row → `ESCALATION item=<item> phase=8 reason=pr-state-errors needs=<the error>` |
 | `silence`: tell the user once | say nothing; wait again with `--silence-hours 0` |
-| `receive-review-and-execute` asks about ambiguous findings or merge conflicts | invoke it with `--unattended`; its `AMBIGUOUS:` lines → `ESCALATION item=<item> phase=8 reason=ambiguous-review needs=<each ambiguous finding>`; its `CONFLICT:` line → `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
+| `receive-review-and-execute` asks about ambiguous findings or merge conflicts | invoke it with `--unattended --only <ids>`, the ids of this round's `new_feedback` (older threads are context only, so feedback already answered is never re-planned or re-escalated), plus `--brief <path>` when given; its `BRIEF-VIOLATION:` lines → `ESCALATION item=<item> phase=8 reason=brief-violation needs=<each request>`; its `AMBIGUOUS:` lines → `ESCALATION item=<item> phase=8 reason=ambiguous-review needs=<each ambiguous finding>`; its `CONFLICT:` line → `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | two red gates in a row: stop and ask | `ESCALATION item=<item> phase=8 reason=gate-red needs=<command and output>` |
+| a question sent with `orca orchestration ask` comes back "No answer from the user: escalate this." | `ESCALATION item=<item> phase=8 reason=unanswered-question needs=<the question>` |
 | merge conflicts: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | `receive-review-and-execute` prints `STOPPED: <reason>` | `ESCALATION item=<item> phase=8 reason=remediation-stopped needs=<reason>`; never read it as "zero actionable" |
-| Phase 4 ends after the push | **wait for CI and the approval** before reporting: poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`. Any `fail` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing check names>`. Then re-read `reviewDecision`: if the push dismissed the approval, go back to Phase 2 (the re-request is a reviewer-facing action, subject to quiet hours) |
+| Phase 4 ends after the push | **wait for CI and the approval** before reporting: poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`. Any `fail` or `cancel` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing or cancelled check names>`. Then re-read `reviewDecision` (null and an empty string mean the repo requires no review): if the push dismissed the approval, run `gh pr edit <pr> --add-reviewer <the approvers of the dismissed reviews>` (a reviewer-facing action, deferred in quiet hours), then go back to Phase 2 |
 | Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green); any other outcome is an `ESCALATION` with the reason. That line is the first line of the `worker_done` body, followed by any `HELD` lines; `--outcome failed` for an `ESCALATION` |
-| gates run directly | take `<git-common-dir>/juel/gate.lock` exactly as `juel:ship-ticket`'s "Gate lock" paragraph describes: `mkdir` to acquire, retry every 30 s in foreground calls of at most 540 s, a lock older than 2 h with a dead pid is stale, `rm -rf` after the gates whether they passed or not |
+| gates run directly | run them through `juel:ship-ticket`'s `gate-lock.sh` (`../ship-ticket/gate-lock.sh` from this file, or `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh`): `sh <gate-lock.sh> --holder "<item>" -- sh -c '<gates joined with &&>'`; exit 75 means busy, run it again |
 
 **Nothing deferred is lost.** Before printing `READY`, run every deferred command; if the quiet
 window is still on, keep waiting in Phase 2 (feedback that arrives meanwhile is handled as usual)
@@ -198,7 +200,7 @@ Act on the printed object's `wake`:
 
 ## Phase 3: Remediate and push
 
-1. Invoke `/juel:receive-review-and-execute <pr>` (`/juel:receive-review-and-execute <pr> --unattended` under `--unattended`). It merges the base branch, reads every
+1. Invoke `/juel:receive-review-and-execute <pr>` (under `--unattended`: `/juel:receive-review-and-execute <pr> --unattended --only <ids> [--brief <path>]`, see "Unattended mode"). It merges the base branch, reads every
    thread, validates findings into actionable / rejected / ambiguous, asks the user about
    ambiguous ones, writes a plan and runs the executor. Keep its final per-finding outcome: it
    is the source for every reply below.

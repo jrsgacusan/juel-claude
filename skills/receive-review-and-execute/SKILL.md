@@ -122,6 +122,8 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 |----------|---------|-------------|
 | `[pr-number]` | (required) | GitHub PR number to fetch review comments from |
 | `--unattended` | off | No human answers (a `juel:ship-tickets` worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
+| `--brief <path>` | — | An approved `juel_brief: 1` brief. A reviewer request that needs work outside its Scope (or listed under Out) is not built: see below |
+| `--only <ids>` | all unanswered feedback | Comma-separated comment / review ids to act on this run. Every other thread is still read as context, but is never re-classified, planned or answered |
 
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
 
@@ -130,6 +132,10 @@ Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute
 - Any ambiguous finding in phase 5: do not ask and do not execute anything, including the
   actionable findings, so a fix never ships half-decided. Print `AMBIGUOUS: <author> <file:line>
   <comment, trimmed> — <why it is ambiguous>` for each one and stop; the caller escalates them.
+- With `--brief`, a finding that needs work outside the brief's scope is not planned: print
+  `BRIEF-VIOLATION: <author> <file:line> <request, trimmed> — <the scope line it breaks>` and stop
+  before executing anything, so the human decides. Without `--brief`, scope is not checked.
+- With `--only`, phase 5 classifies only the listed items; the rest are context.
 - Any other STOP (a preflight STOP, a dirty tree, a missing PR) prints `STOPPED: <reason>` as its
   last line, so the caller never mistakes it for a run with nothing to fix.
 - Everything else runs as normal.
