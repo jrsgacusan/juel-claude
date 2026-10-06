@@ -129,9 +129,15 @@ def wait(a):
             quiet_for = (datetime.now(timezone.utc) - quiet_since).total_seconds()
             if a.silence_hours and quiet_for >= a.silence_hours * 3600:
                 return {**snap, "wake": "silence"}
-        if a.max_seconds is not None and time.monotonic() - started + a.interval > a.max_seconds:
-            return {**(last_good or {}), "wake": "timeout", **({"error": last_error} if last_good is None else {})}
-        time.sleep(a.interval)
+        nap = a.interval
+        if a.max_seconds is not None:
+            # Sleep at most what is left of the budget, so an interval longer than the budget
+            # (600 s polling inside 540 s foreground calls) still waits instead of busy-looping.
+            left = a.max_seconds - (time.monotonic() - started)
+            if left <= 0:
+                return {**(last_good or {}), "wake": "timeout", **({"error": last_error} if last_good is None else {})}
+            nap = min(nap, left)
+        time.sleep(nap)
 
 
 def emit(obj):

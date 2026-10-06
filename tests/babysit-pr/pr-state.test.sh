@@ -141,6 +141,14 @@ check "wait: silence fires when quiet too long" 'd["wake"] == "silence" and call
 run wait-feedback 10 --wait --interval 0 --max-seconds 0
 check "wait: --max-seconds 0 returns timeout after one poll" 'd["wake"] == "timeout" and calls == 1'
 
+# An interval longer than the budget must still sleep (up to the budget) and poll again,
+# not return timeout after a single poll: the unattended form is --interval 600 --max-seconds 540.
+t0=$(date +%s)
+run wait-feedback 10 --wait --interval 5 --max-seconds 1
+t1=$(date +%s)
+check "wait: interval longer than the budget still sleeps and polls again" 'd["wake"] == "feedback" and calls == 2'
+if [ $((t1 - t0)) -lt 4 ]; then echo "ok   wait: sleep is capped by the budget"; else echo "FAIL wait: sleep is capped by the budget ($((t1 - t0))s)"; fails=$((fails + 1)); fi
+
 STUB_FAIL=1; export STUB_FAIL
 run wait-feedback 10 --wait --interval 0
 check "wait: three errors in a row wake with errors" 'd["wake"] == "errors" and "exited 1" in d["error"]'
