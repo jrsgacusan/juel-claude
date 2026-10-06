@@ -159,8 +159,8 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. `quiet-hours.sh` decides inside or outside. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
-`/juel:ship-ticket --unattended --brief ~/juel-star/briefs/lstn/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
-(add `--fix-review ~/juel-star/reviews/lstn/SAVI-1162-r1.md` for a fix stage)
+`/juel:ship-ticket --unattended --brief <project>/docs/superpowers/context/star/briefs/lstn/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
+(add `--fix-review <project>/docs/superpowers/context/star/reviews/lstn/SAVI-1162-r1.md` for a fix stage)
 
 ## Base branch & repo conventions
 
