@@ -143,7 +143,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
 | `--fix-review <file>` | off | Fix mode for a NOT-SAFE second-model review; requires `--unattended --brief`. See "Unattended mode" |
-| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight). Inside it, outward actions are held, not performed. See "Unattended mode" |
+| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
 `/juel:ship-ticket --unattended --brief ~/juel-star/briefs/lstn/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`

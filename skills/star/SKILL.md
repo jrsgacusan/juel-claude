@@ -146,6 +146,8 @@ evidence; it completes when STAR goes idle or is stopped.
 | `/juel:star` | an Orca terminal whose cwd is STAR's home | Start STAR, or resume it: the two are the same command |
 | `/juel:star add <refs…>` | any Claude session inside a project repo | Put items in STAR's inbox and nudge it |
 | `/juel:star status` | anywhere | Print the Needs-you block and counts per state. Read-only |
+| `/juel:star away` | anywhere, or tell STAR "I'm leaving" | Write the handoff file and switch to away mode (below) |
+| `/juel:star back` | anywhere, or tell STAR "I'm back" | Print the latest summary and the queue; leave away mode |
 | `/juel:star stop` | STAR's session | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
 | `/juel:star draft-brief <ref> --project <name> --out <path>` | a brief worker, never the user | Worker mode, below |
 
@@ -182,6 +184,13 @@ A message to STAR that says only `inbox` means "run a tick now".
 `sh S/loops.sh --file HOME_DIR/open-loops.md list`, then counts per state from `ledger.md`. Print
 both. Nothing else.
 
+### `away` and `back`
+
+In STAR's own session these run directly (see "Handoff"). From any other session they need only
+STAR's home: write `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` containing the single
+line `control: away` (or `control: back`), then nudge STAR exactly as `add` does. STAR not running →
+say so; the control file waits in the inbox.
+
 ## STAR's home
 
 Created on the first `/juel:star` in an empty home: copy `S/template/` into it (rename `gitignore`
@@ -195,6 +204,8 @@ CLAUDE.md               standing instructions; Claude Code re-reads it after eve
 star.json               settings (below) plus run id, STAR's terminal handle, caffeinate pid, heartbeat id, notifiedThrough
 open-loops.md           Resume block, then Needs you, then Waiting on others   (written only through loops.sh)
 open-loops-archive.md   closed items
+handoff.md              the "before you go" lists and the summaries written while the user is away (handoff.sh)
+sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
 ledger.md               one row per item, all projects
 processed.log           <message id> <dispatch> <iso time>
 projects.md             | name | repo path | orca repo id | work source | base branch | remote |
@@ -230,7 +241,9 @@ asked for one; `opus` is the mid tier.
 
 STAR writes this file only through `loops.sh`, which re-reads it every time and never loses text the
 user typed. The user answers on an item's `Answer:` line (continuing on the lines right under it),
-or by telling STAR, who records it with `loops.sh set-answer <id> "<text>"`.
+or by telling STAR, who records it with `loops.sh set-answer <id> "<text>"` and then acts on it
+in the same turn (the Answers step below, run at once for that item), so the worker that owns the
+work gets the answer without waiting for the next tick.
 
 | When | Command |
 |---|---|
@@ -327,7 +340,8 @@ Write the whole ledger right after each message's transition, then append the me
 `processed.log` is skipped. A message that matches no row is never dropped: `--kind held` with its
 first line.
 
-1. **Inbox.** For each `HOME_DIR/inbox/*.md`: learn the project into `projects.md` on first sight
+1. **Inbox.** A file whose only line is `control: away` or `control: back` is that command: run it
+   (see "Handoff") and delete the file. For each other `HOME_DIR/inbox/*.md`: learn the project into `projects.md` on first sight
    (orca repo id from `orca repo list --json` by repo path; not registered → `--kind held` "register
    <repo> with Orca: orca repo add" and leave the file), add one `inbox` row per ref with its item
    name (the naming rule above) and the raw reference in `ref`, delete the file.
@@ -373,7 +387,9 @@ first line.
    | anything else, or no report line | row → `failed`; queue `--kind escalation` quoting the first line; free the slot. Never re-run without the user's answer |
 
    Also, for any report: each `HELD item=… action=…` line → `--kind held`; a `NOTE: <text>` line →
-   append `- <date> <item>: <text>` to `HOME_DIR/memory/<project>.md`. After each settled
+   append `- <date> <item>: <text>` to `HOME_DIR/memory/<project>.md`; a `SENT …` line → append
+   `<iso>\t<project>\t<item>\t<the text after SENT>` to `HOME_DIR/sent.log`. STAR logs its own sends
+   there too (a draft it posted with `gh pr comment`). After each settled
    `worker_done`: `orca orchestration worker-release --dispatch <id>`.
 4. **Fill slots** by the pool rules above, memory check first (below).
 5. **Housekeeping.**
@@ -386,6 +402,7 @@ first line.
      Never answer a worker's prompt for it.
    - `verifying` rows past `retry-not-before`, and every `ready` row: the exact-head check (below).
    - Notifications (below).
+   - Away: `sh S/handoff.sh --home HOME_DIR due` printing `due` → `sh S/handoff.sh --home HOME_DIR summary`.
 6. **Write and commit** (one `git commit` per tick that changed files). `loops.sh resume …` with the current pools and the next step;
    `loops.sh waiting "<one line per PR in review, per blocked question>"`; then, when anything
    changed: `git -C HOME_DIR add -A && git -C HOME_DIR commit -q -m "star: <n> transitions, <m> loops"`,
@@ -623,6 +640,43 @@ notified.
 Workers get the quiet window (`--quiet-hours`) and decide at each outward action: they keep
 building, reviewing, fixing and pushing, while marking ready, replying to reviewers, re-requesting
 review and status writes wait for the window to end or come back as `HELD` lines.
+
+## Handoff
+
+The handoff is how the user leaves and comes back without losing anything. `handoff.md` only lists:
+the queue stays the one place to answer, so an answer can never exist in two files.
+
+**Away** (`/juel:star away`, "I'm leaving", or a `control: away` inbox file):
+
+1. Finish the current tick, so the queue and ledger are current.
+2. `sh S/handoff.sh --home HOME_DIR start` writes `handoff.md` and marks `away` in `star.json`. Its
+   three parts come straight from the files: **A. Needs you now** (queue items that block work:
+   briefs to approve, questions, escalations, restarts), **B. Waits for you** (merges, drafts, held
+   actions), **C. What runs while you're away** (each open item and where it will stop).
+3. Print part A and ask the user to answer those before they go. Do not wait for them: answers
+   that arrive are handled like any other.
+
+**While away:**
+
+- Build, second-model review and fix stages keep running, started with `--quiet-hours always`, so
+  their status writes come back as `HELD`.
+- No babysit stage is started: a row that reaches `babysit-queued` waits there, so no new PR is
+  marked ready and no human reviewer is pinged until the user is back. Babysit workers that were
+  already running are left alone and keep their own quiet window.
+- Only `escalation` items notify, as inside quiet hours.
+- About every 4 hours (housekeeping's `handoff.sh due`), `handoff.sh summary` adds a dated summary
+  to the top of `handoff.md`: items per state, PRs ready for the merge, what merged, what stopped,
+  everything in `sent.log` since the last summary, free memory and running workers, and the full
+  Needs-you list again. The heartbeat keeps this going while STAR is idle. It needs STAR's session
+  to be open: with the session closed, workers continue but no summary is written.
+
+**Back** (`/juel:star back`, "I'm back", or a `control: back` inbox file):
+
+1. `sh S/handoff.sh --home HOME_DIR end` clears `away` and prints the latest summary. Print it, then
+   the open queue (`loops.sh list`).
+2. Send the notifications that were held, and let the next tick start babysitting for the rows
+   waiting in `babysit-queued`.
+3. As the user answers, in the file or in chat, record each answer and act on it in the same turn.
 
 ## Recovery
 

@@ -49,5 +49,6 @@ grep -q 'MERGED item=<item> pr=<url>' "$SKILL" && pass "a merge seen while babys
 grep -q 'cursor=<last cursor>' "$SKILL" && grep -q 'ESCALATION item=<item> phase=8 reason=<reason> cursor=' "$SKILL" && pass "escalations carry the cursor" || fail "escalation cursor"
 grep -q 'one `HELD` line for all deferred' "$SKILL" && pass "deferred actions fit the 12-line cap" || fail "aggregate HELD"
 grep -q 'star.notes' "$SKILL" && grep -q '## Decisions' "$SKILL" && pass "reads notes and decisions first" || fail "notes and decisions"
+grep -q 'SENT replies=<n> review-requests=<m>' "$SKILL" && pass "reports what it sent" || fail "SENT line"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
