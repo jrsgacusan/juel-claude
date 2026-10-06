@@ -17,8 +17,12 @@
 # or an item id that appears twice is exit 2 with the line to fix. "list" also prints
 # "N-<n>\t-\t-\t-\tmissing\t..." for an id that was handed out but is in neither the queue
 # nor the archive (removed by hand, or lost to an editor that saved an older copy).
+# Without --file the queue is open-loops.md in $JUEL_STAR_HOME, else in the folder star-home.sh
+# names for the current directory (the project's own STAR folder).
 # Exit: 0 ok, 2 a file or section is missing, broken or cannot be read or written, 3 git
 # conflict markers, 4 unknown id, 64 usage.
+STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
+export STAR_HOME_DEFAULT
 exec python3 - "$@" <<'PY'
 import argparse
 import fcntl
@@ -196,8 +200,8 @@ def main():
         if stream is not None:
             stream.reconfigure(errors="surrogateescape")
     p = argparse.ArgumentParser(prog="loops.sh")
-    home = os.environ.get("JUEL_STAR_HOME") or os.path.expanduser("~/juel-star")
-    p.add_argument("--file", default=os.path.join(home, "open-loops.md"))
+    home = os.environ.get("STAR_HOME_DEFAULT") or ""
+    p.add_argument("--file", default=os.path.join(home, "open-loops.md") if home else None)
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("add")
     for flag in ("--kind", "--project", "--item", "--title"):
@@ -223,6 +227,8 @@ def main():
         args = p.parse_args(argv)
     except SystemExit as e:
         sys.exit(64 if e.code not in (0, None) else 0)
+    if args.file is None:
+        die(2, "not inside a project: run it from the project, or pass --file")
 
     path = os.path.realpath(args.file)  # a linked queue stays linked: write through the link
     archive = os.path.join(os.path.dirname(os.path.abspath(path)), "open-loops-archive.md")
