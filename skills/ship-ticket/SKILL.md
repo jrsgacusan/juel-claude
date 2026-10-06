@@ -331,15 +331,29 @@ invokes, that says to ask, confirm with or wait for the user means this under `-
 | ask the user to drive the browser (`juel:verify` unavailable, Phase 6 step 3) | `ESCALATION item=<item> phase=6 reason=needs-human-input needs=browser verification of <the items>`. An item is never recorded as user-confirmed |
 | ask which remote or base branch | the brief's `baseBranch`; one remote → it, `origin` → it, otherwise `ESCALATION … phase=0 reason=preflight needs=which remote to push to: <names>` |
 | stop and ask the user to commit, stash, or create a worktree | `ESCALATION … phase=<n> reason=preflight needs=<what is wrong>` |
+| A gate inside an invoked skill: `superpowers:brainstorming`'s design approval, `superpowers:writing-plans`' plan review and its choice of execution method, a confirmation in `juel:review-and-execute`, `juel:verify` or `run` | the approved brief is the approval. Tell the skill so when invoking it ("unattended: the brief is approved, take your default path, ask nothing"), treat every such gate as answered yes, take the default or recommended option, and never wait on it. What only a person can supply is the `needs-human-input` escalation |
 | any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; "No answer from the user: escalate this." → `unanswered-question` |
 
 `AskUserQuestion` is never called.
 
+**Ask the coordinator when you are stuck.** The coordinator (STAR) sees every item, has the
+user's decisions, and is there to help. Before you escalate something that is not on the fixed
+list below, and before you try the same failing thing a fourth time (the same test red three times,
+a tool that will not run, two ways to read the brief), ask the coordinator:
+`orca orchestration ask --question "<one question, with what you tried>" --json`. Its answer binds
+like a Decision. Do not ask what the brief already answers, and do not ask leave for what the
+brief already allows. When a message from the coordinator appears in your terminal (a check-in),
+answer it in one line and carry on with what you were doing.
+
 **Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
 when a second-model review says NOT SAFE; the file holds that review's findings. Check the file
-before anything is written or pushed: it must exist, its `VERDICT` line must name this item and say
-`NOT-SAFE`, and it must hold at least one numbered finding. Otherwise
-`ESCALATION item=<item> phase=0 reason=preflight needs=a findings file for <item> at <file>` and
+before anything is written or pushed: it must exist, its first line must be a `VERDICT` line that names this item and says
+`NOT-SAFE`, its `round=` is the round in the file's name (`-r<k>.md`), its `head=` is the commit this worktree is on
+(`git rev-parse HEAD`; a head of at least 7 characters that the other starts with counts), and it
+must hold at least one numbered finding. A `head=` that is not this worktree's commit is
+`ESCALATION item=<item> phase=0 reason=stale-review needs=a review of <HEAD>` (the coordinator
+sends the item back to review); anything else wrong with the file is
+`ESCALATION item=<item> phase=0 reason=preflight needs=a findings file for <item> at <file>`. Then
 stop: fixing against a missing, empty or stale review would push changes nobody asked for.
 Phases 1–3 are SKIPPED (the spec and plan already exist under `docsRoot`; reuse them). Validate each finding with
 `superpowers:receiving-code-review` against the brief; a finding outside the brief's scope is a
@@ -395,8 +409,9 @@ work the window out by hand; `quiet-hours.sh`, next to this file, prints `inside
 sh <quiet-hours.sh> "<the --quiet-hours value>"    # 22:00-07:00@Asia/Manila, or always
 ```
 
-Run it once before Phase 1 as well: exit 64 means the window cannot be read (bad times, an unknown
-time zone), and the run stops with
+A result that is anything but `inside` or `outside` (exit 64, a missing script on an older install,
+no `python3`, an empty line) is never read as outside: hold the action as if inside. Run it once
+before Phase 1 as well: any such result there means the window cannot be judged, and the run stops with
 `ESCALATION item=<item> phase=0 reason=preflight needs=a valid --quiet-hours window (<its message>)`,
 because guessing could send something while the user is away. `always` is inside at every moment.
 
@@ -416,13 +431,10 @@ take longer than the Bash tool's 600 s foreground cap.
 
 ```sh
 sh <gate-lock.sh> --holder "<item>" -- sh -c '<test command> && <lint command>'
-# with a star: block in the brief, so every project waits on STAR's one lock wherever its home is:
-JUEL_GATE_LOCK=<star.home>/gate.lock sh <gate-lock.sh> --holder "<item>" -- sh -c '<test command> && <lint command>'
 ```
 
-It holds a kernel lock on one file (`JUEL_GATE_LOCK` when set, which is why the second form above
-is the one to use whenever the brief has a `star:` block: a worker does not inherit STAR's
-environment; else `~/juel-star/gate.lock` when that home exists; else `<git-common-dir>/juel/gate.lock`) while the command's
+It holds a kernel lock on one file for the whole machine (`/tmp/juel.gate.<uid>.lock`; nothing to
+configure, and a sandboxed executor can write there) while the command's
 process group runs, even if the wrapper itself is killed; the kernel frees it when the last of
 those processes exits, so there is never a stale lock to clear. It stops the whole group on TERM,
 INT or HUP. Exit 75, with "busy, held by …" on stderr, means it stayed busy for its whole
