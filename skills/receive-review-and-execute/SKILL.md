@@ -121,7 +121,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `[pr-number]` | (required) | GitHub PR number to fetch review comments from |
-| `--unattended` | off | No human answers (a `juel:ship-tickets` worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
+| `--unattended` | off | No human answers (a `juel:star` worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
 | `--brief <path>` | — | An approved `juel_brief: 1` brief. A reviewer request that needs work outside its Scope (or listed under Out) is not built: see below |
 | `--only <ids>` | all unanswered feedback | Comma-separated comment / review ids to act on this run. Every other thread is still read as context, but is never re-classified, planned or answered |
 

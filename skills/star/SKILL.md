@@ -1,6 +1,6 @@
 ---
-name: ship-tickets
-description: Use to ship several work items unattended on this Mac - selects items from the project's work source (Linear, Jira, GitHub, spec files), gets one brief per item approved, then this session coordinates them through Orca, 3 at a time from a queue - build with /juel:ship-ticket --unattended, a second-model review of the draft PR, fixes, mark-ready and babysitting - until each PR is approved, green and verified on its exact head. Keeps the Mac awake, holds reviewer-facing actions in quiet hours, pulls you in only on escalations. Never merges. Triggers "ship my tickets", "run these unattended", "work through my queue", "/juel:ship-tickets".
+name: star
+description: Use to ship several work items unattended on this Mac - selects items from the project's work source (Linear, Jira, GitHub, spec files), gets one brief per item approved, then this session coordinates them through Orca, 3 at a time from a queue - build with /juel:ship-ticket --unattended, a second-model review of the draft PR, fixes, mark-ready and babysitting - until each PR is approved, green and verified on its exact head. Keeps the Mac awake, holds reviewer-facing actions in quiet hours, pulls you in only on escalations. Never merges. Triggers "ship my tickets", "run these unattended", "work through my queue", "/juel:star".
 metadata:
   requires:
     mcp:
@@ -79,7 +79,7 @@ escalations and questions reach you while they are fresh. It follows the artifac
 Setup": draft first, review the whole draft, mark ready once, verify the exact head, and keep
 everything important in files.
 
-**Announce:** "Using juel:ship-tickets to coordinate these items through Orca."
+**Announce:** "Using juel:star to coordinate these items through Orca."
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -154,7 +154,7 @@ phase 1 and prints the ledger and open loops.
 | `resume [batch-id]` | newest batch | Rebind to a batch's run and keep coordinating |
 | `status [batch-id]` | newest batch | Print the ledger, open loops and merge state |
 
-Usage: `/juel:ship-tickets`, `/juel:ship-tickets SAVI-1162 SAVI-1170`, `/juel:ship-tickets resume`, `/juel:ship-tickets status`
+Usage: `/juel:star`, `/juel:star SAVI-1162 SAVI-1170`, `/juel:star resume`, `/juel:star status`
 
 ## Configuration
 
@@ -231,7 +231,7 @@ Resolve `orca` (PATH, then `/Applications/Orca.app/Contents/Resources/bin/orca`)
 main checkout path (`dirname` of the normalized `git rev-parse --git-common-dir`) against
 `orca repo list --json` to get `REPO_ID`. Then check `ORCA_TERMINAL_HANDLE`: Orca sets it in every
 terminal it manages. Empty → STOP — "Start Claude Code from an Orca terminal and run
-`/juel:ship-tickets` there, so workers can report back to it."
+`/juel:star` there, so workers can report back to it."
 
 Resolve the configured agents now, before anything is created: `command -v <agent>` for the worker
 agent and the reviewer agent (`claude`, `codex`). A missing worker agent → STOP. A missing reviewer
@@ -527,12 +527,12 @@ window to end (or come back as `HELD` lines, which become open loops).
 ## Step 8: Report
 
 Kill the recorded `caffeinate` (after `ps -p <pid> -o comm=` confirms it is caffeinate), then print: the merge list (`ready` rows with PR URLs), every open
-loop, and counts per state. State that nothing was merged, and that `/juel:ship-tickets status`
+loop, and counts per state. State that nothing was merged, and that `/juel:star status`
 shows the batch later.
 
 ## Resume
 
-`/juel:ship-tickets resume [batch-id]` (newest batch by default): read `batch.json`, `ledger.md`,
+`/juel:star resume [batch-id]` (newest batch by default): read `batch.json`, `ledger.md`,
 `processed.log` and `questions.md`; `orca orchestration run-use --id <run id> --json`. Reconcile
 every row in a worker stage: a task with no recorded dispatch → `dispatch-show --task <id>` and
 record what exists; a dispatch → `worker-show --dispatch <id>`: still running → keep it; settled →
@@ -543,7 +543,7 @@ closed session or a Mac that slept.
 
 ## Status
 
-`/juel:ship-tickets status [batch-id]`: print `ledger.md` and `open-loops.md`; for `ready` rows,
+`/juel:star status [batch-id]`: print `ledger.md` and `open-loops.md`; for `ready` rows,
 `gh pr view <n> --json state` and mark merged ones `done`. Read-only otherwise.
 
 ## Hard rules
@@ -574,6 +574,6 @@ closed session or a Mac that slept.
 | Not in an Orca terminal | STOP with the Step 1 message; nothing is created |
 | `orca repo list` lacks this repo | Offer `orca repo add` once; declined → STOP |
 | A worktree for the item's branch already exists | Reuse it; never create a second one |
-| The session closes or compacts mid-batch | `/juel:ship-tickets resume` |
+| The session closes or compacts mid-batch | `/juel:star resume` |
 | Every brief dropped | "Nothing approved, nothing started." |
 | `codex` missing | Reviewer runs on claude with a different model; say so in the report |

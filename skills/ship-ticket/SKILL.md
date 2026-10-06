@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as an Orca worker under juel:ship-tickets, escalating real decisions and stopping at a draft PR; --fix-review applies a second-model review's findings.
+description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as an Orca worker under juel:star, escalating real decisions and stopping at a draft PR; --fix-review applies a second-model review's findings.
 metadata:
   requires:
     mcp:
@@ -145,7 +145,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--fix-review <file>` | off | Fix mode for a NOT-SAFE second-model review; requires `--unattended --brief`. See "Unattended mode" |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight). Inside it, outward actions are held, not performed. See "Unattended mode" |
 
-Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:ship-tickets` worker,
+Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
 `/juel:ship-ticket --unattended --brief <batch-dir>/briefs/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
 (add `--fix-review <batch-dir>/reviews/SAVI-1162-r1.md` for a fix stage)
 
@@ -275,7 +275,7 @@ log entry. Without that flag, every rule in this section applies unchanged.
 
 ## Unattended mode
 
-`--unattended` is how `juel:ship-tickets` runs this skill as an Orca worker, where no human answers
+`--unattended` is how `juel:star` runs this skill as an Orca worker, where no human answers
 checkpoints. The human already approved the scope as a brief, and keeps the merge. `--unattended`
 without `--brief` is refused: print `ESCALATION item=unknown phase=0 reason=no-brief needs=an
 approved brief` and stop.
@@ -376,7 +376,7 @@ It holds `<git-common-dir>/juel/gate.lock` while the command's process group run
 wrapper itself is killed), stops the whole group on TERM, INT or HUP, releases only a lock it still
 owns, and reclaims a lock whose holder is gone. Exit 75 means it stayed busy for its whole
 `--wait-max` (default 3600 s): run the same line again. Never remove the lock by hand. Before
-starting the Phase 6 stack, check memory the way `juel:ship-tickets` does (free + inactive at least
+starting the Phase 6 stack, check memory the way `juel:star` does (free + inactive at least
 3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
 `stack-unavailable`.
 
@@ -669,7 +669,7 @@ Trailers: apply the detected convention from "Base branch & repo conventions" ab
 
 1. If Phase 7 had no `gh` (compare URL only), skip this phase with one line:
    `Phase 8 skipped: gh unavailable, no PR to watch`.
-   Under `--unattended`, this phase is SKIPPED: `juel:ship-tickets` starts babysitting as its own
+   Under `--unattended`, this phase is SKIPPED: `juel:star` starts babysitting as its own
    stage after the second-model review says SAFE. End the run with the `DONE` line. With no `gh`,
    print `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>)` before
    `DONE item=<item> pr=<compare-url>`.

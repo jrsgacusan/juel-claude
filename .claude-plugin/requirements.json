@@ -406,7 +406,14 @@
         "run"
       ]
     },
-    "ship-tickets": {
+    "so-what": {
+      "hard": [],
+      "soft": [
+        "gh",
+        "git-repo"
+      ]
+    },
+    "star": {
       "hard": [
         "claude",
         "gh",
@@ -425,13 +432,6 @@
         "codex",
         "linear",
         "work-source-list-capable"
-      ]
-    },
-    "so-what": {
-      "hard": [],
-      "soft": [
-        "gh",
-        "git-repo"
       ]
     },
     "start": {
