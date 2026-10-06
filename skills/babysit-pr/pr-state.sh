@@ -3,7 +3,8 @@
 #   {"state","decision","head","author","url","new_feedback":[...],"reviewers","cursor"}
 # Feedback = review bodies, inline comments and conversation comments from humans other than
 # the PR author. Bots ([bot] logins or type Bot) are ignored. Failures print {"error": "..."}.
-# Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60).
+# Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60); under
+# --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
 # happens: feedback | approved | closed | errors (3 in a row) | silence | timeout.
 exec python3 - "$@" <<'PY'
@@ -16,6 +17,7 @@ import time
 from datetime import datetime, timezone
 
 TIMEOUT = float(os.environ.get("BABYSIT_GH_TIMEOUT", "60"))
+DEADLINE = None  # time.monotonic() value set by --wait --max-seconds
 
 
 class GhError(Exception):
@@ -23,12 +25,13 @@ class GhError(Exception):
 
 
 def gh(args):
+    limit = TIMEOUT if DEADLINE is None else max(1.0, min(TIMEOUT, DEADLINE - time.monotonic()))
     try:
-        proc = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=TIMEOUT)
+        proc = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=limit)
     except FileNotFoundError:
         raise GhError("gh not found on PATH")
     except subprocess.TimeoutExpired:
-        raise GhError(f"gh timed out after {TIMEOUT:g}s")
+        raise GhError(f"gh timed out after {limit:g}s")
     if proc.returncode != 0:
         raise GhError(f"gh exited {proc.returncode}: {proc.stderr.strip()[:200]}")
     return proc.stdout
@@ -110,7 +113,10 @@ def wake_reason(snap):
 
 
 def wait(a):
+    global DEADLINE
     started = time.monotonic()
+    if a.max_seconds is not None:
+        DEADLINE = started + a.max_seconds
     quiet_since = ts(a.quiet_since) if a.quiet_since else datetime.now(timezone.utc)
     errors, last_error, last_good = 0, None, None
     snap_cost = 0.0  # how long the slowest snapshot took; never start one the budget cannot finish

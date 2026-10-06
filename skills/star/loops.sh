@@ -6,6 +6,11 @@
 #   loops.sh [--file <path>] resume [--state S] [--run R] [--pools P] [--next N] | waiting <text>
 # An answer is the text after "Answer:" plus the lines right under it, up to the first blank
 # line. Anything the user writes after that blank line is their own note and is never touched.
+# Text passed in never becomes structure: project and item refuse control characters and the
+# " · " separator, titles and answers are flattened to one line, and a body line that looks
+# like a heading, an item or an "Answer:" line is written as a "> " quote.
+# add returns the id of an open item with the same kind, project, item, title and body instead
+# of adding it twice. close writes the archive first, so a failed close never loses the item.
 # Exit: 0 ok, 2 file or section missing, 3 git conflict markers, 4 unknown id, 64 usage.
 exec python3 - "$@" <<'PY'
 import argparse
@@ -17,6 +22,9 @@ from datetime import datetime, timezone
 
 ITEM_RE = re.compile(r"^### (N-(\d+)) · (.*?) · (.*?) · (.*)$")
 SECTIONS = ("## Resume", "## Needs you", "## Waiting on others")
+ANSWER_RE = re.compile(r"^\s{0,3}(?:\*\*)?answer:(?:\*\*)?", re.IGNORECASE)
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+VALUE_FLAGS = ("--file", "--kind", "--project", "--item", "--title", "--body", "--state", "--run", "--pools", "--next")
 
 
 def die(code, msg):
@@ -26,9 +34,11 @@ def die(code, msg):
 
 def load(path):
     try:
-        lines = open(path, encoding="utf-8").read().split("\n")
+        lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
     except FileNotFoundError:
         die(2, f"{path} not found")
+    except OSError as e:
+        die(2, f"{path}: {e.strerror}")
     if any(l.startswith("<<<<<<< ") or l.startswith(">>>>>>> ") for l in lines):
         die(3, "unresolved git conflict markers; resolve them first")
     return lines
@@ -68,7 +78,30 @@ def items(lines):
 
 
 def field_line(lines, it, name):
+    if name == "Answer":
+        return next((k for k in range(it["start"] + 1, it["end"]) if ANSWER_RE.match(lines[k])), None)
     return next((k for k in range(it["start"] + 1, it["end"]) if lines[k].startswith(name + ":")), None)
+
+
+def flat(text):
+    """One line: control characters and runs of whitespace become a single space."""
+    return re.sub(r"\s+", " ", CONTROL_RE.sub(" ", text)).strip()
+
+
+def name(flag, value):
+    """A project or item name is matched exactly later, so it is refused rather than changed."""
+    if CONTROL_RE.search(value) or " · " in value or not value.strip():
+        die(64, f"{flag} must be one line without ' · ' (got {value!r})")
+    return value.strip()
+
+
+def quoted(line):
+    """A free-text line that would read as structure is written as a quote instead."""
+    line = CONTROL_RE.sub(" ", line).rstrip()
+    if (ITEM_RE.match(line) or ANSWER_RE.match(line) or line.startswith(("kind:", "## ", "### "))
+            or line.strip() in SECTIONS):
+        return "> " + line.lstrip()
+    return line
 
 
 def tight_end(lines, it):
@@ -86,8 +119,8 @@ def answer_of(lines, it):
     k = field_line(lines, it, "Answer")
     if k is None:
         return ""
-    parts = [lines[k][len("Answer:"):]] + lines[k + 1:tight_end(lines, it)]
-    return " ".join(p.strip() for p in parts if p.strip())
+    parts = [ANSWER_RE.sub("", lines[k], count=1)] + lines[k + 1:tight_end(lines, it)]
+    return flat(" ".join(parts))
 
 
 def kind_of(lines, it):
@@ -105,7 +138,8 @@ def find(lines, item_id):
 def next_id(lines, archive):
     nums = [int(m.group(2)) for l in lines for m in [ITEM_RE.match(l)] if m]
     if os.path.exists(archive):
-        nums += [int(m.group(2)) for l in open(archive, encoding="utf-8") for m in [ITEM_RE.match(l.rstrip("\n"))] if m]
+        nums += [int(m.group(2)) for l in open(archive, encoding="utf-8", errors="replace")
+                 for m in [ITEM_RE.match(l.rstrip("\n"))] if m]
     return max(nums, default=0) + 1
 
 
@@ -126,7 +160,10 @@ def main():
     for flag in ("--state", "--run", "--pools", "--next"):
         r.add_argument(flag)
     w = sub.add_parser("waiting"); w.add_argument("text")
-    argv = sys.argv[1:]
+    argv, raw = [], sys.argv[1:]
+    while raw:  # "--title -flaky" is a value, not a flag
+        arg = raw.pop(0)
+        argv.append(f"{arg}={raw.pop(0)}" if arg in VALUE_FLAGS and raw else arg)
     if "set-answer" in argv:
         k = argv.index("set-answer")
         if len(argv) > k + 2 and argv[k + 2] != "--":
@@ -138,7 +175,7 @@ def main():
 
     path = args.file
     archive = os.path.join(os.path.dirname(os.path.abspath(path)), "open-loops-archive.md")
-    if not os.path.exists(path):
+    if not os.path.isfile(path):
         die(2, f"{path} not found")
     lock = open(path + ".lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX)
@@ -148,19 +185,31 @@ def main():
         for it in items(lines):
             ans = answer_of(lines, it)
             if ans:
-                print("\t".join([it["id"], kind_of(lines, it), it["project"], it["item"], ans]))
+                print("\t".join(flat(c) for c in [it["id"], kind_of(lines, it), it["project"], it["item"], ans]))
     elif args.cmd == "list":
         for it in items(lines):
             state = "answered" if answer_of(lines, it) else "open"
-            print("\t".join([it["id"], kind_of(lines, it), it["project"], it["item"], state, it["title"]]))
+            print("\t".join(flat(c) for c in [it["id"], kind_of(lines, it), it["project"], it["item"], state, it["title"]]))
     elif args.cmd == "add":
+        if not re.fullmatch(r"[a-z][a-z-]*", args.kind):
+            die(64, f"--kind must be lower-case letters and dashes (got {args.kind!r})")
+        project, item, title = name("--project", args.project), name("--item", args.item), flat(args.title)
+        body = [quoted(l) for l in args.body.replace("\\n", "\n").split("\n") if l.strip()]
+
+        def body_of(it):
+            k = field_line(lines, it, "Answer")
+            return lines[it["start"] + 2:k if k is not None else it["end"]]
+
+        same = next((it for it in items(lines) if (kind_of(lines, it), it["project"], it["item"], it["title"])
+                     == (args.kind, project, item, title) and body_of(it) == body), None)
+        if same:  # a replayed message asks again; the open item is still the one to answer
+            print(same["id"])
+            return
         new_id = f"N-{next_id(lines, archive)}"
         start, end = section(lines, "Needs you")
         while end - 1 > start and not lines[end - 1].strip():
             end -= 1
-        block = ["", f"### {new_id} · {args.project} · {args.item} · {args.title}", f"kind: {args.kind}"]
-        block += [l for l in args.body.replace("\\n", "\n").split("\n") if l.strip()]
-        block += ["Answer:"]
+        block = ["", f"### {new_id} · {project} · {item} · {title}", f"kind: {args.kind}"] + body + ["Answer:"]
         lines[end:end] = block
         save(path, lines)
         print(new_id)
@@ -171,9 +220,9 @@ def main():
         else:
             k = field_line(lines, it, "Answer")
             if k is None:
-                lines.insert(it["end"], f"Answer: {args.text}")
+                lines.insert(it["end"], f"Answer: {flat(args.text)}")
             else:
-                lines[k] = f"Answer: {args.text}"
+                lines[k] = f"Answer: {flat(args.text)}"
             save(path, lines)
             print("set")
     elif args.cmd == "close":
@@ -183,13 +232,17 @@ def main():
         if stop < len(lines) and not lines[stop].strip():
             stop += 1
         del lines[it["start"]:stop]
-        save(path, lines)
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        old = open(archive, encoding="utf-8").read().split("\n") if os.path.exists(archive) else ["# Closed loops"]
-        rest = old[1:]
-        while rest and not rest[0].strip():
-            rest.pop(0)
-        save(archive, [old[0], ""] + block + [f"closed: {stamp}", ""] + rest)
+        try:  # archive first: if it cannot be written, the item stays open
+            old = (open(archive, encoding="utf-8", errors="replace").read().split("\n")
+                   if os.path.exists(archive) else ["# Closed loops"])
+            rest = old[1:]
+            while rest and not rest[0].strip():
+                rest.pop(0)
+            save(archive, [old[0], ""] + block + [f"closed: {stamp}", ""] + rest)
+        except OSError as e:
+            die(2, f"{archive}: {e.strerror}; {args.id} stays open")
+        save(path, lines)
         print("closed")
     elif args.cmd == "resume":
         start, end = section(lines, "Resume")
@@ -200,14 +253,14 @@ def main():
                 cur[key.strip()] = val.strip()
         for key, val in (("state", args.state), ("run", args.run), ("pools", args.pools), ("next", args.next)):
             if val is not None:
-                cur[key] = val
+                cur[key] = flat(val)
         cur["last tick"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         body = [f"{k}: {cur.get(k, '-')}" for k in ("state", "run", "last tick", "pools", "next")] + [""]
         lines[start + 1:end] = body
         save(path, lines)
     elif args.cmd == "waiting":
         start, end = section(lines, "Waiting on others")
-        lines[start + 1:end] = [l for l in args.text.split("\n") if l.strip()] + [""]
+        lines[start + 1:end] = [quoted(l) for l in args.text.split("\n") if l.strip()] + [""]
         save(path, lines)
 
 

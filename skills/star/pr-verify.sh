@@ -3,7 +3,10 @@
 #   pr-verify.sh <pr> --head <sha> [--repo <owner/name>]
 # Prints exactly one line and exits 0:
 #   PASS | PENDING <what> | MOVED <head> | MERGED <merge sha> | FAIL <what>
-# PENDING means "ask again later" (checks running, mergeable not computed, gh unreachable).
+# PENDING means "ask again later" (checks running, mergeable not computed, gh unreachable or
+# its output unreadable). Where the repo has no review rule (empty reviewDecision), an approval
+# counts only when it was given on the current head commit: dates are not compared, because a
+# commit made earlier and pushed later carries an older date than the approval.
 exec python3 - "$@" <<'PY'
 import argparse
 import json
@@ -20,6 +23,18 @@ def out(line):
     sys.exit(0)
 
 
+def records(d, key):
+    """The list of objects under key, [] when absent, None when gh printed some other shape."""
+    value = d.get(key) or []
+    if isinstance(value, list) and all(isinstance(e, dict) for e in value):
+        return value
+    return None
+
+
+def names(items):
+    return ", ".join(items[:5]) + (f" (+{len(items) - 5} more)" if len(items) > 5 else "")
+
+
 p = argparse.ArgumentParser(prog="pr-verify.sh")
 p.add_argument("pr")
 p.add_argument("--head", required=True)
@@ -30,11 +45,15 @@ except SystemExit as e:
     sys.exit(64 if e.code not in (0, None) else 0)
 
 cmd = ["gh", "pr", "view", a.pr, "--json",
-       "state,isDraft,reviewDecision,reviews,commits,headRefOid,mergeable,statusCheckRollup,mergeCommit"]
+       "state,isDraft,reviewDecision,reviews,headRefOid,mergeable,statusCheckRollup,mergeCommit"]
 if a.repo:
     cmd += ["-R", a.repo]
 try:
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=float(os.environ.get("STAR_GH_TIMEOUT", "60")))
+    limit = float(os.environ.get("STAR_GH_TIMEOUT", "60"))
+except ValueError:
+    limit = 60.0
+try:
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
 except FileNotFoundError:
     out("PENDING gh: not found on PATH")
 except subprocess.TimeoutExpired:
@@ -45,12 +64,18 @@ try:
     d = json.loads(proc.stdout)
 except ValueError:
     out("PENDING gh: unreadable output")
+if not isinstance(d, dict):
+    out("PENDING gh: unreadable output")
+reviews, checks = records(d, "reviews"), records(d, "statusCheckRollup")
+if reviews is None or checks is None:
+    out("PENDING gh: unreadable output")
+a.head = a.head.strip().lower()
 
 if d.get("state") == "MERGED":
     out("MERGED " + ((d.get("mergeCommit") or {}).get("oid") or "unknown"))
 if d.get("state") == "CLOSED":
     out("FAIL closed")
-head = d.get("headRefOid") or ""
+head = (d.get("headRefOid") or "").lower()
 if len(a.head) < 7:
     out("FAIL bad head: " + a.head)
 if not head:
@@ -62,23 +87,24 @@ if d.get("isDraft"):
 
 decision = d.get("reviewDecision") or None
 if decision is None:
-    commits = d.get("commits") or []
-    last = commits[-1].get("committedDate") if commits else None
     latest = {}
-    for r in sorted(d.get("reviews") or [], key=lambda r: r.get("submittedAt") or ""):
+    for n, r in enumerate(sorted(reviews, key=lambda r: r.get("submittedAt") or "")):
         if r.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
-            latest[(r.get("author") or {}).get("login") or "?"] = r
-    blockers = sorted(who for who, r in latest.items() if r.get("state") == "CHANGES_REQUESTED")
+            # a deleted account has no login: each of its reviews is its own reviewer
+            who = (r.get("author") or {}).get("login")
+            latest[who or ("", r.get("id") or n)] = r
+    blockers = sorted({who if isinstance(who, str) else "a deleted account"
+                       for who, r in latest.items() if r.get("state") == "CHANGES_REQUESTED"})
     if blockers:
-        out("FAIL approval: changes requested by " + ", ".join(blockers))
-    if not any(r.get("state") == "APPROVED" and (last is None or (r.get("submittedAt") or "") >= last)
+        out("FAIL approval: changes requested by " + names(blockers))
+    if not any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
                for r in latest.values()):
-        out("FAIL approval: none after the last commit")
+        out("FAIL approval: none on the current head")
 elif decision != "APPROVED":
     out("FAIL approval: " + decision)
 
 failed, waiting = [], []
-for c in d.get("statusCheckRollup") or []:
+for c in checks:
     name = c.get("name") or c.get("context") or "check"
     if c.get("__typename") == "CheckRun" and (c.get("status") or "COMPLETED") != "COMPLETED":
         waiting.append(name)
@@ -88,11 +114,11 @@ for c in d.get("statusCheckRollup") or []:
         continue
     (waiting if value in WAITING else failed).append(name)
 if failed:
-    out("FAIL checks: " + ", ".join(failed))
+    out("FAIL checks: " + names(failed))
 if d.get("mergeable") == "CONFLICTING":
     out("FAIL conflicts")
 if waiting:
-    out("PENDING checks: " + ", ".join(waiting))
+    out("PENDING checks: " + names(waiting))
 if d.get("mergeable") != "MERGEABLE":
     out("PENDING mergeable")
 out("PASS")

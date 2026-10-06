@@ -48,7 +48,24 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$S
 [ "$out" = "settled completed" ] && echo "ok   a completed dispatch is settled" || { echo "FAIL completed dispatch ($out)"; fails=$((fails + 1)); }
 printf '{"result":{}}\n' > "$TMP/show.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
-[ "$out" = "gone" ] && echo "ok   no worker record is gone" || { echo "FAIL empty worker-show ($out)"; fails=$((fails + 1)); }
+[ "$out" = "unknown no worker record" ] && echo "ok   an empty result says nothing: only dispatch_not_found is gone" || { echo "FAIL empty worker-show ($out)"; fails=$((fails + 1)); }
+for body in '' '{"ok":true,"result":null}' '[]' 'not json'; do
+  printf '%s\n' "$body" > "$TMP/show.json"
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
+  case "$out" in "unknown "*) echo "ok   orca printing '$body' is unknown, never gone" ;; *) echo "FAIL orca printing '$body' ($out)"; fails=$((fails + 1)) ;; esac
+done
+# Ordinary work that mentions these words is not a blocking screen.
+t "a rebase hint is not a model switch" "ok" ready running "git: switch to main to continue the rebase"
+t "a real model switch prompt" "stuck: model switch" ready running "Would you like to switch to Opus 5.5 to continue?"
+t "a test name about logins is not a login screen" "ok" ready running "  ✓ returns 401 when the user is not logged in (12 ms)"
+t "a question in prose is not a dialog" "ok" ready running "Do you want to proceed? I will continue anyway."
+printf '{"result":{"worker":{"stage":"ready","state":"running"}}}\n' > "$TMP/show.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Do you want to proceed?", "❯ 1. Yes", "  2. No"]}}}))' > "$TMP/read.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
+[ "$out" = "stuck: confirmation dialog" ] && echo "ok   a question with numbered options is a dialog" || { echo "FAIL real dialog ($out)"; fails=$((fails + 1)); }
+python3 -c 'import json; print(json.dumps({"result":{"messages":[{"text":"Please run /login"},{"text":"I fixed the login form and pushed."}]}}))' > "$TMP/read.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
+[ "$out" = "ok" ] && echo "ok   only the newest transcript message counts" || { echo "FAIL old transcript message ($out)"; fails=$((fails + 1)); }
 # orca reports errors as JSON on stdout with exit 1.
 cat > "$TMP/bin/orca" <<'EOF2'
 #!/bin/sh
