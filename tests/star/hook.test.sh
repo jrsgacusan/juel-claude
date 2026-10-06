@@ -22,5 +22,6 @@ grep -q 'Never merge' "$T/CLAUDE.md" && grep -q 'Resume' "$T/CLAUDE.md" && grep 
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["maxParallel"]==3 and d["maxInReview"]==3 and d["quietHours"] is None' "$T/star.json" && pass "template star.json defaults" || fail "template star.json"
 [ -f "$T/memory/global.md" ] && [ -f "$T/gitignore" ] && pass "memory and gitignore templates" || fail "templates missing"
 
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notifiedThrough"]==0' "$T/star.json" && pass "notification cursor starts at 0" || fail "notifiedThrough default"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
