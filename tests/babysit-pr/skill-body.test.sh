@@ -33,5 +33,12 @@ grep -q 'when `decision` is null' "$SKILL" && pass "approval without required re
 grep -q 'first line of the `worker_done` body' "$SKILL" && pass "READY rides worker_done" || fail "worker_done body"
 grep -q 'gate.lock' "$SKILL" && pass "unattended gates take the lock" || fail "gate lock"
 grep -q 'fleet' "$SKILL" && fail "no fleet wording" || pass "no fleet wording"
+grep -q 'gate-lock.sh' "$SKILL" && pass "S2 babysit gates use gate-lock.sh" || fail "S2 gate-lock.sh"
+grep -q '| `--brief <path>` |' "$SKILL" && pass "S5 brief accepted" || fail "S5 --brief"
+grep -q 'add-reviewer <the approvers' "$SKILL" && pass "S13 dismissed approval re-requested" || fail "S13 re-request"
+grep -q -- '--only <ids>' "$SKILL" && pass "S14 only this round's feedback" || fail "S14 --only"
+grep -q '`cancel`' "$SKILL" && pass "S21 cancelled checks rejected" || fail "S21 cancel bucket"
+grep -q 'empty string' "$SKILL" && pass "S20 empty decision normalized" || fail "S20 empty decision"
+grep -q 'reason=unanswered-question' "$SKILL" && pass "S4 unanswered question escalates" || fail "S4 unanswered-question"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

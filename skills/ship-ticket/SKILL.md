@@ -230,7 +230,9 @@ other single toolchain. Resolve each of `commands.install`, `.test`, `.lint`, `.
   | dotnet (`*.csproj`) | dotnet | `dotnet restore` | `dotnet test` | `null` unless an analyzer is configured | `dotnet build` (a failing compile *is* the typecheck signal) | `null` — already covered: the `typecheck` key's `dotnet build` already performs this build | `dotnet format --verify-no-changes` | `dotnet run` |
 
 - **Tier C — CI, as a last resort:** extract `run:` steps from `.github/workflows/*.yml`. Treat as a
-  **suggestion** and confirm with the user — never run a CI-derived command blind.
+  **suggestion** and confirm with the user — never run a CI-derived command blind. Under
+  `--unattended`, Tier C is never used: nobody can confirm, so the key resolves to `null` with its
+  one-line skip note.
 
 In a monorepo declaring workspaces, resolve per-package and record the package dir alongside each
 command.
@@ -290,12 +292,12 @@ line:
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished, draft PR open | `DONE item=<item> pr=<url>` |
+| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES test=<cmd>;lint=<cmd>;typecheck=<cmd>;build=<cmd>` with the commands resolved in Phase 4 (`null` for a skipped key) |
 | review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
 
 **Reporting.** You are an Orca worker. The run's final line (`DONE`, `FIXED` or `ESCALATION`) is
-the first line of the `worker_done` body, followed by every `HELD` line from the run; print the
-same lines to the terminal as well. Report `--outcome failed` for an `ESCALATION`, `succeeded`
+the first line of the `worker_done` body, followed by the `GATES` line after a `DONE`, then every
+`HELD` line from the run; print the same lines to the terminal as well. Report `--outcome failed` for an `ESCALATION`, `succeeded`
 otherwise.
 
 **Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
@@ -305,8 +307,11 @@ Phases 1–3 are SKIPPED (the spec and plan already exist under `docsRoot`; reus
 `brief-violation` escalation, never silently built. Write a `-vN` review plan, and Phase 4 executes
 it (rule 4: `codex exec` backgrounded, watched and waited on). Phase 5 is SKIPPED (the findings are
 the review). Phase 6 runs in full, including cleanup and the regression gate. Commit, `git push`
-(never force), and Phases 7–8 are SKIPPED: the PR already exists. The final line is
-`FIXED item=<item> head=<sha>`, with each rejected finding and its reason listed above it.
+(never force), and Phases 7–8 are SKIPPED: the PR already exists. Before the final line, write the
+outcome per finding (fixed, or rejected with the technical reason) to the file the coordinator named
+next to the findings (`<findings file without .md>-fix.md`), so the next reviewer sees why a finding
+was rejected. The final line is `FIXED item=<item> head=<sha>`, with the same per-finding outcomes
+listed above it.
 
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
@@ -325,6 +330,9 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 5. `merge-conflict` — a merge conflict with the base branch.
 6. `needs-human-input` — phase 6 needs a secret, a paid service or a real account it cannot self-serve.
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
+8. `unanswered-question` — a question you sent the coordinator with `orca orchestration ask` came
+   back with "No answer from the user: escalate this." Clean up as below, then escalate with the
+   question in `needs=`.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -350,18 +358,21 @@ Inside the window, the phase 7 status write becomes a `HELD` line. Marking the P
 reviewers and re-requesting review happen later, in the babysit stage, which gets the same window.
 Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
 
-**Gate lock.** Under `--unattended`, the Phase 6 regression gate runs under
-`<git-common-dir>/juel/gate.lock`, so two workers never run heavy test or build gates at once.
-Acquire it with `mkdir`, which is atomic: on success write `<item> <pid> <start epoch>` into `holder`
-inside it; on failure wait 30 s and try again, in foreground calls of at most 540 s. A lock
-older than 2 h whose pid is no longer running (`kill -0 <pid>` fails) is stale: `rm -rf` it and try again.
-Release it with `rm -rf` after the gate, whether the gate passed or not.
+**Gate lock.** Under `--unattended`, every heavy command — Phase 5's `test` and `lint` run after
+remediation and the Phase 6 regression gate — runs through `gate-lock.sh`, next to this file
+(`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when that is set), so two workers never run
+heavy test or build gates at once:
 
 ```sh
-LOCK="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/juel/gate.lock"
-mkdir -p "$(dirname "$LOCK")"
-if mkdir "$LOCK" 2>/dev/null; then printf '%s %s %s\n' "<item>" "$$" "$(date +%s)" > "$LOCK/holder"; else echo busy; fi
+sh <gate-lock.sh> --holder "<item>" -- sh -c '<test command> && <lint command>'
 ```
+
+It takes `<git-common-dir>/juel/gate.lock` for exactly as long as the command runs, records its own
+pid, releases the lock when the command ends or the script is killed, and reclaims a lock whose
+holder process is gone. Exit 75 means another worker held it for the whole 540 s budget: run the
+same line again. Never remove the lock by hand. Before starting the Phase 6 stack, check memory the
+way `juel:ship-tickets` does (free + inactive at least 3 GB); below that, wait in foreground calls
+of at most 540 s, and after 30 minutes escalate `stack-unavailable`.
 
 **Status writes without a connector.** When the resolved provider supports `update_status` but this
 host cannot reach it, print a `HELD` line instead of failing. The coordinator records it as an open
@@ -506,7 +517,7 @@ That skill internally runs:
 
 If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (verification still runs) either way.
 
-After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused here — do not re-derive) to verify nothing regressed. Run a command only when its resolved value is non-null; a `null` command reports its one-line skip note (e.g. "no lint command resolved — lint gate skipped") and the phase continues rather than stopping.
+After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused here — do not re-derive) to verify nothing regressed (under `--unattended`, through `gate-lock.sh`; see "Gate lock"). Run a command only when its resolved value is non-null; a `null` command reports its one-line skip note (e.g. "no lint command resolved — lint gate skipped") and the phase continues rather than stopping.
 
 **Checkpoint:** show diff summary post-remediation. Ask to proceed.
 
@@ -641,7 +652,7 @@ the evidence directory. Ask to proceed to PR.
    | `linear` | resolve the active prefix — `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)`; `save_issue` is the sole create-or-update verb |
    | `jira` | the transition named by `config.tracker.statusMap.in_review`, through the connected Jira/Atlassian MCP's transition tool; no `statusMap` → treat as no `update_status` |
    | `github` | `gh label create status:in-review --force`, then `gh issue edit <n> --add-label status:in-review`, adding `--remove-label status:in-progress` only when the issue has that label |
-   | `file` | rewrite the spec file's status marker to `in_review` |
+   | `file` | rewrite the spec file's status marker to `in_review`. With `--brief`, the file is the brief's `item.path` (an absolute path in the main checkout), never a file in this worktree |
 
    **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.** Under `--quiet-hours` inside the window, or when the provider has `update_status` but this host cannot reach it, print `HELD item=<item> action=set status in_review via <source>` instead of writing.
 5. Return the PR URL — or, if `gh` was unavailable, the compare URL — to the user.

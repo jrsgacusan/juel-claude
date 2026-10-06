@@ -16,5 +16,8 @@ grep -q 'Ask via\|ask via' "$SKILL" && pass "interactive path kept" || fail "int
 grep -q 'prints `STOPPED: <reason>`' "$SKILL" && pass "every unattended stop is reported" || fail "STOPPED line"
 grep -q '| AskUserQuestion | context | HARD |' "$SKILL" && pass "interactive runs still stop headless" || fail "AskUserQuestion HARD"
 grep -q 'fleet' "$SKILL" && fail "no fleet wording" || pass "no fleet wording"
+grep -q '| `--brief <path>` |' "$SKILL" && pass "S5 brief accepted" || fail "S5 --brief"
+grep -q 'BRIEF-VIOLATION:' "$SKILL" && pass "S5 out-of-scope requests stop" || fail "S5 BRIEF-VIOLATION"
+grep -q '| `--only <ids>` |' "$SKILL" && pass "S14 only listed items acted on" || fail "S14 --only"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
