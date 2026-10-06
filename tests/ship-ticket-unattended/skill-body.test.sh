@@ -52,7 +52,11 @@ grep -q 'item.path' "$SKILL" && pass "S11 file status write targets item.path" |
 grep -q 'outcome per finding' "$SKILL" && pass "S16 fix report per finding" || fail "S16 fix outcomes"
 grep -q 'older than 2 h' "$SKILL" && fail "S8 no age-only stale rule" || pass "S8 no age-only stale rule"
 grep -q 'run_in_background: true' "$SKILL" && grep -q 'gate-lock.sh' "$SKILL" && grep -q 'background, like `codex exec`' "$SKILL" && pass "T1 gate runs backgrounded" || fail "T1 backgrounded gate"
-grep -q 'GATES {"test":' "$SKILL" && pass "T11 GATES is a JSON manifest" || fail "T11 GATES JSON"
 grep -q 'heavy verification commands in the plan' "$SKILL" && pass "T9 executor heavy commands locked" || fail "T9 executor lock"
+grep -q 'at most 12 lines' "$SKILL" && pass "report capped at 12 lines" || fail "12-line cap"
+grep -q 'GATES <path>' "$SKILL" && pass "gate manifest written to a file" || fail "GATES path"
+grep -q 'NOTE: <one line>' "$SKILL" && pass "one NOTE line allowed" || fail "NOTE line"
+grep -q 'star.notes' "$SKILL" && pass "reads the memory notes first" || fail "memory notes"
+grep -q 'GATES {"test":' "$SKILL" && fail "no inline gate JSON in the report" || pass "no inline gate JSON in the report"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

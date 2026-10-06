@@ -43,5 +43,6 @@ grep -q 'reason=unanswered-question' "$SKILL" && pass "S4 unanswered question es
 grep -q '| `--gates-file <path>` |' "$SKILL" && pass "T11 gate manifest accepted" || fail "T11 --gates-file"
 grep -q 'whose approval is now older than the last commit' "$SKILL" && pass "T8 stale approval re-requested" || fail "T8 stale approval"
 grep -q 'background, like `codex exec`' "$SKILL" && pass "T1 gates run backgrounded" || fail "T1 backgrounded gates"
+grep -q 'at most 12 lines' "$SKILL" && pass "report capped at 12 lines" || fail "12-line cap"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
