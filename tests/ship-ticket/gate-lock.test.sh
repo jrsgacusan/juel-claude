@@ -53,5 +53,43 @@ kill -TERM "$k"; wait "$k" 2>/dev/null
 sleep 0.2
 [ ! -e "$LOCK" ] && pass "lock released when the holder is killed" || fail "lock released when the holder is killed"
 
+# 7. kill -9 on the wrapper: the gate command keeps running, so the lock must stay held until it ends.
+sh "$SCRIPT" --holder v -- sh -c "sleep 3; date +%s > '$TMP/v.end'" &
+v=$!
+sleep 0.5
+kill -9 "$v" 2>/dev/null; wait "$v" 2>/dev/null
+sh "$SCRIPT" --holder w --wait-max 10 -- sh -c "date +%s > '$TMP/w.start'"
+[ -f "$TMP/v.end" ] && [ "$(cat "$TMP/w.start")" -ge "$(cat "$TMP/v.end")" ] && pass "SIGKILLed wrapper's command still holds the lock" || fail "lock reclaimed while the killed wrapper's command ran"
+
+# 8. SIGHUP (terminal closed) stops the whole command group and releases the lock.
+sh "$SCRIPT" --holder h -- sh -c "sleep 30; echo late > '$TMP/h.late'" &
+h=$!
+sleep 0.5
+kill -HUP "$h"; wait "$h" 2>/dev/null
+sleep 0.5
+[ ! -e "$LOCK" ] && pass "SIGHUP releases the lock" || fail "SIGHUP releases the lock"
+sleep 1; [ ! -f "$TMP/h.late" ] && pass "SIGHUP stops the gate command" || fail "SIGHUP left the gate command running"
+
+# 9. An empty holder file (killed mid-write) is treated like a missing one: reclaimed after the threshold.
+mkdir "$LOCK"; : > "$LOCK/holder"
+JUEL_GATE_LOCK_INCOMPLETE_SECONDS=0 sh "$SCRIPT" --holder e --wait-max 2 -- true; rc=$?
+[ "$rc" -eq 0 ] && pass "empty holder reclaimed after the threshold" || fail "empty holder reclaimed ($rc)"
+
+# 10. A wrapper only removes the lock if it still owns it.
+sh "$SCRIPT" --holder o -- sh -c "rm -rf '$LOCK'; mkdir '$LOCK'; echo 'other 1 1 x' > '$LOCK/holder'"
+[ -f "$LOCK/holder" ] && grep -q '^other ' "$LOCK/holder" && pass "release leaves another owner's lock alone" || fail "release removed another owner's lock"
+rm -rf "$LOCK"
+
+# 11. --wait-max is honoured even with a long poll interval.
+sleep 30 & live=$!
+mkdir "$LOCK"; printf 'other %s %s %s\n' "$live" "$live" "$(date +%s)" > "$LOCK/holder"
+t0=$(date +%s); JUEL_GATE_LOCK_POLL=30 sh "$SCRIPT" --holder p --wait-max 1 -- true 2>/dev/null; rc=$?; t1=$(date +%s)
+[ "$rc" -eq 75 ] && [ $((t1 - t0)) -le 3 ] && pass "wait deadline honoured with a long poll" || fail "wait deadline overshot (rc=$rc, $((t1 - t0))s)"
+kill "$live" 2>/dev/null; wait "$live" 2>/dev/null; rm -rf "$LOCK"
+
+# 12. Outside a git repo with no JUEL_GATE_LOCK: refuse, create nothing.
+(cd "$TMP" && mkdir -p nogit && cd nogit && env -u JUEL_GATE_LOCK sh "$SCRIPT" -- true 2>/dev/null); rc=$?
+[ "$rc" -ne 0 ] && [ ! -e "$TMP/nogit/juel" ] && pass "refuses outside a git repo" || fail "ran outside a git repo (rc=$rc)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

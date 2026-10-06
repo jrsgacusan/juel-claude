@@ -17,6 +17,7 @@ cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
 D="$STUB_FIX"; C="$D/.calls"
 if [ "${STUB_FAIL:-}" = 1 ]; then echo "boom" >&2; exit 1; fi
+[ -n "${STUB_DELAY:-}" ] && sleep "$STUB_DELAY"
 if [ "$1" = "pr" ]; then
   n=$(( $(cat "$C" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$C"; f=pr
 else
@@ -148,6 +149,16 @@ run wait-feedback 10 --wait --interval 5 --max-seconds 1
 t1=$(date +%s)
 check "wait: interval longer than the budget still sleeps and polls again" 'd["wake"] == "feedback" and calls == 2'
 if [ $((t1 - t0)) -lt 4 ]; then echo "ok   wait: sleep is capped by the budget"; else echo "FAIL wait: sleep is capped by the budget ($((t1 - t0))s)"; fails=$((fails + 1)); fi
+
+# A snapshot that takes longer than what is left of the budget is not started: the call returns
+# timeout instead of overshooting --max-seconds (4 gh calls at 0.5 s = ~2 s per snapshot).
+STUB_DELAY=0.5; export STUB_DELAY
+t0=$(date +%s)
+run wait-feedback 10 --wait --interval 600 --max-seconds 3
+t1=$(date +%s)
+unset STUB_DELAY
+check "wait: no snapshot started that cannot finish in the budget" 'd["wake"] == "timeout" and calls == 1'
+if [ $((t1 - t0)) -le 3 ]; then echo "ok   wait: stays within --max-seconds"; else echo "FAIL wait: stays within --max-seconds ($((t1 - t0))s)"; fails=$((fails + 1)); fi
 
 STUB_FAIL=1; export STUB_FAIL
 run wait-feedback 10 --wait --interval 0

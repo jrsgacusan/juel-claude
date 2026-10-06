@@ -113,7 +113,9 @@ def wait(a):
     started = time.monotonic()
     quiet_since = ts(a.quiet_since) if a.quiet_since else datetime.now(timezone.utc)
     errors, last_error, last_good = 0, None, None
+    snap_cost = 0.0  # how long the slowest snapshot took; never start one the budget cannot finish
     while True:
+        t_snap = time.monotonic()
         try:
             snap = snapshot(a.pr, a.since, a.repo)
         except Exception as e:
@@ -129,11 +131,13 @@ def wait(a):
             quiet_for = (datetime.now(timezone.utc) - quiet_since).total_seconds()
             if a.silence_hours and quiet_for >= a.silence_hours * 3600:
                 return {**snap, "wake": "silence"}
+        snap_cost = max(snap_cost, time.monotonic() - t_snap)
         nap = a.interval
         if a.max_seconds is not None:
-            # Sleep at most what is left of the budget, so an interval longer than the budget
-            # (600 s polling inside 540 s foreground calls) still waits instead of busy-looping.
-            left = a.max_seconds - (time.monotonic() - started)
+            # Sleep at most what is left of the budget after reserving one more snapshot, so an
+            # interval longer than the budget (600 s polling inside a foreground call) still waits
+            # instead of busy-looping, and a slow gh never pushes the call past --max-seconds.
+            left = a.max_seconds - (time.monotonic() - started) - snap_cost
             if left <= 0:
                 return {**(last_good or {}), "wake": "timeout", **({"error": last_error} if last_good is None else {})}
             nap = min(nap, left)
