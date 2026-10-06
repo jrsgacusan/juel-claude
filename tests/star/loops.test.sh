@@ -220,7 +220,6 @@ cp "$TMP/o/keep" "$O"
 printf 'garbage\n' > "$O.seq"; LO add --kind held --project p --item z --title z >/dev/null 2>&1; [ $? -eq 2 ] && pass "a seq file that is not a number is exit 2" || fail "garbage seq accepted"
 printf '\377\n' > "$O.seq"; LO add --kind held --project p --item z --title z >/dev/null 2>&1; [ $? -eq 2 ] && pass "a seq file that is not text is exit 2" || fail "binary seq"
 rm -f "$O.seq"
-grep -q '^\*\.seq$' "$ROOT/skills/star/template/gitignore" && pass "git never rewinds the id mark (seq is ignored)" || fail "seq not in the template gitignore"
 # an id at or below the mark that is nowhere is reported, so a lost item is noticed
 cp "$TMP/o/keep" "$O"; printf '5\n' > "$O.seq"
 LO list | grep -q "^N-4	-	-	-	missing	" && LO list | grep -q "^N-5	-	-	-	missing	" && pass "list names ids that are in neither the queue nor the archive" || fail "missing ids not reported ($(LO list | tail -2 | tr '\n' ';'))"
@@ -250,6 +249,16 @@ PY2
 mkdir -p "$TMP/c"; C="$TMP/c/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$C"
 sh "$SCRIPT" --file "$C" add --kind held --project p --item a --title t --body '=======\n<<<<<<< HEAD\nnext line' >/dev/null
 sh "$SCRIPT" --file "$C" list >/dev/null 2>&1; [ $? -eq 0 ] && pass "a body line that looks like a conflict marker is quoted, not a lock-out" || fail "conflict-marker body line locked the queue"
+
+# With no --file, the queue is the project's own: the folder star-home.sh names for the current directory.
+mkdir -p "$TMP/proj" && (cd "$TMP/proj" && git init -q . && git commit -q --allow-empty -m init)
+PH=$(sh "$ROOT/skills/star/star-home.sh" --cwd "$TMP/proj" init)
+id=$(cd "$TMP/proj" && env -u JUEL_STAR_HOME sh "$SCRIPT" add --kind held --project proj --item a --title "from the project")
+[ "$id" = N-1 ] && grep -q ' · a · from the project$' "$PH/open-loops.md" && pass "the default queue is the project's" || fail "default queue ($id)"
+(cd "$TMP/proj" && git check-ignore -q "$PH/open-loops.md.seq") && pass "git ignores the id mark with the rest of the folder" || fail "seq not ignored"
+mkdir -p "$TMP/noproj"; err=$(cd "$TMP/noproj" && env -u JUEL_STAR_HOME sh "$SCRIPT" list 2>&1 >/dev/null); [ $? -eq 2 ] && printf '%s' "$err" | grep -q 'not inside a project' && pass "outside a project with no --file is exit 2" || fail "no project, no --file"
+mkdir -p "$TMP/envhome"; cp "$ROOT/skills/star/template/open-loops.md" "$TMP/envhome/"
+[ "$(cd "$TMP/noproj" && JUEL_STAR_HOME="$TMP/envhome" sh "$SCRIPT" add --kind held --project p --item e --title env)" = N-1 ] && pass "JUEL_STAR_HOME still names the folder" || fail "JUEL_STAR_HOME"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -10,9 +10,13 @@
 # start while already away changes nothing (the summaries stay); end while not away prints
 # "not away". Every command holds handoff.lock, so runs never overwrite each other. A ledger
 # row with the wrong number of cells is counted and reported, never silently left out.
-# Exit: 0 ok, 1 not possible (summary while not away, star.json missing or broken), 64 usage
+# Without --home the folder is $JUEL_STAR_HOME, else the project's own (star-home.sh).
+# Exit: 0 ok, 1 not possible (summary while not away, star.json missing or broken),
+#       2 no folder to work in, 64 usage
 # (which includes a STAR_NOW that is not a time).
 # STAR_NOW (ISO UTC) and STAR_MEM_GB override the clock and the memory reading, for tests.
+STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
+export STAR_HOME_DEFAULT
 exec python3 - "$@" <<'PY'
 import argparse
 import fcntl
@@ -162,7 +166,7 @@ def mem_gb():
 
 
 p = argparse.ArgumentParser(prog="handoff.sh")
-p.add_argument("--home", default=os.environ.get("JUEL_STAR_HOME") or os.path.expanduser("~/juel-star"))
+p.add_argument("--home", default=os.environ.get("STAR_HOME_DEFAULT") or None)
 sub = p.add_subparsers(dest="cmd", required=True)
 sub.add_parser("start")
 d = sub.add_parser("due"); d.add_argument("--hours", type=float, default=4)
@@ -173,6 +177,8 @@ try:
     a = p.parse_args()
 except SystemExit as e:
     sys.exit(64 if e.code not in (0, None) else 0)
+if a.home is None:
+    die(2, "not inside a project: run it from the project, or pass --home")
 
 home = a.home
 if parse(now()) is None:

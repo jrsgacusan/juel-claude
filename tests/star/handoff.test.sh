@@ -137,5 +137,12 @@ K="$TMP/k"; mkdir -p "$K"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "
 STAR_NOW=not-a-clock sh "$SCRIPT" --home "$K" start >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 64 ] && [ ! -e "$K/handoff.md" ] && [ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["away"])' "$K/star.json")" = None ] && pass "an impossible clock is exit 64 and writes nothing" || fail "impossible clock (rc=$rc)"
 
+# With no --home, the folder is the project's own.
+mkdir -p "$TMP/proj" && (cd "$TMP/proj" && git init -q . && git commit -q --allow-empty -m init)
+PH=$(sh "$ROOT/skills/star/star-home.sh" --cwd "$TMP/proj" init)
+out=$(cd "$TMP/proj" && env -u JUEL_STAR_HOME STAR_NOW=2026-10-07T13:00:00Z sh "$SCRIPT" start)
+[ "$out" = "$PH/handoff.md" ] && [ -f "$PH/handoff.md" ] && pass "the default home is the project's" || fail "default home ($out)"
+mkdir -p "$TMP/noproj"; err=$(cd "$TMP/noproj" && env -u JUEL_STAR_HOME sh "$SCRIPT" due 2>&1 >/dev/null); [ $? -eq 2 ] && printf '%s' "$err" | grep -q 'not inside a project' && pass "outside a project with no --home is exit 2" || fail "no project, no --home"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
