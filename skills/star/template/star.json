@@ -7,5 +7,6 @@
   "run": null,
   "terminal": null,
   "caffeinatePid": null,
-  "heartbeat": null
+  "heartbeat": null,
+  "notifiedThrough": 0
 }

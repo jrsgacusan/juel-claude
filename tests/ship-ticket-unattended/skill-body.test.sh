@@ -58,5 +58,8 @@ grep -q 'GATES <path>' "$SKILL" && pass "gate manifest written to a file" || fai
 grep -q 'NOTE: <one line>' "$SKILL" && pass "one NOTE line allowed" || fail "NOTE line"
 grep -q 'star.notes' "$SKILL" && pass "reads the memory notes first" || fail "memory notes"
 grep -q 'GATES {"test":' "$SKILL" && fail "no inline gate JSON in the report" || pass "no inline gate JSON in the report"
+grep -q 'item.name' "$SKILL" && pass "item named by the brief's item.name" || fail "item.name"
+grep -q '## Decisions' "$SKILL" && pass "brief decisions are binding" || fail "Decisions"
+grep -q 'batch-dir' "$SKILL" && fail "no stale batch-dir paths" || pass "no stale batch-dir paths"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

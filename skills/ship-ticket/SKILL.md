@@ -146,8 +146,8 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight). Inside it, outward actions are held, not performed. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
-`/juel:ship-ticket --unattended --brief <batch-dir>/briefs/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
-(add `--fix-review <batch-dir>/reviews/SAVI-1162-r1.md` for a fix stage)
+`/juel:ship-ticket --unattended --brief ~/juel-star/briefs/lstn/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
+(add `--fix-review ~/juel-star/reviews/lstn/SAVI-1162-r1.md` for a fix stage)
 
 ## Base branch & repo conventions
 
@@ -280,8 +280,9 @@ checkpoints. The human already approved the scope as a brief, and keeps the merg
 without `--brief` is refused: print `ESCALATION item=unknown phase=0 reason=no-brief needs=an
 approved brief` and stop.
 
-**Item name.** `item` below is the brief's `item.ref`, or `item.slug` when the ref is null. Never a
-literal `null` or an empty string.
+**Item name.** `item` below is the brief's `item.name` when it has one (STAR sets it and uses it
+for its ledger and paths), else `item.ref`, else `item.slug`. Never a literal `null` or an empty
+string, and never a name of your own.
 
 **Report lines.** The coordinator parses single lines by prefix, so print each exactly, on its own
 line:
@@ -305,6 +306,11 @@ Report `--outcome failed` for an `ESCALATION`, `succeeded` otherwise.
 
 **Notes first.** When the brief has a `star:` block, read every file listed under `star.notes`
 before Phase 1: notes left by earlier workers in this project and by the human.
+
+**Decisions are binding.** A brief may end with a `## Decisions` section: the human's answers to
+earlier escalations on this item, dated. Read it before anything else in the brief. A decision
+overrides the Approach where they differ and settles the question it answers: apply it, and do not
+escalate the same question again.
 
 **Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
 when a second-model review says NOT SAFE; the file holds that review's findings.
