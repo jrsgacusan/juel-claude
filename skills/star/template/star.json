@@ -47,5 +47,6 @@
   "caffeinatePid": null,
   "heartbeat": null,
   "notified": [],
-  "away": null
+  "away": null,
+  "project": null
 }
