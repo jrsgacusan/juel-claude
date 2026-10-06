@@ -292,7 +292,7 @@ line:
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES test=<cmd>;lint=<cmd>;typecheck=<cmd>;build=<cmd>` with the commands resolved in Phase 4 (`null` for a skipped key) |
+| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by one line `GATES {"test":{"cmd":"<cmd>","cwd":"<dir>"},"lint":…,"typecheck":…,"build":…}`: the commands resolved in Phase 4 as JSON, each with the directory it runs in (`.` for the repo root, a package dir in a monorepo), `null` for a skipped key |
 | review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
 
 **Reporting.** You are an Orca worker. The run's final line (`DONE`, `FIXED` or `ESCALATION`) is
@@ -359,20 +359,26 @@ reviewers and re-requesting review happen later, in the babysit stage, which get
 Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
 
 **Gate lock.** Under `--unattended`, every heavy command — Phase 5's `test` and `lint` run after
-remediation and the Phase 6 regression gate — runs through `gate-lock.sh`, next to this file
-(`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when that is set), so two workers never run
-heavy test or build gates at once:
+remediation, the Phase 6 regression gate, and the heavy verification commands in the plan Codex
+executes (full suites, builds; targeted single-file tests are fine without it) — runs through
+`gate-lock.sh`, next to this file (`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when
+that is set), so two workers never run heavy test or build gates at once. When writing a plan
+under `--unattended`, write each such step as the `gate-lock.sh` line itself. Run the line in the
+background, like `codex exec`: Bash with `run_in_background: true`, wait for the completion
+notification, never poll it, then read its output. Waiting for the lock plus running the gate can
+take longer than the Bash tool's 600 s foreground cap.
 
 ```sh
 sh <gate-lock.sh> --holder "<item>" -- sh -c '<test command> && <lint command>'
 ```
 
-It takes `<git-common-dir>/juel/gate.lock` for exactly as long as the command runs, records its own
-pid, releases the lock when the command ends or the script is killed, and reclaims a lock whose
-holder process is gone. Exit 75 means another worker held it for the whole 540 s budget: run the
-same line again. Never remove the lock by hand. Before starting the Phase 6 stack, check memory the
-way `juel:ship-tickets` does (free + inactive at least 3 GB); below that, wait in foreground calls
-of at most 540 s, and after 30 minutes escalate `stack-unavailable`.
+It holds `<git-common-dir>/juel/gate.lock` while the command's process group runs (even if the
+wrapper itself is killed), stops the whole group on TERM, INT or HUP, releases only a lock it still
+owns, and reclaims a lock whose holder is gone. Exit 75 means it stayed busy for its whole
+`--wait-max` (default 3600 s): run the same line again. Never remove the lock by hand. Before
+starting the Phase 6 stack, check memory the way `juel:ship-tickets` does (free + inactive at least
+3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
+`stack-unavailable`.
 
 **Status writes without a connector.** When the resolved provider supports `update_status` but this
 host cannot reach it, print a `HELD` line instead of failing. The coordinator records it as an open

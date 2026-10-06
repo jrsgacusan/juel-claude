@@ -47,10 +47,12 @@ grep -q 'HELD item=<item> action=open a draft PR from <compare-url>' "$SKILL" &&
 grep -q 'gate-lock.sh' "$SKILL" && pass "S2 gates run through gate-lock.sh" || fail "S2 gate-lock.sh"
 grep -q 'Phase 5.s `test` and `lint`' "$SKILL" && pass "S2 Phase 5 gates locked too" || fail "S2 phase 5 locked"
 grep -q 'unanswered-question' "$SKILL" && pass "S4 unanswered-question escalation" || fail "S4 unanswered-question"
-grep -q 'GATES test=<cmd>;lint=<cmd>' "$SKILL" && pass "S12 DONE reports the resolved gates" || fail "S12 GATES line"
 grep -q 'Tier C is never used' "$SKILL" && pass "S12 no interactive Tier C unattended" || fail "S12 Tier C"
 grep -q 'item.path' "$SKILL" && pass "S11 file status write targets item.path" || fail "S11 item.path"
 grep -q 'outcome per finding' "$SKILL" && pass "S16 fix report per finding" || fail "S16 fix outcomes"
 grep -q 'older than 2 h' "$SKILL" && fail "S8 no age-only stale rule" || pass "S8 no age-only stale rule"
+grep -q 'run_in_background: true' "$SKILL" && grep -q 'gate-lock.sh' "$SKILL" && grep -q 'background, like `codex exec`' "$SKILL" && pass "T1 gate runs backgrounded" || fail "T1 backgrounded gate"
+grep -q 'GATES {"test":' "$SKILL" && pass "T11 GATES is a JSON manifest" || fail "T11 GATES JSON"
+grep -q 'heavy verification commands in the plan' "$SKILL" && pass "T9 executor heavy commands locked" || fail "T9 executor lock"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
