@@ -101,7 +101,7 @@ def ledger(home):
         if header is None:
             if "item" in cells and "state" in cells:
                 header = cells
-        elif set(text) <= set("|-: "):
+        elif set(text) <= set("|-: ") or cells == header:
             continue
         elif len(cells) == len(header):
             rows.append(dict(zip(header, cells)))
@@ -185,7 +185,7 @@ if a.cmd == "start":
         print(f"handoff.sh: already away since {away}; handoff.md kept as it is", file=sys.stderr)
         print(path)
         sys.exit(0)
-    stamp = now()
+    stamp = away or now()  # a deleted file is written again; the time the user left does not move
     q = queue(home)
     rows, bad = ledger(home)
     part_a = [f"- {label(x)}" for x in q if x["kind"] in BLOCKING] or ["- Nothing."]

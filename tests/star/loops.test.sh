@@ -122,5 +122,54 @@ q2=$(LQ add --kind question --project p --item a --title "which queue?" --body '
 q3=$(LQ add --kind question --project p --item a --title "which queue?" --body 'msg: msg_2\ndeadline: 2026-10-07T11:00:00Z')
 [ "$q1" = "$q2" ] && [ "$q3" != "$q1" ] && pass "the same text with another body is another item" || fail "dedupe ignores the body ($q1 $q2 $q3)"
 
+# Second stress pass
+mkdir -p "$TMP/s"; Z="$TMP/s/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$Z"
+LZ() { sh "$SCRIPT" --file "$Z" "$@"; }
+LZ add --kind held --project p --item a --title one >/dev/null; LZ add --kind held --project p --item b --title two >/dev/null
+# an editor saves an older copy of the file over the queue: the item is gone, its id must not come back
+cp "$ROOT/skills/star/template/open-loops.md" "$Z"
+[ "$(LZ add --kind held --project p --item c --title three)" = N-3 ] && pass "an id is never reused, even when the file lost its items" || fail "id reused after the file was replaced"
+LZ add --kind held --project p --item 'A ·' --title t >/dev/null 2>&1; [ $? -eq 64 ] && LZ add --kind held --project '· q' --item x --title t >/dev/null 2>&1; [ $? -eq 64 ] && pass "a name with the separator dot at its edge is refused" || fail "separator dot at the edge of a name"
+# close that cannot replace the queue: no second archive copy, no temp file, exit 2
+LZ add --kind held --project p --item d --title four >/dev/null
+if command -v chflags >/dev/null 2>&1; then
+  # the queue file cannot be replaced, but the folder is writable: the archive copy lands, the queue write fails
+  chflags uchg "$Z"; LZ close N-4 >/dev/null 2>&1; r1=$?; LZ close N-4 >/dev/null 2>&1; r2=$?; chflags nouchg "$Z"
+  [ "$r1" -eq 2 ] && [ "$r2" -eq 2 ] && pass "a close that cannot replace the queue is exit 2, not a traceback" || fail "failed close exit codes ($r1 $r2)"
+  ls "$TMP/s" | grep -q '\.tmp\.' && fail "temp file left behind by a failed close" || pass "a failed close leaves no temp file"
+  [ "$(grep -c '^### N-4 ' "$TMP/s/open-loops-archive.md")" = 1 ] && pass "two failed closes left one archive copy" || fail "failed closes left $(grep -c '^### N-4 ' "$TMP/s/open-loops-archive.md") archive copies"
+else
+  printf '# Closed loops\n\n### N-4 · p · d · four\nkind: held\nAnswer:\nclosed: 2026-10-07T00:00:00Z\n' > "$TMP/s/open-loops-archive.md"
+fi
+LZ close N-4 >/dev/null; [ "$(grep -c '^### N-4 ' "$TMP/s/open-loops-archive.md")" = 1 ] && ! grep -q '^### N-4 ' "$Z" && pass "an item already in the archive is not archived twice" || fail "second archive copy"
+# an older home may hold an archived item with the same id but another heading: that is another item
+printf '# Closed loops\n\n### N-9 · old · thing · from before\nkind: held\nAnswer:\nclosed: 2026-01-01T00:00:00Z\n' > "$TMP/s/open-loops-archive.md"
+python3 - "$Z" <<'PY2'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace("## Waiting on others", "### N-9 · p · nine · nine\nkind: held\nAnswer:\n\n## Waiting on others", 1)
+open(p, "w").write(s)
+PY2
+LZ close N-9 >/dev/null && ! grep -q '^### N-9 ' "$Z" && grep -q '^### N-9 · p · nine · nine$' "$TMP/s/open-loops-archive.md" && pass "an archived item with the same id but another heading does not swallow a close" || fail "close lost an item to an id match"
+chmod 000 "$TMP/s/open-loops-archive.md"; LZ add --kind held --project p --item e --title five >/dev/null 2>&1; rc=$?; chmod 644 "$TMP/s/open-loops-archive.md"
+[ "$rc" -eq 2 ] && pass "an unreadable archive stops add with exit 2, not a traceback" || fail "add with an unreadable archive (rc=$rc)"
+# the user deleted the Answer line and left a note of their own: set-answer must not take the note
+python3 - "$Z" <<'PY2'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace("### N-3 · p · c · three\nkind: held\nAnswer:\n", "### N-3 · p · c · three\nkind: held\n\nmy note: ask Ezra first\n", 1)
+open(p, "w").write(s)
+PY2
+[ "$(LZ set-answer N-3 done)" = set ] && LZ close N-3 >/dev/null && grep -q '^my note: ask Ezra first$' "$Z" && ! grep -q 'ask Ezra' "$TMP/s/open-loops-archive.md" && pass "a rebuilt Answer line goes above the user's note" || fail "set-answer swallowed the user's note"
+id=$(LZ add --kind held --project p --item f --title six)
+python3 - "$Z" "$id" <<'PY2'
+import sys
+p, i = sys.argv[1], sys.argv[2]; s = open(p).read()
+s = s.replace(f"### {i} · p · f · six\nkind: held\nAnswer:", f"### {i} · p · f · six\nkind: held\nAnswer : done caf\udce9".encode("utf-8", "surrogateescape").decode("utf-8", "surrogateescape"), 1)
+open(p, "w", encoding="utf-8", errors="surrogateescape").write(s)
+PY2
+LZ answers | LC_ALL=C grep -aq "^$id	held	p	f	done caf" && pass "'Answer :' with a space is read" || fail "Answer with a space before the colon"
+LZ add --kind held --project p --item g --title seven >/dev/null; LC_ALL=C grep -aq "$(printf 'caf\351')" "$Z" && pass "bytes that are not UTF-8 are kept as they were" || fail "non-UTF-8 bytes rewritten"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

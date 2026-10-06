@@ -136,16 +136,27 @@ if command -v zsh >/dev/null 2>&1; then
 fi
 bash "$SCRIPT" --holder z -- true && pass "runs under bash" || fail "bash"
 
-# 16. Outside a git repo with no JUEL_GATE_LOCK and no STAR home: refuse, create nothing.
-(cd "$TMP" && mkdir -p nogit && cd nogit && env -u JUEL_GATE_LOCK JUEL_STAR_HOME="$TMP/nohome" sh "$SCRIPT" -- true 2>/dev/null); rc=$?
-[ "$rc" -eq 1 ] && [ ! -e "$TMP/nogit/juel" ] && pass "refuses outside a git repo" || fail "ran outside a git repo (rc=$rc)"
-
-# 17. With a STAR home on this machine the lock is shared by every project.
-mkdir -p "$TMP/starhome" "$TMP/proj" && : > "$TMP/starhome/star.json" && (cd "$TMP/proj" && git init -q .)
-(cd "$TMP/proj" && env -u JUEL_GATE_LOCK JUEL_STAR_HOME="$TMP/starhome" sh "$SCRIPT" --holder m -- sh -c "test -f '$TMP/starhome/gate.lock'"); rc=$?
-[ "$rc" -eq 0 ] && pass "machine-wide lock under STAR's home" || fail "lock not under STAR's home ($rc)"
-(cd "$TMP/proj" && env -u JUEL_GATE_LOCK JUEL_STAR_HOME="$TMP/nohome" sh "$SCRIPT" --holder m -- sh -c "test -f .git/juel/gate.lock"); rc=$?
-[ "$rc" -eq 0 ] && pass "per-repo lock without a STAR home" || fail "per-repo fallback ($rc)"
+# Second stress pass
+# 18. The lock file is replaced while a gate holds it: a waiter that already opened the old file
+#     must not run on it, and the default lock lives where git clean and a sandbox cannot break it.
+sh "$SCRIPT" --holder n1 -- sh -c "sh '$SCRIPT' --holder n2 --wait-max 2 -- sh -c 'echo inner > $TMP/nest.ran'"; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$TMP/nest.ran" ] && pass "a gate inside a gate on the same lock runs, it does not wait for itself" || fail "nested gate (rc=$rc)"
+# (the default lock is the real machine-wide one: never wait for it here; busy means a real gate runs)
+d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc --wait-max 0 -- sh -c 'printf %s "$JUEL_GATE_LOCK_HELD"' 2>/dev/null); rc=$?
+case "$rc:$d" in 0:/tmp/juel.gate."$(id -u)".lock) pass "the default lock is one file per user under /tmp, in or out of a git repo" ;; 75:*) pass "default lock path (skipped: a real gate is running)" ;; *) fail "default lock path (rc=$rc $d)" ;; esac
+now() { python3 -c 'import time; print(time.time())'; }
+# A holds the lock; B waits on that file; the file is deleted; C then locks the new file. When A
+# ends, B gets the old file's lock, must notice the path no longer names it, and wait for C.
+sh "$SCRIPT" --holder A -- sleep 1.5 &
+pa=$!; sleep 0.4
+sh "$SCRIPT" --holder B --wait-max 20 -- sh -c "python3 -c 'import time; print(time.time())' > '$TMP/b.start2'" &
+pb=$!; sleep 0.4
+rm -f "$LOCK"
+sh "$SCRIPT" --holder C --wait-max 20 -- sh -c "sleep 2.5; python3 -c 'import time; print(time.time())' > '$TMP/c.end2'" &
+pc=$!
+wait "$pa" "$pb" "$pc"
+python3 -c 'import sys; b, c = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if b >= c else 1)' "$TMP/b.start2" "$TMP/c.end2" && pass "a waiter on a deleted lock file moves to the new one and waits its turn" || fail "waiter ran on the deleted lock file while another gate held the new one"
+free && pass "the lock still works after its file was deleted" || fail "lock unusable after its file was deleted"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

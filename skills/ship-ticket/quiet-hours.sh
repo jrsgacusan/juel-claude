@@ -44,7 +44,10 @@ try:
            if os.environ.get("QUIET_NOW") else datetime.now(timezone.utc))
 except ValueError:
     bad("QUIET_NOW is not an ISO time")
-local = (now if now.tzinfo else now.replace(tzinfo=timezone.utc)).astimezone(tz)
+try:
+    local = (now if now.tzinfo else now.replace(tzinfo=timezone.utc)).astimezone(tz)
+except (OverflowError, ValueError):
+    bad("QUIET_NOW is outside the dates a clock can show")
 minute = local.hour * 60 + local.minute
 inside = start <= minute < end if start < end else (minute >= start or minute < end)
 print("inside" if inside else "outside")

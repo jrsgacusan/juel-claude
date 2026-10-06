@@ -72,5 +72,16 @@ done; wait
 after=$(ls "$H/releases" | wc -l | tr -d ' ')
 [ "$((after - before))" = 1 ] && [ "$(sort -u "$TMP/paths" | wc -l | tr -d ' ')" = 1 ] && pass "concurrent runs for one PR write one record" || fail "concurrent runs wrote $((after - before)) records, $(sort -u "$TMP/paths" | wc -l | tr -d ' ') paths"
 
+# Second stress pass: the user indented the PR line; a replay still finds the record
+python3 - "$exp" <<'PY2'
+import sys
+p = sys.argv[1]; s = open(p).read().replace("- PR: ", "  - PR: ", 1); open(p, "w").write(s)
+PY2
+n1=$(ls "$H/releases" | wc -l | tr -d ' '); out5=$(run --project lstn --item '#12' --pr 12); n2=$(ls "$H/releases" | wc -l | tr -d ' ')
+[ "$out5" = "$exp" ] && [ "$n1" = "$n2" ] && pass "an edited record is still recognised as this PR's" || fail "edited record gave a second one ($out5)"
+chmod 555 "$H/releases"; sed -e 's/"number":12/"number":16/' -e 's#pull/12#pull/16#' "$TMP/merged.json" > "$TMP/merged16.json"
+err=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged16.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 16 2>&1); rc=$?; chmod 755 "$H/releases"
+[ "$rc" -eq 1 ] && case "$err" in "error: "*) true ;; *) false ;; esac && pass "a read-only releases folder is one error line" || fail "read-only releases folder (rc=$rc: $(printf '%s' "$err" | head -1))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

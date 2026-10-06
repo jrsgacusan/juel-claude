@@ -66,6 +66,35 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$S
 python3 -c 'import json; print(json.dumps({"result":{"messages":[{"text":"Please run /login"},{"text":"I fixed the login form and pushed."}]}}))' > "$TMP/read.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
 [ "$out" = "ok" ] && echo "ok   only the newest transcript message counts" || { echo "FAIL old transcript message ($out)"; fails=$((fails + 1)); }
+# A worker whose terminal has printed nothing for a while is quiet: STAR checks in on it.
+cat > "$TMP/bin/orca" <<'EOF3'
+#!/bin/sh
+case "$*" in
+  *"terminal list"*) [ "${STUB_LIST_FAIL:-}" = 1 ] && exit 1; cat "$STUB_DIR/list.json" ;;
+  *worker-show*) cat "$STUB_DIR/show.json" ;;
+  *worker-read*) cat "$STUB_DIR/read.json" ;;
+  *) echo "unexpected: $*" >&2; exit 9 ;;
+esac
+EOF3
+printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["working on it"]}}}))' > "$TMP/read.json"
+# 2026-10-07T12:00:00Z is 1791374400000 ms; the worker last printed 40 minutes before that
+printf '{"result":{"terminals":[{"handle":"term_other","lastOutputAt":1791374399000},{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((1791374400000 - 40 * 60000))" > "$TMP/list.json"
+q() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z "$@" sh "$SCRIPT" ctx_1; }
+out=$(q env); [ "$out" = "quiet 40 term_w1" ] && echo "ok   no output for 40 minutes is quiet, with the terminal to write to" || { echo "FAIL quiet worker ($out)"; fails=$((fails + 1)); }
+out=$(q env STAR_QUIET_MINUTES=60); [ "$out" = "ok" ] && echo "ok   the quiet threshold can be raised" || { echo "FAIL quiet threshold ($out)"; fails=$((fails + 1)); }
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((1791374400000 - 3 * 60000))" > "$TMP/list.json"
+out=$(q env); [ "$out" = "ok" ] && echo "ok   a worker that printed 3 minutes ago is ok" || { echo "FAIL recent output ($out)"; fails=$((fails + 1)); }
+out=$(q env STUB_LIST_FAIL=1); [ "$out" = "ok" ] && echo "ok   an unreadable terminal list never makes a worker quiet" || { echo "FAIL terminal list failure ($out)"; fails=$((fails + 1)); }
+printf '{"result":{"terminals":[]}}\n' > "$TMP/list.json"
+out=$(q env); [ "$out" = "ok" ] && echo "ok   a terminal that is not listed is not called quiet" || { echo "FAIL unlisted terminal ($out)"; fails=$((fails + 1)); }
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((1791374400000 - 40 * 60000))" > "$TMP/list.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Please run /login"]}}}))' > "$TMP/read.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Do you want to make this edit to a.py?", "❯ 1. Yes", "  2. No"]}}}))' > "$TMP/read.json"
+out=$(q env); [ "$out" = "stuck: confirmation dialog" ] && echo "ok   a permission prompt on a silent terminal is stuck, never quiet" || { echo "FAIL dialog reported as ($out)"; fails=$((fails + 1)); }
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Please run /login"]}}}))' > "$TMP/read.json"
+out=$(q env); [ "$out" = "stuck: login" ] && echo "ok   a blocking screen wins over quiet" || { echo "FAIL stuck vs quiet ($out)"; fails=$((fails + 1)); }
+
 # orca reports errors as JSON on stdout with exit 1.
 cat > "$TMP/bin/orca" <<'EOF2'
 #!/bin/sh
@@ -75,6 +104,44 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_CODE=dispatch_not_found ORCA_CLI_COMMAN
 [ "$out" = "gone" ] && echo "ok   dispatch_not_found is gone" || { echo "FAIL dispatch_not_found ($out)"; fails=$((fails + 1)); }
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_CODE=runtime_error ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
 [ "$out" = "unknown runtime_error" ] && echo "ok   other orca errors keep their code" || { echo "FAIL orca error code ($out)"; fails=$((fails + 1)); }
+
+# Second stress pass: real blocking screens, taken from the Claude Code and Codex CLIs
+cat > "$TMP/bin/orca" <<'EOF4'
+#!/bin/sh
+[ -n "${STUB_RAW:-}" ] && { printf '%s\n' "$STUB_RAW"; exit "${STUB_RC:-1}"; }
+case "$*" in
+  *"terminal list"*) exit 1 ;;
+  *worker-show*) cat "$STUB_DIR/show.json" ;;
+  *worker-read*) cat "$STUB_DIR/read.json" ;;
+esac
+EOF4
+s() { # s <name> <expected> <line> [second line]
+  printf '{"result":{"worker":{"stage":"ready","state":"running"}}}\n' > "$TMP/show.json"
+  python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"tail":["working on it"] + [a for a in sys.argv[1:] if a]}}}))' "$3" "${4:-}" > "$TMP/read.json"
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
+  if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
+}
+s "expired sign-in" "stuck: login" "Authentication required · Sign in again to continue"
+s "bad auth token" "stuck: login" "Invalid auth token · Fix external auth token"
+s "codex sign-in" "stuck: login" "Sign-in required."
+s "credit balance" "stuck: usage limit" "Credit balance too low · Add funds: https://console.example"
+s "model limit" "stuck: usage limit" "You've reached your Fable limit"
+s "codex credit limit" "stuck: usage limit" "You've reached your workspace credit limit"
+s "codex out of credits" "stuck: usage limit" "Your workspace is out of credits. Notify owner?"
+s "claude model switch options" "stuck: model switch" "❯ 1. Switch to Opus 5.5 and continue" "  2. No, keep my current model"
+s "codex model switch" "stuck: model switch" "Switch to gpt-6-luna for lower credit usage?" "  Keep current model"
+s "codex approval prompt" "stuck: confirmation dialog" "Would you like to run the following command?" "  1. Yes, proceed"
+s "a blocking line inside a wide box" "stuck: login" "│ Please run /login$(printf '%250s' '')│"
+s "prose that asks to run a command is not a dialog" "ok" "Would you like to run the following command? I can also skip it."
+s "an edit permission prompt is a dialog" "stuck: confirmation dialog" "Do you want to make this edit to loops.sh?" "❯ 1. Yes"
+s "a create permission prompt is a dialog" "stuck: confirmation dialog" "Do you want to create notes.md?" "  2. No, and tell Claude what to do differently"
+s "a numbered list in prose is not a dialog" "ok" "Plan:" "1. Yes, rename the column first"
+for raw in '{"ok":false,"error":"dispatch_not_found"}' '{"ok":false,"error":{"code":"DISPATCH_NOT_FOUND"}}' '{"ok":false,"error":{"code":"runtime_error","data":{"code":"dispatch_not_found"}}}'; do
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_RAW="$raw" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
+  [ "$out" = "gone" ] && echo "ok   not-found in another shape is still gone" || { echo "FAIL not-found shape $raw ($out)"; fails=$((fails + 1)); }
+done
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_RAW='{"ok":false,"error":"boom"}' ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
+case "$out" in "unknown "*) echo "ok   an error given as a string is unknown, not a crash" ;; *) echo "FAIL string error ($out)"; fails=$((fails + 1)) ;; esac
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

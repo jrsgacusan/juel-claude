@@ -64,5 +64,10 @@ printf '{%s}\n' "$OK,$APPROVED,$GREEN" > "$TMP/pr.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STAR_GH_TIMEOUT=abc STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 2>&1)
 [ "$out" = "PASS" ] && echo "ok   a bad STAR_GH_TIMEOUT falls back to the default" || { echo "FAIL bad STAR_GH_TIMEOUT ($out)"; fails=$((fails + 1)); }
 
+# Second stress pass
+t "a PR with no state is unreadable, never a pass" "PENDING gh: unreadable output" "\"state\":null,\"isDraft\":false,\"headRefOid\":\"abc1234def\",\"mergeable\":\"MERGEABLE\",\"mergeCommit\":null,$APPROVED,$GREEN"
+t "a lower-case merged state is still merged" "MERGED 9e8d7c6" "\"state\":\"merged\",\"isDraft\":false,\"headRefOid\":\"abc1234def\",\"mergeable\":\"UNKNOWN\",\"mergeCommit\":{\"oid\":\"9e8d7c6\"},$APPROVED,$GREEN"
+t "a review decision that is not text is unreadable" "PENDING gh: unreadable output" "$OK,\"reviewDecision\":[\"APPROVED\"],\"reviews\":[],$GREEN"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
