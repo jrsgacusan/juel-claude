@@ -51,7 +51,11 @@ if d.get("state") == "MERGED":
 if d.get("state") == "CLOSED":
     out("FAIL closed")
 head = d.get("headRefOid") or ""
-if not (head.startswith(a.head) or a.head.startswith(head)) or len(a.head) < 7:
+if len(a.head) < 7:
+    out("FAIL bad head: " + a.head)
+if not head:
+    out("PENDING gh: no head")
+if not head.startswith(a.head):
     out("MOVED " + head)
 if d.get("isDraft"):
     out("FAIL draft")

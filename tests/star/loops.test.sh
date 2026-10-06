@@ -58,5 +58,23 @@ printf '<<<<<<< HEAD\n' >> "$F"; L list >/dev/null 2>&1; [ $? -eq 3 ] && pass "c
 sh "$SCRIPT" --file "$TMP/nope.md" list >/dev/null 2>&1; [ $? -eq 2 ] && pass "missing file is exit 2" || fail "missing file"
 ls "$TMP" | grep -q '\.tmp\.' && fail "no temp files left" || pass "no temp files left"
 
+# Headings the user pastes into an answer must not hide the items below it.
+mkdir -p "$TMP/g"; G="$TMP/g/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$G"
+LG() { sh "$SCRIPT" --file "$G" "$@"; }
+LG add --kind escalation --project p --item a --title one --body 'briefs/p/a.md\nOptions: answer / drop' >/dev/null
+LG add --kind held --project p --item b --title two >/dev/null
+LG add --kind held --project p --item c --title three >/dev/null
+grep -q '^briefs/p/a.md$' "$G" && grep -q '^Options: answer / drop$' "$G" && pass "a literal \\n in --body becomes a new line" || fail "literal \\n in --body"
+python3 - "$G" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace("Options: answer / drop\nAnswer:", "Options: answer / drop\nAnswer: yes, and\n## a heading I pasted\n### a sub note\nmore", 1)
+open(p, "w").write(s)
+PY
+[ "$(LG list | wc -l | tr -d ' ')" = 3 ] && pass "pasted headings do not hide later items" || fail "pasted headings hid items ($(LG list | wc -l))"
+LG answers | grep -q "^N-1	escalation	p	a	yes, and ## a heading I pasted ### a sub note more$" && pass "pasted headings stay in the answer" || fail "answer truncated at a pasted heading ($(LG answers))"
+LG close N-1 >/dev/null; ! grep -q 'a sub note' "$G" && grep -q 'a sub note' "$TMP/g/open-loops-archive.md" && grep -q '^### N-2 ' "$G" && pass "close takes the whole answer and nothing else" || fail "close with pasted headings"
+[ "$(LG set-answer N-2 -drop)" = set ] && LG answers | grep -q "^N-2	held	p	b	-drop$" && pass "an answer may start with a dash" || fail "leading dash answer"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
