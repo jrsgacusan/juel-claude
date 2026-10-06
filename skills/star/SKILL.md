@@ -110,8 +110,10 @@ artifact "My 24/7 Agent Setup". **You merge; nothing here does.**
 
 `status`, `away`, `back`, `stop` and `draft-brief` are not a start: they skip this table (each
 states its own needs below) and the task list, and announce their own mode. So does a
-`/juel:star <refs>` that finds STAR already running for this project in another terminal: it
-hands the refs over and ends. Everything else is the start mode. `stop` typed in STAR's own
+`/juel:star`, with or without refs, that finds STAR already running for this project in another
+terminal: it hands over and ends. Finding that out takes steps 1 and 2 of "Coordinator, or
+hand-over" below, so those two steps are the one exception to rule 1: they run before the
+Preflight block, and they create nothing. Everything else is the start mode. `stop` typed in STAR's own
 session is the Stop rule below, nothing more: it does not run the start sequence first.
 
 | Dep | Type | H/S | Check | If missing |
@@ -171,10 +173,12 @@ not check the session's model.
 ### Reading the command
 
 Everything after `/juel:star` is read as words. A first word of `status`, `away`, `back`, `stop`
-or `draft-brief` is that command. Otherwise every word that is a work-item ref (`SPH-11`, `#412`)
-or a path to a spec file is a ref, and the rest is ignored: `SPH-11 and SPH-12`, `SPH-11, SPH-12`
-and `add SPH-11 SPH-12` are the same request. Words that say something about the items ("the
-second one is urgent") go into the inbox file's `note:` line.
+or `draft-brief` is that command. When the whole text is `take over`, it is the user's "take
+over" ("Start, resume, stop"): this session becomes the coordinator even though another terminal
+is listed. Otherwise every word that is a work-item ref (`SPH-11`, `#412`) or a path to a spec
+file is a ref: `SPH-11 and SPH-12`, `SPH-11, SPH-12` and `add SPH-11 SPH-12` are the same request.
+Of the other words, filler (`and`, `add`, `please`) is dropped, and anything that says something
+about the items ("the second one is urgent") goes into the inbox file's `note:` line.
 
 ### Coordinator, or hand-over
 
@@ -196,7 +200,7 @@ An inbox file is `HOME_DIR/inbox/<UTC YYYYMMDDTHHMMSSZ>-<4 random hex>.md` (neve
 pick another suffix):
 
 ```
-repo: <absolute path of the main checkout>
+repo: <project.repo from HOME_DIR/star.json>
 refs:
 - <ref or absolute spec path>
 note: <anything the user said about these items, one line; omit when nothing>
@@ -224,9 +228,11 @@ ledger and `star.json` from `S/template/`, the folders below, and one line in th
 `.git/info/exclude` so git ignores it (never `.gitignore`: nothing shows as a change, and a
 read-only repository is fine). It records the project in `star.json` as
 `"project": {"name": <the main checkout's folder name>, "repo": <its path>}`. On the first start
-(`run` in `star.json` is still null, which is true exactly once) STAR adds what it learns about
-the project to that block, as `orcaRepo` (the id from `orca repo list --json`, by repo path),
-`source` (the work source), `base` (the base branch) and `remote`. Then it asks once, with
+(`run` in `star.json` is still null, which is true exactly once) STAR looks the repo path up in
+`orca repo list --json` and adds the id to that block as `orcaRepo` (the Inbox step does the same
+later when the repo was not registered yet), and adds the remote as `remote`: the only one
+`git -C <project.repo> remote` prints, else `origin`. The work source and base branch are not
+kept here: each item's brief carries them. Then it asks once, with
 AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking or status changes while
 you're away?"), writes it to `star.json`, and tells the user where the queue is:
 `HOME_DIR/open-loops.md`.
@@ -510,11 +516,12 @@ message into the same end state.
    that is the order they were written in). A file whose only line is `control: away`,
    `control: back` or `control: stop` is that command: run it (see "Handoff" and "Stop") and delete
    the file. For each other file: its `repo:` must be this project's (`project.repo` in
-   `star.json`); a file for another repository is not ingested: queue `--kind held` "inbox file for
-   <repo>: STAR here ships <project> only" and delete it. The project is not registered with Orca
-   (no repo id in `star.json`, and `orca repo list --json` has no entry for the repo path) →
-   `--kind held` "register this repo with Orca: orca repo add" and leave the file: the queue keeps
-   one such item, however many ticks pass. Otherwise add one `inbox` row per ref with its item
+   `star.json`); a file for another repository is not ingested: leave the file where it is and
+   queue `--kind held` "inbox file <name> is for <repo>: STAR here ships <project> only", once per
+   file. No `project.orcaRepo` in `star.json` yet: look the repo path up in `orca repo list --json`.
+   Found → write it to `star.json` as `project.orcaRepo`. Not found → `--kind held` "register this
+   repo with Orca: orca repo add" and leave the file: the queue keeps one such item, however many
+   ticks pass. Otherwise add one `inbox` row per ref with its item
    name (the naming rule above) and the raw reference in `ref`, skipping a ref that already has an
    open row, write the ledger, then delete the file.
 2. **Answers.** `sh S/loops.sh answers` prints one line per answered item. Act, then
@@ -661,7 +668,8 @@ then start the worker:
    two items would then build in one worktree. That is `failed`, with `--kind escalation` "branch
    <brief branch> is already being built as <other item>".
 2. **Create.** `orca worktree create --repo "id:<REPO_ID>" --name "<item>" --base-branch
-   "<remote>/<baseBranch>" --no-parent --setup run --json`; keep `result.worktree.path` as
+   "<remote>/<baseBranch>" --no-parent --setup run --json` (`<REPO_ID>` is `project.orcaRepo` and
+   `<remote>` is `project.remote` in `star.json`; `<baseBranch>` is the brief's); keep `result.worktree.path` as
    `<worktree>`.
 3. **Put it on the brief's branch.** If `git show-ref --verify --quiet refs/heads/<brief branch>`
    succeeds (a branch left by an earlier attempt), `git -C <worktree> switch <brief branch>`, then

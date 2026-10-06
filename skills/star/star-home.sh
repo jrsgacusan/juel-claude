@@ -9,6 +9,9 @@
 # docs/.superpowers when that folder exists and is not empty; else docs/superpowers.
 # Ignoring never edits .gitignore: one line goes into <git common dir>/info/exclude, and only when
 # git does not already ignore the folder.
+# In a submodule or a --separate-git-dir repo git lists the git directory first; the checkout is
+# found through core.worktree or the current directory. star.json's "project" keeps its name and
+# everything STAR learned when the project folder is moved; only "repo" follows.
 # Exit: 0 ok, 1 not inside a usable git checkout, 64 usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
 import fcntl
@@ -50,8 +53,28 @@ if listing.returncode != 0:
     die(1, f"{cwd} is not inside a git repository")
 first = listing.stdout.split("\n\n")[0].splitlines()
 main = next((l[len("worktree "):] for l in first if l.startswith("worktree ")), "")
-if not main or "bare" in first or not os.path.isdir(main):
-    die(1, "STAR needs a project checkout (this is a bare repository, or its main checkout is gone)")
+
+
+def is_checkout(path):
+    return os.path.isdir(path) and git(path, "rev-parse", "--is-inside-work-tree").stdout.strip() == "true"
+
+
+def rev_parse(*args):
+    return git(cwd, "rev-parse", *args).stdout.strip()
+
+
+if main and "bare" not in first and not is_checkout(main):
+    # A submodule or a --separate-git-dir repo: git lists the git directory, not the checkout.
+    # core.worktree names the checkout when set (submodules); otherwise the directory we were
+    # started in is the main checkout exactly when its git dir is the common one.
+    worktree = git(main, "config", "core.worktree").stdout.strip()
+    if worktree:
+        main = os.path.normpath(os.path.join(main, worktree))
+    elif os.path.realpath(rev_parse("--absolute-git-dir")) == os.path.realpath(
+            os.path.join(cwd, rev_parse("--git-common-dir"))):
+        main = rev_parse("--show-toplevel")
+if not main or "bare" in first or not is_checkout(main):
+    die(1, "STAR needs a project checkout (this is a bare repository, or its main checkout cannot be found)")
 main = os.path.realpath(main)
 
 
@@ -92,8 +115,11 @@ try:
     data = json.load(open(star, encoding="utf-8"))
 except (OSError, ValueError):
     data = None
-if isinstance(data, dict) and not data.get("project"):
-    data["project"] = {"name": os.path.basename(main), "repo": main}
+project = data.get("project") if isinstance(data, dict) else None
+if isinstance(data, dict) and not (isinstance(project, dict) and project.get("repo") == main):
+    # a first run, or a project folder that was moved: the name stays, the path follows
+    kept = project if isinstance(project, dict) else {}
+    data["project"] = {**kept, "name": kept.get("name") or os.path.basename(main), "repo": main}
     tmp = f"{star}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
