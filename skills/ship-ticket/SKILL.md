@@ -155,6 +155,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
 | `--fix-review <file>` | off | Fix mode for a NOT-SAFE second-model review; requires `--unattended --brief`. See "Unattended mode" |
+| `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. `quiet-hours.sh` decides inside or outside. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
@@ -576,6 +577,13 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 
 Verify cwd is the worktree root (not `frontend/` or any subdirectory) — Codex sandbox requires this. If not at root, `cd` to it.
 
+**With `--executor session`** (how `juel:star` runs its build and fix stages by default): do not
+dispatch Codex. Execute the plan in this session with `Skill("superpowers:executing-plans")` on the
+plan file, the same path as when Codex is not installed, then continue with "Resolve toolchain
+commands" below. Pass the choice on: Phase 5 invokes `juel:review-and-execute` with
+`--executor session` too, so its remediation plan is also run here and not by Codex. Without the
+flag, this phase is unchanged:
+
 Dispatch Codex non-interactively. Always run this in the **background** (`run_in_background: true`) — `codex exec` runs through the Bash tool, whose 600s timeout cap would otherwise silently detach it mid-run:
 
 The harness pipes stdin and never closes it, so codex waits for an EOF that never arrives, and without `< /dev/null` here it hangs silently with the prompt unprocessed.
@@ -614,6 +622,8 @@ Delegate the full review-validate-plan-execute cycle to `/juel:review-and-execut
 ```
 Skill("juel:review-and-execute", args: "<resolved-base-branch>")
 ```
+
+(With `--executor session`: `args: "<resolved-base-branch> --executor session"`.)
 
 Under `--unattended`, say so in the invocation: "Unattended run: the approved brief is the
 approval. Ask nothing and confirm nothing; take the default at every gate; a finding that needs a

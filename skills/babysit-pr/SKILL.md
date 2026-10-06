@@ -127,6 +127,7 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--reviewed <path>` | — | The second-model review file whose first line is `VERDICT … SAFE … head=<sha>`: the proof that this head was reviewed before it is shown to people |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Window in which marking ready, replies and review requests wait; pushes still happen. The word `always` means the user is away: every moment is inside it |
 | `--brief <path>` | — | The item's approved brief. Passed on to `receive-review-and-execute`, which refuses reviewer requests outside its scope |
+| `--executor <session|codex>` | `codex` | Who runs a remediation plan: passed on to `receive-review-and-execute` unchanged. `session` means this session runs it; `codex` dispatches `codex exec` |
 | `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
 Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
@@ -234,7 +235,7 @@ Act on the printed object's `wake`:
 
 ## Phase 3: Remediate and push
 
-1. Invoke `/juel:receive-review-and-execute <pr>` (under `--unattended`: `/juel:receive-review-and-execute <pr> --unattended --only <ids> [--brief <path>]`, see "Unattended mode"). It merges the base branch, reads every
+1. Invoke `/juel:receive-review-and-execute <pr>` (under `--unattended`: `/juel:receive-review-and-execute <pr> --unattended --only <ids> [--brief <path>] [--executor session]`, see "Unattended mode"; `--executor` is passed on exactly as this skill received it). It merges the base branch, reads every
    thread, validates findings into actionable / rejected / ambiguous, asks the user about
    ambiguous ones, writes a plan and runs the executor. Keep its final per-finding outcome: it
    is the source for every reply below.

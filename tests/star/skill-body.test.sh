@@ -146,5 +146,21 @@ g "V24 a custom home is set where every session sees it" 'shell profile'
 g "V26 a lost queue item is noticed" '`missing`'
 g "V29 inbox files are read in order" 'in file-name order'
 g "V30 back runs a tick" 'then run a tick'
+# Best model per stage
+g "M1 each stage has its own model setting" '"stages"'
+g "M1 a stage reads its own entry" 'stages.<stage>'
+g "M2 the coordinator runs on Fable 5.1" 'Fable 5.1'
+g "M3 a stage whose model cannot start falls back" 'falls back to `worker`'
+g "M4 build, fix and babysit run the plan in their own session" '--executor session'
+python3 - "$T/star.json" <<'PY2' && pass "M5 template: the best model per stage" || fail "M5 template stages"
+import json, sys
+d = json.load(open(sys.argv[1])); s = d["stages"]
+assert set(s) == {"brief", "build", "fix", "review", "babysit"}, sorted(s)
+assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["brief"]
+for k in ("build", "fix", "babysit"):
+    assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"}, (k, s[k])
+assert s["review"] == {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}, s["review"]
+assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and d["reviewer"] == s["review"]
+PY2
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
