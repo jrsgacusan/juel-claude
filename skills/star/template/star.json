@@ -8,6 +8,6 @@
   "terminal": null,
   "caffeinatePid": null,
   "heartbeat": null,
-  "notifiedThrough": 0,
+  "notified": [],
   "away": null
 }

@@ -7,10 +7,14 @@
 #   handoff.sh [--home <dir>] latest     print the newest summary
 #   handoff.sh [--home <dir>] end        clear away, stamp the file, print the newest summary
 # Answers are never collected here: the queue (open-loops.md) is the one place to answer.
-# Exit: 0 ok, 1 not possible (summary while not away, files missing), 64 usage.
+# start while already away changes nothing (the summaries stay); end while not away prints
+# "not away". Every command holds handoff.lock, so runs never overwrite each other. A ledger
+# row with the wrong number of cells is counted and reported, never silently left out.
+# Exit: 0 ok, 1 not possible (summary while not away, star.json missing or broken), 64 usage.
 # STAR_NOW (ISO UTC) and STAR_MEM_GB override the clock and the memory reading, for tests.
 exec python3 - "$@" <<'PY'
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -28,6 +32,7 @@ OVERNIGHT = {
     "building": "building, up to a draft PR and second-model review; goes to reviewers when you're back",
     "pr-draft": "second-model review and fixes (up to 3 rounds); goes to reviewers when you're back",
     "reviewing": "second-model review and fixes (up to 3 rounds); goes to reviewers when you're back",
+    "fix-queued": "the review found problems; a fix runs when a slot frees, then the next review round",
     "fixing": "fixing review findings, then the next review round; goes to reviewers when you're back",
     "babysit-queued": "reviewed and safe; it is marked ready and sent to reviewers when you're back",
     "babysitting": "already with reviewers: keeps answering them and pushing fixes, outside your quiet hours",
@@ -37,6 +42,8 @@ OVERNIGHT = {
     "failed": "stopped; waits for your answer",
 }
 FMT = "%Y-%m-%dT%H:%M:%SZ"
+STAMP_RE = re.compile(r"^### (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\s*$")
+SENT_SHOWN = 10
 
 
 def die(code, msg):
@@ -49,15 +56,17 @@ def now():
 
 
 def parse(ts):
+    """Any ISO date-time (Z, an offset, a space for the T, fractions); no zone means UTC."""
     try:
-        return datetime.strptime(ts[:20], FMT).replace(tzinfo=timezone.utc)
+        t = datetime.fromisoformat(str(ts).strip().replace("Z", "+00:00"))
     except (ValueError, TypeError):
         return None
+    return (t if t.tzinfo else t.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
 
 
 def read(path):
     try:
-        return open(path, encoding="utf-8").read().split("\n")
+        return open(path, encoding="utf-8", errors="replace").read().split("\n")
     except FileNotFoundError:
         return []
 
@@ -80,24 +89,41 @@ def queue(home):
 
 
 def ledger(home):
-    rows, header = [], None
+    """(rows, how many table rows could not be read)."""
+    rows, header, bad = [], None, 0
     for line in read(os.path.join(home, "ledger.md")):
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if header is None and "item" in cells and "state" in cells:
-            header = cells
-        elif header and len(cells) == len(header) and not set(line.strip()) <= set("|-: "):
+        text = line.strip()
+        if not text.startswith("|"):
+            continue
+        if text.endswith("|") and not text.endswith("\\|"):
+            text = text[:-1]
+        cells = [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", text[1:])]
+        if header is None:
+            if "item" in cells and "state" in cells:
+                header = cells
+        elif set(text) <= set("|-: "):
+            continue
+        elif len(cells) == len(header):
             rows.append(dict(zip(header, cells)))
-    return rows
+        else:
+            bad += 1
+    return rows, bad
 
 
 def star(home):
     try:
-        return json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
+        data = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
     except (FileNotFoundError, ValueError):
+        data = None
+    if not isinstance(data, dict):
         die(1, "star.json missing or unreadable; is this a STAR home?")
+    return data
 
 
-def save_star(home, data):
+def set_away(home, value):
+    """Re-read right before writing and change one key, so another writer's change survives."""
+    data = star(home)
+    data["away"] = value
     path = os.path.join(home, "star.json")
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -111,13 +137,13 @@ def label(q):
 
 
 def summaries(lines):
-    """[(start, end, timestamp)] of '### <iso>' blocks inside '## Summaries', in file order."""
+    """[(start, end, timestamp)] of STAR's own '### <stamp>' blocks inside '## Summaries', in file order."""
     try:
         s = next(i for i, l in enumerate(lines) if l.strip() == "## Summaries")
     except StopIteration:
         return None, []
     e = next((i for i in range(s + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    heads = [i for i in range(s + 1, e) if lines[i].startswith("### ") and parse(lines[i][4:])]
+    heads = [i for i in range(s + 1, e) if STAMP_RE.match(lines[i])]
     return s, [(h, (heads[n + 1] if n + 1 < len(heads) else e), lines[h][4:].strip()) for n, h in enumerate(heads)]
 
 
@@ -149,15 +175,25 @@ except SystemExit as e:
 
 home = a.home
 path = os.path.join(home, "handoff.md")
-cfg = star(home)
+star(home)  # stop here when this is not a STAR home, before anything is created in it
+lock = open(os.path.join(home, "handoff.lock"), "w")
+fcntl.flock(lock, fcntl.LOCK_EX)
+away = star(home).get("away")
 
 if a.cmd == "start":
+    if away and os.path.exists(path):
+        print(f"handoff.sh: already away since {away}; handoff.md kept as it is", file=sys.stderr)
+        print(path)
+        sys.exit(0)
     stamp = now()
     q = queue(home)
+    rows, bad = ledger(home)
     part_a = [f"- {label(x)}" for x in q if x["kind"] in BLOCKING] or ["- Nothing."]
     part_b = [f"- {label(x)}" for x in q if x["kind"] not in BLOCKING] or ["- Nothing."]
     part_c = [f"- {r.get('project')} · {r.get('item')} · {r.get('state')}: {OVERNIGHT[r.get('state')]}"
-              for r in ledger(home) if r.get("state") in OVERNIGHT] or ["- Nothing is in progress."]
+              for r in rows if r.get("state") in OVERNIGHT] or ["- Nothing is in progress."]
+    if bad:
+        part_c.append(f"- {bad} ledger row(s) could not be read (wrong number of cells) and are not listed; check ledger.md")
     write(path, [
         f"# Handoff — away since {stamp}",
         "",
@@ -180,29 +216,35 @@ if a.cmd == "start":
         "sent to human reviewers until you're back; babysitting that had already started carries on.",
         "Status changes are held. Nothing is merged.",
     ])
-    cfg["away"] = stamp
-    save_star(home, cfg)
+    set_away(home, stamp)
     print(path)
     sys.exit(0)
 
-away = cfg.get("away")
 lines = read(path)
 start, blocks = summaries(lines)
-last = blocks[0][2] if blocks else away
+t_now = parse(now())
+# the newest summary that is not dated after now: a note the user dated ahead does not count
+times = [t for t in [parse(b[2]) for b in blocks] + [parse(away)] if t and (t_now is None or t <= t_now)]
+t_last = max(times, default=None)  # the later of leaving and the newest summary
 
 if a.cmd == "due":
     if not away:
         print("not-away")
     else:
-        t_last, t_now = parse(last), parse(now())
-        print("due" if t_last and t_now and t_now - t_last >= timedelta(hours=a.hours) else "not-due")
+        if t_last is None:
+            print(f"handoff.sh: cannot read the away time {away!r}; treating a summary as due", file=sys.stderr)
+        print("due" if t_last is None or (t_now and t_now - t_last >= timedelta(hours=a.hours)) else "not-due")
 elif a.cmd == "latest":
     print("\n".join(lines[blocks[0][0]:blocks[0][1]]).rstrip() if blocks else "No summaries yet.")
 elif a.cmd == "summary":
-    if not away or start is None:
+    if not away:
         die(1, "not away: run 'handoff.sh start' first")
-    since = parse(last)
-    rows = ledger(home)
+    if start is None:  # the heading was deleted: put it back above the first other section
+        at = next((i for i, l in enumerate(lines) if l.startswith("## ")), len(lines))
+        lines[at:at] = ["## Summaries", ""]
+        start, blocks = summaries(lines)
+    since = t_last
+    rows, bad = ledger(home)
     counts = {}
     for r in rows:
         if r.get("state") not in ("done", "dropped"):
@@ -220,7 +262,9 @@ elif a.cmd == "summary":
         cells = line.split("\t")
         t = parse(cells[0]) if cells and cells[0] else None
         if t and since and t > since and len(cells) >= 4:
-            sent.append(f"{cells[1]} {cells[2]}: {cells[3]}")
+            sent.append(f"{cells[1]} {cells[2]}: {cells[3]}"[:200])
+    if len(sent) > SENT_SHOWN:
+        sent = sent[-SENT_SHOWN:] + [f"(+{len(sent) - SENT_SHOWN} earlier)"]
     running = sum(counts.get(s, 0) for s in ("briefing", "building", "reviewing", "fixing", "babysitting"))
     block = [
         f"### {now()}",
@@ -231,16 +275,20 @@ elif a.cmd == "summary":
         "- Sent since the last summary: " + ("; ".join(sent) or "nothing"),
         f"- Host: {mem_gb()} GB free + inactive; workers running: {running}",
         "- Needs you: " + ("; ".join(label(x) for x in queue(home)) or "nothing"),
-        "",
     ]
+    if bad:
+        block.append(f"- Ledger rows unreadable: {bad} (wrong number of cells; check ledger.md)")
+    block.append("")
     at = blocks[0][0] if blocks else start + 1
     if not blocks and at < len(lines) and not lines[at].strip():
         at += 1
     lines[at:at] = block
     write(path, lines)
 elif a.cmd == "end":
-    cfg["away"] = None
-    save_star(home, cfg)
+    if not away:
+        print("not away")
+        sys.exit(0)
+    set_away(home, None)
     if lines:
         lines[1:1] = [f"back: {now()}"]
         write(path, lines)

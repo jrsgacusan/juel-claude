@@ -10,7 +10,7 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$SCRIPT" ] || { echo "FAIL release-record.sh missing"; exit 1; }
 H="$TMP/home"; mkdir -p "$H/reviews/lstn" "$H/briefs/lstn" "$TMP/bin"
 cp "$ROOT/skills/star/template/ledger.md" "$H/ledger.md"; cp "$ROOT/skills/star/template/open-loops.md" "$H/open-loops.md"
-printf '| #12 | #12 | lstn | /w/a | ready | - | 2 | t | d | 0 | https://github.com/o/lstn/pull/12 | abc1234 | - | - | now |\n| #12 | #12 | web | /w/b | ready | - | 1 | t | d | 0 | https://github.com/o/web/pull/12 | fff0000 | - | - | now |\n' >> "$H/ledger.md"
+printf '| #12 | #12 | lstn | /w/a | ready | - | 2 | t | d | 0 | https://github.com/o/lstn/pull/12 | abc1234 | - | - | - | now |\n| #12 | #12 | web | /w/b | ready | - | 1 | t | d | 0 | https://github.com/o/web/pull/12 | fff0000 | - | - | - | now |\n' >> "$H/ledger.md"
 : > "$H/reviews/lstn/#12-r1.md"; : > "$H/reviews/lstn/#12-r2.md"; : > "$H/briefs/lstn/#12.md"
 sh "$ROOT/skills/star/loops.sh" --file "$H/open-loops.md" add --kind held --project lstn --item '#12' --title "set status in_review via linear" >/dev/null
 cat > "$TMP/bin/gh" <<'EOF'
@@ -37,7 +37,11 @@ grep -q 'Second-model review rounds: 2' "$exp" && pass "same item in two project
 grep -q 'reviews/lstn/#12-r1.md' "$exp" && grep -q 'reviews/lstn/#12-r2.md' "$exp" && pass "review files listed" || fail "review files"
 grep -q 'set status in_review via linear' "$exp" && pass "open follow-ups listed" || fail "follow-ups"
 out2=$(run --project lstn --item '#12' --pr 12)
-[ "$out2" = "$H/releases/2026-10-07-lstn-12-v2.md" ] && pass "never overwrites" || fail "overwrote ($out2)"
+[ "$out2" = "$exp" ] && [ "$(ls "$H/releases" | wc -l | tr -d ' ')" = 1 ] && pass "the same PR twice gives the same record, not a second one" || fail "second record for one PR ($out2)"
+sed -e 's/"number":12/"number":13/' -e 's#pull/12#pull/13#' "$TMP/merged.json" > "$TMP/merged13.json"
+run13() { PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged13.json" sh "$SCRIPT" --home "$H" "$@"; }
+out2=$(run13 --project lstn --item '#12' --pr 13)
+[ "$out2" = "$H/releases/2026-10-07-lstn-12-v2.md" ] && ! grep -q 'pull/13' "$exp" && pass "another PR for the same item never overwrites" || fail "overwrote ($out2)"
 sed 's/"state":"MERGED"/"state":"OPEN"/' "$TMP/merged.json" > "$TMP/open.json"
 PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/open.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 12 >/dev/null 2>&1
 [ $? -eq 1 ] && pass "an unmerged PR is refused" || fail "unmerged PR accepted"
@@ -45,11 +49,28 @@ PATH="$TMP/bin:/usr/bin:/bin" STUB_FAIL=1 STUB_JSON=/dev/null sh "$SCRIPT" --hom
 [ $? -eq 1 ] && pass "gh failure is an error" || fail "gh failure"
 
 sh "$ROOT/skills/star/loops.sh" --file "$H/open-loops.md" add --kind merge-pr --project lstn --item '#12' --title "merge PR #12 — approved" >/dev/null
-out3=$(run --project lstn --item '#12' --pr 12)
+sed -e 's/"number":12/"number":14/' -e 's#pull/12#pull/14#' "$TMP/merged.json" > "$TMP/merged14.json"
+out3=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged14.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 14)
 grep -q 'set status in_review via linear' "$out3" && ! grep -q 'merge PR #12 — approved' "$out3" && pass "the item's own merge-pr entry is not a follow-up" || fail "merge-pr listed as a follow-up"
 grep -q '^- Worktree: /w/a' "$out3" && pass "worktree recorded (evidence lives there)" || fail "worktree missing"
 grep -q 'Checks on the PR head at merge: all passed' "$out3" && pass "checks labelled honestly" || fail "checks label"
 PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged.json" sh "$SCRIPT" --bogus >/dev/null 2>&1; [ $? -eq 64 ] && pass "bad usage is exit 64" || fail "usage exit code"
+
+for body in '[]' '502' 'null'; do
+  printf '%s\n' "$body" > "$TMP/odd.json"
+  err=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/odd.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 12 2>&1); rc=$?
+  [ "$rc" -eq 1 ] && [ "$err" = "error: gh: unreadable output" ] && pass "gh printing $body is one error line" || fail "gh printing $body (rc=$rc: $err)"
+done
+run --project 'a/b' --item '#12' --pr 12 >/dev/null 2>&1; [ $? -eq 64 ] && pass "a project that is not a plain name is refused" || fail "project with a slash"
+run --project lstn --item '../escape' --pr 12 >/dev/null 2>&1; [ $? -eq 64 ] && [ ! -e "$H/escape.md" ] && pass "an item that climbs out of its folder is refused" || fail "item with dot-dot"
+# Twenty at once for a new PR: one record, every caller gets its path.
+sed -e 's/"number":12/"number":15/' -e 's#pull/12#pull/15#' "$TMP/merged.json" > "$TMP/merged15.json"
+before=$(ls "$H/releases" | wc -l | tr -d ' ')
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged15.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 15 >> "$TMP/paths" 2>&1 &
+done; wait
+after=$(ls "$H/releases" | wc -l | tr -d ' ')
+[ "$((after - before))" = 1 ] && [ "$(sort -u "$TMP/paths" | wc -l | tr -d ' ')" = 1 ] && pass "concurrent runs for one PR write one record" || fail "concurrent runs wrote $((after - before)) records, $(sort -u "$TMP/paths" | wc -l | tr -d ' ') paths"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

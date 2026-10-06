@@ -160,6 +160,16 @@ unset STUB_DELAY
 check "wait: no snapshot started that cannot finish in the budget" 'd["wake"] == "timeout" and calls == 1'
 if [ $((t1 - t0)) -le 3 ]; then echo "ok   wait: stays within --max-seconds"; else echo "FAIL wait: stays within --max-seconds ($((t1 - t0))s)"; fails=$((fails + 1)); fi
 
+# A gh call slower than the whole budget is cut off at the budget: the first snapshot (4 calls
+# at 2 s each) must not run the call 8 s past --max-seconds 1.
+STUB_DELAY=2; export STUB_DELAY
+t0=$(date +%s)
+run wait-feedback 10 --wait --interval 600 --max-seconds 1
+t1=$(date +%s)
+unset STUB_DELAY
+check "wait: a gh call slower than the budget ends as timeout with the reason" 'd["wake"] == "timeout" and "timed out" in d.get("error", "")'
+if [ $((t1 - t0)) -le 3 ]; then echo "ok   wait: a slow first snapshot cannot overrun --max-seconds"; else echo "FAIL wait: slow first snapshot overran --max-seconds ($((t1 - t0))s)"; fails=$((fails + 1)); fi
+
 STUB_FAIL=1; export STUB_FAIL
 run wait-feedback 10 --wait --interval 0
 check "wait: three errors in a row wake with errors" 'd["wake"] == "errors" and "exited 1" in d["error"]'
