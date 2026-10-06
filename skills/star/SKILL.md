@@ -160,7 +160,9 @@ the directory of this file). Scripts are run as `sh S/<name>.sh`.
 Needs: a git repo, and STAR's home to exist. No Orca terminal needed.
 
 1. Repo path = the main checkout: the first `worktree ` line of `git worktree list --porcelain`
-   (right from a linked worktree, a subdirectory or a submodule). Project name = its basename.
+   (right from a linked worktree, a subdirectory or a submodule). Project name = the name
+   `HOME_DIR/projects.md` already has for that repo path, else its basename (STAR settles the name
+   at ingest; the `repo:` line is what identifies the project).
 2. Write `HOME_DIR/inbox/<UTC YYYYMMDDTHHMMSSZ>-<project>-<4 random hex>.md`
    (never overwrite an existing inbox file; pick another suffix):
 
@@ -201,7 +203,7 @@ queue is: `HOME_DIR/open-loops.md`.
 
 ```
 CLAUDE.md               standing instructions; Claude Code re-reads it after every compaction
-star.json               settings (below) plus run id, STAR's terminal handle, caffeinate pid, heartbeat id, notifiedThrough
+star.json               settings (below) plus run id, STAR's terminal handle, caffeinate pid, heartbeat id, "notified", "away"
 open-loops.md           Resume block, then Needs you, then Waiting on others   (written only through loops.sh)
 open-loops-archive.md   closed items
 handoff.md              the "before you go" lists and the summaries written while the user is away (handoff.sh)
@@ -219,7 +221,10 @@ memory/global.md, memory/<project>.md
 ```
 
 Every path keyed by an item is also keyed by its project, so the same item name in two projects
-never collides. A second repo with the same basename is named `<parent dir>-<basename>`.
+never collides. A project is its repo path: `projects.md` maps each path to one name, set the
+first time the path is seen and never changed. An inbox file is matched to a project by its
+`repo:` path, never by name; a new repo whose basename is already taken by another path is named
+`<parent dir>-<basename>`.
 
 Settings in `star.json`:
 
@@ -250,13 +255,18 @@ work gets the answer without waiting for the next tick.
 | a brief is drafted | `loops.sh add --kind approve-brief --project <p> --item <i> --title "approve brief" --body "<brief path>\nOptions: approve / drop / or say what to change"` |
 | a PR passed the exact-head check | `loops.sh add --kind merge-pr --project <p> --item <i> --title "merge PR #<n> — approved, green, head <sha7>" --body "<pr url>"` |
 | a worker escalated, or a row failed | `loops.sh add --kind escalation --project <p> --item <i> --title "<reason>" --body "<needs= text, or what failed>\nOptions: answer with your decision to run the stage again / drop"` |
-| a worker asked something the brief does not answer | `loops.sh add --kind question --project <p> --item <i> --title "<the question, one line>" --body "msg: <id>\ndeadline: <iso, 30 min after it is notified>"` (the `msg: <id>` line is the Orca message id the reply needs after a restart) |
-| a build or fix was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "<stage> was interrupted" --body "Options: restart / drop"` |
+| a worker asked something the brief does not answer | `loops.sh add --kind question --project <p> --item <i> --title "<the question, one line>" --body "msg: <id>\ndeadline: <iso, 30 min from now>"` (the `msg: <id>` line is the Orca message id the reply needs after a restart) |
+| a build or fix was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "<stage> was interrupted" --body "worktree: <path> (it must be clean before a restart: commit or discard what the interrupted run left)\nOptions: restart / drop"` |
 | a draft is ready | `loops.sh add --kind draft --project <p> --item <i> --title "<what the draft is>" --body "<draft path>\nOptions: send / drop"` |
 | a worker held an outward action | `loops.sh add --kind held --project <p> --item <i> --title "<action>" --body "Options: done"` |
 
 Open items are repeated in every status line STAR prints, by id and title, until they are answered:
 silence means missed, not no.
+
+`loops.sh add` is safe to repeat: asked for an item that is already open with the same kind,
+project, item and title, it prints that item's id and adds nothing. It refuses (exit 64) a project
+or item with a line break or ` · ` in it, and it writes body lines that look like headings or
+`Answer:` lines as quotes, so text from a ticket or a worker can never forge an answer.
 
 Every transition into `escalated` or `failed` queues a `--kind escalation` item in the same step,
 so no row is ever stranded: its answer either runs the stage again with the user's decision or
@@ -264,13 +274,33 @@ drops the row. A `held` item is only a reminder of an outward action; closing it
 
 ### The ledger
 
-`| item | ref | project | worktree | state | stage | round | task | dispatch | restarts | pr | head | cursor | verify | updated |`
+`| item | ref | project | worktree | state | stage | round | task | dispatch | restarts | pr | head | cursor | verify | counters | updated |`
+
+`updated` holds one UTC time, `YYYY-MM-DDTHH:MM:SSZ`, and nothing else (the handoff summary reads
+it). `verify` holds `retry=<iso>` or `-`. Every count STAR needs across ticks lives in `counters`
+as space-separated `key=n` pairs, `-` when there are none:
+
+| Key | Counts | Cleared when |
+|---|---|---|
+| `miss=1` | a reviewer report with no `VERDICT` line, this round | a verdict arrives |
+| `silent=<n>` | probes in a row that said `settled` with no report processed | a report is processed |
+| `unknown=<n>` | probes in a row that said `unknown` | any other probe result |
+| `hold=<n>` | ticks in a row this row could not start for lack of memory | it starts |
+| `moved=<n>` | exact-head checks that found the head moved | the row reaches `ready`, or the user answers its escalation |
+| `pending=<n>` | exact-head checks in a row that said `PENDING` | any other verdict |
+
+A cell never contains `|` or a line break: replace them with `/` and a space.
 
 **An item has one name everywhere**, set once at ingest and used for its row, its brief, review
 and gate paths, its worktree and every report line: a tracker ref as written (`SAVI-1162`); a
 GitHub ref `#<n>` becomes `issue-<n>`; a spec path becomes the kebab-case of its file name without
-the extension. A name already used in that project gets `-2`, `-3`. The raw reference stays in the
-`ref` column and is what the brief worker fetches.
+the extension. A name is also a file name and a worktree name, so it keeps only `A-Za-z0-9._-`:
+every other character becomes `-`, a leading `.` or `-` is dropped, and it is cut at 60 characters.
+The raw reference stays in the `ref` column and is what the brief worker fetches.
+
+A ref that already has a row in that project which is not `done` or `dropped` is the same item: no new row
+(a second `add`, or an inbox file read twice after a restart, changes nothing; say so in the status
+line). `-2`, `-3` are only for a different ref that maps to a name already used in that project.
 
 | State | Pool | Meaning |
 |---|---|---|
@@ -280,7 +310,8 @@ the extension. A name already used in that project gets `-2`, `-3`. The raw refe
 | `queued` | — | approved; waiting for a build slot |
 | `building` | build | build worker running |
 | `pr-draft` | — | draft PR open; waiting for a review slot |
-| `reviewing` | review | second-model reviewer running, or `findings waiting` for a build slot |
+| `reviewing` | review | second-model reviewer running |
+| `fix-queued` | — | the review said NOT-SAFE; waiting for a build slot to fix |
 | `fixing` | build | fix worker running |
 | `babysit-queued` | — | waiting for a review slot to start babysitting (after SAFE, or again after the head moved) |
 | `babysitting` | review | babysit worker running |
@@ -291,14 +322,28 @@ the extension. A name already used in that project gets `-2`, `-3`. The raw refe
 | `failed` | — | a worker settled without its report or could not start; in the queue |
 | `dropped` | — | the user dropped it |
 
-Build pool (at most `maxParallel`): waiting fixes first, then `inbox` rows (briefs are short and
-unblock the user), then `queued` rows, oldest first. Review pool (at most `maxInReview`):
-`babysit-queued` rows first, then the oldest `pr-draft`.
+Build pool (at most `maxParallel`): `fix-queued` rows first, then `inbox` rows (briefs are short
+and unblock the user), then `queued` rows; within each, the oldest `updated` first. Review pool (at
+most `maxInReview`): `babysit-queued` rows first, then the oldest `pr-draft`. A row counts against
+a pool exactly while its state is one the table marks `build` or `review`.
+
+Each stage has a waiting state, used whenever a stage is to run (again): brief → `inbox`, build →
+`queued`, review → `pr-draft`, fix → `fix-queued`, babysit → `babysit-queued`. Nothing starts a
+worker except "Fill slots", so a restarted stage waits for its pool like any other.
 
 ## Start, resume, stop
 
 `/juel:star` in a home that already has rows is a resume; there is no separate command.
 
+**One STAR per home.** Before anything else: when `star.json` has a `terminal` that is not this
+session's `$ORCA_TERMINAL_HANDLE` and `orca terminal list --json` still lists that handle, STOP and
+say "STAR is already running in <handle>: use that session, or close it and run `/juel:star` here."
+Two coordinators would fill the same slot twice and overwrite each other's ledger. A handle Orca no
+longer lists is a closed session: carry on and take over.
+
+0. **Bring an older home up to date**, silently: a ledger whose header has no `counters` column
+   gets it before `updated` (header, separator, and `-` in every row); a `star.json` with
+   `notifiedThrough` gets `"notified": []` in its place and `"away": null` when missing.
 1. `orca orchestration run-use --id <run from star.json> --json`; when that run no longer exists,
    `orca orchestration run-create --objective "STAR" --json`. Record the run id and
    `$ORCA_TERMINAL_HANDLE` in `star.json`.
@@ -313,14 +358,18 @@ unblock the user), then `queued` rows, oldest first. Review pool (at most `maxIn
 4. **Reconcile** every row in a worker stage with `sh S/worker-probe.sh <dispatch>`:
    `ok` → keep it. `settled <state>` → its report is in the run's inbox; the settlement rule below
    catches it if it is not. `gone` → Orca has no such worker (an Orca restart): a `briefing`,
-   `reviewing` or `babysitting` row restarts once on its own (`restarts` column; babysit with
-   `--since <cursor>`), because those stages can pick up safely; a lost `building` or `fixing` row
+   `reviewing` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
+   put the row in its stage's waiting state; babysit resumes with `--since <cursor>`), because
+   those stages can pick up safely; a row whose `restarts` is already 1 → `failed`, queue
+   `--kind escalation` "<stage> worker lost twice". A lost `building` or `fixing` row
    goes to the queue (`--kind restart-or-drop`), because restarting a half-finished build blindly
-   would build on a dirty worktree. `unknown <why>` says nothing about the worker: keep the row and
-   let housekeeping probe it again. A `verifying` row has no worker: run the exact-head check for
-   it, never restart it. A row with a task but no dispatch:
-   `orca orchestration dispatch-show --task <id> --json` and record what exists before starting
-   anything.
+   would build on a dirty worktree. `unknown <why>` (which includes empty or unreadable Orca
+   output) says nothing about the worker: keep the row and let housekeeping probe it again; it
+   never justifies a restart. A `verifying` row has no worker: run the exact-head check for
+   it, never restart it. A row in a worker stage with no task never started (STAR stopped between
+   writing the row and `task-create`): put it back in its stage's waiting state, no restart counted.
+   A row with a task but no dispatch: `orca orchestration dispatch-show --task <id> --json`; record
+   the dispatch it shows and probe it, or, when it shows none, treat the row as one with no task.
 5. `loops.sh resume --state running --run <id> --pools "build <n>/<max> · review <n>/<max>" --next "<one line>"`, then tick.
 
 **Stop** (`/juel:star stop`, or the user says stop): finish the current tick, kill the recorded
@@ -337,27 +386,54 @@ message.
 the task id right after `task-create` and the dispatch id right after `worker-start`.
 Write the whole ledger right after each message's transition, then append the message to
 `processed.log`, and only then acknowledge the delivery (step 3). A message already in
-`processed.log` is skipped. A message that matches no row is never dropped: `--kind held` with its
-first line.
+`processed.log` is skipped.
+
+**Match by dispatch, not by name.** A message belongs to the row whose `dispatch` cell equals the
+message's dispatch id (`payload.dispatchId`); the `item=` in its first line must then be that row's
+item. Item names repeat across projects, so a name alone never selects a row. A message changes no
+row, and is queued as `--kind held` with its first line, when its dispatch is in no row, when its
+row is `done` or `dropped`, or when the row has moved on to a newer dispatch (a superseded attempt:
+a round-1 verdict arriving after round 2 started).
+
+**One message, one order of effects:** queue items first (`loops.sh add` returns the open item's
+id when it is already there, so a replayed message adds nothing), then the row, then the `NOTE`
+and `SENT` appends, then `processed.log`, then the ack. `release-record.sh` is safe to repeat: it
+prints the existing record for a PR that already has one. A stop anywhere in that order replays the
+message into the same end state.
 
 1. **Inbox.** A file whose only line is `control: away` or `control: back` is that command: run it
-   (see "Handoff") and delete the file. For each other `HOME_DIR/inbox/*.md`: learn the project into `projects.md` on first sight
-   (orca repo id from `orca repo list --json` by repo path; not registered → `--kind held` "register
-   <repo> with Orca: orca repo add" and leave the file), add one `inbox` row per ref with its item
-   name (the naming rule above) and the raw reference in `ref`, delete the file.
+   (see "Handoff") and delete the file. For each other `HOME_DIR/inbox/*.md`: find its project in
+   `projects.md` by repo path, never by name, and learn a path seen for the first time (orca repo id from
+   `orca repo list --json` by repo path; not registered → `--kind held` "register <repo> with Orca:
+   orca repo add" and leave the file: the queue keeps one such item, however many ticks pass). Add
+   one `inbox` row per ref with its item name (the naming rule above) and the raw reference in
+   `ref`, skipping a ref that already has an open row, write the ledger, then delete the file.
 2. **Answers.** `sh S/loops.sh answers` prints one line per answered item. Act, then
-   `loops.sh close <id>`:
+   `loops.sh close <id>` (exit 4 means it is already closed: carry on). An answer is read by its
+   first word, in any case: `drop` and `restart` count with whatever follows them.
+
+   **An `escalation` answer for a row whose worker is still running** (its state is a worker stage
+   and `sh S/worker-probe.sh <dispatch>` says `ok`) is handled first: `drop` stops the worker before
+   the row changes (`orca orchestration worker-stop --dispatch <id> --json`, then `worker-release`);
+   any other answer is appended to the brief's `## Decisions` and sent to that worker with
+   `orca orchestration send --to dispatch:<id> --subject "decision" --body "<answer>" --json`, and
+   the row stays as it is. An answer never starts a second worker for a row that has one.
+   A `question` is always answered with `reply` (its worker is blocked waiting for exactly that),
+   and `held` and `draft` answers never reach a worker.
 
    | Kind | Answer | Action |
    |---|---|---|
    | `approve-brief` | exactly `approve`, `yes` or `ok` (any case) | stamp `approved: <iso>` in the brief's frontmatter; row → `queued` |
    | `approve-brief` | drop | row → `dropped` |
-   | `approve-brief` | anything else, including "approve, but …" | it is feedback, never a conditional approval: row → `inbox` and the brief stage runs again with `--feedback "<answer>"` |
-   | `merge-pr` | drop / not merging | row → `dropped`. Any other answer changes nothing: a merge is detected from GitHub, never taken from an answer |
+   | `approve-brief` | anything else, including "approve, but …" | it is feedback, never a conditional approval: append it to the brief file under `## Feedback` with the date (so it survives a restart of STAR), row → `inbox`; the brief stage then runs with `--feedback "<answer>"` |
+   | `merge-pr` | drop / not merging | row → `dropped` |
+   | `merge-pr` | anything else | nothing changes: a merge is detected from GitHub, never taken from an answer. After closing the item, add the same `merge-pr` item again, so the reminder stays in the queue |
    | `escalation` | drop | row → `dropped` |
-   | `escalation` | anything else | the answer is the decision. Brief stage: run it again with `--feedback "<answer>"`. A row with no PR whose worker lacked `gh`: an answer that is a PR URL records it, row → `pr-draft`. Any other stage: append the answer to the brief under `## Decisions` with the date (workers read that section first and treat it as binding), then run the stage in the `stage` column again (babysit with `--since <cursor>`) |
+   | `escalation` | anything else | the answer is the decision. Brief stage: append it to the brief file under `## Feedback` (creating the file with only that section when the worker stopped before writing a brief), row → `inbox`; the brief stage then runs with `--feedback "<answer>"`. `reason=no-safe-verdict` (the PR's head has no SAFE review): row → `pr-draft` for a new review round of the current head. A row with no PR whose worker lacked `gh`: an answer that is a PR URL records it, row → `pr-draft`. Any other stage: append the answer to the brief under `## Decisions` with the date (workers read that section first and treat it as binding; where two decisions disagree the later one wins), clear `moved=` from `counters`, then put the row in the waiting state of the stage in its `stage` column (babysit resumes with `--since <cursor>`). After "review still NOT SAFE": row → `fix-queued` for one more fix and review round |
    | `question` | any | `orca orchestration reply --id <the item's msg id> --body "<answer>" --json` |
-   | `restart-or-drop` | restart / drop | requeue the stage, or row → `dropped` |
+   | `restart-or-drop` | restart | `git -C <worktree> status --porcelain` must print nothing. Clean → the waiting state of its stage (`queued` or `fix-queued`). Not clean → change nothing and add the item again with the title "<stage> was interrupted: clean <worktree> first, then answer restart" |
+   | `restart-or-drop` | drop | row → `dropped` |
+   | `restart-or-drop` | anything else | add the item again with the title "<stage> was interrupted: answer restart or drop" |
    | `draft` | send | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`; any other draft is the user's to send, say so |
    | `draft`, `held` | anything else | close it |
 3. **Messages**, only while some row is in a worker stage or waiting for a slot:
@@ -368,39 +444,59 @@ first line.
    `orca orchestration check --ack <delivery_id> --wait --types worker_done,escalation,question --timeout-ms 540000 --json`
    (or `check --ack <delivery_id> --json` alone when STAR is about to go idle). A timeout is a tick. STAR reads only the report's
    lines (at most 12 lines); it never opens a review, evidence or log file, and never reads a
-   worker's screen: the scripts do that and give one line back.
+   worker's screen: the scripts do that and give one line back. A report longer than that: act on
+   the first 12 lines and queue `--kind held` "<item>: report was cut at 12 lines".
+
+   The first row that fits wins, top to bottom. A line that lacks a field its row names (`DONE`
+   without `pr=`, `VERDICT` without `round=`) fits only the last row.
 
    | First line of the report | Action |
    |---|---|
    | `BRIEF item=… path=…` | row → `brief-ready`; queue `--kind approve-brief` (title "approve brief — add acceptance criteria first" when the report has a `NEEDS-CRITERIA` line) |
    | `DONE item=… pr=<url>` | record the PR; row → `pr-draft`; free the build slot. A compare URL (no `/pull/`) → `escalated`, queue `--kind escalation` "no gh on this machine: open a draft PR from <url>, then answer with the PR's URL" (and skip the worker's own `HELD … open a draft PR` line) |
-   | `VERDICT item=… round=<k> SAFE findings=<n>` | row → `babysit-queued`; free the review slot |
-   | `VERDICT … NOT-SAFE findings=<n>`, round 1 or 2 | row stays `reviewing` with `findings waiting` until a build slot frees, then → `fixing` and the fix stage starts |
-   | `VERDICT … NOT-SAFE`, round 3 | row → `escalated`; queue `--kind escalation` "review still NOT SAFE after 3 rounds" with the review's path |
-   | a reviewer report with no `VERDICT` line | run the same round once more; a second miss → `escalated`, queue `--kind escalation` "reviewer gave no verdict twice" |
+   | `VERDICT item=… round=<k> SAFE findings=<n> head=<sha>` | record head; row → `babysit-queued`; free the review slot. `SAFE` wins whatever `findings=` says: they are notes |
+   | `VERDICT … NOT-SAFE findings=<n>`, round 1 or 2 | row → `fix-queued`; free the review slot |
+   | `VERDICT … NOT-SAFE`, round 3 or later | row → `escalated`; queue `--kind escalation` "review still NOT SAFE after <k> rounds" with the review's path |
+   | a report from a reviewer (the row is `reviewing`) with no `VERDICT` line, including an empty one | `counters` has no `miss=1`: write it, row → `pr-draft`, and the same round runs once more. It has: → `escalated`, queue `--kind escalation` "reviewer gave no verdict twice" |
    | `FIXED item=… head=<sha>` | record head; row → `pr-draft`; free the build slot. The next review is `round + 1` (the first review is round 1; `round` is written when a review starts) |
    | `READY item=… pr=… head=<sha> cursor=<iso>` | record head and cursor; row → `verifying`; run the exact-head check now |
    | `ESCALATION item=… phase=… reason=… [cursor=<iso>] needs=…` in a `worker_done` | record `cursor` when given; row → `escalated`; queue `--kind escalation` (and `--kind draft` with it when the report has a `DRAFT <path>` line); notify; free the slot |
    | `MERGED item=… pr=<url>` (a babysit worker saw the user merge early) | handle it as `pr-verify.sh` printing `MERGED`: release record, row → `done` |
    | an `escalation` message while the worker still runs | queue it and notify, but keep the row and its slot until its `worker_done` arrives |
-   | a `question` message | brief decides it → `reply`. Inside quiet hours → reply "No answer during quiet hours: escalate this." Otherwise queue `--kind question`, notify, keep looping; the worker stays blocked and keeps its slot |
+   | a `question` message | brief decides it → `reply`. Inside quiet hours, or while the user is away → reply "No answer from the user: escalate this." at once: nobody will read it in time. Otherwise queue `--kind question`, notify, keep looping; the worker stays blocked and keeps its slot |
+   | `CONFLICT:`, `AMBIGUOUS:`, `BRIEF-VIOLATION:` or `STOPPED:` (a `receive-review-and-execute` run that reported by itself) | as an `ESCALATION` whose reason is that word and whose `needs=` is the rest of the line |
    | anything else, or no report line | row → `failed`; queue `--kind escalation` quoting the first line; free the slot. Never re-run without the user's answer |
+
+   `PHASE`, `PR`, `GATES` and `fixed=… rejected=…` lines need no action: the gate manifest is
+   already at the brief's `star.gates` path, which the babysit stage is given.
 
    Also, for any report: each `HELD item=… action=…` line → `--kind held`; a `NOTE: <text>` line →
    append `- <date> <item>: <text>` to `HOME_DIR/memory/<project>.md`; a `SENT …` line → append
    `<iso>\t<project>\t<item>\t<the text after SENT>` to `HOME_DIR/sent.log`. STAR logs its own sends
    there too (a draft it posted with `gh pr comment`). After each settled
    `worker_done`: `orca orchestration worker-release --dispatch <id>`.
-4. **Fill slots** by the pool rules above, memory check first (below).
+4. **Fill slots** by the pool rules above. For each free slot, in this order: the memory check
+   (below; too little memory starts nothing this tick), the row (state, stage, round), `task-create`
+   (record the task), `worker-start` (record the dispatch). A fix or build never starts in a
+   worktree named in another open row: → `failed`, queue `--kind escalation` "<worktree> is already
+   in use by <other item>".
 5. **Housekeeping.**
    - Questions past their deadline: reply "No answer from the user: escalate this." and close the item.
    - Each row in a worker stage that has not reported this tick: `sh S/worker-probe.sh <dispatch>`.
      `stuck: <what>` → `orca orchestration worker-stop`, release, row → `failed`, queue
-     `--kind escalation` "<stage> worker stuck: <what>". `settled …` with no processed report, twice
-     in a row → `failed`, release, queue it. `gone` → the reconcile rule for a lost worker.
-     `unknown <why>` → note it in `updated`; three ticks in a row → `failed`, queue it with `<why>`.
-     Never answer a worker's prompt for it.
-   - `verifying` rows past `retry-not-before`, and every `ready` row: the exact-head check (below).
+     `--kind escalation` "<stage> worker stuck: <what>". `settled …` with no processed report:
+     `silent=1` in `counters` the first time; the second time in a row → `failed`, release, queue
+     it. `gone` → the reconcile rule for a lost worker. `unknown <why>` → `unknown=<n>` in
+     `counters`; three ticks in a row → `failed`, queue it with `<why>` (the worker is not stopped:
+     nothing is known about it). Never answer a worker's prompt for it.
+   - `verifying` rows past the `retry=` time in `verify`, and every `ready` row: the exact-head check (below).
+   - For every row that has a PR and is `pr-draft`, `reviewing`, `fix-queued`, `fixing`,
+     `babysit-queued`, `escalated` or `failed`: `sh S/pr-verify.sh <pr url> --head <head, or 0000000 when none is recorded>`.
+     Only two answers matter here. `MERGED <sha>`: the user merged early; stop the row's worker if
+     it has one, close the row's open `escalation` item if any, then handle it as `MERGED` below.
+     `FAIL closed`: stop the worker, row → `escalated`, queue `--kind escalation` "PR was closed
+     without a merge" (a row already `escalated` or `failed` only gets the queue item). Every other
+     answer is ignored in these states.
    - Notifications (below).
    - Away: `sh S/handoff.sh --home HOME_DIR due` printing `due` → `sh S/handoff.sh --home HOME_DIR summary`.
 6. **Write and commit** (one `git commit` per tick that changed files). `loops.sh resume …` with the current pools and the next step;
@@ -411,7 +507,7 @@ first line.
    then every open queue item.
 
 **Active or idle.** While any row is in `inbox`, `briefing`, `queued`, `building`, `pr-draft`,
-`reviewing`, `fixing`, `babysit-queued`, `babysitting` or `verifying`, stay in the turn and tick
+`reviewing`, `fix-queued`, `fixing`, `babysit-queued`, `babysitting` or `verifying`, stay in the turn and tick
 again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
 `state: idle` and STAR ends its turn. It is woken by an `add` nudge, by the user, or by the
 heartbeat, and each wake runs one tick.
@@ -426,7 +522,7 @@ Every stage is its own Orca task and a fresh worker.
 | build | a new Orca worktree in that project, set up as below | worker | `/juel:ship-ticket --unattended --brief HOME_DIR/briefs/<project>/<item>.md [--quiet-hours <window>]` |
 | review | the item's worktree | reviewer | the reviewer prompt below |
 | fix | the item's worktree | worker | `/juel:ship-ticket --unattended --brief <brief> --fix-review HOME_DIR/reviews/<project>/<item>-r<k>.md [--quiet-hours <window>]` |
-| babysit | the item's worktree | worker | `/juel:babysit-pr <n> --unattended --mark-ready --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` |
+| babysit | the item's worktree | worker | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed HOME_DIR/reviews/<project>/<item>-r<k>.md --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the review file of the round that said SAFE: the worker's proof before it marks the PR ready) |
 
 **Build worktree.** Orca picks the new worktree's branch name (`<user>/<name>` when the repo has a
 git username, else `<name>`) and cannot be told otherwise, and `ship-ticket` escalates when the
@@ -434,7 +530,9 @@ checkout is not on the brief's branch. So set the worktree up first, without an 
 then start the worker:
 
 1. **Reuse first.** If `git worktree list --porcelain` shows a worktree on `refs/heads/<brief
-   branch>`, use its path and skip to step 4.
+   branch>`, use its path and skip to step 4. Not when that path is named in another open row:
+   two items would then build in one worktree. That is `failed`, with `--kind escalation` "branch
+   <brief branch> is already being built as <other item>".
 2. **Create.** `orca worktree create --repo "id:<REPO_ID>" --name "<item>" --base-branch
    "<remote>/<baseBranch>" --no-parent --setup run --json`; keep `result.worktree.path` as
    `<worktree>`.
@@ -474,7 +572,10 @@ orca orchestration worker-start --task <task_id> --worktree path:<worktree> \
 `worker-start` exits 0 only for `ready`. Any other result: retry once with `--retry-of <dispatch_id>`
 and the same placement; a second failure → `failed`, queued. A rejected effort retries once with the
 next lower listed level. `--quiet-hours <window>` is `star.json`'s `quietHours` rendered as
-`HH:MM-HH:MM@tz` (for example `22:00-07:00@Asia/Manila`); omit the flag when it is null.
+`HH:MM-HH:MM@tz` (for example `22:00-07:00@Asia/Manila`); omit the flag when it is null. A window
+is never judged by hand: `sh S/../ship-ticket/quiet-hours.sh "<window>"` prints `inside` or
+`outside`, and exits 64 for a window it cannot read (queue `--kind held` "fix quietHours in
+star.json: <its message>" and treat the moment as outside).
 
 **Reviewer prompt** (fill in `<…>`):
 
@@ -490,12 +591,13 @@ Review the whole diff against the brief: correctness, every acceptance criterion
 a regression test for every bug fix, security, data loss, error handling.
 NOT-SAFE only for a defect that breaks behaviour, loses data, opens a security hole, misses an
 acceptance criterion or leaves scope. Anything smaller goes under "Notes" and does not block.
-Write the full review (numbered findings: severity, file:line, the failure scenario, the fix; then
-Notes) to <HOME_DIR>/reviews/<project>/<item>-r<k>.md. That file is the only thing you write.
-Your worker_done body is exactly one line:
-VERDICT item=<item> round=<k> SAFE findings=<n>
+Write the full review to <HOME_DIR>/reviews/<project>/<item>-r<k>.md. Its first line is the verdict
+line below; then the numbered findings (severity, file:line, the failure scenario, the fix); then
+Notes. That file is the only thing you write. <sha> is `git rev-parse HEAD`, the commit you reviewed.
+Your worker_done body is exactly that one line:
+VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>
 or
-VERDICT item=<item> round=<k> NOT-SAFE findings=<n>
+VERDICT item=<item> round=<k> NOT-SAFE findings=<n> head=<sha>
 ```
 
 The reviewer agent is `reviewer` from `star.json` (default `codex`); without the codex CLI it is
@@ -511,12 +613,16 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
 `ESCALATION item=<name> phase=0 reason=unanswered-question needs=<the question>`.
 
 1. Read `<HOME_DIR>/memory/global.md` and `<HOME_DIR>/memory/<project>.md` (HOME_DIR is two levels
-   above `--out`'s directory).
+   above `--out`'s directory). Then, before step 2, read `--feedback` and, when a file already
+   exists at `--out`, its `## Feedback` section: the user's dated answers to earlier runs of this
+   stage. An answer there settles the question it answers (which tracker holds the ref, what a
+   term means): use it in the steps below and never ask or escalate the same thing again.
 2. Resolve the project's work source: an explicit source in the ref → `.claude/workflow.local.json`
    / `.claude/workflow.json` `tracker` → a `## Work Source` block in CLAUDE.md or AGENTS.md → the
    legacy `## Linear Worktrees Config` block → the ref's shape when unambiguous (`#412` is GitHub; an
-   existing path is a `file` item) → the single connected tracker. Still ambiguous → `ESCALATION
-   item=<ref> phase=0 reason=needs-human-input needs=which tracker holds <ref>`.
+   existing path is a `file` item) → the single connected tracker. Still ambiguous →
+   `ESCALATION item=<name> phase=0 reason=needs-human-input needs=which tracker holds <ref>`
+   (`<name>` is `--item`, like every report line; the ref goes in `needs=`).
 3. Fetch the item in full:
 
 | Provider | `list` | `fetch` |
@@ -537,8 +643,10 @@ naming (sample `git for-each-ref --sort=-committerdate --count=60 refs/remotes/<
 modal pattern; default `{type}/{ref-lower}-{slug}`, `{type}/{slug}` when the ref is null, and a
 GitHub ref `#412` renders as `issue-412`; type is `fix` for bug/fix/error, `refactor`, `chore`, else
 `feat`).
-6. Read enough of the code to propose an approach, then write the brief to `--out`. With
-   `--feedback`, read the existing brief at `--out` first and revise it to answer the feedback.
+6. Read enough of the code to propose an approach, then write the brief to `--out`. When a brief
+   already exists at `--out`, read it first: revise it to answer `--feedback` and every entry under
+   its `## Feedback` section (the user's dated answers to earlier drafts, kept there by STAR), and
+   keep the `## Feedback` and `## Decisions` sections as they are at the end of the new brief.
 
    ```markdown
    ---
@@ -585,12 +693,15 @@ GitHub ref `#412` renders as `issue-412`; type is `fix` for bug/fix/error, `refa
 | Verdict | Row in `verifying` | Row in `ready` |
 |---|---|---|
 | `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify | nothing |
-| `PENDING <what>` | first time: record `retry-not-before <now + 2 min>` in `verify` and check again in a later tick; second time: → `escalated`, queue `--kind escalation` "<what> still pending" | nothing |
-| `MOVED <head>` | first time for this item → `babysit-queued`, and note `moved 1` in `verify` (its own budget, separate from `restarts`); a second time → `escalated`, queue `--kind escalation` "head keeps moving" | the same, and close its `merge-pr` item |
-| `MERGED <sha>` | as for `ready` | close its `merge-pr` item, then `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
+| `PENDING <what>` | `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" | nothing |
+| `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" | the same, and close its `merge-pr` item |
+| `MERGED <sha>` | as for `ready` (there is no `merge-pr` item to close yet) | close its `merge-pr` item, then `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
 | `FAIL <what>` | → `escalated`; queue `--kind escalation` "<what>" | → `escalated`; close its `merge-pr` item; queue `--kind escalation` "<what>" |
 
-STAR never merges, and never marks a PR ready: babysit does that once, and the merge is the user's.
+Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. "Close its
+`merge-pr` item" means `loops.sh close` on the open item of that kind for the row; none open (exit
+4, or nothing to find) is fine. STAR never merges, and never marks a PR ready: babysit does that
+once, and the merge is the user's.
 
 ## Drafts
 
@@ -621,21 +732,26 @@ in=$(vm_stat | sed -n 's/^Pages inactive: *\([0-9]*\)\./\1/p')
 echo $(( (fr + in) * pg / 1073741824 ))   # GB free + inactive
 ```
 
-Under 3 GB free + inactive → do not start; note `HOLD: memory` in the row's `updated` cell and try
-again at the next tick. Heavy test and build gates inside workers take turns through
+Under 3 GB free + inactive → start nothing this tick, write nothing but `hold=<n>` (one higher
+each tick) in the `counters` of the row that was next in line, and try again at the next tick.
+At `hold=3`, queue `--kind held` "memory below 3 GB: nothing can start" for that row and notify;
+the queue keeps the one item until a start succeeds, which clears `hold=` and closes it. Heavy test and build gates inside workers take turns through
 `juel:ship-ticket`'s `gate-lock.sh`, which uses one lock under STAR's home (`HOME_DIR/gate.lock`),
 so workers in different projects wait for each other too. `vm_stat` and `caffeinate` are macOS
 tools; on Linux read the `available` column of `free -g` and skip `caffeinate`.
 
 ## Notifications and quiet hours
 
-`star.json` keeps `notifiedThrough`, the highest queue id the user has been notified about. At the
-end of a tick outside quiet hours, when `loops.sh list` shows open items above it: print them, send
-one push notification naming them (Claude Code's `PushNotification` tool, loaded with `ToolSearch`
-when deferred; printing is enough when it does not exist), and advance `notifiedThrough`. Inside
-quiet hours only `escalation` items notify; everything else waits for the first tick after the
-window, so a restart never loses a notification. A question's 30-minute deadline starts when it is
-notified.
+`star.json` keeps `"notified"`, the ids of the open queue items the user has been told about. At the
+end of a tick outside quiet hours, when `loops.sh list` shows open items that are not in it: print
+them, send one push notification naming them (Claude Code's `PushNotification` tool, loaded with
+`ToolSearch` when deferred; printing is enough when it does not exist), and add their ids. Inside
+quiet hours, and while the user is away, only `escalation` items are notified and added; every
+other item stays out of the list, so it is notified at the first tick after the window however
+many escalations went out in between, and a restart never loses a notification. Ids that are no
+longer open are dropped from the list. A question's deadline is 30 minutes from when it is asked;
+one that arrives inside quiet hours or while the user is away is answered "No answer" at once (the
+Messages table).
 
 Workers get the quiet window (`--quiet-hours`) and decide at each outward action: they keep
 building, reviewing, fixing and pushing, while marking ready, replying to reviewers, re-requesting
@@ -646,7 +762,8 @@ review and status writes wait for the window to end or come back as `HELD` lines
 The handoff is how the user leaves and comes back without losing anything. `handoff.md` only lists:
 the queue stays the one place to answer, so an answer can never exist in two files.
 
-**Away** (`/juel:star away`, "I'm leaving", or a `control: away` inbox file):
+**Away** (`/juel:star away`, "I'm leaving", or a `control: away` inbox file). Away while already
+away changes nothing: `handoff.sh start` keeps the file and its summaries and says so.
 
 1. Finish the current tick, so the queue and ledger are current.
 2. `sh S/handoff.sh --home HOME_DIR start` writes `handoff.md` and marks `away` in `star.json`. Its
@@ -661,8 +778,11 @@ the queue stays the one place to answer, so an answer can never exist in two fil
 - Build, second-model review and fix stages keep running, started with `--quiet-hours always`, so
   their status writes come back as `HELD`.
 - No babysit stage is started: a row that reaches `babysit-queued` waits there, so no new PR is
-  marked ready and no human reviewer is pinged until the user is back. Babysit workers that were
-  already running are left alone and keep their own quiet window.
+  marked ready and no human reviewer is pinged until the user is back. Such a row does not keep
+  STAR active: when nothing else is running or waiting for a slot, STAR goes idle and the
+  heartbeat wakes it. Babysit workers that were already running are left alone and keep their own
+  quiet window.
+- A worker's question is answered "No answer from the user: escalate this." at once.
 - Only `escalation` items notify, as inside quiet hours.
 - About every 4 hours (housekeeping's `handoff.sh due`), `handoff.sh summary` adds a dated summary
   to the top of `handoff.md`: items per state, PRs ready for the merge, what merged, what stopped,
@@ -673,7 +793,7 @@ the queue stays the one place to answer, so an answer can never exist in two fil
 **Back** (`/juel:star back`, "I'm back", or a `control: back` inbox file):
 
 1. `sh S/handoff.sh --home HOME_DIR end` clears `away` and prints the latest summary. Print it, then
-   the open queue (`loops.sh list`).
+   the open queue (`loops.sh list`). When it prints `not away`, say so and print only the queue.
 2. Send the notifications that were held, and let the next tick start babysitting for the rows
    waiting in `babysit-queued`.
 3. As the user answers, in the file or in chat, record each answer and act on it in the same turn.
@@ -686,6 +806,9 @@ the queue stays the one place to answer, so an answer can never exist in two fil
   reopens a terminal in STAR's home (`claude --continue`, or a new session) and runs `/juel:star`.
 - **An Orca restart:** every worker is gone. The reconcile step restarts review, babysit and brief
   stages once and queues lost builds and fixes for the user.
+- **A stop in the middle of a tick:** nothing is lost and nothing runs twice. A message not yet in
+  `processed.log` is replayed into the same end state (the order of effects above); a row written
+  before its `task-create` goes back to its waiting state; an inbox file read twice adds no row.
 
 ## Hard rules
 
@@ -695,7 +818,8 @@ the queue stays the one place to answer, so an answer can never exist in two fil
 - A brief is never built before the user approves it in the queue. Approval is never inferred.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
   automatic restart of a review, babysit or brief stage lost to a restart.
-- Workers are started only through `orca orchestration worker-start`.
+- Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
+- One STAR per home, one worker per row, one row per worktree.
 - `open-loops.md` is written only through `loops.sh`.
 
 ## Common mistakes
@@ -709,12 +833,21 @@ the queue stays the one place to answer, so an answer can never exist in two fil
 | Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
 | Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it |
+| Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
+| Picking a row for a message by its `item=` name | By dispatch id; the name only confirms it |
+| Writing a note or a count into `updated` | `updated` is a time. Counts go in `counters` |
+| Working out the quiet window in your head | `quiet-hours.sh` says `inside` or `outside` |
 
 ## Edge cases
 
 | Situation | Handling |
 |---|---|
 | `add` while STAR is stopped | The inbox file is written; the item waits in the inbox |
+| The same ref added twice | One row. The second add changes nothing |
+| The user merges or closes a PR before STAR reached `ready` | Housekeeping's PR check sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
+| A custom `JUEL_STAR_HOME` | Workers do not inherit it. They take the gate lock's path from the brief's `star.home`, so the lock is still shared |
+| The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
+| A second `/juel:star` in another terminal on the same home | Refused while the first terminal is still open in Orca |
 | The same item name in two projects | Rows, briefs, reviews and records are all keyed by project |
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
 | A project not registered with Orca | `--kind held` "register <repo> with Orca"; its inbox file stays until it is |

@@ -117,8 +117,9 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--gates-file <path>` | — | A JSON gate manifest (`{"test":{"cmd":…,"cwd":…},…}`, `null` for a skipped key) written by `juel:ship-ticket`'s build; each command runs in its `cwd`. Wins over `--gates`; an all-null manifest means no gates |
 | `--unattended` | off | No human answers: see "Unattended mode". Requires `--item` |
 | `--item <item>` | — | The work item's name for report lines (its ref, or its slug) |
-| `--mark-ready` | off | Mark a draft PR ready for review once, in Phase 1 (deferred while inside `--quiet-hours`) |
-| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Window in which marking ready, replies and review requests wait; pushes still happen |
+| `--mark-ready` | off | Mark a draft PR ready for review once, in Phase 1 (deferred while inside `--quiet-hours`). Under `--unattended` it needs `--reviewed` |
+| `--reviewed <path>` | — | The second-model review file whose first line is `VERDICT … SAFE … head=<sha>`: the proof that this head was reviewed before it is shown to people |
+| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Window in which marking ready, replies and review requests wait; pushes still happen. The word `always` means the user is away: every moment is inside it |
 | `--brief <path>` | — | The item's approved brief. Passed on to `receive-review-and-execute`, which refuses reviewer requests outside its scope |
 | `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
@@ -136,7 +137,7 @@ is there to answer, so every place below that tells the user something or asks t
 | Normally | With `--unattended` |
 |---|---|
 | Phase 2 waits in the background (Claude Code) | Always the foreground form with `--max-seconds 540`, repeated on `wake: timeout`: a background wait may never wake a headless session. The same applies whenever `--quiet-hours` is set, unattended or not, so deferred commands run within minutes of the window ending |
-| `approved` wake needs `reviewDecision: APPROVED` | also on each `timeout` wake when `decision` is null or an empty string (`gh pr view` reports `""` when the base branch requires no review): `gh pr view <pr> --json reviews,commits` → an `APPROVED` review submitted after the last commit, and no `CHANGES_REQUESTED` after it, counts as approved → Phase 4 |
+| `approved` wake needs `reviewDecision: APPROVED` | also on each `timeout` wake when `decision` is null or an empty string (`gh pr view` reports `""` when the base branch requires no review): `gh pr view <pr> --json reviews,headRefOid` → an `APPROVED` review whose `commit.oid` is the PR's `headRefOid`, with no later `CHANGES_REQUESTED` from anyone, counts as approved → Phase 4. Dates are never compared: a commit made earlier and pushed later is older than the approval and was still never reviewed |
 | no limit on waiting | 72 h with no new feedback since the PR was marked ready → `ESCALATION item=<item> phase=8 reason=no-review needs=a reviewer`, after flushing (below) |
 | `errors`: tell the user, wait again | wait again; three `errors` in a row → `ESCALATION item=<item> phase=8 reason=pr-state-errors needs=<the error>` |
 | `silence`: tell the user once | say nothing; wait again with `--silence-hours 0` |
@@ -147,9 +148,11 @@ is there to answer, so every place below that tells the user something or asks t
 | a question sent with `orca orchestration ask` comes back "No answer from the user: escalate this." | `ESCALATION item=<item> phase=8 reason=unanswered-question needs=<the question>` |
 | merge conflicts: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | `receive-review-and-execute` prints `STOPPED: <reason>` | `ESCALATION item=<item> phase=8 reason=remediation-stopped needs=<reason>`; never read it as "zero actionable" |
-| Phase 4 ends after the push | **wait for CI and the approval** before reporting: poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`. Any `fail` or `cancel` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing or cancelled check names>`. Then re-read `reviewDecision` (null and an empty string mean the repo requires no review). If the push dismissed the approval, or (no review required) the only `APPROVED` reviews are now older than the push, run `gh pr edit <pr> --add-reviewer <each reviewer whose approval is now older than the last commit or was dismissed>` (a reviewer-facing action, deferred in quiet hours), then go back to Phase 2 |
-| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green); any other outcome is an `ESCALATION` with the reason. The `worker_done` body is at most 12 lines: that line is the first line of the `worker_done` body, then `SENT replies=<n> review-requests=<m>` when anything was posted in this run (the coordinator logs it for the user's summary), `DRAFT <path>` when a draft was written, one `HELD` line for all deferred commands together (below), any other `HELD` lines, and at most one `NOTE: <one line>` (a fact the next worker in this project should know); `--outcome failed` for an `ESCALATION` |
-| gates run directly | run them through `juel:ship-ticket`'s `gate-lock.sh` (`../ship-ticket/gate-lock.sh` from this file, or `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh`): `sh <gate-lock.sh> --holder "<item>" -- sh -c '<each gate as cd <cwd> && <cmd>, joined with &&>'`, run in the background, like `codex exec` (`run_in_background: true`, wait for the completion notification, never poll it): waiting for the lock plus the gates can outlast the 600 s foreground cap. Exit 75 means busy: run it again |
+| Phase 4 ends after the push | **wait for CI and the approval** before reporting: poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`, for at most 3 hours in all; still pending then → `ESCALATION item=<item> phase=8 reason=ci-stuck needs=<the pending check names>`. Any `fail` or `cancel` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing or cancelled check names>`. Then re-read `reviewDecision` (null and an empty string mean the repo requires no review). If the push dismissed the approval, or (no review required) no `APPROVED` review has the new head as its `commit.oid`, run `gh pr edit <pr> --add-reviewer <each reviewer whose approval is for an older commit or was dismissed>` (a reviewer-facing action, deferred in quiet hours), then go back to Phase 2 |
+| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green); any other outcome is an `ESCALATION` with the reason. The `worker_done` body is at most 12 lines: that line is the first line of the `worker_done` body, then `SENT replies=<n> review-requests=<m>` when anything was posted in this run (the coordinator logs it for the user's summary), at most one `DRAFT <path>` (one draft file holds every ambiguous comment), one `HELD` line for all deferred commands together (below), at most two other `HELD` lines (more: write them to a file and report one `HELD item=<item> action=<n> held actions, listed in <path>`), and at most one `NOTE: <one line>` (a fact the next worker in this project should know). That is 7 lines at most, so the first line, with its head and cursor, is never dropped to fit; `--outcome failed` for an `ESCALATION` |
+| gates run directly | run them through `juel:ship-ticket`'s `gate-lock.sh` (`../ship-ticket/gate-lock.sh` from this file, or `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh`): `sh <gate-lock.sh> --holder "<item>" -- sh -c '<each gate as cd <cwd> && <cmd>, joined with &&>'`, prefixed with `JUEL_GATE_LOCK=<star.home>/gate.lock` when the brief has a `star:` block (a worker does not inherit STAR's environment, and every project must wait on the one lock), run in the background, like `codex exec` (`run_in_background: true`, wait for the completion notification, never poll it): waiting for the lock plus the gates can outlast the 600 s foreground cap. Exit 75 means busy: run it once more; a second 75 → `ESCALATION item=<item> phase=8 reason=gate-busy needs=<its "busy, held by …" line>` |
+| `--mark-ready` on a draft PR | first the proof: `--reviewed` must be given, the first line of that file must be a `VERDICT` line for this item that says `SAFE`, and its `head=` must be the PR's current `headRefOid` (either may be the short form of the other). Anything else → leave the PR a draft and `ESCALATION item=<item> phase=8 reason=no-safe-verdict needs=a SAFE second-model review of <current head>`. A PR that is already ready needs no proof: it was shown to people before this run. Check the proof again right before a deferred `gh pr ready` runs: the head may have moved while the quiet window was on |
+| Phase 4 step 3, a red gate | once: back through `receive-review-and-execute` with the failing output, as in Phase 3 step 3. Twice in a row: the `gate-red` escalation above. Nothing is pushed on red |
 
 **Nothing deferred is lost.** Before printing `READY`, run every deferred command; if the quiet
 window is still on, keep waiting in Phase 2 (feedback that arrives meanwhile is handled as usual)
@@ -159,8 +162,13 @@ commands: `HELD item=<item> action=run <n> deferred replies and review requests,
 so the coordinator records one open loop, not one per command.
 
 **Quiet hours.** With `--quiet-hours`, check the window at the moment of each reviewer-facing
-action, not once at the start (`now=$(TZ="<tz>" date +%H:%M)`; inside when start <= end:
-start <= now < end; across midnight: now >= start || now < end). Inside it, `gh pr ready`, Phase 3's
+action, not once at the start, and never by hand: `sh <quiet-hours.sh> "<the --quiet-hours value>"`
+(`../ship-ticket/quiet-hours.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/quiet-hours.sh`) prints `inside` or `outside`; `always`
+is inside at every moment. Run it once in Phase 1 too: exit 64 means the window cannot be read, and
+an unattended run stops with `ESCALATION item=<item> phase=8 reason=preflight needs=a valid
+--quiet-hours window`. An action already being posted when the window opens is finished; the next
+one is deferred. Inside it, `gh pr ready`, Phase 3's
 replies (step 5) and review requests (step 6) are **deferred**: keep each composed body in its temp
 file and the pending commands in order, keep waiting in Phase 2, and run every deferred command, in
 order, at the first wake after the window ends. Fixes, gates and pushes never wait. A deferred
@@ -181,7 +189,8 @@ order, at the first wake after the window ends. Fixes, gates and pushes never wa
    set, otherwise `pr-state.sh` next to this SKILL.md.
 6. Cursor: `--since` when given, else the PR's `createdAt`, so feedback that arrived before this
    skill started is handled in round 1. Quiet-since: now.
-7. With `--mark-ready` and a draft PR (`gh pr view <pr> --json isDraft`): `gh pr ready <pr>`, once,
+7. With `--mark-ready` and a draft PR (`gh pr view <pr> --json isDraft,headRefOid`): under
+   `--unattended`, check the `--reviewed` proof first ("Unattended mode"); then `gh pr ready <pr>`, once,
    or defer it per "Unattended mode" when inside `--quiet-hours`. A PR that is already ready is left
    alone. Never mark it ready a second time.
 
@@ -240,9 +249,11 @@ Act on the printed object's `wake`:
 
 1. `git fetch <remote> <base>` then `git merge --no-edit <remote>/<base>`.
    Conflicts: list the conflicted files, stop and ask the user to resolve or abort
-   (`git merge --abort`). Never resolve conflicts silently.
+   (`git merge --abort`). Never resolve conflicts silently. Under `--unattended`: `git merge --abort`,
+   then the `merge-conflict` escalation; nothing is asked.
 2. Already up to date and nothing unpushed (`git status -sb` shows no `ahead`): go to step 5.
-3. Run every gate. Red: stop and report the failing command and output. Push nothing.
+3. Run every gate. Red: stop and report the failing command and output. Push nothing. (Under
+   `--unattended`: the red-gate row of "Unattended mode".)
 4. `git push <remote> HEAD`. Never force-push.
 5. Run `sh <script> <pr> --since <cursor>` once more. If new feedback arrived while this phase
    was running, go to Phase 3 with it. Otherwise Phase 5.

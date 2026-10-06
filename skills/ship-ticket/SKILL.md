@@ -25,6 +25,11 @@ metadata:
         why: phase 7 opens the PR; phase 8 needs it to watch the PR
         check: "command -v gh"
         fallback: phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped
+      - id: python3
+        hard: false
+        why: gate-lock.sh and quiet-hours.sh, used only under --unattended, run on it
+        check: "command -v python3"
+        fallback: an interactive run does not need it; an unattended run stops with the preflight escalation
     context:
       - id: worktree-root-cwd
         hard: true
@@ -118,6 +123,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
+| python3 | cli | SOFT | `command -v python3` | an interactive run does not need it; an unattended run stops with the preflight escalation |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR |
 | Playwright video tools | mcp | SOFT | **none — render as `?`** | phase 6 takes screenshots only and puts a Recording missing line at the top of the report and the checkpoint |
 
@@ -143,7 +149,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
 | `--fix-review <file>` | off | Fix mode for a NOT-SAFE second-model review; requires `--unattended --brief`. See "Unattended mode" |
-| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. See "Unattended mode" |
+| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. `quiet-hours.sh` decides inside or outside. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
 `/juel:ship-ticket --unattended --brief ~/juel-star/briefs/lstn/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
@@ -300,7 +306,10 @@ line:
 line (`DONE`, `FIXED` or `ESCALATION`) is the first line of the `worker_done` body, then
 `GATES <path>` after a `DONE`, each `HELD` line from the run, and at most one `NOTE: <one line>` —
 a fact the next worker in this project should know (a required env var, a flaky test, a naming
-rule), never a status update. Anything longer goes into a file whose path you report; the
+rule), never a status update. With more than two `HELD` lines, write them all to a file beside the
+gate manifest and report one line instead: `HELD item=<item> action=<n> held actions, listed in
+<path>`. `PHASE` and `PR` lines are for the terminal only and never go in the body. Anything longer
+goes into a file whose path you report; the
 coordinator reads the report, not your output. Print the same lines to the terminal as well.
 Report `--outcome failed` for an `ESCALATION`, `succeeded` otherwise.
 
@@ -310,10 +319,28 @@ before Phase 1: notes left by earlier workers in this project and by the human.
 **Decisions are binding.** A brief may end with a `## Decisions` section: the human's answers to
 earlier escalations on this item, dated. Read it before anything else in the brief. A decision
 overrides the Approach where they differ and settles the question it answers: apply it, and do not
-escalate the same question again.
+escalate the same question again. Where two decisions disagree, the later one wins.
+
+**Nothing is asked at the terminal.** Nobody is there. Every place in this file, or in a skill it
+invokes, that says to ask, confirm with or wait for the user means this under `--unattended`:
+
+| The text says | An unattended run |
+|---|---|
+| "Proceed to phase N+1?" | prints the `PHASE` line and continues (Checkpoints, below) |
+| ask for verification steps, because the item has no acceptance criteria and the checklist is empty (Phase 2, Phase 6 step 1) | `ESCALATION item=<item> phase=<n> reason=needs-human-input needs=verification steps for <item>: it has no acceptance criteria` |
+| ask the user to drive the browser (`juel:verify` unavailable, Phase 6 step 3) | `ESCALATION item=<item> phase=6 reason=needs-human-input needs=browser verification of <the items>`. An item is never recorded as user-confirmed |
+| ask which remote or base branch | the brief's `baseBranch`; one remote → it, `origin` → it, otherwise `ESCALATION … phase=0 reason=preflight needs=which remote to push to: <names>` |
+| stop and ask the user to commit, stash, or create a worktree | `ESCALATION … phase=<n> reason=preflight needs=<what is wrong>` |
+| any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; "No answer from the user: escalate this." → `unanswered-question` |
+
+`AskUserQuestion` is never called.
 
 **Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
-when a second-model review says NOT SAFE; the file holds that review's findings.
+when a second-model review says NOT SAFE; the file holds that review's findings. Check the file
+before anything is written or pushed: it must exist, its `VERDICT` line must name this item and say
+`NOT-SAFE`, and it must hold at least one numbered finding. Otherwise
+`ESCALATION item=<item> phase=0 reason=preflight needs=a findings file for <item> at <file>` and
+stop: fixing against a missing, empty or stale review would push changes nobody asked for.
 Phases 1–3 are SKIPPED (the spec and plan already exist under `docsRoot`; reuse them). Validate each finding with
 `superpowers:receiving-code-review` against the brief; a finding outside the brief's scope is a
 `brief-violation` escalation, never silently built. Write a `-vN` review plan, and Phase 4 executes
@@ -340,11 +367,13 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 3. `verification-failed` — a phase 6 item is still FAIL after one loop back through phase 5.
 4. `gate-red` — the regression gate is red twice.
 5. `merge-conflict` — a merge conflict with the base branch.
-6. `needs-human-input` — phase 6 needs a secret, a paid service or a real account it cannot self-serve.
+6. `needs-human-input` — the run needs a secret, a paid service, a real account, or anything else only a person can supply: verification steps for an item with no acceptance criteria, a browser check when no browser tool is available.
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
 8. `unanswered-question` — a question you sent the coordinator with `orca orchestration ask` came
    back with "No answer from the user: escalate this." Clean up as below, then escalate with the
    question in `needs=`.
+9. `gate-busy` — `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
+   `needs=` quotes its "busy, held by …" line.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -359,12 +388,17 @@ conventions", Phase 5 reviews against `baseBranch`, and Phase 7 opens the PR wit
 `branch`; a mismatch is `ESCALATION item=<item> phase=0 reason=preflight needs=checkout on <branch>`.
 
 **Quiet hours.** With `--quiet-hours`, check the window at the moment of each outward action, not
-once at the start — a run that starts before the window and acts inside it must still hold:
+once at the start — a run that starts before the window and acts inside it must still hold. Never
+work the window out by hand; `quiet-hours.sh`, next to this file, prints `inside` or `outside`:
 
 ```sh
-now=$(TZ="<tz>" date +%H:%M)
-# inside when start <= end: start <= now < end; when the window crosses midnight: now >= start || now < end
+sh <quiet-hours.sh> "<the --quiet-hours value>"    # 22:00-07:00@Asia/Manila, or always
 ```
+
+Run it once before Phase 1 as well: exit 64 means the window cannot be read (bad times, an unknown
+time zone), and the run stops with
+`ESCALATION item=<item> phase=0 reason=preflight needs=a valid --quiet-hours window (<its message>)`,
+because guessing could send something while the user is away. `always` is inside at every moment.
 
 Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready, replying to
 reviewers and re-requesting review happen later, in the babysit stage, which gets the same window.
@@ -382,12 +416,18 @@ take longer than the Bash tool's 600 s foreground cap.
 
 ```sh
 sh <gate-lock.sh> --holder "<item>" -- sh -c '<test command> && <lint command>'
+# with a star: block in the brief, so every project waits on STAR's one lock wherever its home is:
+JUEL_GATE_LOCK=<star.home>/gate.lock sh <gate-lock.sh> --holder "<item>" -- sh -c '<test command> && <lint command>'
 ```
 
-It holds `<git-common-dir>/juel/gate.lock` while the command's process group runs (even if the
-wrapper itself is killed), stops the whole group on TERM, INT or HUP, releases only a lock it still
-owns, and reclaims a lock whose holder is gone. Exit 75 means it stayed busy for its whole
-`--wait-max` (default 3600 s): run the same line again. Never remove the lock by hand. Before
+It holds a kernel lock on one file (`JUEL_GATE_LOCK` when set, which is why the second form above
+is the one to use whenever the brief has a `star:` block: a worker does not inherit STAR's
+environment; else `~/juel-star/gate.lock` when that home exists; else `<git-common-dir>/juel/gate.lock`) while the command's
+process group runs, even if the wrapper itself is killed; the kernel frees it when the last of
+those processes exits, so there is never a stale lock to clear. It stops the whole group on TERM,
+INT or HUP. Exit 75, with "busy, held by …" on stderr, means it stayed busy for its whole
+`--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
+escalation. Never remove the lock file by hand. Before
 starting the Phase 6 stack, check memory the way `juel:star` does (free + inactive at least
 3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
 `stack-unavailable`.
@@ -470,7 +510,7 @@ Write a short spec doc capturing the agreed approach from brainstorming.
 
 - Path: `${docsRoot}/specs/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` — the ref segment is included, lower-cased, only when the work item has one (e.g. `2026-08-01-savi-1162-add-auth.md`); when `ref` is null it drops out entirely, never a placeholder (e.g. `2026-08-01-add-auth.md`) (gitignored, per user memory)
 - **If that path already exists (a re-run for the same ticket on the same day), never overwrite it.** Write `-v2` instead (e.g. `2026-08-01-savi-1162-add-auth-v2.md`); if `-v2` exists too, `-v3`, and so on.
-- Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the work item if it has any; otherwise ask the user for concrete verification steps and record those in the spec instead.
+- Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the work item if it has any; otherwise ask the user for concrete verification steps and record those in the spec instead (under `--unattended`: the `needs-human-input` escalation in "Nothing is asked at the terminal").
 
 **Checkpoint:** show spec path, ask to proceed.
 
@@ -591,7 +631,8 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
 
    **An empty checklist is never a pass.** If this step yields zero items (no acceptance criteria,
    no recorded verification steps, no diff-implied edge cases), stop here and ask the user for
-   concrete verification steps before marking this phase done.
+   concrete verification steps before marking this phase done (under `--unattended`: escalate
+   `needs-human-input`, never ask).
 2. **Construct self-servable fixtures first, then ask only what remains.** For every checklist item
    whose data-state need is a self-servable edge case — NULL/empty fields, a 403/permission-denied
    state, a boundary value, or a pattern the repo already uses elsewhere (an existing seed script,
@@ -628,7 +669,7 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    - **If `juel:verify` is unavailable:** fall back to driving the resolved `commands.run` (from Phase 4
      — reuse it, do not re-derive) directly, and ask the user to drive the browser themselves and
      confirm each affected checklist item, recording which items were not verified by Claude
-     directly.
+     directly. Under `--unattended` nobody can: escalate `needs-human-input` for those items.
    - **If `run` is unavailable:** execute the `commands.run` resolved in Phase 4 directly and
      observe.
 4. **Record evidence per item, not in aggregate, in the evidence directory's `report.md`.** For every numbered item from Step 1, record:
