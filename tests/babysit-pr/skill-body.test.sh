@@ -30,5 +30,8 @@ grep -q 'Nothing deferred is lost' "$SKILL" && pass "deferred actions flushed or
 grep -q '| `--since <iso>` |' "$SKILL" && pass "resumable cursor" || fail "--since cursor"
 grep -q 'reason=no-review' "$SKILL" && pass "review wait is bounded" || fail "no-review bound"
 grep -q 'when `decision` is null' "$SKILL" && pass "approval without required review" || fail "null decision approval"
+grep -q 'first line of the `worker_done` body' "$SKILL" && pass "READY rides worker_done" || fail "worker_done body"
+grep -q 'gate.lock' "$SKILL" && pass "unattended gates take the lock" || fail "gate lock"
+grep -q 'fleet' "$SKILL" && fail "no fleet wording" || pass "no fleet wording"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
