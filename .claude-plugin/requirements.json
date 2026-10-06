@@ -366,12 +366,12 @@
         "clean-tree",
         "gh",
         "github-remote",
-        "interactive-user",
         "open-pr",
         "superpowers"
       ],
       "soft": [
-        "codex"
+        "codex",
+        "interactive-user"
       ]
     },
     "review-and-execute": {

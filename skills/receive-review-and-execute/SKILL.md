@@ -23,8 +23,9 @@ metadata:
         why: step 1 resolves the PR's repo and requires a github.com remote
         check: "git remote get-url <remote> matches github.com"
       - id: interactive-user
-        hard: true
+        hard: false
         why: phase 6 clarifies ambiguous findings and phase 2 asks how to handle merge conflicts via AskUserQuestion
+        fallback: only with --unattended, which reports ambiguous findings and merge conflicts instead of asking; without it, STOP in headless sessions
       - id: clean-tree
         hard: true
         why: phase 2 merges the base branch and must not merge onto uncommitted changes
@@ -89,7 +90,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
 | claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
-| AskUserQuestion | context | HARD | always available interactively | STOP in headless sessions |
+| AskUserQuestion | context | SOFT | always available interactively | only with `--unattended`, which reports ambiguous findings and merge conflicts instead of asking; without it, STOP in headless sessions |
 | clean working tree | context | HARD | `git status --porcelain` empty | STOP → commit or stash first |
 
 ## Phases
@@ -121,8 +122,16 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `[pr-number]` | (required) | GitHub PR number to fetch review comments from |
+| `--unattended` | off | No human answers (a fleet worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
 
-Usage: `/juel:receive-review-and-execute 123`
+Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
+
+**With `--unattended`**, nothing is asked:
+- A merge conflict in phase 2: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop.
+- Any ambiguous finding in phase 5: do not ask and do not execute anything, including the
+  actionable findings, so a fix never ships half-decided. Print `AMBIGUOUS: <author> <file:line>
+  <comment, trimmed> — <why it is ambiguous>` for each one and stop; the caller escalates them.
+- Everything else runs as normal.
 
 If no PR number is provided, ask the user for it before proceeding. Do not guess.
 
@@ -198,7 +207,8 @@ git status --porcelain
 5. Outcomes, each with one evidence line:
    - `Already up to date.`: continue.
    - Clean merge: report the merge commit's short SHA and the number of files it brought in.
-   - Conflicts: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`). Ask via
+   - Conflicts: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`). Under
+     `--unattended`, abort and print `CONFLICT:` per "Arguments". Otherwise ask via
      `AskUserQuestion`: resolve the conflicts in this session, or `git merge --abort` and stop the
      skill. Never auto-resolve, and never pick a side silently.
    - If the user chooses to resolve in-session: propose each file's resolution and apply it only
@@ -251,7 +261,7 @@ For each comment from step 1:
 
 ### Step 2a: Clarify ambiguous findings
 
-If any findings are **ambiguous** (intent unclear, multiple valid interpretations, scope uncertain, or trade-off requires user judgment), STOP and ask the user before writing the plan.
+If any findings are **ambiguous** (intent unclear, multiple valid interpretations, scope uncertain, or trade-off requires user judgment), STOP and ask the user before writing the plan. Under `--unattended`, print the `AMBIGUOUS:` lines from "Arguments" and stop instead.
 
 Use `AskUserQuestion` with the specific ambiguous finding(s). For each ambiguity, present:
 - The original comment (author + body, trimmed)

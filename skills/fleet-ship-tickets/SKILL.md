@@ -1,6 +1,6 @@
 ---
 name: fleet-ship-tickets
-description: Use to ship several work items around the clock on the Sphere fleet. Runs locally - selects items from the project's work source (Linear, Jira, GitHub, spec files), drafts one brief per item for your approval, then hands the batch to one fleet driver chat that runs each item through /juel:ship-ticket --unattended in its own fleet worktree, with a ledger, a capacity gate and quiet hours. "status" reads the driver's ledger and flushes held actions. Never merges. Triggers "ship my tickets on the fleet", "run these overnight", "/juel:fleet-ship-tickets".
+description: Use to ship several work items around the clock on the Sphere fleet. Runs locally - selects items from the project's work source (Linear, Jira, GitHub, spec files), drafts one brief per item for your approval, then hands the batch to one fleet driver chat that runs each item through /juel:ship-ticket --unattended in its own fleet worktree, then through a second-model review of the draft, mark-ready and babysitting until the PR is approved, green and verified on its exact head, with a ledger, capacity gates and quiet hours. "status" reads the driver's ledger, shows the PRs ready for your merge and flushes held actions. Never merges. Triggers "ship my tickets on the fleet", "run these overnight", "/juel:fleet-ship-tickets".
 metadata:
   requires:
     mcp:
@@ -38,10 +38,15 @@ Hand a batch of approved work items to the Sphere fleet so they keep moving whil
 skill is the **local intake**: it picks the items, gets your approval on one brief per item, and
 creates one fleet **driver chat** that coordinates everything else on the fleet VM. The driver
 dispatches one worker per item (`/juel:ship-ticket --unattended --brief …`) into its own fleet
-worktree, keeps `ledger.md` and `open-loops.md`, respects `maxParallel` and quiet hours, and ends
-each item at a **draft** PR. You keep the merge.
+worktree, keeps `ledger.md` and `open-loops.md`, and respects its capacity gates and quiet hours.
+Each item then goes through the same steps as the 24/7 setup this follows: the worker opens a
+**draft** PR, a second model reviews the whole draft (NOT SAFE sends it back to the worker, up to
+three rounds), the worker marks it ready once and babysits it through review, and the driver
+verifies it is approved and green on the exact head. **You merge it.** You are pulled in earlier only
+when a rule says so: an escalation becomes an open loop with a written question.
 
-`/juel:fleet-ship-tickets status` reads the driver's ledger back and flushes held actions with you.
+`/juel:fleet-ship-tickets status` reads the driver's ledger, lists the PRs waiting for your merge
+and flushes held actions with you.
 
 **Announce:** "Using juel:fleet-ship-tickets to hand these items to a fleet driver."
 
@@ -123,7 +128,9 @@ Read from `<repo>/.claude/workflow.json` (`.claude/workflow.local.json` deep-mer
 ```jsonc
 "fleet": {
   "projectId": "<uuid>",                                  // asked once, offered to persist
-  "maxParallel": 3,                                       // default 3
+  "maxParallel": 3,                                       // build pool, default 3
+  "maxInReview": 5,                                       // review + babysitting pool, default 5
+  "reviewer": { "provider": "codex", "model": "default", "effort": "high" },   // the second model; claude with another model if codex is not offered
   "driver": { "model": "default", "effort": "high" },     // default model; never a top-tier one unless the user asks
   "worker": { "model": "default", "effort": "high" },
   "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // absent = off
@@ -227,7 +234,12 @@ over."
 
 ### Step 5: Capacity, models and quiet hours
 
-- `maxParallel`: config, default 3.
+- `maxParallel` (build pool): config, default 3. `maxInReview` (second-model review and
+  babysitting pool): config, default 5. Babysitting mostly waits on reviewers, which is why it has
+  its own pool instead of blocking new builds.
+- Reviewer: `config.fleet.reviewer`, default provider `codex` with its `default` model at `high`
+  effort. If `agents_list` does not offer `codex`, use provider `claude` with a model other than the
+  worker's, and say so in the report.
 - Driver and worker model/effort: config, default `default` / `high`. Never pick a top-tier model
   unless the user asked for one. A configured model `agents_list` does not offer → ask once.
 - Quiet hours: `config.fleet.quietHours`. Absent → ask once: "Set a quiet window (no reviewer pings,
@@ -238,8 +250,8 @@ over."
 
 Read `references/fleet-driver.md`, resolved relative to this skill file's own location
 (`../../references/fleet-driver.md`), and build the driver prompt from, in order: that file
-verbatim; a `## Batch` section with `projectId`, `maxParallel`, quiet hours, worker
-`provider: claude` / model / effort; then every approved brief as its own fenced block, in approval
+verbatim; a `## Batch` section with `projectId`, `maxParallel`, `maxInReview`, quiet hours, worker
+`provider: claude` / model / effort, and reviewer provider / model / effort; then every approved brief as its own fenced block, in approval
 order.
 
 ```
@@ -254,8 +266,8 @@ never creates a second driver.
 
 ### Step 7: Report
 
-One block: driver chat id and name, the items handed over (item, branch), `maxParallel`, quiet
-hours, models. State plainly that **this session is not monitoring the fleet**, that the driver keeps
+One block: driver chat id and name, the items handed over (item, branch), `maxParallel`,
+`maxInReview`, quiet hours, worker / driver / reviewer models. State plainly that **this session is not monitoring the fleet**, that the driver keeps
 working while the laptop sleeps, and that `/juel:fleet-ship-tickets status` reads progress and
 flushes held actions.
 
@@ -267,13 +279,17 @@ flushes held actions.
    message: "Print ledger.md and open-loops.md verbatim, then end your turn.")` and read the reply
    with `<FLEET>chat_read`. Show both files.
 3. **Stopped or failed driver.** If `chat_status` shows the driver failed or stopped while the ledger
-   still has `queued`, `dispatched`, `acked`, `running` or `pr-draft` rows, offer
+   still has rows in `queued`, `dispatched`, `acked`, `running`, `pr-draft`, `reviewing`, `fixing` or
+   `babysitting`, offer
    `<FLEET>chat_resume(chatId)`. The ledger on disk makes a resume safe.
 4. **Flush open loops.** For each unticked loop this session can perform, ask the user (one
    AskUserQuestion per loop, Yes / Skip) before doing it:
    - a status write → the source's `update_status` from Step 2's provider, locally;
-   - "mark PR <n> ready, then /juel:babysit-pr <n>" → `gh pr ready <n>`, then tell the user to run
-     `/juel:babysit-pr <n>` in a checkout of that branch;
+   - "merge PR #<n> — approved, green, head <sha>" → show the PR URL and check it with
+     `gh pr view <n> --json state,headRefOid`. Never merge it: the user merges in GitHub. When the
+     state is `MERGED`, tell the driver `MERGED item=<item>` so it marks the row `done`. When the
+     head moved since the loop was written, say so: the PR changed after it was verified;
+   - "open a draft PR from <compare-url>" (a worker had no `gh`) → show it; the user opens it;
    - anything else (a decision, an escalation) → show it; the user decides, and you relay the answer
      with `<FLEET>chat_message` only when they ask you to.
    Then tell the driver which loops were closed so it ticks them.
@@ -281,8 +297,8 @@ flushes held actions.
 
 ## Hard rules
 
-- **Never merge a PR**, from this skill or by asking the driver to. Never mark a PR ready without
-  the user's yes in status mode.
+- **Never merge a PR**, from this skill or by asking the driver to. The flow ends at "ready for
+  your merge"; the merge is always the user's click in GitHub.
 - Brief approval is never skipped, batched into one yes, or inferred from an earlier batch.
 - Never hand over an item whose brief was not approved in this run.
 

@@ -25,5 +25,8 @@ grep -q 'projectId' "$SKILL" && pass "projectId resolution" || fail "projectId"
 grep -qi 'slug' "$SKILL" && pass "slug when ref is null" || fail "slug rule"
 grep -q 'fleet-ship-tickets' "$ROOT/README.md" && pass "README row" || fail "README row"
 grep -q 'Names are unique within the batch' "$SKILL" && pass "duplicate slugs suffixed" || fail "duplicate slug rule"
+grep -q '"maxInReview": 5' "$SKILL" && pass "review pool default 5" || fail "maxInReview default"
+grep -q 'MERGED item=<item>' "$SKILL" && pass "status marks merged rows done" || fail "status MERGED"
+grep -q 'the merge is always the user.s click' "$SKILL" && pass "merge stays with the user" || fail "merge rule"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
