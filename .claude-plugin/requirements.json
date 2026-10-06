@@ -237,7 +237,9 @@
         "open-pr",
         "python3"
       ],
-      "soft": []
+      "soft": [
+        "orca"
+      ]
     },
     "cmux-review-pr": {
       "hard": [
@@ -364,7 +366,9 @@
         "superpowers"
       ],
       "soft": [
-        "codex"
+        "codex",
+        "orca",
+        "python3"
       ]
     },
     "review-and-execute": {
@@ -406,6 +410,7 @@
         "gh",
         "juel:verify",
         "linear",
+        "orca",
         "playwright-video",
         "pr-review-toolkit",
         "python3",

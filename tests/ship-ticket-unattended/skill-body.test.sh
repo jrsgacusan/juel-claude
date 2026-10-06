@@ -78,5 +78,15 @@ grep -q "its \`round=\` is the round in the file's name" "$SKILL" && grep -q 'it
 grep -q 'anything but `inside` or `outside`' "$SKILL" && pass "T6 a broken quiet-hours check holds, never sends" || fail "T6 quiet helper failure"
 grep -q 'ask the coordinator' "$SKILL" && grep -q 'three times' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
 grep -q 'anything else only a person can supply' "$SKILL" && pass "R9 needs-human-input covers what it is used for" || fail "R9 reason 6 definition"
+# Final pass
+g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
+g "W1 gates run from the manifest, never from a hand-quoted string" 'run-gates.sh'
+! grep -qF "sh -c '<test command> && <lint command>'" "$SKILL" && pass "W1 the hand-quoted gate line is gone" || fail "W1 hand-quoted gate line still there"
+g "W2 fix mode checks its review with the script" 'review-proof.sh'
+g "W3 a fix with nothing to change does not fail on an empty commit" 'nothing to commit'
+g "W4 the gate's own exit codes are not a red gate" 'gate-unavailable'
+g "W5 every invoked skill is told the run is unattended" 'Unattended run: the approved brief'
+g "W6 verification steps the user gave in a decision count" 'verification steps given under `## Decisions`'
+grep -q 'id: orca' "$SKILL" && pass "W7 orca is declared (a worker asks the coordinator through it)" || fail "W7 orca not declared"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

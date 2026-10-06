@@ -27,8 +27,13 @@ metadata:
         fallback: phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped
       - id: python3
         hard: false
-        why: gate-lock.sh and quiet-hours.sh, used only under --unattended, run on it
+        why: gate-lock.sh, run-gates.sh and quiet-hours.sh, used only under --unattended, run on it
         check: "command -v python3"
+        fallback: an interactive run does not need it; an unattended run stops with the preflight escalation
+      - id: orca
+        hard: false
+        why: an unattended worker asks its coordinator and reports through orca orchestration
+        check: "command -v orca"
         fallback: an interactive run does not need it; an unattended run stops with the preflight escalation
     context:
       - id: worktree-root-cwd
@@ -124,6 +129,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
 | python3 | cli | SOFT | `command -v python3` | an interactive run does not need it; an unattended run stops with the preflight escalation |
+| orca | cli | SOFT | `command -v orca` | an interactive run does not need it; an unattended run stops with the preflight escalation |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR |
 | Playwright video tools | mcp | SOFT | **none — render as `?`** | phase 6 takes screenshots only and puts a Recording missing line at the top of the report and the checkpoint |
 
@@ -264,7 +270,10 @@ that key resolves to `null` and the corresponding gate is **skipped with an expl
 no `test` script), and never a reason to stop the skill.
 
 **Resolve once, in Phase 4; reuse in Phases 5 and 6 — never re-detect per phase.** This whole
-tiered probe runs exactly one time per run, in Phase 4, immediately after Codex finishes. Its result
+tiered probe runs exactly one time per run, in Phase 4, immediately after Codex finishes. (Under
+`--unattended` it runs once too, but earlier: before the Phase 3 plan is written, because the plan's
+heavy steps run from the gate manifest and the manifest must exist before Codex starts. A key
+that only resolves once Codex has scaffolded the project is added to the manifest then.) Its result
 (one line per key: resolved command + source tier, or `null — skipped`) is reported as part of Phase
 4's checkpoint. Phases 5 and 6 read that already-reported set as-is; they must not re-run tier
 detection, re-scan for `Makefile`/`package.json`, or otherwise "pick project-relevant lint/test
@@ -299,7 +308,7 @@ line:
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES <path>`: write the commands resolved in Phase 4 as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
+| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
 
 **Reporting.** You are an Orca worker. The `worker_done` body is at most 12 lines: the run's final
@@ -347,12 +356,20 @@ answer it in one line and carry on with what you were doing.
 
 **Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
 when a second-model review says NOT SAFE; the file holds that review's findings. Check the file
-before anything is written or pushed: it must exist, its first line must be a `VERDICT` line that names this item and says
-`NOT-SAFE`, its `round=` is the round in the file's name (`-r<k>.md`), its `head=` is the commit this worktree is on
-(`git rev-parse HEAD`; a head of at least 7 characters that the other starts with counts), and it
-must hold at least one numbered finding. A `head=` that is not this worktree's commit is
+before anything is written or pushed, with the script, never by eye:
+
+```sh
+sh <review-proof.sh> <file> --item <item> --head "$(git rev-parse HEAD)" --verdict NOT-SAFE
+```
+
+(`review-proof.sh` is in `juel:babysit-pr`: `../babysit-pr/review-proof.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/review-proof.sh`.) It prints `OK round=<k>` when the
+file's first line is a full `VERDICT` line for this item that says `NOT-SAFE`, its `round=` is the round in the file's name
+(`-r<k>.md`), and its `head=` is the commit this worktree is on. `NO head: …` (the review is of
+another commit) is
 `ESCALATION item=<item> phase=0 reason=stale-review needs=a review of <HEAD>` (the coordinator
-sends the item back to review); anything else wrong with the file is
+sends the item back to review); any other `NO …`, a file with no numbered finding, or a script that
+cannot run is
 `ESCALATION item=<item> phase=0 reason=preflight needs=a findings file for <item> at <file>`. Then
 stop: fixing against a missing, empty or stale review would push changes nobody asked for.
 Phases 1–3 are SKIPPED (the spec and plan already exist under `docsRoot`; reuse them). Validate each finding with
@@ -360,7 +377,10 @@ Phases 1–3 are SKIPPED (the spec and plan already exist under `docsRoot`; reus
 `brief-violation` escalation, never silently built. Write a `-vN` review plan, and Phase 4 executes
 it (rule 4: `codex exec` backgrounded, watched and waited on). Phase 5 is SKIPPED (the findings are
 the review). Phase 6 runs in full, including cleanup and the regression gate. Commit, `git push`
-(never force), and Phases 7–8 are SKIPPED: the PR already exists. Before the final line, write the
+(never force), and Phases 7–8 are SKIPPED: the PR already exists. When every finding was rejected
+there is nothing to commit: do not commit or push, and still write the outcome file and report
+`FIXED item=<item> head=<the unchanged HEAD>` with `fixed=0 rejected=<n>`; the next review round
+reads why. Before the final line, write the
 outcome per finding (fixed, or rejected with the technical reason) to the file the coordinator named
 next to the findings (`<findings file without .md>-fix.md`), so the next reviewer sees why a finding
 was rejected. The final line is `FIXED item=<item> head=<sha>`; the line after it gives only the
@@ -381,13 +401,17 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 3. `verification-failed` — a phase 6 item is still FAIL after one loop back through phase 5.
 4. `gate-red` — the regression gate is red twice.
 5. `merge-conflict` — a merge conflict with the base branch.
-6. `needs-human-input` — the run needs a secret, a paid service, a real account, or anything else only a person can supply: verification steps for an item with no acceptance criteria, a browser check when no browser tool is available.
+6. `needs-human-input` — the run needs a secret, a paid service, a real account, or anything else only a person can supply: verification steps for an item with no acceptance criteria, a browser check when no browser tool is available. Check the brief first: verification steps given under `## Decisions` (the user's answer to an earlier escalation of this kind) are the checklist's source, and the escalation is not raised again.
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
 8. `unanswered-question` — a question you sent the coordinator with `orca orchestration ask` came
    back with "No answer from the user: escalate this." Clean up as below, then escalate with the
    question in `needs=`.
 9. `gate-busy` — `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
    `needs=` quotes its "busy, held by …" line.
+10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
+    exited 71 (a lock file, manifest or directory problem), or 124 (the command ran past its time
+    limit and was stopped). Neither is a red gate: do not start fixing code. `needs=` quotes the
+    script's message.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -423,15 +447,23 @@ Pushing commits and opening a **draft** PR are not outward in this sense and pro
 remediation, the Phase 6 regression gate, and the heavy verification commands in the plan Codex
 executes (full suites, builds; targeted single-file tests are fine without it) — runs through
 `gate-lock.sh`, next to this file (`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when
-that is set), so two workers never run heavy test or build gates at once. When writing a plan
-under `--unattended`, write each such step as the `gate-lock.sh` line itself. Run the line in the
+that is set), so two workers never run heavy test or build gates at once. Run the line in the
 background, like `codex exec`: Bash with `run_in_background: true`, wait for the completion
 notification, never poll it, then read its output. Waiting for the lock plus running the gate can
 take longer than the Bash tool's 600 s foreground cap.
 
 ```sh
-sh <gate-lock.sh> --holder "<item>" -- sh -c '<test command> && <lint command>'
+sh <gate-lock.sh> --holder "<item>" -- sh <run-gates.sh> <gate manifest> --root <repo root> [test lint ...]
 ```
+
+`run-gates.sh` (next to `gate-lock.sh`) runs the manifest's gates, each in its own `cwd` taken from
+the repo root, exactly as written. Never paste a command into a quoted `sh -c '…'` string: one
+single quote in a test command (`pytest -k 'not slow'`) silently drops everything after it, and
+the run still exits 0. What follows `--` is one command with its arguments, not a shell line: a
+step that is not in the manifest goes into a file (`set -e` on its first line) and runs as
+`-- sh <that file>`. When writing a plan under `--unattended`, write each heavy step as one of
+these two forms, with the manifest's absolute path: the manifest is written before the plan
+(see "Resolve once"), so it is there when Codex runs the step.
 
 It holds a kernel lock on one file for the whole machine (`/tmp/juel.gate.<uid>.lock`; nothing to
 configure, and a sandboxed executor can write there) while the command's
@@ -439,7 +471,8 @@ process group runs, even if the wrapper itself is killed; the kernel frees it wh
 those processes exits, so there is never a stale lock to clear. It stops the whole group on TERM,
 INT or HUP. Exit 75, with "busy, held by …" on stderr, means it stayed busy for its whole
 `--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
-escalation. Never remove the lock file by hand. Before
+escalation. Exit 71 or 124 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
+is red, and `run-gates.sh` names the gate that failed. Never remove the lock file by hand. Before
 starting the Phase 6 stack, check memory the way `juel:star` does (free + inactive at least
 3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
 `stack-unavailable`.
@@ -528,7 +561,10 @@ Write a short spec doc capturing the agreed approach from brainstorming.
 
 ### Phase 3 — Plan
 
-Invoke `Skill("superpowers:writing-plans")` using the spec as input.
+Invoke `Skill("superpowers:writing-plans")` using the spec as input. Under `--unattended`, add to
+the input: "Unattended run: the approved brief is the approval. Do not ask for a review of the
+plan or for an execution method; hand the plan back to juel:ship-ticket. Write every heavy test
+or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section."
 
 - Plan path: `${docsRoot}/plans/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` (same ref-optional naming as the spec path above — omitted entirely when `ref` is null; docsRoot already resolved in phase 2 — reuse it, do not re-derive)
 - **If that path already exists, never overwrite it.** Write `-v2` instead; if `-v2` exists too, `-v3`, and so on — same rule as the spec path in Phase 2, and distinct from `review-plan.md`'s own `-vN` versioning in Phase 5 below.
@@ -578,6 +614,12 @@ Delegate the full review-validate-plan-execute cycle to `/juel:review-and-execut
 ```
 Skill("juel:review-and-execute", args: "<resolved-base-branch>")
 ```
+
+Under `--unattended`, say so in the invocation: "Unattended run: the approved brief is the
+approval. Ask nothing and confirm nothing; take the default at every gate; a finding that needs a
+person is reported back, not asked about." The same sentence goes to `juel:verify` and `run` in
+Phase 6, and into the Codex prompt in Phase 4 after the plan path ("… Unattended: do not ask;
+when the plan is ambiguous, stop and say what is ambiguous.").
 
 That skill internally runs:
 1. `pr-review-toolkit:review-pr` against the base branch
