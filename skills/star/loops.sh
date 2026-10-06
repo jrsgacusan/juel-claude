@@ -16,6 +16,7 @@ import sys
 from datetime import datetime, timezone
 
 ITEM_RE = re.compile(r"^### (N-(\d+)) · (.*?) · (.*?) · (.*)$")
+SECTIONS = ("## Resume", "## Needs you", "## Waiting on others")
 
 
 def die(code, msg):
@@ -46,7 +47,8 @@ def section(lines, title):
     start = next((i for i, l in enumerate(lines) if l.strip() == f"## {title}"), None)
     if start is None:
         die(2, f"no '## {title}' section; not a STAR open-loops file")
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    # Only STAR's own headings end a section: a "## ..." line the user pasted into an answer does not.
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() in SECTIONS), len(lines))
     return start, end
 
 
@@ -58,7 +60,7 @@ def items(lines):
         if not m:
             i += 1
             continue
-        stop = next((k for k in range(i + 1, end) if lines[k].startswith("### ")), end)
+        stop = next((k for k in range(i + 1, end) if ITEM_RE.match(lines[k])), end)
         found.append({"id": m.group(1), "project": m.group(3), "item": m.group(4),
                       "title": m.group(5), "start": i, "end": stop})
         i = stop
@@ -124,8 +126,13 @@ def main():
     for flag in ("--state", "--run", "--pools", "--next"):
         r.add_argument(flag)
     w = sub.add_parser("waiting"); w.add_argument("text")
+    argv = sys.argv[1:]
+    if "set-answer" in argv:
+        k = argv.index("set-answer")
+        if len(argv) > k + 2 and argv[k + 2] != "--":
+            argv.insert(k + 2, "--")  # the answer may start with a dash
     try:
-        args = p.parse_args()
+        args = p.parse_args(argv)
     except SystemExit as e:
         sys.exit(64 if e.code not in (0, None) else 0)
 
@@ -152,7 +159,7 @@ def main():
         while end - 1 > start and not lines[end - 1].strip():
             end -= 1
         block = ["", f"### {new_id} · {args.project} · {args.item} · {args.title}", f"kind: {args.kind}"]
-        block += [l for l in args.body.split("\n") if l.strip()]
+        block += [l for l in args.body.replace("\\n", "\n").split("\n") if l.strip()]
         block += ["Answer:"]
         lines[end:end] = block
         save(path, lines)

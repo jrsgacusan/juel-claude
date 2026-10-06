@@ -91,5 +91,12 @@ kill "$live" 2>/dev/null; wait "$live" 2>/dev/null; rm -rf "$LOCK"
 (cd "$TMP" && mkdir -p nogit && cd nogit && env -u JUEL_GATE_LOCK sh "$SCRIPT" -- true 2>/dev/null); rc=$?
 [ "$rc" -ne 0 ] && [ ! -e "$TMP/nogit/juel" ] && pass "refuses outside a git repo" || fail "ran outside a git repo (rc=$rc)"
 
+# 13. With a STAR home on this machine the lock is shared by every project.
+mkdir -p "$TMP/starhome" "$TMP/proj" && : > "$TMP/starhome/star.json" && (cd "$TMP/proj" && git init -q .)
+(cd "$TMP/proj" && env -u JUEL_GATE_LOCK JUEL_STAR_HOME="$TMP/starhome" sh "$SCRIPT" --holder m -- sh -c "test -d '$TMP/starhome/gate.lock'"); rc=$?
+[ "$rc" -eq 0 ] && pass "machine-wide lock under STAR's home" || fail "lock not under STAR's home ($rc)"
+(cd "$TMP/proj" && env -u JUEL_GATE_LOCK JUEL_STAR_HOME="$TMP/nohome" sh "$SCRIPT" --holder m -- sh -c "test -d .git/juel/gate.lock"); rc=$?
+[ "$rc" -eq 0 ] && pass "per-repo lock without a STAR home" || fail "per-repo fallback ($rc)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

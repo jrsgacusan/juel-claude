@@ -8,8 +8,9 @@
 # (like codex exec): waiting for the lock plus running the gate can take longer than the tool's
 # 600 s foreground cap.
 #
-# The lock is a directory, <git-common-dir>/juel/gate.lock (JUEL_GATE_LOCK overrides it); mkdir
-# is atomic. The holder file is "<label> <wrapper pid> <command process group> <token>". The
+# The lock is a directory; mkdir is atomic. Where it lives: JUEL_GATE_LOCK when set; else
+# <STAR home>/gate.lock when STAR has a home on this machine ($JUEL_STAR_HOME or ~/juel-star with
+# a star.json), so workers in different projects share one lock; else <git-common-dir>/juel/gate.lock. The holder file is "<label> <wrapper pid> <command process group> <token>". The
 # command runs in its own process group, so the lock stays held while any process of that group
 # lives, even if this wrapper is SIGKILLed, and a TERM, INT or HUP to the wrapper stops the whole
 # group. A lock is stale when neither the wrapper nor the group is alive; a lock directory whose
@@ -33,8 +34,11 @@ while [ $# -gt 0 ]; do
 done
 [ $# -gt 0 ] || { echo "gate-lock.sh: no command given after --" >&2; exit 64; }
 
+star_home=${JUEL_STAR_HOME:-$HOME/juel-star}
 if [ -n "${JUEL_GATE_LOCK:-}" ]; then
   lock=$JUEL_GATE_LOCK
+elif [ -f "$star_home/star.json" ]; then
+  lock="$star_home/gate.lock"
 else
   gcd=$(git rev-parse --git-common-dir 2>/dev/null) || { echo "gate-lock.sh: not in a git repo" >&2; exit 1; }
   common=$(cd "$gcd" && pwd -P) || exit 1

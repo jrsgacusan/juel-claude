@@ -1,7 +1,8 @@
 #!/bin/sh
 # Writes the record for one merged PR into a STAR home and prints the record's path.
 #   release-record.sh --home <dir> --project <p> --item <i> --pr <n-or-url> [--repo <owner/name>]
-# Exit 1 with "error: ..." when the PR is not merged or gh fails. Never overwrites (-v2, -v3).
+# Exit 1 with "error: ..." when the PR is not merged or gh fails; 64 on bad usage.
+# Never overwrites (-v2, -v3).
 exec python3 - "$@" <<'PY'
 import argparse
 import glob
@@ -21,7 +22,10 @@ p = argparse.ArgumentParser(prog="release-record.sh")
 for flag in ("--home", "--project", "--item", "--pr"):
     p.add_argument(flag, required=True)
 p.add_argument("--repo")
-a = p.parse_args()
+try:
+    a = p.parse_args()
+except SystemExit as e:
+    sys.exit(64 if e.code not in (0, None) else 0)
 
 cmd = ["gh", "pr", "view", a.pr, "--json",
        "number,title,url,state,mergeCommit,mergedAt,mergedBy,reviews,statusCheckRollup,baseRefName,headRefName"]
@@ -40,7 +44,7 @@ except ValueError:
 if d.get("state") != "MERGED":
     err(f"PR is {d.get('state')}, not merged")
 
-rounds = "-"
+rounds, worktree = "-", "-"
 ledger = os.path.join(a.home, "ledger.md")
 if os.path.exists(ledger):
     header = None
@@ -52,6 +56,7 @@ if os.path.exists(ledger):
             row = dict(zip(header, cells))
             if row.get("item") == a.item and row.get("project") == a.project:
                 rounds = row.get("round") or "-"
+                worktree = row.get("worktree") or "-"
 
 approvers = sorted({(r.get("author") or {}).get("login") for r in d.get("reviews") or []
                     if r.get("state") == "APPROVED" and (r.get("author") or {}).get("login")})
@@ -64,9 +69,12 @@ reviews = sorted(os.path.relpath(f, a.home) for f in glob.glob(os.path.join(a.ho
 follow = []
 loops = os.path.join(a.home, "open-loops.md")
 if os.path.exists(loops):
-    for line in open(loops, encoding="utf-8"):
-        m = re.match(r"^### (N-\d+) · (.*?) · (.*?) · (.*)$", line.rstrip("\n"))
-        if m and m.group(2) == a.project and m.group(3) == a.item:
+    text = open(loops, encoding="utf-8").read().split("\n")
+    for k, line in enumerate(text):
+        m = re.match(r"^### (N-\d+) · (.*?) · (.*?) · (.*)$", line)
+        # the item's own "merge PR" entry is what this record closes, not a follow-up
+        own = k + 1 < len(text) and text[k + 1].strip() == "kind: merge-pr"
+        if m and m.group(2) == a.project and m.group(3) == a.item and not own:
             follow.append(f"{m.group(1)}: {m.group(4)}")
 
 date = (d.get("mergedAt") or "")[:10] or "undated"
@@ -85,10 +93,11 @@ body = [
     f"- PR: {d.get('url')} (#{d.get('number')}), {d.get('headRefName')} → {d.get('baseRefName')}",
     f"- Merged: {d.get('mergedAt')} by {(d.get('mergedBy') or {}).get('login') or 'unknown'}, merge commit {(d.get('mergeCommit') or {}).get('oid') or 'unknown'}",
     f"- Approved by: {', '.join(approvers) if approvers else 'nobody on record'}",
-    f"- Checks at merge: {'all passed' if not bad else '; '.join(bad)}",
+    f"- Checks on the PR head at merge: {'all passed' if not bad else '; '.join(bad)}",
     f"- Second-model review rounds: {rounds}",
     f"- Brief: {brief if os.path.exists(os.path.join(a.home, brief)) else 'none on file'}",
     "- Reviews: " + (", ".join(reviews) if reviews else "none on file"),
+    f"- Worktree: {worktree} (verification evidence is under its docs root)",
     "- Open follow-ups: " + ("; ".join(follow) if follow else "none"),
     "",
 ]
