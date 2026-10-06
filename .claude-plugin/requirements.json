@@ -43,11 +43,6 @@
       "label": "coreutils",
       "install": "preinstalled on macOS and Linux"
     },
-    "fleet": {
-      "kind": "mcp",
-      "label": "Sphere fleet MCP",
-      "install": "Add the fleet HTTP MCP (https://fleet.spheretechnology.com/api/mcp, with a personal access token) to the project's .mcp.json, then restart the session"
-    },
     "gh": {
       "kind": "cli",
       "label": "GitHub CLI",
@@ -311,18 +306,6 @@
       ],
       "soft": [
         "codex"
-      ]
-    },
-    "fleet-ship-tickets": {
-      "hard": [
-        "fleet",
-        "git-repo",
-        "interactive-user",
-        "juel:ship-ticket"
-      ],
-      "soft": [
-        "linear",
-        "work-source-list-capable"
       ]
     },
     "orca-review-pr": {
