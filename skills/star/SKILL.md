@@ -1,14 +1,14 @@
 ---
 name: star
-description: Use to ship several work items unattended on this Mac - selects items from the project's work source (Linear, Jira, GitHub, spec files), gets one brief per item approved, then this session coordinates them through Orca, 3 at a time from a queue - build with /juel:ship-ticket --unattended, a second-model review of the draft PR, fixes, mark-ready and babysitting - until each PR is approved, green and verified on its exact head. Keeps the Mac awake, holds reviewer-facing actions in quiet hours, pulls you in only on escalations. Never merges. Triggers "ship my tickets", "run these unattended", "work through my queue", "/juel:star".
+description: Use to run STAR, a permanent local coordinator that ships work items to merged-ready PRs across all your projects. STAR lives in its own git repo (~/juel-star) - a queue with Answer slots, a ledger, briefs, release records and shared memory notes. Hand it work from any session with "/juel:star add <refs>"; a worker drafts a brief per item for your approval, then Orca workers build, a second model reviews the draft PR, fixes land, and the PR is babysat until it is approved, green and verified on its exact head. STAR never reads big output, recovers by itself after compaction, and never merges. Triggers "start STAR", "add this to STAR", "what does STAR need from me", "/juel:star".
 metadata:
   requires:
     mcp:
       - id: linear
         hard: false
-        why: intake lists and fetches items when Linear resolves as the project's work source
+        why: brief workers fetch items from Linear when it is a project's work source
         check: none
-        fallback: the project's other configured source is used; items can also be pasted as refs or spec paths
+        fallback: the project's other configured source is used; items can also be given as spec paths
     cli:
       - id: orca
         hard: true
@@ -16,15 +16,19 @@ metadata:
         check: "resolve_bin orca against PATH, then the app-bundle candidate"
       - id: gh
         hard: true
-        why: workers open and babysit PRs, and the coordinator verifies the exact head
+        why: workers open and babysit PRs; pr-verify.sh and release-record.sh read them
         check: "gh auth status"
       - id: git
         hard: true
-        why: worktree branch renames and the shared state directory under the git common dir
+        why: the docs repo is a git repo committed after every tick
         check: "command -v git"
+      - id: python3
+        hard: true
+        why: loops.sh, pr-verify.sh, worker-probe.sh, release-record.sh and the session hook run on it
+        check: "command -v python3"
       - id: claude
         hard: true
-        why: build, fix and babysit workers run the configured worker agent, claude by default
+        why: brief, build, fix and babysit workers run the configured worker agent, claude by default
         check: "command -v claude"
       - id: codex
         hard: false
@@ -32,30 +36,21 @@ metadata:
         check: "command -v codex"
         fallback: the reviewer runs as a claude worker on a model other than the builders'
     context:
-      - id: git-repo
-        hard: true
-        why: worktrees, briefs and the batch state live with this repo
-        check: "git rev-parse --show-toplevel"
       - id: orca-runtime
         hard: true
         why: the run, tasks and workers live in the Orca runtime
         check: "orca status reports runtimeReachable: true and graphState: ready"
-      - id: orca-repo-registered
-        hard: true
-        why: worktree create needs this repo's Orca id
-        check: "orca repo list contains this repo's path"
       - id: orca-terminal
         hard: true
         why: run-create binds the orchestration run to the calling terminal, which must be an Orca terminal
         check: "ORCA_TERMINAL_HANDLE is set"
+      - id: star-home
+        hard: true
+        why: STAR's standing instructions, hook and files are tied to its docs repo being the session's cwd
+        check: "cwd is $JUEL_STAR_HOME or ~/juel-star"
       - id: interactive-user
         hard: true
-        why: intake (source selection and brief approval) uses AskUserQuestion; the coordinator loop never does
-      - id: work-source-list-capable
-        hard: false
-        why: intake lists the user's open items
-        check: none
-        fallback: ask for refs or spec paths directly, one per line
+        why: the first run asks for quiet hours; the loop itself never asks through AskUserQuestion
     skills:
       - id: juel:ship-ticket
         hard: true
@@ -68,18 +63,16 @@ metadata:
         why: babysit-pr remediates every review round through it with --unattended
 ---
 
-# Ship Tickets
+# STAR
 
-Ship a batch of work items while you are away from the keyboard. You approve one brief per item;
-then **this session is the coordinator**. Each item moves through its stages as separate Orca
-workers: build, a second-model review of the draft PR, fixes when the review says NOT SAFE, then
-mark-ready and babysitting until the PR is approved. The coordinator verifies the exact head and
-puts "merge PR #n" in front of you. **You merge.** Workers report straight back to this session, so
-escalations and questions reach you while they are fresh. It follows the artifact "My 24/7 Agent
-Setup": draft first, review the whole draft, mark ready once, verify the exact head, and keep
-everything important in files.
+STAR is one long-running coordinator session for shipping work across all your projects. It plans,
+hands out work, checks results and keeps the queue; it never writes code and never reads big
+output. Real work goes to Orca workers: a fresh agent per stage, in the item's own worktree, that
+reports in at most 12 lines and is released. Everything that matters lives in files in STAR's own
+git repo, never only in chat, so a compacted or restarted STAR reads them and carries on. It follows
+the artifact "My 24/7 Agent Setup". **You merge; nothing here does.**
 
-**Announce:** "Using juel:star to coordinate these items through Orca."
+**Announce:** "Using juel:star." (in `add`, `status` and `draft-brief` modes: say which mode.)
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -114,295 +107,288 @@ everything important in files.
 
 ## Preflight
 
+`add`, `status` and `draft-brief` are not STAR itself: they skip this table (each states its own
+needs below) and the task list. Everything else is the start mode.
+
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
-| Linear MCP | mcp | SOFT | **none — render as `?`** | the project's other configured source is used; items can also be pasted as refs or spec paths |
+| Linear MCP | mcp | SOFT | **none — render as `?`** | the project's other configured source is used; items can also be given as spec paths |
 | orca | cli | HARD | `resolve_bin orca` against PATH, then the app-bundle candidate | STOP → https://www.onorca.dev |
 | gh | cli | HARD | `gh auth status` | STOP → `gh auth login` |
 | git | cli | HARD | `command -v git` | STOP |
-| claude | cli | HARD | `command -v claude` (or the configured `ship.worker.agent`) | STOP → install the worker agent CLI |
+| python3 | cli | HARD | `command -v python3` | STOP → install Python 3 |
+| claude | cli | HARD | `command -v claude` (or the configured `worker.agent`) | STOP → install the worker agent CLI |
 | codex | cli | SOFT | `command -v codex` | the reviewer runs as a claude worker on a model other than the builders' |
-| git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
-| repo registered with Orca | context | HARD | `orca repo list` contains this repo's path | offer `orca repo add` once, then continue |
 | running in an Orca terminal | context | HARD | `[ -n "$ORCA_TERMINAL_HANDLE" ]` | STOP → start Claude Code from an Orca terminal and re-run there |
-| AskUserQuestion | context | HARD | always available interactively | STOP → brief approval is mandatory |
-| work source with `list` | context | SOFT | **none — render as `?`** | ask for refs or spec paths directly, one per line |
+| running in STAR's home | context | HARD | cwd is `$JUEL_STAR_HOME`, else `~/juel-star` | STOP → `mkdir -p ~/juel-star`, open an Orca terminal there, start Claude Code and run `/juel:star` |
+| AskUserQuestion | context | HARD | always available interactively | STOP → the first run asks one setup question |
 | juel:ship-ticket, juel:babysit-pr, juel:receive-review-and-execute | skill | HARD | ship with this plugin | STOP |
 
 ## Phases
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
-1. Preflight — resolve binaries, the Orca runtime, this repo's Orca id and the Orca terminal
-2. Resolve the work source and select items
-3. Fetch each item in full and normalize it
-4. Draft one brief per item and get each approved (MANDATORY — never skipped)
-5. Resolve pools, models and quiet hours, and write the batch directory
-6. Start the run: caffeinate and `run-create`
-7. Coordinate until every item is ready, done, escalated or failed
-8. Report the merge list and the open loops
+1. Preflight — binaries, the Orca runtime and terminal, STAR's home
+2. Create the docs repo from the template, or load the existing one
+3. Bind the Orca run, start caffeinate, register the heartbeat
+4. Reconcile every row in a worker stage
+5. Tick until idle or stopped
+6. On stop: write the Resume block, stop caffeinate and the heartbeat, report
 
-`resume` runs phases 1, 6 (bind with `run-use` instead of `run-create`), 7 and 8. `status` runs
-phase 1 and prints the ledger and open loops.
+Phase 5 repeats. Keep its task `in_progress` across ticks and put the tick's one-line summary in its
+evidence; it completes when STAR goes idle or is stopped.
 
-## Arguments
+## Commands
 
-| Argument | Default | Description |
+| Command | Run from | Effect |
 |---|---|---|
-| `[refs…]` | select interactively | Work item refs or spec paths for the batch |
-| `resume [batch-id]` | newest batch | Rebind to a batch's run and keep coordinating |
-| `status [batch-id]` | newest batch | Print the ledger, open loops and merge state |
+| `/juel:star` | an Orca terminal whose cwd is STAR's home | Start STAR, or resume it: the two are the same command |
+| `/juel:star add <refs…>` | any Claude session inside a project repo | Put items in STAR's inbox and nudge it |
+| `/juel:star status` | anywhere | Print the Needs-you block and counts per state. Read-only |
+| `/juel:star stop` | STAR's session | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
+| `/juel:star draft-brief <ref> --project <name> --out <path>` | a brief worker, never the user | Worker mode, below |
 
-Usage: `/juel:star`, `/juel:star SAVI-1162 SAVI-1170`, `/juel:star resume`, `/juel:star status`
+STAR's home is `$JUEL_STAR_HOME` when set, else `~/juel-star`. Below, `HOME_DIR` is its absolute
+path and `S` is this skill's directory (`${CLAUDE_PLUGIN_ROOT}/skills/star` when that is set, else
+the directory of this file). Scripts are run as `sh S/<name>.sh`.
 
-## Configuration
+### `add`
 
-Read from `<repo>/.claude/workflow.json` (`.claude/workflow.local.json` deep-merged over it):
+Needs: a git repo, and STAR's home to exist. No Orca terminal needed.
+
+1. Project name = the basename of the main checkout
+   (`dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd -P)"`); repo path = that directory.
+2. Write `HOME_DIR/inbox/<UTC YYYYMMDDTHHMMSSZ>-<project>.md`:
+
+   ```
+   project: <name>
+   repo: <absolute repo path>
+   refs:
+   - <ref or absolute spec path>
+   note: <anything the user said about these items, one line; omit when nothing>
+   ```
+3. Nudge STAR: read `terminal` from `HOME_DIR/star.json` and run
+   `orca terminal send --terminal <handle> --text "inbox" --enter`. When `terminal` is null, the
+   command fails, or STAR's Resume block says `state: stopped`, say: "STAR is not running; the item
+   waits in the inbox and is picked up when you start it."
+4. When `HOME_DIR` does not exist, write nothing and say how to create it (the star-home row above).
+
+A message to STAR that says only `inbox` means "run a tick now".
+
+### `status`
+
+`sh S/loops.sh --file HOME_DIR/open-loops.md list`, then counts per state from `ledger.md`. Print
+both. Nothing else.
+
+## STAR's home
+
+Created on the first `/juel:star` in an empty home: copy `S/template/` into it (rename `gitignore`
+to `.gitignore`), `mkdir -p inbox briefs reviews gates releases drafts`, `git init`, commit
+`star: init`. Ask once, with AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking
+or status changes while you're away?") and write it to `star.json`. Then tell the user where the
+queue is: `HOME_DIR/open-loops.md`.
+
+```
+CLAUDE.md               standing instructions; Claude Code re-reads it after every compaction
+star.json               settings (below) plus run id, STAR's terminal handle, caffeinate pid, heartbeat id, notifiedThrough
+open-loops.md           Resume block, then Needs you, then Waiting on others   (written only through loops.sh)
+open-loops-archive.md   closed items
+ledger.md               one row per item, all projects
+processed.log           <message id> <dispatch> <iso time>
+projects.md             | name | repo path | orca repo id | work source | base branch | remote |
+inbox/                  one file per add; deleted once ingested (not committed)
+briefs/<project>/<item>.md
+reviews/<project>/<item>-r<k>.md   and   <item>-r<k>-fix.md
+gates/<project>/<item>.json
+releases/<YYYY-MM-DD>-<project>-<item>.md
+drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
+memory/global.md, memory/<project>.md
+```
+
+Every path keyed by an item is also keyed by its project, so the same item name in two projects
+never collides. A second repo with the same basename is named `<parent dir>-<basename>`.
+
+Settings in `star.json`:
 
 ```jsonc
-"ship": {
-  "maxParallel": 3,                                      // build pool, default 3
-  "maxInReview": 3,                                      // review + babysit pool, default 3
+{
+  "maxParallel": 3,                                      // build pool
+  "maxInReview": 3,                                      // review pool
   "worker":   { "agent": "claude", "model": "opus",    "effort": "high" },
-  "reviewer": { "agent": "codex",  "model": "default", "effort": null },     // default + null effort: the CLI's own defaults
-  "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // absent = off
+  "reviewer": { "agent": "codex",  "model": "default", "effort": null },
+  "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // null = off
 }
 ```
 
-Model ids come from the CLIs, never from memory: when a configured model is not offered by the
-agent's own model listing, ask once. A model of `default` means: pass neither `--model` nor `--effort`, and let the agent use its own default. Never pick a top-tier model (described as
-frontier, toughest or most capable) unless the user asked for one; `opus` is the mid tier.
+A model of `default` means: pass neither `--model` nor `--effort`. Model ids come from the CLIs,
+never from memory. Never pick a top-tier model (frontier, toughest, most capable) unless the user
+asked for one; `opus` is the mid tier.
 
-The work source resolves the way every juel skill resolves it: an explicit argument →
-`workflow.local.json` / `workflow.json` `tracker` → a `## Work Source` block in CLAUDE.md or
-AGENTS.md (`- type:` / `- project:`) → the legacy `## Linear Worktrees Config` block (read whenever
-no `tracker.type` resolved) → auto-detect, exactly one candidate → ask once and offer to persist.
+### The queue: `open-loops.md`
 
-## State
+STAR writes this file only through `loops.sh`, which re-reads it every time and never loses text the
+user typed. The user answers on an item's `Answer:` line (continuing on the lines right under it),
+or by telling STAR, who records it with `loops.sh set-answer <id> "<text>"`.
 
-Everything the run needs survives in files, so a compacted or restarted coordinator carries on.
+| When | Command |
+|---|---|
+| a brief is drafted | `loops.sh add --kind approve-brief --project <p> --item <i> --title "approve brief" --body "<brief path>\nOptions: approve / drop / or say what to change"` |
+| a PR passed the exact-head check | `loops.sh add --kind merge-pr --project <p> --item <i> --title "merge PR #<n> — approved, green, head <sha7>" --body "<pr url>"` |
+| a worker escalated | `loops.sh add --kind escalation --project <p> --item <i> --title "<reason>" --body "<needs= text>\nOptions: answer to retry with your decision / drop"` |
+| a worker asked something the brief does not answer | `loops.sh add --kind question --project <p> --item <i> --title "<the question, one line>" --body "deadline: <iso, 30 min after it is notified>"` |
+| a build or fix was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "<stage> was interrupted" --body "Options: restart / drop"` |
+| a draft is ready | `loops.sh add --kind draft --project <p> --item <i> --title "<what the draft is>" --body "<draft path>\nOptions: send / drop"` |
+| a worker held an outward action | `loops.sh add --kind held --project <p> --item <i> --title "<action>" --body "Options: done / drop"` |
 
-`BATCH` is an **absolute** path, computed once in Step 5 and used in every prompt:
-`$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/juel/ship/<batch-id>` (`<batch-id>` =
-`YYYYMMDD-HHMM`). From the main checkout `git rev-parse --git-common-dir` prints a relative `.git`,
-which a worker in another worktree cannot resolve; `pwd -P` fixes that. Shared by every worktree,
-never committed:
+Open items are repeated in every status line STAR prints, by id and title, until they are answered:
+silence means missed, not no.
 
-- `batch.json` — Orca run id, repo id, pools, quiet window, worker and reviewer agents and models,
-  caffeinate pid
-- `ledger.md` — one row per item:
-  `| item | worktree | state | stage | round | task | dispatch | restarts | pr | head | cursor | verify | updated |`
-- `processed.log` — one line per message already handled: `<message id> <dispatch> <iso time>`
-- `open-loops.md` — `- [ ] <iso time> <item> — <action> — <reason> — notify: pending|sent|print-only`
-- `questions.md` — one line per worker question relayed to the user: `<message id> <item> <deadline> open|answered|expired`
-- `briefs/<item>.md`, `reviews/<item>-r<k>.md` (each reviewer's whole output),
-  `reviews/<item>-r<k>-fix.md` (the fix worker's outcome per finding), `gates/<item>.json` (the build's
-  resolved gate manifest)
+### The ledger
 
-`<git-common-dir>/juel/gate.lock` is the heavy-gate lock workers share through `juel:ship-ticket`'s
-`gate-lock.sh`.
-
-States:
+`| item | project | worktree | state | stage | round | task | dispatch | restarts | pr | head | cursor | verify | updated |`
 
 | State | Pool | Meaning |
 |---|---|---|
-| `queued` | — | waiting for a build slot |
-| `building` | build | build worker running (`ship-ticket --unattended --brief`) |
+| `inbox` | — | ingested; waiting for a build slot to draft its brief |
+| `briefing` | build | a brief worker is reading the item and the code |
+| `brief-ready` | — | brief drafted; waiting for the user's approval |
+| `queued` | — | approved; waiting for a build slot |
+| `building` | build | build worker running |
 | `pr-draft` | — | draft PR open; waiting for a review slot |
 | `reviewing` | review | second-model reviewer running, or `findings waiting` for a build slot |
-| `fixing` | build | fix worker running (`ship-ticket --fix-review`) |
-| `babysit-queued` | — | waiting for a review slot to start babysitting (after SAFE, or again when the head moved or new feedback arrived at verification) |
-| `babysitting` | review | babysit worker running (`babysit-pr --unattended --mark-ready`) |
-| `verifying` | review | `READY` received; exact-head check pending (checks still running or mergeable `UNKNOWN`) |
-| `ready` | — | approved, green, verified on the exact head; waiting for your merge |
-| `done` | — | you merged it |
-| `escalated` | — | stopped on an escalation; open loop written |
-| `failed` | — | a worker settled without its report, or could not start; open loop written |
+| `fixing` | build | fix worker running |
+| `babysit-queued` | — | waiting for a review slot to start babysitting (after SAFE, or again after the head moved) |
+| `babysitting` | review | babysit worker running |
+| `verifying` | review | `READY` received; exact-head check pending |
+| `ready` | — | approved, green, verified; waiting for the user's merge |
+| `done` | — | merged; release record written |
+| `escalated` | — | stopped on an escalation; in the queue |
+| `failed` | — | a worker settled without its report or could not start; in the queue |
+| `dropped` | — | the user dropped it |
 
-`item` is the ref, or the slug when the ref is null. Never `null`, never empty.
+Build pool (at most `maxParallel`): waiting fixes first, then `inbox` rows (briefs are short and
+unblock the user), then `queued` rows, oldest first. Review pool (at most `maxInReview`):
+`babysit-queued` rows first, then the oldest `pr-draft`.
 
-## Intake
+## Start, resume, stop
 
-### Step 1: Preflight
+`/juel:star` in a home that already has rows is a resume; there is no separate command.
 
-Resolve `orca` (PATH, then `/Applications/Orca.app/Contents/Resources/bin/orca`), confirm
-`orca status` (text form: `runtimeReachable: true`, `graphState: ready`), and match this repo's
-main checkout path (`dirname` of the normalized `git rev-parse --git-common-dir`) against
-`orca repo list --json` to get `REPO_ID`. Then check `ORCA_TERMINAL_HANDLE`: Orca sets it in every
-terminal it manages. Empty → STOP — "Start Claude Code from an Orca terminal and run
-`/juel:star` there, so workers can report back to it."
+1. `orca orchestration run-use --id <run from star.json> --json`; when that run no longer exists,
+   `orca orchestration run-create --objective "STAR" --json`. Record the run id and
+   `$ORCA_TERMINAL_HANDLE` in `star.json`.
+2. `caffeinate`: when `star.json` has a pid and `ps -p <pid> -o comm=` prints `caffeinate`, kill it.
+   Start a new one (`caffeinate -dimsu >/dev/null 2>&1 &`) and record its pid. It deliberately
+   outlives a closed session, so the workers' Mac stays awake.
+3. Heartbeat: load the scheduler (`ToolSearch("select:CronCreate,CronDelete")`), delete the job id in
+   `star.json` if any, and create a recurring job `7,37 * * * *` with the prompt
+   `STAR heartbeat: if you are not already in a tick, run one.` Record its id. Jobs fire only while
+   the session is idle and die with the session, which is why every start registers a fresh one.
+   No scheduler tool → skip it and say so: an idle STAR then wakes only on `add` or the user.
+4. **Reconcile** every row in a worker stage with `sh S/worker-probe.sh <dispatch>`:
+   `ok` → keep it. `settled <state>` → its report is in the run's inbox; the settlement rule below
+   catches it if it is not. `unknown …` after an Orca restart means the worker is gone:
+   `briefing`, `reviewing`, `babysitting` and `verifying` rows each restarts once on its own
+   (`restarts` column; babysit with `--since <cursor>`), because those stages can pick up safely;
+   a lost `building` or `fixing` row goes to the queue (`--kind restart-or-drop`), because
+   restarting a half-finished build blindly would build on a dirty worktree. A row with a task but
+   no dispatch: `orca orchestration dispatch-show --task <id> --json` and record what exists before
+   starting anything.
+5. `loops.sh resume --state running --run <id> --pools "build <n>/<max> · review <n>/<max>" --next "<one line>"`, then tick.
 
-Resolve the configured agents now, before anything is created: `command -v <agent>` for the worker
-agent and the reviewer agent (`claude`, `codex`). A missing worker agent → STOP. A missing reviewer
-agent → fall back to `claude` on a model other than the worker's (itself checked), and say so.
+**Stop** (`/juel:star stop`, or the user says stop): finish the current tick, kill the recorded
+caffeinate, delete the heartbeat, `loops.sh resume --state stopped --next "run /juel:star to resume"`,
+commit, and print the queue. Workers still running are left alone.
 
-### Step 2: Select items
+## The tick
 
-With refs or spec paths as arguments, use those. Otherwise call the source's `list` for open `todo`
-items assigned to the user:
-
-| Provider | `list` | `fetch` |
-|---|---|---|
-| `linear` | resolve `LINEAR_PREFIX` (`mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>get_issue(id: <ref>)` |
-| `jira` | the connected Jira/Atlassian MCP's JQL search: `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | the MCP's get-issue tool |
-| `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels` (skip `status:in-progress` / `status:in-review`) | `gh issue view <n> --json number,title,body,url,labels` |
-| `file` | `*.md` in the spec directory whose status is explicitly `todo` | read the file |
-
-No `list` (or `inline`): ask for refs or spec paths, one per line. Present the items and let the user
-pick with AskUserQuestion (multiSelect). Do not invoke `juel:daily-worktrees`: this skill creates
-its own Orca worktrees.
-
-### Step 3: Fetch and normalize
-
-Fetch every selected item in full. Normalize each to: `ref` (null when the source has none), `slug`
-(kebab-case from the title, at most 6 words), `title`, `url` (omit when absent), `path` (a `file`
-source's absolute spec path, so its status can be updated later), `source`, `labels`,
-description, acceptance criteria. **Names are unique within the batch:** give every repeat of a slug
-a suffix (`-2`, `-3`, … in selection order) and use that final name everywhere.
-
-### Step 4: Draft and approve briefs (MANDATORY)
-
-Resolve the repo's conventions once: remote (one → it, else `origin`, else ask), base branch
-(`config.baseBranch` → `git config --get claude.baseBranch` → `git symbolic-ref --short
-refs/remotes/<remote>/HEAD` → first existing of main/master/develop/dev/trunk → ask once), and branch
-naming (sample `git for-each-ref --sort=-committerdate --count=60 refs/remotes/<remote>`, take the
-modal pattern; default `{type}/{ref-lower}-{slug}`, `{type}/{slug}` when the ref is null, and a
-GitHub ref `#412` renders as `issue-412`; type is `fix` for bug/fix/error, `refactor`, `chore`, else
-`feat`).
-
-For each item, read enough of the codebase to propose an approach, then draft its brief:
-
-```markdown
----
-juel_brief: 1
-item:
-  ref: <ref or null>
-  slug: <slug>
-  title: <title>
-  url: <url>            # omit when absent
-  path: <absolute path of the spec file in the main checkout — file sources only>
-  source: <source>
-  labels: [<labels>]
-branch: <branch>
-baseBranch: <base>
-approved: <iso time, set on approval>
----
-## Work item
-<description, verbatim>
-## Acceptance criteria
-- [ ] <one per criterion; when the item has none, ask the user for concrete checks — never invent them>
-## Approach
-<2-6 sentences: the chosen approach, the components touched>
-## Scope
-In: <what this item changes>
-Out: <what it deliberately does not touch>
-```
-
-Show each brief and ask with AskUserQuestion: **Approve / Edit / Drop**. Edit → apply and re-show.
-Drop → remove the item. An approved brief is the workers' contract: they escalate instead of
-widening it. Zero approved briefs → stop: "Nothing approved, nothing started."
-
-### Step 5: Pools, models, quiet hours, batch directory
-
-Pools and models from Configuration (defaults above). Quiet hours: `ship.quietHours`; absent → ask
-once ("Set a quiet window: no reviewer pings, ready-marking or status changes while you're away?"),
-offer to persist, render as `HH:MM-HH:MM@<tz>` or `off`. Compute the absolute `BATCH` (see "State"), create it, write `batch.json`, one
-`queued` row per item in `ledger.md` (approval order), an empty `open-loops.md`, and each approved
-brief to `briefs/<item>.md`.
-
-### Step 6: Start the run
-
-```sh
-caffeinate -dimsu >/dev/null 2>&1 &      # keeps the Mac awake (screen off is fine; a closed lid on battery still sleeps)
-echo "caffeinate pid: $!"                # record it in batch.json
-orca orchestration run-create --objective "juel ship <batch-id>" --json
-```
-
-`caffeinate` is started without `-w`, so it outlives a closed coordinator session and keeps the
-workers' Mac awake overnight. It is stopped only by Step 8, or replaced by `resume`. Before killing
-or replacing a recorded pid, confirm it is still caffeinate (`ps -p <pid> -o comm=` prints
-`caffeinate`); a pid that now belongs to something else is left alone.
-
-Record the run id in `batch.json`, then start filling slots (below) and enter the loop.
-
-## Coordinator loop
-
-One pass per wake, until every row is `ready`, `done`, `escalated` or `failed`.
-Never call AskUserQuestion inside the loop: it blocks every other item until you answer. Questions for you are
-printed and notified, and your answer arrives as an ordinary message between ticks.
+Never call AskUserQuestion inside a tick: it would block every other item until answered. Questions
+for the user go into the queue and are notified; the answer arrives in the file or as an ordinary
+message.
 
 **Persist before acting.** Write the row before every `task-create` (state, stage, round), record
-the task id right after `task-create` and the dispatch id right after `worker-start`. Write the whole ledger right after each message's
-transition (and its saved artifacts), then append the message to
-`processed.log`, and only then acknowledge the delivery — never batch ledger writes to the end of a
-tick, or a restart finds the message logged but its transition missing. On `resume` or after a compaction,
-a message already in `processed.log` is skipped, and a row whose stage has a task but no dispatch is
-reconciled with `orca orchestration dispatch-show --task <id> --json` before anything is started
-again. This is what stops a restart from starting a second worker on the same item.
+the task id right after `task-create` and the dispatch id right after `worker-start`.
+Write the whole ledger right after each message's transition, then append the message to
+`processed.log`, and only then acknowledge the delivery. A message already in `processed.log` is
+skipped. A message that matches no row is never dropped: `--kind held` with its first line.
 
-1. **Wait.** `orca orchestration check --wait --types worker_done,escalation,question`
-   `--timeout-ms 540000 --json`, reading stdout only (keepalives go to stderr; never merge the
-   streams). A timeout or `count: 0` is a tick, not a failure.
-2. **Process every message in the delivery**, matched to its row by the dispatch it carries. A
-   message that matches no ledger row, or a row in a different stage, is never dropped: open loop
-   quoting it. Skip messages already in `processed.log`. Then acknowledge with `--ack <delivery_id>`.
+1. **Inbox.** For each `HOME_DIR/inbox/*.md`: learn the project into `projects.md` on first sight
+   (orca repo id from `orca repo list --json` by repo path; not registered → `--kind held` "register
+   <repo> with Orca: orca repo add" and leave the file), add one `inbox` row per ref, delete the
+   file.
+2. **Answers.** `sh S/loops.sh answers` prints one line per answered item. Act, then
+   `loops.sh close <id>`:
 
-   | Message | Action |
+   | Kind | Answer | Action |
+   |---|---|---|
+   | `approve-brief` | starts with approve / yes / ok | stamp `approved: <iso>` in the brief's frontmatter; row → `queued` |
+   | `approve-brief` | drop | row → `dropped` |
+   | `approve-brief` | anything else | it is feedback: row → `inbox` and the brief stage runs again with `--feedback "<answer>"` |
+   | `merge-pr` | drop / not merging | row → `dropped`. Any other answer changes nothing: a merge is detected from GitHub, never taken from an answer |
+   | `escalation` | drop | row → `dropped` |
+   | `escalation` | anything else | append it to the brief under `## Decisions` with the date, and restart the stage that escalated (`stage` column; babysit with `--since <cursor>`) |
+   | `question` | any | `orca orchestration reply --id <msg id> --body "<answer>" --json` |
+   | `restart-or-drop` | restart / drop | requeue the stage, or row → `dropped` |
+   | `draft` | send | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`; any other draft is the user's to send, say so |
+   | `draft`, `held` | anything else | close it |
+3. **Messages**, only while some row is in a worker stage or waiting for a slot:
+   `orca orchestration check --wait --types worker_done,escalation,question`
+   `--timeout-ms 540000 --json`, stdout only. A timeout is a tick. STAR reads only the report's
+   lines (at most 12 lines); it never opens a review, evidence or log file, and never reads a
+   worker's screen: the scripts do that and give one line back.
+
+   | First line of the report | Action |
    |---|---|
-   | `worker_done`, body starts `DONE item=… pr=<url>` | save the JSON after `GATES` to `gates/<item>.json`; state `pr-draft`; free the build slot. A compare URL instead of a PR (no `/pull/`) → `escalated` (the `HELD` line asks you to open it) |
-   | `worker_done`, `FIXED item=… head=<sha>` | save the body to `reviews/<item>-r<k>-fix-receipt.md`, never over the worker's own `reviews/<item>-r<k>-fix.md` (write that one from the body only if the worker left none); state `pr-draft`, record head; free the build slot |
-   | `worker_done` from a reviewer | **Save every reviewer body** to `reviews/<item>-r<k>.md` first, then read its last line |
-   | `VERDICT item=… round=<k> SAFE` | state `babysit-queued` (the review slot frees; `babysit-queued` rows are first in line for the next one, so a memory hold just waits a tick); step 3 starts the babysit stage, and the row becomes `babysitting` only once `worker-start` reports `ready` |
-   | `VERDICT … NOT-SAFE`, round 1 or 2 | state `reviewing` with `findings waiting` until a build slot frees, then state `fixing` (the review slot frees) and start the fix stage |
-   | `VERDICT … NOT-SAFE`, round 3 | `escalated`: "review still NOT SAFE after 3 rounds — see reviews/<item>-r3.md" |
-   | no `VERDICT` line from a reviewer | start the same round once more; a second miss → `escalated` |
-   | `worker_done`, `READY item=… pr=<url> head=<sha> cursor=<iso>` | record head and cursor; state `verifying`; run the exact-head check now |
-   | `ESCALATION item=… phase=… reason=… needs=…` in a `worker_done` | `escalated`; open loop with `needs=`; notify; free the slot |
-   | an `escalation` message (the worker may still be running) | open loop and notify, but keep the row and its slot until that worker's `worker_done` arrives or it is found settled (step 4) |
-   | `HELD item=… action=…` lines in any body | one open loop each |
-   | `question` (a worker's `orca orchestration ask`) | answer with `orca orchestration reply --id <msg_id> --body <answer>` when the brief decides it. Inside quiet hours, reply at once "No answer during quiet hours: escalate this." (the worker escalates `unanswered-question`, so nothing pings you and no slot waits overnight). Otherwise add it to `questions.md` with a deadline 30 min after the notification is sent, print it, notify, and keep looping; the worker stays blocked and keeps its slot |
-   | any `worker_done` whose body lacks the line its stage owes | `failed`; open loop quoting the body; free the slot. Never re-run automatically |
+   | `BRIEF item=… path=…` | row → `brief-ready`; queue `--kind approve-brief` (title "approve brief — add acceptance criteria first" when the report has a `NEEDS-CRITERIA` line) |
+   | `DONE item=… pr=<url>` | record the PR; row → `pr-draft`; free the build slot. A compare URL (no `/pull/`) → `escalated`, queue `--kind held` "open a draft PR from <url>" |
+   | `VERDICT item=… round=<k> SAFE findings=<n>` | row → `babysit-queued`; free the review slot |
+   | `VERDICT … NOT-SAFE findings=<n>`, round 1 or 2 | row stays `reviewing` with `findings waiting` until a build slot frees, then → `fixing` and the fix stage starts |
+   | `VERDICT … NOT-SAFE`, round 3 | row → `escalated`; queue `--kind escalation` "review still NOT SAFE after 3 rounds" with the review's path |
+   | a reviewer report with no `VERDICT` line | run the same round once more; a second miss → `escalated` |
+   | `FIXED item=… head=<sha>` | record head; row → `pr-draft`; free the build slot |
+   | `READY item=… pr=… head=<sha> cursor=<iso>` | record head and cursor; row → `verifying`; run the exact-head check now |
+   | `ESCALATION item=… phase=… reason=… needs=…` in a `worker_done` | row → `escalated`; queue `--kind escalation` (or `--kind draft` plus the escalation when the report has a `DRAFT <path>` line); notify; free the slot |
+   | an `escalation` message while the worker still runs | queue it and notify, but keep the row and its slot until its `worker_done` arrives |
+   | a `question` message | brief decides it → `reply`. Inside quiet hours → reply "No answer during quiet hours: escalate this." Otherwise queue `--kind question`, notify, keep looping; the worker stays blocked and keeps its slot |
+   | anything else, or no report line | row → `failed`; queue `--kind held` quoting the first line; free the slot. Never re-run automatically |
 
-   After processing each settled `worker_done`: `orca orchestration worker-release --dispatch <id>`.
-3. **Fill free slots.** Build pool (`building`, `fixing`) up to `maxParallel`: waiting fixes first,
-   then `queued` rows in approval order. Review pool (`reviewing`, `babysitting`, `verifying`) up to
-   `maxInReview`: `babysit-queued` rows first, then the oldest `pr-draft` row starts its next review
-   round. Every start passes the memory check first.
-4. **Housekeeping.**
-   - **Your answers.** An answer you gave to an open question since the last tick → `reply` it to
-     the worker, mark it `answered`. A question past its deadline → reply "No answer from the user:
-     escalate this.", mark it `expired`; the worker escalates `unanswered-question`.
-   - **Settlement.** For every row in a worker stage, `orca orchestration worker-show --dispatch <id>
-     --json`. A worker that has settled without a processed `worker_done` at the previous tick as
-     well → `failed`, open loop, free the slot, and release its dispatch
-     (`worker-release --dispatch <id>`). The same release follows every `worker-stop`. (A report
-     can lag its settlement by a tick; two ticks cannot.)
-   - **Stuck workers.** Read each worker that has not reported since the last tick once with
-     `orca orchestration worker-read --dispatch <id> --limit 30 --json`: a worker stuck at a dialog,
-     a model or login prompt, or a usage limit never reports on its own — `worker-stop` it, mark
-     the row `failed`, open loop with what it shows. Never answer a TUI prompt for a worker.
-   - **Verifying rows.** Only rows whose `retry-not-before` time has passed, set in an earlier
-     tick: run the exact-head check again (once; see below).
-   - **Ready rows.** `gh pr view <n> --json state,headRefOid` — `MERGED` → `done`. Head moved since
-     verification → `babysit-queued` if `restarts` is 0 (then `restarts` = 1); otherwise
-     `escalated`. One restart budget per item, shared with the verification step.
-   - **Notifications.** Every open loop still `notify: pending` whose quiet window is over is sent
-     now and marked `sent` (or `print-only` when no notification tool exists).
-5. **Write `ledger.md`** once more (it was already written after every change) and print one status line: counts per state, slots in use,
-   new open loops.
+   Also, for any report: each `HELD item=… action=…` line → `--kind held`; a `NOTE: <text>` line →
+   append `- <date> <item>: <text>` to `HOME_DIR/memory/<project>.md`. After each settled
+   `worker_done`: `orca orchestration worker-release --dispatch <id>`.
+4. **Fill slots** by the pool rules above, memory check first (below).
+5. **Housekeeping.**
+   - Questions past their deadline: reply "No answer from the user: escalate this." and close the item.
+   - Each row in a worker stage that has not reported this tick: `sh S/worker-probe.sh <dispatch>`.
+     `stuck: <what>` → `orca orchestration worker-stop`, release, row → `failed`, queue `--kind held`
+     "<stage> worker stuck: <what>". `settled …` with no processed report, twice in a row → `failed`,
+     release, queue it. Never answer a worker's prompt for it.
+   - `verifying` rows past `retry-not-before`, and every `ready` row: the exact-head check (below).
+   - Notifications (below).
+6. **Write and commit** (one `git commit` per tick that changed files). `loops.sh resume …` with the current pools and the next step;
+   `loops.sh waiting "<one line per PR in review, per blocked question>"`; then, when anything
+   changed: `git -C HOME_DIR add -A && git -C HOME_DIR commit -q -m "star: <n> transitions, <m> loops"`,
+   and `git push` when a remote named `origin` exists. A failed push is noted in the Resume block's
+   `next:` line and retried next tick; it is never fatal. Print one status line: counts per state,
+   then every open queue item.
+
+**Active or idle.** While any row is in `inbox`, `briefing`, `queued`, `building`, `pr-draft`,
+`reviewing`, `fixing`, `babysit-queued`, `babysitting` or `verifying`, stay in the turn and tick
+again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
+`state: idle` and STAR ends its turn. It is woken by an `add` nudge, by the user, or by the
+heartbeat, and each wake runs one tick.
 
 ## Stages
 
-Every stage is its own Orca task and a fresh worker, so a crash loses one stage, not the item, and no
-idle agent holds memory between stages.
+Every stage is its own Orca task and a fresh worker.
 
 | Stage | Worktree | Agent | Prompt |
 |---|---|---|---|
-| build | a new one, created as below | worker | `/juel:ship-ticket --unattended --brief <BATCH>/briefs/<item>.md [--quiet-hours <window>]` |
+| brief | the project's main checkout (`path:<repo path>`), read-only | worker | `/juel:star draft-brief <ref> --project <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback "<text>"]` |
+| build | a new Orca worktree in that project, set up as below | worker | `/juel:ship-ticket --unattended --brief HOME_DIR/briefs/<project>/<item>.md [--quiet-hours <window>]` |
 | review | the item's worktree | reviewer | the reviewer prompt below |
-| fix | the item's worktree | worker | `/juel:ship-ticket --unattended --brief <BATCH>/briefs/<item>.md --fix-review <BATCH>/reviews/<item>-r<k>.md [--quiet-hours <window>]` |
-| babysit | the item's worktree | worker | `/juel:babysit-pr <n> --unattended --mark-ready --item <item> --brief <BATCH>/briefs/<item>.md --gates-file <BATCH>/gates/<item>.json [--since <cursor>] [--quiet-hours <window>]` |
+| fix | the item's worktree | worker | `/juel:ship-ticket --unattended --brief <brief> --fix-review HOME_DIR/reviews/<project>/<item>-r<k>.md [--quiet-hours <window>]` |
+| babysit | the item's worktree | worker | `/juel:babysit-pr <n> --unattended --mark-ready --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` |
 
 **Build worktree.** Orca picks the new worktree's branch name (`<user>/<name>` when the repo has a
 git username, else `<name>`) and cannot be told otherwise, and `ship-ticket` escalates when the
@@ -433,69 +419,150 @@ then start the worker:
    Only untracked or ignored files under `.claude/` are copied; tracked ones arrive with the
    checkout. Then check each copied file exists in `<worktree>`.
 
-**Starting a stage** (after the build worktree exists):
+**Starting a stage:**
 
 ```sh
 orca orchestration task-create --spec "<prompt from the table>" --json
 orca orchestration worker-start --task <task_id> --worktree path:<worktree> \
-  --agent <agent> --model <model> --effort <effort> --json
+  --agent <agent> [--model <model> --effort <effort>] --json
 ```
 
 `worker-start` exits 0 only for `ready`. Any other result: retry once with `--retry-of <dispatch_id>`
-and the same placement; a second failure → `failed` with the receipt's `stage` in the open loop. A
-rejected effort (`does not support effort`) retries once with the next lower listed level.
+and the same placement; a second failure → `failed`, queued. A rejected effort retries once with the
+next lower listed level.
 
 **Reviewer prompt** (fill in `<…>`):
 
 ```
 You are reviewing a draft pull request you did not write, as a second, independent reviewer.
-Do not edit, commit, push or comment anywhere. Read only.
-Brief (the approved contract): <BATCH>/briefs/<item>.md
-Previous round (rounds 2 and 3 only): the findings in <BATCH>/reviews/<item>-r<k-1>.md and the fix
-worker's outcome per finding in <BATCH>/reviews/<item>-r<k-1>-fix.md. Judge each rejection on its
-merits; a prior rejection is evidence, not a verdict.
+Do not edit, commit, push or comment anywhere in the repo or on GitHub. Read only.
+Brief (the approved contract): <brief path>
+Notes for this project: <HOME_DIR>/memory/global.md and <HOME_DIR>/memory/<project>.md
+Previous round (rounds 2 and 3 only): <review path of round k-1> and its -fix.md beside it. Judge
+each rejection on its merits; a prior rejection is evidence, not a verdict.
 Run: git fetch <remote> <baseBranch> && git diff <remote>/<baseBranch>...HEAD
 Review the whole diff against the brief: correctness, every acceptance criterion, scope (In/Out),
 a regression test for every bug fix, security, data loss, error handling.
 NOT-SAFE only for a defect that breaks behaviour, loses data, opens a security hole, misses an
 acceptance criterion or leaves scope. Anything smaller goes under "Notes" and does not block.
-Output a numbered findings list (severity, file:line, the failure scenario, the fix), then Notes,
-then exactly one last line:
-VERDICT item=<item> round=<k> SAFE
+Write the full review (numbered findings: severity, file:line, the failure scenario, the fix; then
+Notes) to <HOME_DIR>/reviews/<project>/<item>-r<k>.md. That file is the only thing you write.
+Your worker_done body is exactly one line:
+VERDICT item=<item> round=<k> SAFE findings=<n>
 or
-VERDICT item=<item> round=<k> NOT-SAFE
-Send that whole output as your worker_done body.
+VERDICT item=<item> round=<k> NOT-SAFE findings=<n>
 ```
 
-The reviewer agent is `ship.reviewer` (default `codex`); without the codex CLI it is `claude` with a
-model other than the worker's, and the report says so.
+The reviewer agent is `reviewer` from `star.json` (default `codex`); without the codex CLI it is
+`claude` on a model other than the worker's, and STAR says so.
+
+## Brief worker mode: `draft-brief`
+
+`/juel:star draft-brief <ref> --project <name> --out <path> [--feedback "<text>"]` runs in the
+project's main checkout as an Orca worker. It never edits the repo; the brief at `--out` is the only
+file it writes.
+
+1. Read `<HOME_DIR>/memory/global.md` and `<HOME_DIR>/memory/<project>.md` (HOME_DIR is two levels
+   above `--out`'s directory).
+2. Resolve the project's work source: an explicit source in the ref → `.claude/workflow.local.json`
+   / `.claude/workflow.json` `tracker` → a `## Work Source` block in CLAUDE.md or AGENTS.md → the
+   legacy `## Linear Worktrees Config` block → the ref's shape when unambiguous (`#412` is GitHub; an
+   existing path is a `file` item) → the single connected tracker. Still ambiguous → `ESCALATION
+   item=<ref> phase=0 reason=needs-human-input needs=which tracker holds <ref>`.
+3. Fetch the item in full:
+
+| Provider | `list` | `fetch` |
+|---|---|---|
+| `linear` | resolve `LINEAR_PREFIX` (`mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>get_issue(id: <ref>)` |
+| `jira` | the connected Jira/Atlassian MCP's JQL search: `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | the MCP's get-issue tool |
+| `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels` (skip `status:in-progress` / `status:in-review`) | `gh issue view <n> --json number,title,body,url,labels` |
+| `file` | `*.md` in the spec directory whose status is explicitly `todo` | read the file |
+
+4. Normalize: `ref` (null when the source has none), `slug` (kebab-case from the title, at most 6
+   words), `title`, `url`, `path` (a `file` item's absolute spec path), `source`, `labels`,
+   description, acceptance criteria. The item's name is its ref, or its slug when the ref is null.
+5. Resolve the repo's conventions: remote (one → it, else `origin`, else ask), base branch
+(`config.baseBranch` → `git config --get claude.baseBranch` → `git symbolic-ref --short
+refs/remotes/<remote>/HEAD` → first existing of main/master/develop/dev/trunk → ask once), and branch
+naming (sample `git for-each-ref --sort=-committerdate --count=60 refs/remotes/<remote>`, take the
+modal pattern; default `{type}/{ref-lower}-{slug}`, `{type}/{slug}` when the ref is null, and a
+GitHub ref `#412` renders as `issue-412`; type is `fix` for bug/fix/error, `refactor`, `chore`, else
+`feat`).
+6. Read enough of the code to propose an approach, then write the brief to `--out`. With
+   `--feedback`, read the existing brief at `--out` first and revise it to answer the feedback.
+
+   ```markdown
+   ---
+   juel_brief: 1
+   item:
+     ref: <ref or null>
+     slug: <slug>
+     title: <title>
+     url: <url>            # omit when absent
+     path: <absolute spec path — file sources only>
+     source: <source>
+     labels: [<labels>]
+   branch: <branch>
+   baseBranch: <base>
+   approved:               # stamped by STAR when the user approves
+   star:
+     home: <HOME_DIR>
+     project: <project>
+     notes: [<HOME_DIR>/memory/global.md, <HOME_DIR>/memory/<project>.md]
+     reviews: <HOME_DIR>/reviews/<project>
+     gates: <HOME_DIR>/gates/<project>/<item>.json
+   ---
+   ## Work item
+   <description, verbatim>
+   ## Acceptance criteria
+   - [ ] <one per criterion from the item>
+   ## Approach
+   <2-6 sentences: the chosen approach, the components touched>
+   ## Scope
+   In: <what this item changes>
+   Out: <what it deliberately does not touch>
+   ```
+
+   Acceptance criteria come from the item. When it has none, write the single line
+   `- [ ] NEEDS CRITERIA` and never invent any.
+7. Report, as the `worker_done` body: `BRIEF item=<item> path=<--out>`, then `NEEDS-CRITERIA` when
+   that applies, then at most one `NOTE: <one line>`.
 
 ## Exact-head verification
 
-On `READY` (state `verifying`), check the PR yourself:
+`sh S/pr-verify.sh <pr url> --head <head from the ledger>` prints one line:
 
-```sh
-gh pr view <url> --json isDraft,reviewDecision,reviews,commits,headRefOid,mergeable,statusCheckRollup
-```
+| Verdict | Row in `verifying` | Row in `ready` |
+|---|---|---|
+| `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify | nothing |
+| `PENDING <what>` | first time: record `retry-not-before <now + 2 min>` in `verify` and check again in a later tick; second time: → `escalated`, queue `--kind escalation` "<what> still pending" | nothing |
+| `MOVED <head>` | `restarts` 0 → `babysit-queued` (then 1); else → `escalated` | the same, and close its `merge-pr` item |
+| `MERGED <sha>` | as for `ready` | `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; close its `merge-pr` item; print the record's path |
+| `FAIL <what>` | → `escalated`; queue `--kind escalation` "<what>" | → `escalated`; close its `merge-pr` item; queue `--kind escalation` "<what>" |
 
-It passes when: `isDraft` is false; `reviewDecision` is `APPROVED`, or null or an empty string (the
-repo requires no review; `gh` reports an empty string) with an `APPROVED` review submitted after the
-last commit; `headRefOid` equals the reported head; `mergeable` is `MERGEABLE`; and every check
-passed — read `conclusion`, falling back to `state` for commit statuses, and accept `SUCCESS`,
-`NEUTRAL` or `SKIPPED` (a `CANCELLED` check is not a pass).
+STAR never merges, and never marks a PR ready: babysit does that once, and the merge is the user's.
 
-- **Pass** → state `ready`, free the review slot, open loop
-  `merge PR #<n> — approved, green, head <sha7>`, notify.
-- **Pending checks or `mergeable: UNKNOWN`** → stay `verifying`, keep the review slot, record
-  `retry-not-before <now + 2 min>` in the row's `verify` cell; housekeeping checks once more after
-  that time, in a later tick. Still not passing then →
-  `escalated` naming what is pending.
-- **Head moved or new feedback** → `babysit-queued` if `restarts` is 0 (then 1), else `escalated`.
-- **Anything else** → `escalated` naming the failing check or the missing approval.
+## Drafts
+
+STAR writes for the user only what shipping needs, and sends none of it by itself:
+
+- A babysit worker that escalates `ambiguous-review` first writes
+  `HOME_DIR/drafts/<date>-<project>-<item>-reply.md` (each ambiguous comment, then two or three
+  candidate decisions) and adds `DRAFT <path>` to its report. STAR queues it as `--kind draft` with
+  the escalation; the user's answer on the escalation is the decision the next babysit run applies.
+- "Draft a status note": STAR writes `HOME_DIR/drafts/<date>-status.md` from the ledger and the
+  queue (its own small files) and queues it as `--kind draft`. The user sends it.
+
+## Memory notes
+
+`memory/global.md` and `memory/<project>.md` are read by every worker before it starts (the brief
+lists them). Workers add to them only through a `NOTE:` line in their report, which STAR appends to
+`memory/<project>.md`. The user edits or deletes notes freely. When a project file passes 80 lines,
+queue `--kind held` "trim memory/<project>.md" instead of trimming it yourself.
 
 ## Pools and the memory check
 
-Before every `worker-start`, check memory, following the user's rule for heavy work on this machine:
+Before every `worker-start`:
 
 ```sh
 pg=$(vm_stat | sed -n 's/.*page size of \([0-9]*\) bytes.*/\1/p')
@@ -505,75 +572,62 @@ echo $(( (fr + in) * pg / 1073741824 ))   # GB free + inactive
 ```
 
 Under 3 GB free + inactive → do not start; note `HOLD: memory` in the row's `updated` cell and try
-again at the next tick. On Linux, read the `available` column of `free -g` instead. Inside workers,
-Phase 5's test and lint run, the Phase 6 regression gate and babysit's gates all go through
-`gate-lock.sh`, so only one heavy gate runs at a time; each worker also checks memory before it
-starts its Phase 6 stack.
+again at the next tick. Heavy test and build gates inside workers take turns through
+`juel:ship-ticket`'s `gate-lock.sh`.
 
-## Notifications
+## Notifications and quiet hours
 
-On an escalation, a worker question you cannot answer from the brief, and "merge PR #n": print it,
-and send a push notification with Claude Code's `PushNotification` tool (load it with `ToolSearch`
-when it is deferred; when it does not exist, printing is enough). Inside quiet hours only
-escalations notify; the rest are written as `notify: pending` and sent by housekeeping when the
-window ends, so a restart never loses them.
+`star.json` keeps `notifiedThrough`, the highest queue id the user has been notified about. At the
+end of a tick outside quiet hours, when `loops.sh list` shows open items above it: print them, send
+one push notification naming them (Claude Code's `PushNotification` tool, loaded with `ToolSearch`
+when deferred; printing is enough when it does not exist), and advance `notifiedThrough`. Inside
+quiet hours only `escalation` items notify; everything else waits for the first tick after the
+window, so a restart never loses a notification. A question's 30-minute deadline starts when it is
+notified.
 
-## Quiet hours
+Workers get the quiet window (`--quiet-hours`) and decide at each outward action: they keep
+building, reviewing, fixing and pushing, while marking ready, replying to reviewers, re-requesting
+review and status writes wait for the window to end or come back as `HELD` lines.
 
-Workers get the window and decide at each outward action. They keep building, reviewing, fixing and
-pushing; marking ready, replying to reviewers, re-requesting review and status writes wait for the
-window to end (or come back as `HELD` lines, which become open loops).
+## Recovery
 
-## Step 8: Report
-
-Kill the recorded `caffeinate` (after `ps -p <pid> -o comm=` confirms it is caffeinate), then print: the merge list (`ready` rows with PR URLs), every open
-loop, and counts per state. State that nothing was merged, and that `/juel:star status`
-shows the batch later.
-
-## Resume
-
-`/juel:star resume [batch-id]` (newest batch by default): read `batch.json`, `ledger.md`,
-`processed.log` and `questions.md`; `orca orchestration run-use --id <run id> --json`. Reconcile
-every row in a worker stage: a task with no recorded dispatch → `dispatch-show --task <id>` and
-record what exists; a dispatch → `worker-show --dispatch <id>`: still running → keep it; settled →
-its `worker_done` should be in the run's inbox, and the settlement rule in housekeeping fails it if
-it never arrives. Replace `caffeinate`: kill the recorded pid if `ps -p <pid> -o comm=` says it is
-still caffeinate, start a new one, record it. Then enter the loop. Use this after a compaction, a
-closed session or a Mac that slept.
-
-## Status
-
-`/juel:star status [batch-id]`: print `ledger.md` and `open-loops.md`; for `ready` rows,
-`gh pr view <n> --json state` and mark merged ones `done`. Read-only otherwise.
+- **Compaction:** Claude Code re-reads `HOME_DIR/CLAUDE.md`, and the plugin's session hook repeats
+  the instruction: run `/juel:star` if you are not in a tick. Nothing is needed from the user.
+- **A closed session:** workers keep running and their reports wait in the Orca run. The user
+  reopens a terminal in STAR's home (`claude --continue`, or a new session) and runs `/juel:star`.
+- **An Orca restart:** every worker is gone. The reconcile step restarts review, babysit and brief
+  stages once and queues lost builds and fixes for the user.
 
 ## Hard rules
 
-- **Never merge a PR**, and never start a worker that would. The flow ends at "merge PR #n"; the
-  merge is always your click.
-- Brief approval is never skipped, batched into one yes, or carried over from another batch.
-- A `failed` row is never re-run automatically. You decide.
-- Workers are started only through `orca orchestration worker-start`, never a provider's own
-  subagent tool, so every report comes back through the run.
+- **Never merge a PR**, and never start a worker that would.
+- Never read review, evidence, log or diff content into this session. One line per fact, from a
+  script or a report.
+- A brief is never built before the user approves it in the queue. Approval is never inferred.
+- A `failed` or `escalated` row is never re-run without the user's answer, except the single
+  automatic restart of a review, babysit or brief stage lost to a restart.
+- Workers are started only through `orca orchestration worker-start`.
+- `open-loops.md` is written only through `loops.sh`.
 
 ## Common mistakes
 
 | Mistake | Fix |
 |---|---|
-| Starting the build worker before renaming the branch | The worker escalates on the branch mismatch. Create, rename, copy, then start |
-| Reading `check --wait --json 2>&1` through a parser | Keepalives go to stderr; pipe stdout only |
-| Releasing a worker before reading its `worker_done` | Process, then `worker-release` |
-| Treating a `check` timeout as a dead worker | It is a tick. Read the worker once; only a prompt or usage-limit screen means stuck |
-| Answering a worker's TUI prompt | Stop it and mark it failed; never type into it |
-| Starting a fourth build because a slot looks free while memory is low | The memory check runs before every start |
-| Counting a `findings waiting` review as free review capacity | It holds its review slot until the fix starts |
+| Opening a review file "to summarize it" | The queue item carries the path; the user reads it. STAR reads the verdict line |
+| Editing `open-loops.md` with Edit or sed | `loops.sh` only: it keeps what the user typed |
+| Treating a `merge-pr` answer as a merge | Only `pr-verify.sh` printing `MERGED` moves the row |
+| Starting the build worker before the branch is right | Reuse, create, switch or rename, copy, then start |
+| Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
+| Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
+| Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it |
 
 ## Edge cases
 
 | Situation | Handling |
 |---|---|
-| Not in an Orca terminal | STOP with the Step 1 message; nothing is created |
-| `orca repo list` lacks this repo | Offer `orca repo add` once; declined → STOP |
-| A worktree for the item's branch already exists | Reuse it; never create a second one |
-| The session closes or compacts mid-batch | `/juel:star resume` |
-| Every brief dropped | "Nothing approved, nothing started." |
-| `codex` missing | Reviewer runs on claude with a different model; say so in the report |
+| `add` while STAR is stopped | The inbox file is written; the item waits in the inbox |
+| The same item name in two projects | Rows, briefs, reviews and records are all keyed by project |
+| `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
+| A project not registered with Orca | `--kind held` "register <repo> with Orca"; its inbox file stays until it is |
+| `codex` missing | The reviewer runs on claude with a different model; say so |
+| The home has uncommitted edits by the user | `git add -A` in the tick's commit includes them; never discard them |

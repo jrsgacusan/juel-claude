@@ -112,7 +112,8 @@ for (const [name, text] of skillBodies) {
 for (const [name, text] of skillBodies) {
   const lines = text.split(/\r?\n/);
   lines.forEach((line, i) => {
-    if (line.includes('juel-'))
+    // `juel-star` is STAR's docs-repo directory (~/juel-star), not a stale skill prefix.
+    if (line.replaceAll('juel-star', '').includes('juel-'))
       fail('prefix', `skills/${name}/SKILL.md:${i + 1}: stale 'juel-' prefix — use 'juel:' — ${line.trim().slice(0, 80)}`);
   });
 }
