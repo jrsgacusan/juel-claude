@@ -292,13 +292,19 @@ line:
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by one line `GATES {"test":{"cmd":"<cmd>","cwd":"<dir>"},"lint":…,"typecheck":…,"build":…}`: the commands resolved in Phase 4 as JSON, each with the directory it runs in (`.` for the repo root, a package dir in a monorepo), `null` for a skipped key |
+| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES <path>`: write the commands resolved in Phase 4 as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
 
-**Reporting.** You are an Orca worker. The run's final line (`DONE`, `FIXED` or `ESCALATION`) is
-the first line of the `worker_done` body, followed by the `GATES` line after a `DONE`, then every
-`HELD` line from the run; print the same lines to the terminal as well. Report `--outcome failed` for an `ESCALATION`, `succeeded`
-otherwise.
+**Reporting.** You are an Orca worker. The `worker_done` body is at most 12 lines: the run's final
+line (`DONE`, `FIXED` or `ESCALATION`) is the first line of the `worker_done` body, then
+`GATES <path>` after a `DONE`, each `HELD` line from the run, and at most one `NOTE: <one line>` —
+a fact the next worker in this project should know (a required env var, a flaky test, a naming
+rule), never a status update. Anything longer goes into a file whose path you report; the
+coordinator reads the report, not your output. Print the same lines to the terminal as well.
+Report `--outcome failed` for an `ESCALATION`, `succeeded` otherwise.
+
+**Notes first.** When the brief has a `star:` block, read every file listed under `star.notes`
+before Phase 1: notes left by earlier workers in this project and by the human.
 
 **Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
 when a second-model review says NOT SAFE; the file holds that review's findings.
@@ -310,8 +316,8 @@ the review). Phase 6 runs in full, including cleanup and the regression gate. Co
 (never force), and Phases 7–8 are SKIPPED: the PR already exists. Before the final line, write the
 outcome per finding (fixed, or rejected with the technical reason) to the file the coordinator named
 next to the findings (`<findings file without .md>-fix.md`), so the next reviewer sees why a finding
-was rejected. The final line is `FIXED item=<item> head=<sha>`, with the same per-finding outcomes
-listed above it.
+was rejected. The final line is `FIXED item=<item> head=<sha>`; the line after it gives only the
+counts (`fixed=<n> rejected=<m>`), because the outcomes themselves are in that file.
 
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
