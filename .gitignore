@@ -8,4 +8,8 @@ docs/
 # Local workspace config for developing this plugin (not product).
 # The plugin declares superpowers/pr-review-toolkit as dependencies, so
 # consumers do not need these.
-.claude/
+.claude/*
+# The repo's own instructions for people and agents working on the plugin. They live here,
+# not at the root: the root is the plugin, and `claude plugin validate --strict` (the release
+# gate) refuses a CLAUDE.md there because plugin users would never get it.
+!.claude/CLAUDE.md
