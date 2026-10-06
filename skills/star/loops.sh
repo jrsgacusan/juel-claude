@@ -13,19 +13,29 @@
 # of adding it twice. close writes the archive first, so a failed close never loses the item.
 # An id is never handed out twice: the highest one used is kept in <queue>.seq, so an editor
 # that saves an old copy over the queue cannot bring an id back for a different ask.
-# Exit: 0 ok, 2 a file or section is missing or cannot be read or written, 3 git conflict
-# markers, 4 unknown id, 64 usage.
+# A file a person has broken stops every command instead of being guessed at: a STAR heading
+# or an item id that appears twice is exit 2 with the line to fix. "list" also prints
+# "N-<n>\t-\t-\t-\tmissing\t..." for an id that was handed out but is in neither the queue
+# nor the archive (removed by hand, or lost to an editor that saved an older copy).
+# Exit: 0 ok, 2 a file or section is missing, broken or cannot be read or written, 3 git
+# conflict markers, 4 unknown id, 64 usage.
 exec python3 - "$@" <<'PY'
 import argparse
 import fcntl
 import os
 import re
+import shutil
 import sys
+import unicodedata
 from datetime import datetime, timezone
 
 ITEM_RE = re.compile(r"^### (N-(\d+)) · (.*?) · (.*?) · (.*)$")
 SECTIONS = ("## Resume", "## Needs you", "## Waiting on others")
-ANSWER_RE = re.compile(r"^\s{0,3}(?:\*\*)?answer\s?:(?:\*\*)?", re.IGNORECASE)
+# The Answer line as people really type it: "- Answer:", "- [x] Answer:", "*Answer:*",
+# "Answer :", a full-width colon. Never behind "> ": that is how a quoted body line is written.
+ANSWER_RE = re.compile(r"^\s{0,3}(?:[-*+]\s+)?(?:\[[ xX]\]\s*)?[*_]{0,2}answer\s*[:：][*_]{0,2}", re.IGNORECASE)
+COMMENT_RE = re.compile(r"^\s*<!--.*-->\s*$")
+CONFLICT_RE = re.compile(r"^(<<<<<<<|>>>>>>>|=======|\|\|\|\|\|\|\|)( .*)?$")
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 VALUE_FLAGS = ("--file", "--kind", "--project", "--item", "--title", "--body", "--state", "--run", "--pools", "--next")
 
@@ -42,8 +52,13 @@ def load(path):
         die(2, f"{path} not found")
     except OSError as e:
         die(2, f"{path}: {e.strerror}")
-    if any(l.startswith("<<<<<<< ") or l.startswith(">>>>>>> ") for l in lines):
+    if lines:
+        lines[0] = lines[0].lstrip("\ufeff")
+    if any(CONFLICT_RE.match(l) for l in lines):
         die(3, "unresolved git conflict markers; resolve them first")
+    for title in SECTIONS:
+        if sum(1 for l in lines if l.strip() == title) > 1:
+            die(2, f"'{title}' appears twice in {path}; delete the extra line (a heading pasted into an answer)")
     return lines
 
 
@@ -54,6 +69,8 @@ def save(path, lines):
     try:  # bytes that were not UTF-8 go back out exactly as they came in
         with open(tmp, "w", encoding="utf-8", errors="surrogateescape") as f:
             f.write("\n".join(lines))
+        if os.path.exists(path):
+            shutil.copymode(path, tmp)
         os.replace(tmp, path)
     except OSError:
         try:
@@ -82,8 +99,12 @@ def items(lines):
             continue
         stop = next((k for k in range(i + 1, end) if ITEM_RE.match(lines[k])), end)
         found.append({"id": m.group(1), "project": m.group(3), "item": m.group(4),
-                      "title": m.group(5), "start": i, "end": stop})
+                      "title": m.group(5).rstrip(), "start": i, "end": stop})
         i = stop
+    ids = [it["id"] for it in found]
+    twice = next((i for i in ids if ids.count(i) > 1), None)
+    if twice:
+        die(2, f"{twice} appears twice in the queue; keep one copy (the other was pasted or left by a merge)")
     return found
 
 
@@ -100,7 +121,8 @@ def flat(text):
 
 def name(flag, value):
     """A project or item name is matched exactly later, so it is refused rather than changed."""
-    if CONTROL_RE.search(value) or "·" in value or not value.strip():
+    odd = any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") or (ch.isspace() and ch != " ") for ch in value)
+    if odd or "·" in value or not value.strip():
         die(64, f"{flag} must be one line without '·' (got {value!r})")
     return value.strip()
 
@@ -108,8 +130,8 @@ def name(flag, value):
 def quoted(line):
     """A free-text line that would read as structure is written as a quote instead."""
     line = CONTROL_RE.sub(" ", line).rstrip()
-    if (ITEM_RE.match(line) or ANSWER_RE.match(line) or line.startswith(("kind:", "## ", "### "))
-            or line.strip() in SECTIONS):
+    if (ITEM_RE.match(line) or ANSWER_RE.match(line) or CONFLICT_RE.match(line)
+            or line.startswith(("kind:", "## ", "### ")) or line.strip() in SECTIONS):
         return "> " + line.lstrip()
     return line
 
@@ -120,7 +142,7 @@ def tight_end(lines, it):
     if k is None:
         return it["end"]
     j = k + 1
-    while j < it["end"] and lines[j].strip():
+    while j < it["end"] and lines[j].strip() and not COMMENT_RE.match(lines[j]):
         j += 1
     return j
 
@@ -135,7 +157,7 @@ def answer_of(lines, it):
 
 def kind_of(lines, it):
     k = field_line(lines, it, "kind")
-    return lines[k][len("kind:"):].strip() if k is not None else ""
+    return (lines[k][len("kind:"):].split() or [""])[0] if k is not None else ""
 
 
 def find(lines, item_id):
@@ -145,15 +167,24 @@ def find(lines, item_id):
     return it
 
 
+def seq_mark(seq):
+    """The highest id ever handed out, 0 when there is no mark yet. A mark that is not a number
+    stops the queue: guessing 0 could hand an old id to a new ask."""
+    if not os.path.exists(seq):
+        return 0
+    mark = open(seq, encoding="utf-8", errors="surrogateescape").read().strip()
+    if not re.fullmatch(r"[0-9]{1,18}", mark):
+        die(2, f"{seq}: not a number; fix it (the highest N-<n> ever used) or delete it")
+    return int(mark)
+
+
 def next_id(lines, archive, seq):
     """One above every id ever used: in the queue, in the archive, and the mark kept in seq."""
     nums = [int(m.group(2)) for l in lines for m in [ITEM_RE.match(l)] if m]
     if os.path.exists(archive):
         nums += [int(m.group(2)) for l in open(archive, encoding="utf-8", errors="surrogateescape")
                  for m in [ITEM_RE.match(l.rstrip("\n"))] if m]
-    if os.path.exists(seq):
-        mark = open(seq, encoding="utf-8").read().strip()
-        nums.append(int(mark) if mark.isdigit() else 0)
+    nums.append(seq_mark(seq))
     new = max(nums, default=0) + 1
     with open(seq, "w", encoding="utf-8") as f:
         f.write(f"{new}\n")
@@ -162,7 +193,8 @@ def next_id(lines, archive, seq):
 
 def main():
     for stream in (sys.stdout, sys.stderr):  # bytes that were not UTF-8 are printed as they are
-        stream.reconfigure(errors="surrogateescape")
+        if stream is not None:
+            stream.reconfigure(errors="surrogateescape")
     p = argparse.ArgumentParser(prog="loops.sh")
     home = os.environ.get("JUEL_STAR_HOME") or os.path.expanduser("~/juel-star")
     p.add_argument("--file", default=os.path.join(home, "open-loops.md"))
@@ -192,7 +224,7 @@ def main():
     except SystemExit as e:
         sys.exit(64 if e.code not in (0, None) else 0)
 
-    path = args.file
+    path = os.path.realpath(args.file)  # a linked queue stays linked: write through the link
     archive = os.path.join(os.path.dirname(os.path.abspath(path)), "open-loops-archive.md")
     if not os.path.isfile(path):
         die(2, f"{path} not found")
@@ -209,15 +241,30 @@ def main():
         for it in items(lines):
             state = "answered" if answer_of(lines, it) else "open"
             print("\t".join(flat(c) for c in [it["id"], kind_of(lines, it), it["project"], it["item"], state, it["title"]]))
+        known = {int(m.group(2)) for l in lines for m in [ITEM_RE.match(l)] if m}
+        if os.path.exists(archive):
+            known |= {int(m.group(2)) for l in open(archive, encoding="utf-8", errors="surrogateescape")
+                      for m in [ITEM_RE.match(l.rstrip("\n"))] if m}
+        for n in range(1, seq_mark(path + ".seq") + 1):
+            if n not in known:
+                print(f"N-{n}\t-\t-\t-\tmissing\tin neither the queue nor the archive: removed by hand, or lost to an editor save")
     elif args.cmd == "add":
         if not re.fullmatch(r"[a-z][a-z-]*", args.kind):
             die(64, f"--kind must be lower-case letters and dashes (got {args.kind!r})")
         project, item, title = name("--project", args.project), name("--item", args.item), flat(args.title)
+        if not title:
+            die(64, "--title must not be blank")
         body = [quoted(l) for l in args.body.replace("\\n", "\n").split("\n") if l.strip()]
 
         def body_of(it):
+            """The item's own body: what is between its kind line and its Answer line (or, when the
+            user deleted that line, its first blank line), without the blank lines a formatter adds."""
             k = field_line(lines, it, "Answer")
-            return lines[it["start"] + 2:k if k is not None else it["end"]]
+            rows = lines[it["start"] + 1:k if k is not None else it["end"]]
+            rows = [r.rstrip() for r in rows if not r.startswith("kind:")]
+            if k is None and "" in rows[1:]:
+                rows = rows[:rows.index("", 1)]
+            return [r for r in rows if r]
 
         same = next((it for it in items(lines) if (kind_of(lines, it), it["project"], it["item"], it["title"])
                      == (args.kind, project, item, title) and body_of(it) == body), None)
@@ -260,7 +307,9 @@ def main():
             old = (open(archive, encoding="utf-8", errors="surrogateescape").read().split("\n")
                    if os.path.exists(archive) else ["# Closed loops"])
             # a close that failed after this point left its copy here: do not add a second one
-            if block[0] not in old:  # the whole heading: an old home may hold another item under this id
+            # same id, project and item: this item's copy from a close that failed after the archive write.
+            # (An old home may hold a different item under the same id; that one does not match.)
+            if not any(l.startswith(f"### {it['id']} · {it['project']} · {it['item']} · ") for l in old):
                 rest = old[1:]
                 while rest and not rest[0].strip():
                     rest.pop(0)
@@ -293,4 +342,6 @@ try:
     main()
 except OSError as e:
     die(2, f"{e.filename}: {e.strerror}")
+except (ValueError, UnicodeError) as e:
+    die(2, f"cannot read the queue files: {e}")
 PY

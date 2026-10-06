@@ -87,7 +87,11 @@ printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(
 out=$(q env); [ "$out" = "ok" ] && echo "ok   a worker that printed 3 minutes ago is ok" || { echo "FAIL recent output ($out)"; fails=$((fails + 1)); }
 out=$(q env STUB_LIST_FAIL=1); [ "$out" = "ok" ] && echo "ok   an unreadable terminal list never makes a worker quiet" || { echo "FAIL terminal list failure ($out)"; fails=$((fails + 1)); }
 printf '{"result":{"terminals":[]}}\n' > "$TMP/list.json"
-out=$(q env); [ "$out" = "ok" ] && echo "ok   a terminal that is not listed is not called quiet" || { echo "FAIL unlisted terminal ($out)"; fails=$((fails + 1)); }
+out=$(q env); [ "$out" = "unknown terminal not listed" ] && echo "ok   a running worker whose terminal is not listed is unknown, not fine" || { echo "FAIL unlisted terminal ($out)"; fails=$((fails + 1)); }
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((1791374400000 + 30 * 60000))" > "$TMP/list.json"
+out=$(q env); [ "$out" = "unknown clock skew" ] && echo "ok   output dated in the future is unknown, not fine" || { echo "FAIL future lastOutputAt ($out)"; fails=$((fails + 1)); }
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((1791374400000 - 1 * 60000))" > "$TMP/list.json"
+for v in 0 -1 nan inf; do out=$(q env STAR_QUIET_MINUTES=$v); [ "$out" = "ok" ] || { echo "FAIL STAR_QUIET_MINUTES=$v made a busy worker ($out)"; fails=$((fails + 1)); }; done; echo "ok   a quiet threshold that is not a positive number falls back to 15"
 printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((1791374400000 - 40 * 60000))" > "$TMP/list.json"
 python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Please run /login"]}}}))' > "$TMP/read.json"
 python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Do you want to make this edit to a.py?", "❯ 1. Yes", "  2. No"]}}}))' > "$TMP/read.json"
@@ -133,6 +137,15 @@ s "codex model switch" "stuck: model switch" "Switch to gpt-6-luna for lower cre
 s "codex approval prompt" "stuck: confirmation dialog" "Would you like to run the following command?" "  1. Yes, proceed"
 s "a blocking line inside a wide box" "stuck: login" "│ Please run /login$(printf '%250s' '')│"
 s "prose that asks to run a command is not a dialog" "ok" "Would you like to run the following command? I can also skip it."
+s "a worker's own sentence about keeping a model is not a dialog" "ok" "No, keep my current model"
+s "press enter to continue" "stuck: waiting for input" "Press Enter to continue"
+s "press enter to connect" "stuck: waiting for input" "Press Enter to connect to the server…"
+s "a yes/no prompt" "stuck: waiting for input" "Overwrite config? [y/N]"
+s "a password prompt" "stuck: waiting for input" "Password:"
+s "a sentence that mentions a password is not a prompt" "ok" "the password: field is validated on submit"
+s "a worker saying it will press Enter is not a prompt" "ok" "⏺ Next I fill the email field and press Enter to submit the form."
+s "a worker describing a y/n prompt is not at one" "ok" "⏺ Phase 6: the CLI prompt shows Continue (y/n)" "⏺ Now checking the exit code."
+s "a y/n prompt on the last line is one" "stuck: waiting for input" "⏺ running the installer" "Continue? (y/n)"
 s "an edit permission prompt is a dialog" "stuck: confirmation dialog" "Do you want to make this edit to loops.sh?" "❯ 1. Yes"
 s "a create permission prompt is a dialog" "stuck: confirmation dialog" "Do you want to create notes.md?" "  2. No, and tell Claude what to do differently"
 s "a numbered list in prose is not a dialog" "ok" "Plan:" "1. Yes, rename the column first"

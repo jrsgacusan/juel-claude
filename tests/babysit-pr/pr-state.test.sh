@@ -80,14 +80,16 @@ check "kinds" '[i["kind"] for i in d["new_feedback"]] == ["review", "inline", "i
 check "CHANGES_REQUESTED review carries its state and body" 'd["new_feedback"][0]["review_state"] == "CHANGES_REQUESTED" and d["new_feedback"][0]["body"] == "Please fix X"'
 check "thread reply keeps in_reply_to and falls back to original_line" 'd["new_feedback"][2]["in_reply_to"] == 501 and d["new_feedback"][2]["line"] == 3'
 check "reviewers: humans who reviewed or commented, sorted, no bots or author" 'd["reviewers"] == ["mstr-ezra", "mstr-johnpaul"]'
-check "cursor is the newest reported item" 'd["cursor"] == "2026-10-01T07:00:00Z"'
+check "cursor is the newest reported item, with the ids seen in that second" 'd["cursor"] == "2026-10-01T07:00:00Z#902"'
 check "pr fields" 'd["state"] == "OPEN" and d["decision"] == "CHANGES_REQUESTED" and d["head"] == "abc123" and d["author"] == "me" and d["url"].endswith("/pull/7")'
 
+run basic 7 --since '2026-10-01T04:00:00Z#501'
+check "--since filters older items and the ids already seen in its second" 'ids == [503, 902]'
 run basic 7 --since 2026-10-01T04:00:00Z
-check "--since is strict and filters older items" 'ids == [503, 902]'
+check "a bare time is strict, as it always was: its own second counts as seen" 'ids == [503, 902]'
 
-run basic 7 --since 2026-10-01T07:00:00Z
-check "nothing new keeps the input cursor" 'ids == [] and d["cursor"] == "2026-10-01T07:00:00Z"'
+run basic 7 --since '2026-10-01T07:00:00Z#902'
+check "nothing new keeps the input cursor" 'ids == [] and d["cursor"] == "2026-10-01T07:00:00Z#902"'
 
 # ---- decision empty string becomes null ----
 fixture nodecision pr.json '{"state":"OPEN","reviewDecision":"","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/8"}'
@@ -180,6 +182,37 @@ run draftbase 12
 check "snapshot carries draft and base" 'd["draft"] is True and d["base"] == "release"'
 run draftbase 12 --wait --interval 0
 check "wait: an approved PR that is a draft again wakes as draft, not approved" 'd["wake"] == "draft"'
+# An item that shares its second with the cursor is not lost: the cursor carries the ids it has seen.
+fixture samesec pr.json '{"state":"OPEN","reviewDecision":"","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/13"}'
+fixture samesec reviews.json ''
+fixture samesec inline.json ''
+fixture samesec comments.1.json '{"id":11,"user":{"login":"ezra","type":"User"},"body":"first","created_at":"2026-10-01T10:00:05Z","html_url":"i11"}'
+fixture samesec comments.json '{"id":11,"user":{"login":"ezra","type":"User"},"body":"first","created_at":"2026-10-01T10:00:05Z","html_url":"i11"}
+{"id":12,"user":{"login":"jp","type":"User"},"body":"same second","created_at":"2026-10-01T10:00:05Z","html_url":"i12"}'
+run samesec 13
+check "first snapshot sees one item" 'ids == [11] and d["cursor"] == "2026-10-01T10:00:05Z#11"'
+PATH="$TMP/bin:/usr/bin:/bin" STUB_FIX="$TMP/fx/samesec" BABYSIT_GH_TIMEOUT=5 /bin/sh "$SCRIPT" 13 --since '2026-10-01T10:00:05Z#11' > "$TMP/out" 2> "$TMP/err"; echo $? > "$TMP/rc"
+check "an item in the same second as the cursor is still reported, once" 'ids == [12] and d["cursor"] == "2026-10-01T10:00:05Z#11,12"'
+PATH="$TMP/bin:/usr/bin:/bin" STUB_FIX="$TMP/fx/samesec" BABYSIT_GH_TIMEOUT=5 /bin/sh "$SCRIPT" 13 --since '2026-10-01T10:00:05Z#11,12' > "$TMP/out" 2> "$TMP/err"; echo $? > "$TMP/rc"
+check "and never twice" 'ids == []'
+# A review started before the cursor and submitted after it: its inline comments count from the submit time.
+fixture lateinline pr.json '{"state":"OPEN","reviewDecision":"","headRefOid":"h","author":{"login":"me"},"url":"https://github.com/o/r/pull/14"}'
+fixture lateinline reviews.json '{"id":70,"user":{"login":"ezra","type":"User"},"state":"COMMENTED","body":"","submitted_at":"2026-10-01T10:30:00Z","html_url":"r70"}'
+fixture lateinline inline.json '{"id":701,"user":{"login":"ezra","type":"User"},"body":"this leaks a token","created_at":"2026-10-01T10:00:00Z","pull_request_review_id":70,"html_url":"c701","path":"a.py","line":3,"in_reply_to_id":null}'
+fixture lateinline comments.json ''
+run lateinline 14 --since 2026-10-01T10:15:00Z
+check "inline comments are timed by their review's submit time" 'ids == [701]'
+# While this run's own replies or mark-ready are deferred, approval must not wake it in a loop.
+t0=$(date +%s); run draftbase 12 --wait --interval 600 --max-seconds 2 --hold-approval; t1=$(date +%s)
+check "wait --hold-approval: an approved draft waits instead of waking at once" 'd["wake"] == "timeout"'
+if [ $((t1 - t0)) -ge 1 ]; then echo "ok   wait --hold-approval really waits"; else echo "FAIL --hold-approval returned at once"; fails=$((fails + 1)); fi
+run wait-closed 11 --wait --interval 0 --hold-approval
+check "wait --hold-approval: closed still wakes" 'd["wake"] == "closed"'
+run wait-feedback 10 --since garbage
+check "a --since that is not a time is an error object, not a crash" '"--since" in d.get("error", "") and rc == 0'
+run wait-feedback 10 --wait --quiet-since garbage --interval 0
+check "a --quiet-since that is not a time is an error object, not a crash" '"--quiet-since" in d.get("error", "") and rc == 0'
+
 STUB_FAIL=1; export STUB_FAIL
 run wait-feedback 10 --wait --interval 0
 check "wait: three errors in a row wake with errors" 'd["wake"] == "errors" and "exited 1" in d["error"]'

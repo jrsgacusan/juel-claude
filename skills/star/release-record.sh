@@ -53,7 +53,7 @@ except ValueError:
 if not isinstance(d, dict):
     err("gh: unreadable output")
 for key in ("reviews", "statusCheckRollup"):
-    value = d.get(key) or []
+    value = [] if d.get(key) is None else d[key]
     if not isinstance(value, list) or not all(isinstance(e, dict) for e in value):
         err("gh: unreadable output")
 if d.get("state") != "MERGED":

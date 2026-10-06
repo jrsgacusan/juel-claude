@@ -3,6 +3,8 @@
 # putting the worker's screen into STAR's context.
 #   worker-probe.sh <dispatch>
 #     ->   ok | quiet <minutes> <terminal> | settled <state> | stuck: <label> | gone | unknown <why>
+# "stuck" labels: usage limit, login, trust dialog, model switch, confirmation dialog, waiting for
+# input (a "press enter", a y/n or a password prompt).
 # "quiet" means the worker is running but its terminal has printed nothing for STAR_QUIET_MINUTES
 # (default 15): it may have ended its turn without reporting, or be waiting on a long command.
 # STAR checks in on it through that terminal; it is never a reason to stop the worker.
@@ -16,6 +18,7 @@ exec python3 - "$@" <<'PY'
 import json
 import os
 import re
+import math
 import subprocess
 import sys
 import time
@@ -30,9 +33,13 @@ PATTERNS = [
               r"|^\W*authentication required\b|^\W*invalid auth token\b|^\W*sign-in required"),
     ("trust dialog", r"do you trust the files in this folder|trust this folder"),
     ("model switch", r"would you like to switch (to|models?)\b|^\W*(\d+\.\s+)?switch to [\w .-]+ and continue\b"
-                     r"|^\W*switch to [\w .-]+ for lower credit usage\?|^\W*(\d+\.\s+)?(no, )?keep (my )?current model\b"),
+                     r"|^\W*switch to [\w .-]+ for lower credit usage\?"),
     ("confirmation dialog", r"^\s*(❯\s*)?\d+\.\s+no, exit\b"),
+    # Screens that wait for a key or a typed answer: a check-in line plus Enter would answer them.
+    ("waiting for input", r"^\W*press (enter|return|any key)\b|^\W*(password|passphrase)( for [^:]*)?:\s*$"),
 ]
+# A y/n prompt counts only on the last line of the screen: mid-screen it is the worker talking about one.
+YES_NO = r"[\[(](y/n|yes/no)[\])]\s*:?\s*$"
 # A question counts as a dialog only with a numbered yes/no option on screen: prose asks
 # questions too. Every permission prompt ("Do you want to make this edit to X?", "Do you want to
 # create X?", "Would you like to run the following command?") has that shape, so none of them is
@@ -104,26 +111,38 @@ for label, pattern in PATTERNS:
         out("stuck: " + label)
 if any(re.search(QUESTION, l, re.IGNORECASE) for l in lines) and any(re.search(OPTION, l, re.IGNORECASE) for l in lines):
     out("stuck: confirmation dialog")
+last_line = next((l for l in reversed(lines) if l.strip()), "")
+if re.search(YES_NO, last_line, re.IGNORECASE) and not last_line.lstrip().startswith(("⏺", "●", "-", "*")):
+    out("stuck: waiting for input")
 
 
 def quiet_minutes(handle):
-    """Whole minutes since the worker's terminal last printed, or None when that cannot be told."""
+    """Whole minutes since the worker's terminal last printed; None when the list cannot be read.
+    A running worker whose terminal is not in a readable list, or whose last output is dated in
+    the future, is "unknown": saying "ok" would hide a worker nobody can see."""
     try:
         proc = subprocess.run([orca, "terminal", "list", "--limit", "500", "--json"],
                               capture_output=True, text=True, timeout=30)
         terminals = json.loads(proc.stdout)["result"]["terminals"]
-        last = next(t["lastOutputAt"] for t in terminals if t.get("handle") == handle)
         now = (datetime.fromisoformat(os.environ["STAR_NOW"].replace("Z", "+00:00")).timestamp()
                if os.environ.get("STAR_NOW") else time.time())
-        return int((now * 1000 - float(last)) // 60000)
     except Exception:
         return None
+    last = next((t.get("lastOutputAt") for t in terminals if isinstance(t, dict) and t.get("handle") == handle), None)
+    if not isinstance(last, (int, float)):
+        out("unknown terminal not listed")
+    minutes = int((now * 1000 - float(last)) // 60000)
+    if minutes < -1:
+        out("unknown clock skew")
+    return max(minutes, 0)
 
 
 handle = worker.get("agent_terminal_handle")
 try:
     threshold = float(os.environ.get("STAR_QUIET_MINUTES", "15"))
 except ValueError:
+    threshold = 15.0
+if not math.isfinite(threshold) or threshold <= 0:
     threshold = 15.0
 minutes = quiet_minutes(handle) if handle else None
 if minutes is not None and minutes >= threshold:

@@ -142,8 +142,8 @@ bash "$SCRIPT" --holder z -- true && pass "runs under bash" || fail "bash"
 sh "$SCRIPT" --holder n1 -- sh -c "sh '$SCRIPT' --holder n2 --wait-max 2 -- sh -c 'echo inner > $TMP/nest.ran'"; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$TMP/nest.ran" ] && pass "a gate inside a gate on the same lock runs, it does not wait for itself" || fail "nested gate (rc=$rc)"
 # (the default lock is the real machine-wide one: never wait for it here; busy means a real gate runs)
-d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc --wait-max 0 -- sh -c 'printf %s "$JUEL_GATE_LOCK_HELD"' 2>/dev/null); rc=$?
-case "$rc:$d" in 0:/tmp/juel.gate."$(id -u)".lock) pass "the default lock is one file per user under /tmp, in or out of a git repo" ;; 75:*) pass "default lock path (skipped: a real gate is running)" ;; *) fail "default lock path (rc=$rc $d)" ;; esac
+d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc-probe --wait-max 0 -- sh -c "cut -d' ' -f1 /tmp/juel.gate.$(id -u).lock" 2>/dev/null); rc=$?
+case "$rc:$d" in 0:loc-probe) pass "the default lock is one file per user under /tmp, in or out of a git repo" ;; 75:*) pass "default lock path (skipped: a real gate is running)" ;; *) fail "default lock path (rc=$rc $d)" ;; esac
 now() { python3 -c 'import time; print(time.time())'; }
 # A holds the lock; B waits on that file; the file is deleted; C then locks the new file. When A
 # ends, B gets the old file's lock, must notice the path no longer names it, and wait for C.
@@ -157,6 +157,38 @@ pc=$!
 wait "$pa" "$pb" "$pc"
 python3 -c 'import sys; b, c = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if b >= c else 1)' "$TMP/b.start2" "$TMP/c.end2" && pass "a waiter on a deleted lock file moves to the new one and waits its turn" || fail "waiter ran on the deleted lock file while another gate held the new one"
 free && pass "the lock still works after its file was deleted" || fail "lock unusable after its file was deleted"
+
+# Final pass
+# 19. The nested shortcut is for a process inside a gate that is still running, proven by the
+#     token in the lock file: a stale value inherited by a later, unrelated caller means nothing.
+old=$(sh "$SCRIPT" --holder t -- sh -c 'printf %s "$JUEL_GATE_LOCK_HELD"')
+sh "$SCRIPT" --holder live2 -- sleep 3 &
+l2=$!; sleep 0.5
+JUEL_GATE_LOCK_HELD="$old" sh "$SCRIPT" --holder stale --wait-max 0 -- sh -c "echo ran > '$TMP/stale.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 75 ] && [ ! -e "$TMP/stale.ran" ] && pass "a stale nested marker does not skip the lock" || fail "stale JUEL_GATE_LOCK_HELD ran without the lock (rc=$rc)"
+JUEL_GATE_LOCK_HELD="$LOCK" sh "$SCRIPT" --holder path --wait-max 0 -- true 2>/dev/null; [ $? -eq 75 ] && pass "the lock's path alone is not a nested marker" || fail "path as marker skipped the lock"
+wait "$l2"
+ln -s "$TMP" "$TMP.alias"
+sh "$SCRIPT" --holder outer -- sh -c "JUEL_GATE_LOCK='$TMP.alias/gate.lock' sh '$SCRIPT' --holder inner --wait-max 1 -- sh -c 'echo inner > $TMP/alias.ran'"; rc=$?
+rm -f "$TMP.alias"
+[ "$rc" -eq 0 ] && [ -f "$TMP/alias.ran" ] && pass "a nested gate that spells the same lock file differently still runs" || fail "nested gate on an aliased path (rc=$rc)"
+# 20. A gate that never ends is stopped at --max-seconds and says so with its own exit code.
+t0=$(date +%s); sh "$SCRIPT" --holder hung --max-seconds 1 -- sh -c "sleep 60; echo late > '$TMP/hung.late'" 2> "$TMP/hung.err"; rc=$?; t1=$(date +%s)
+[ "$rc" -eq 124 ] && [ $((t1 - t0)) -le 10 ] && grep -q 'ran past' "$TMP/hung.err" && free && pass "a hung gate is stopped at --max-seconds with exit 124" || fail "hung gate (rc=$rc, $((t1 - t0))s)"
+sleep 0.3; pgrep -f "$TMP/hung.late" >/dev/null && fail "hung gate's command still running" || pass "the hung gate's command is gone"
+# 21. A gate that cannot run at all is exit 71: never the same code as a red test suite.
+mkfifo "$TMP/fifo.lock"; t0=$(date +%s); JUEL_GATE_LOCK="$TMP/fifo.lock" sh "$SCRIPT" --holder f --wait-max 30 -- true 2>/dev/null; rc=$?; t1=$(date +%s)
+[ "$rc" -eq 71 ] && [ $((t1 - t0)) -le 5 ] && pass "a lock path that is not a regular file is exit 71 at once" || fail "FIFO lock path (rc=$rc, $((t1 - t0))s)"
+mkdir "$TMP/dir.lock"; JUEL_GATE_LOCK="$TMP/dir.lock" sh "$SCRIPT" --holder d -- true 2>/dev/null; [ $? -eq 71 ] && pass "a lock path that cannot be opened is exit 71" || fail "directory lock path"
+sh "$SCRIPT" --holder m --max-seconds nope -- true 2>/dev/null; [ $? -eq 64 ] && pass "a bad --max-seconds is exit 64" || fail "bad --max-seconds"
+# 22. The command's group is what holds a killed wrapper's lock: a child of the command counts.
+sh "$SCRIPT" --holder g -- sh -c "(sleep 2; date +%s > '$TMP/g.end') & wait" &
+g=$!; sleep 0.5; kill -9 "$g" 2>/dev/null; wait "$g" 2>/dev/null
+sh "$SCRIPT" --holder g2 --wait-max 10 -- sh -c "date +%s > '$TMP/g2.start'"
+[ -f "$TMP/g.end" ] && [ "$(cat "$TMP/g2.start")" -ge "$(cat "$TMP/g.end")" ] && pass "a grandchild keeps a killed wrapper's lock held" || fail "lock freed while a grandchild still ran"
+
+sh "$SCRIPT" --holder z0 --max-seconds 0 -- sh -c "sleep 1; echo ran > '$TMP/z0.ran'"; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$TMP/z0.ran" ] && pass "--max-seconds 0 means no time limit" || fail "--max-seconds 0 killed the gate (rc=$rc)"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
