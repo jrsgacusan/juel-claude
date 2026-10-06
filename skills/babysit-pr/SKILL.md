@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a fleet worker, marks a draft ready once, escalates instead of asking and holds reviewer-facing actions during quiet hours. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
+description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a juel:ship-tickets Orca worker, marks a draft ready once, escalates instead of asking and holds reviewer-facing actions during quiet hours. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
 metadata:
   requires:
     cli:
@@ -121,11 +121,11 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
 Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
-or as a fleet worker `/juel:babysit-pr 412 --unattended --mark-ready --item SAVI-1162 --gates "make test" --quiet-hours 22:00-07:00@Asia/Manila`
+or as a `juel:ship-tickets` worker `/juel:babysit-pr 412 --unattended --mark-ready --item SAVI-1162 --gates "make test" --quiet-hours 22:00-07:00@Asia/Manila`
 
 ## Unattended mode
 
-`--unattended` is how a fleet worker runs this skill after the second-model review said SAFE. Nobody
+`--unattended` is how a `juel:ship-tickets` Orca worker runs this skill after the second-model review said SAFE. Nobody
 is there to answer, so every place below that tells the user something or asks them changes:
 
 | Normally | With `--unattended` |
@@ -140,7 +140,8 @@ is there to answer, so every place below that tells the user something or asks t
 | merge conflicts: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | `receive-review-and-execute` prints `STOPPED: <reason>` | `ESCALATION item=<item> phase=8 reason=remediation-stopped needs=<reason>`; never read it as "zero actionable" |
 | Phase 4 ends after the push | **wait for CI and the approval** before reporting: poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`. Any `fail` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing check names>`. Then re-read `reviewDecision`: if the push dismissed the approval, go back to Phase 2 (the re-request is a reviewer-facing action, subject to quiet hours) |
-| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green); any other outcome is an `ESCALATION` with the reason |
+| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green); any other outcome is an `ESCALATION` with the reason. That line is the first line of the `worker_done` body, followed by any `HELD` lines; `--outcome failed` for an `ESCALATION` |
+| gates run directly | take `<git-common-dir>/juel/gate.lock` exactly as `juel:ship-ticket`'s "Gate lock" paragraph describes: `mkdir` to acquire, retry every 30 s in foreground calls of at most 540 s, a lock older than 2 h with a dead pid is stale, `rm -rf` after the gates whether they passed or not |
 
 **Nothing deferred is lost.** Before printing `READY`, run every deferred command; if the quiet
 window is still on, keep waiting in Phase 2 (feedback that arrives meanwhile is handled as usual)

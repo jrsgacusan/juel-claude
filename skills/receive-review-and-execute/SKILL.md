@@ -121,7 +121,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `[pr-number]` | (required) | GitHub PR number to fetch review comments from |
-| `--unattended` | off | No human answers (a fleet worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
+| `--unattended` | off | No human answers (a `juel:ship-tickets` worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
 
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
 
