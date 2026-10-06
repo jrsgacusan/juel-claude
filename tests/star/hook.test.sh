@@ -23,5 +23,6 @@ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["maxParall
 [ -f "$T/memory/global.md" ] && [ -f "$T/gitignore" ] && pass "memory and gitignore templates" || fail "templates missing"
 
 python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notifiedThrough"]==0' "$T/star.json" && pass "notification cursor starts at 0" || fail "notifiedThrough default"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert "away" in d and d["away"] is None' "$T/star.json" && pass "away starts off" || fail "away default"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

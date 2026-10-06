@@ -61,5 +61,6 @@ grep -q 'GATES {"test":' "$SKILL" && fail "no inline gate JSON in the report" ||
 grep -q 'item.name' "$SKILL" && pass "item named by the brief's item.name" || fail "item.name"
 grep -q '## Decisions' "$SKILL" && pass "brief decisions are binding" || fail "Decisions"
 grep -q 'batch-dir' "$SKILL" && fail "no stale batch-dir paths" || pass "no stale batch-dir paths"
+grep -q '`always`' "$SKILL" && pass "quiet window can be always" || fail "always window"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
