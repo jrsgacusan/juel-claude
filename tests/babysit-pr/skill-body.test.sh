@@ -59,12 +59,25 @@ grep -q 'commit.oid' "$SKILL" && pass "S8 approvals are matched to the head comm
 grep -q 'Under `--unattended`: `git merge --abort`' "$SKILL" && pass "S4 final-sync conflict never asks" || fail "S4 phase 4 conflict"
 grep -q 'never dropped to fit' "$SKILL" && pass "S11 the report keeps what STAR needs" || fail "S11 report priority"
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && pass "T1 no gate lock path to pass" || fail "T1 gate lock path"
-grep -q '(cd <cwd> && <cmd>)' "$SKILL" && pass "T9 each gate runs from the repo root" || fail "T9 gate cwd"
+grep -q 'taken from the repo root' "$SKILL" && ! grep -q '(cd <cwd> && <cmd>)' "$SKILL" && pass "T9 each gate runs from the repo root" || fail "T9 gate cwd"
 grep -q 'at least 7 characters' "$SKILL" && grep -q 'newest review file' "$SKILL" && pass "T5 the SAFE proof must be exact and current" || fail "T5 SAFE proof"
 grep -q 'anything but `inside` or `outside`' "$SKILL" && pass "T6 a broken quiet-hours check holds, never sends" || fail "T6 quiet helper failure"
 grep -q '| `draft` |' "$SKILL" && grep -q 'reason=pr-draft-again' "$SKILL" && grep -q "the snapshot's \`base\`" "$SKILL" && pass "T6 a PR made draft again or retargeted is not reported ready" || fail "T6 draft and base"
 grep -q 'reason=blocked-without-feedback' "$SKILL" && pass "T13 a bot-only block does not wait 72 hours" || fail "T13 bot-only block"
 grep -q 'ask the coordinator' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
-grep -q 'Check the proof again right before a deferred' "$SKILL" && pass "R3 a deferred mark-ready re-checks the proof" || fail "R3 deferred mark-ready"
+grep -q 'again right before a deferred' "$SKILL" && pass "R3 a deferred mark-ready re-checks the proof" || fail "R3 deferred mark-ready"
+# Final pass
+g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
+g "B1 gates run from the manifest, never from a hand-quoted string" 'run-gates.sh'
+g "B2 the SAFE proof is checked by the script" 'review-proof.sh'
+g "B3 an approved PR waits out the quiet window without spinning" '--hold-approval'
+g "B4 escalations carry the cursor the round started from" 'the cursor this round started from'
+g "B5 READY waits for checks whether or not Phase 4 pushed" 'whether or not Phase 4 pushed'
+g "B5 a head with no checks yet is not green at once" 'no checks reported'
+g "B6 the approval rule matches the final check" 'latest review'
+g "B7 a draft is never reported ready" 'before `READY`'
+g "B8 the cursor is passed back as it is" 'opaque'
+g "B9 the report starts with its state line" 'body starts with it'
+grep -q 'id: orca' "$SKILL" && pass "B10 orca is declared" || fail "B10 orca not declared"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

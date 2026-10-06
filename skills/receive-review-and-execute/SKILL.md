@@ -13,6 +13,16 @@ metadata:
         why: phase 8 dispatches codex to execute the remediation plan
         check: "command -v codex"
         fallback: execute the plan in-session
+      - id: python3
+        hard: false
+        why: under --unattended, heavy plan steps run through juel:ship-ticket's gate-lock.sh, which runs on it
+        check: "command -v python3"
+        fallback: an interactive run does not need it; an unattended run prints STOPPED
+      - id: orca
+        hard: false
+        why: an unattended run is an Orca worker's, and its caller reports through orca orchestration
+        check: "command -v orca"
+        fallback: an interactive run does not need it
     context:
       - id: open-pr
         hard: true
@@ -89,6 +99,8 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
 | claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
+| python3 | cli | SOFT | `command -v python3` | an interactive run does not need it; an unattended run prints STOPPED |
+| orca | cli | SOFT | `command -v orca` | an interactive run does not need it |
 | AskUserQuestion | context | HARD | always available interactively, or `--unattended` passed | STOP in headless sessions unless `--unattended` was passed |
 | clean working tree | context | HARD | `git status --porcelain` empty | STOP → commit or stash first |
 
@@ -132,13 +144,22 @@ Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute
 - Any ambiguous finding in phase 5: do not ask and do not execute anything, including the
   actionable findings, so a fix never ships half-decided. Print `AMBIGUOUS: <author> <file:line>
   <comment, trimmed> — <why it is ambiguous>` for each one and stop; the caller escalates them.
+- With `--brief`, read the brief's `## Decisions` section first: the human's dated answers to
+  earlier escalations on this item (the later one wins where two disagree). A finding a decision
+  answers is no longer ambiguous and no longer out of scope: the decision classifies it, as
+  actionable (do it this way: it is planned) or as declined (leave it: the decision is the reply). Never report as `AMBIGUOUS:` or `BRIEF-VIOLATION:` something a
+  decision already settles: that would escalate the same question forever.
 - With `--brief`, a finding that needs work outside the brief's scope is not planned: print
   `BRIEF-VIOLATION: <author> <file:line> <request, trimmed> — <the scope line it breaks>` and stop
   before executing anything, so the human decides. Without `--brief`, scope is not checked.
 - With `--only`, phase 5 classifies only the listed items; the rest are context.
-- Heavy verification steps in the remediation plan (full test suites, builds) are written as
-  `juel:ship-ticket`'s `gate-lock.sh` line (`sh <gate-lock.sh> --holder <pr> -- <command>`), so they
-  wait their turn behind other unattended workers; targeted single-file tests run directly.
+- Heavy verification steps in the remediation plan (full test suites, builds) run through
+  `juel:ship-ticket`'s `gate-lock.sh`, so they wait their turn behind other unattended workers;
+  targeted single-file tests run directly. What follows `--` on a `gate-lock.sh` line is
+  one command with its arguments, not a shell line: `sh <gate-lock.sh> --holder <pr> -- <command>`
+  with a `&&`, a `cd`, a `VAR=value` or a quote in `<command>` runs only its first word inside the
+  lock. Put the commands in a file under `set -e` and run
+  `-- sh <that file>`.
 - Any other STOP (a preflight STOP, a dirty tree, a missing PR) prints `STOPPED: <reason>` as its
   last line, so the caller never mistakes it for a run with nothing to fix.
 - Everything else runs as normal.

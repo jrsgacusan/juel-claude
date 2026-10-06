@@ -16,6 +16,11 @@ metadata:
         hard: true
         why: pr-state.sh parses the GitHub API output with python3
         check: "command -v python3"
+      - id: orca
+        hard: false
+        why: an unattended worker asks its coordinator and reports through orca orchestration
+        check: "command -v orca"
+        fallback: an interactive run does not need it; an unattended run stops with the preflight escalation
     skills:
       - id: juel:receive-review-and-execute
         hard: true
@@ -88,11 +93,12 @@ Run these as one batched Bash call, then render per the format below.
 | gh (authenticated) | cli | HARD | `gh auth status` | STOP → `gh auth login` |
 | git | cli | HARD | `command -v git` | STOP |
 | python3 | cli | HARD | `command -v python3` | STOP → install Python 3 |
+| orca | cli | SOFT | `command -v orca` | an interactive run does not need it; an unattended run stops with the preflight escalation |
 | juel:receive-review-and-execute | skill | HARD | ships with this plugin | STOP |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
 | open PR | context | HARD | `gh pr view <N> --json number` | STOP → open the PR first |
 
-All satisfied renders as: `Preflight: 6/6 OK (gh, git, python3, juel:receive-review-and-execute, git repo, open PR)` / `→ PROCEED: all requirements met.`
+All satisfied renders as: `Preflight: 7/7 OK (gh, git, python3, orca, juel:receive-review-and-execute, git repo, open PR)` / `→ PROCEED: all requirements met.`
 
 ## Phases
 
@@ -132,34 +138,39 @@ or as a `juel:star` worker `/juel:babysit-pr 412 --unattended --mark-ready --ite
 With `--brief`, first read the files under the brief's `star.notes`, then its `## Decisions`
 section if it has one: the human's dated answers to earlier escalations on this item. A decision
 settles the reviewer comment it answers: apply it, and never escalate that comment again. Nobody
-is there to answer, so every place below that tells the user something or asks them changes:
+is there to answer, so every place below that tells the user something or asks them changes.
+Each row overrides the phase step it names: under `--unattended` or `--quiet-hours`, read this
+table before doing a step, even where the step's own text does not point back here.
 
 | Normally | With `--unattended` |
 |---|---|
 | Phase 2 waits in the background (Claude Code) | Always the foreground form with `--max-seconds 540`, repeated on `wake: timeout`: a background wait may never wake a headless session. The same applies whenever `--quiet-hours` is set, unattended or not, so deferred commands run within minutes of the window ending |
-| `approved` wake needs `reviewDecision: APPROVED` | also on each `timeout` wake when `decision` is null or an empty string (`gh pr view` reports `""` when the base branch requires no review): `gh pr view <pr> --json reviews,headRefOid` → an `APPROVED` review whose `commit.oid` is the PR's `headRefOid`, with no later `CHANGES_REQUESTED` from anyone, counts as approved → Phase 4. Dates are never compared: a commit made earlier and pushed later is older than the approval and was still never reviewed |
+| `approved` wake needs `reviewDecision: APPROVED` | also on each `timeout` wake when `decision` is null or an empty string (`gh pr view` reports `""` when the base branch requires no review): `gh pr view <pr> --json reviews,headRefOid` → an `APPROVED` review whose `commit.oid` is the PR's `headRefOid`, and no reviewer whose latest review (of `APPROVED`, `CHANGES_REQUESTED`, `DISMISSED`) is `CHANGES_REQUESTED`, counts as approved → Phase 4 (the same rule `juel:star`'s final check uses, so `READY` is never followed by "changes requested by …"). A PR whose snapshot says `draft: true` is never approved for this purpose: see the `draft` wake. Dates are never compared: a commit made earlier and pushed later is older than the approval and was still never reviewed |
 | no limit on waiting | 72 h with no new feedback since the PR was marked ready → `ESCALATION item=<item> phase=8 reason=no-review needs=a reviewer`, after flushing (below) |
 | `errors`: tell the user, wait again | wait again; three `errors` in a row → `ESCALATION item=<item> phase=8 reason=pr-state-errors needs=<the error>` |
 | `silence`: tell the user once | say nothing; wait again with `--silence-hours 0` |
 | `receive-review-and-execute` asks about ambiguous findings or merge conflicts | invoke it with `--unattended --only <ids>`, the ids of this round's `new_feedback` (older threads are context only, so feedback already answered is never re-planned or re-escalated), plus `--brief <path>` when given; its `BRIEF-VIOLATION:` lines → `ESCALATION item=<item> phase=8 reason=brief-violation needs=<each request>`; its `AMBIGUOUS:` lines → `ESCALATION item=<item> phase=8 reason=ambiguous-review needs=<each ambiguous finding>`. When the brief has a `star:` block, first write `<star.home>/drafts/<YYYY-MM-DD>-<star.project>-<item>-reply.md` (each ambiguous comment with its author and link, then two or three candidate decisions for it) and add `DRAFT <path>` to the report, so the human answers from a draft instead of from the thread; its `CONFLICT:` line → `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | two red gates in a row: stop and ask | write the failing output to `<star.home>/reviews/<star.project>/<item>-gate.log` (or a temp file without a `star:` brief), then `ESCALATION item=<item> phase=8 reason=gate-red cursor=<last cursor> needs=<command> failed, output in <that path>` |
-| every `ESCALATION` line in this table | has the shape `ESCALATION item=<item> phase=8 reason=<reason> cursor=<last cursor> needs=<one line>`: the cursor lets a restarted run skip feedback already answered, and `needs=` is always one line (long output goes in a file whose path it names) |
+| every `ESCALATION` line in this table | has the shape `ESCALATION item=<item> phase=8 reason=<reason> cursor=<last cursor> needs=<one line>`. `<last cursor>` here is the cursor this round started from (the `--since` of the wait that woke it), never the wake object's own `cursor`: that one only becomes the cursor in Phase 3 step 7, after the round's items were fixed and answered. A round that escalates has answered nothing, so a restarted run must see its items again. The cursor is an opaque string from `pr-state.sh`: pass it back exactly as it came. It lets a restarted run skip feedback already answered, and `needs=` is always one line (long output goes in a file whose path it names) |
 | Phase 2 wakes with `closed` and the PR is merged | not an escalation: the report's first line is `MERGED item=<item> pr=<url>`, and the run ends. A PR closed without a merge is `ESCALATION … reason=pr-closed` |
 | `decision` is `CHANGES_REQUESTED`, this run has had nothing to act on since it started or since its last push, and 24 h have passed (a bot, or a reviewer who left no comment, blocks the PR; a reviewer who was just re-requested gets the same 24 h) | `ESCALATION item=<item> phase=8 reason=blocked-without-feedback needs=changes were requested with no comment to act on` |
 | stuck on the same thing three times (a gate, a tool, two ways to read a comment) | ask the coordinator before escalating: `orca orchestration ask --question "<one question, with what you tried>" --json`. Its answer binds like a Decision. A check-in message from the coordinator in the terminal gets a one-line answer, then carry on |
 | a question sent with `orca orchestration ask` comes back "No answer from the user: escalate this." | `ESCALATION item=<item> phase=8 reason=unanswered-question needs=<the question>` |
 | merge conflicts: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | `receive-review-and-execute` prints `STOPPED: <reason>` | `ESCALATION item=<item> phase=8 reason=remediation-stopped needs=<reason>`; never read it as "zero actionable" |
-| Phase 4 ends after the push | **wait for CI and the approval** before reporting: poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`, for at most 3 hours in all; still pending then → `ESCALATION item=<item> phase=8 reason=ci-stuck needs=<the pending check names>`. Any `fail` or `cancel` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing or cancelled check names>`. Then re-read `reviewDecision` (null and an empty string mean the repo requires no review). If the push dismissed the approval, or (no review required) no `APPROVED` review has the new head as its `commit.oid`, run `gh pr edit <pr> --add-reviewer <each reviewer whose approval is for an older commit or was dismissed>` (a reviewer-facing action, deferred in quiet hours), then go back to Phase 2 |
-| Phase 5 report | its last line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green); any other outcome is an `ESCALATION` with the reason. The `worker_done` body is at most 12 lines: that line is the first line of the `worker_done` body, then `SENT replies=<n> review-requests=<m>` when anything was posted in this run (the coordinator logs it for the user's summary), at most one `DRAFT <path>` (one draft file holds every ambiguous comment), one `HELD` line for all deferred commands together (below), at most two other `HELD` lines (more: write them to a file and report one `HELD item=<item> action=<n> held actions, listed in <path>`), and at most one `NOTE: <one line>` (a fact the next worker in this project should know). That is 7 lines at most, so the first line, with its head and cursor, is never dropped to fit; `--outcome failed` for an `ESCALATION` |
-| gates run directly | run them through `juel:ship-ticket`'s `gate-lock.sh` (`../ship-ticket/gate-lock.sh` from this file, or `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh`): `sh <gate-lock.sh> --holder "<item>" -- sh -c '<each gate as (cd <cwd> && <cmd>), joined with &&>'` (each gate in its own parentheses, so every `cwd` is taken from the repo root and one package's directory never leaks into the next gate), run in the background, like `codex exec` (`run_in_background: true`, wait for the completion notification, never poll it): waiting for the lock plus the gates can outlast the 600 s foreground cap. Exit 75 means busy: run it once more; a second 75 → `ESCALATION item=<item> phase=8 reason=gate-busy needs=<its "busy, held by …" line>` |
-| `--mark-ready` on a draft PR | first the proof: `--reviewed` must be given, the first line of that file must be a `VERDICT` line for this item that says `SAFE`, its `head=` must be at least 7 characters and the start of the PR's current `headRefOid`, and it must be the newest review file for the item (no `-r<k+1>.md` beside it: a later round replaces an earlier verdict). Anything else → leave the PR a draft and `ESCALATION item=<item> phase=8 reason=no-safe-verdict needs=a SAFE second-model review of <current head>`. A PR that is already ready needs no proof: it was shown to people before this run. Check the proof again right before a deferred `gh pr ready` runs: the head may have moved while the quiet window was on |
+| before `READY`, whether or not Phase 4 pushed | **wait for CI and the approval** before reporting (the last Phase 3 push's checks may still be running when Phase 4 has nothing to push): poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`, for at most 3 hours in all. `gh pr checks` exiting 1 with "no checks reported" means none has registered yet: that is pending for the first 5 minutes after the last push, and "this repo has no CI" after that. Also before `READY`: one last snapshot, and `draft: true` in it is the `pr-draft-again` escalation, never `READY`; still pending then → `ESCALATION item=<item> phase=8 reason=ci-stuck needs=<the pending check names>`. Any `fail` or `cancel` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing or cancelled check names>`. Then re-read `reviewDecision` (null and an empty string mean the repo requires no review). If the push dismissed the approval, or (no review required) no `APPROVED` review has the new head as its `commit.oid`, run `gh pr edit <pr> --add-reviewer <each reviewer whose approval is for an older commit or was dismissed>` (a reviewer-facing action, deferred in quiet hours), then go back to Phase 2 |
+| Phase 5 report | its state line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green; here `<last cursor>` is the newest cursor, everything before it is answered); any other outcome is an `ESCALATION` with the reason. Print it as the last line in the terminal; the `worker_done` body starts with it. The `worker_done` body is at most 12 lines: that line is the first line of the `worker_done` body, then `SENT replies=<n> review-requests=<m>` when anything was posted in this run (the coordinator logs it for the user's summary), at most one `DRAFT <path>` (one draft file holds every ambiguous comment), one `HELD` line for all deferred commands together (below), at most two other `HELD` lines (more: write them to a file and report one `HELD item=<item> action=<n> held actions, listed in <path>`), and at most one `NOTE: <one line>` (a fact the next worker in this project should know). That is 7 lines at most, so the first line, with its head and cursor, is never dropped to fit; `--outcome failed` for an `ESCALATION` |
+| gates run directly | run them through `juel:ship-ticket`'s `gate-lock.sh` and `run-gates.sh` (`../ship-ticket/` from this file, or `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/`): `sh <gate-lock.sh> --holder "<item>" -- sh <run-gates.sh> <the --gates-file manifest> --root <repo root>`. `run-gates.sh` runs each gate in its own `cwd`, taken from the repo root, exactly as the manifest has it; never paste a gate command into a quoted `sh -c '…'` string (one quote in the command silently drops the rest). With `--gates` and no manifest, write the commands to a file, one per line under `set -e`, and run `-- sh <that file>`. Run it in the background, like `codex exec` (`run_in_background: true`, wait for the completion notification, never poll it): waiting for the lock plus the gates can outlast the 600 s foreground cap. Exit 75 means busy: run it once more; a second 75 → `ESCALATION item=<item> phase=8 reason=gate-busy needs=<its "busy, held by …" line>`. Exit 71 or 124 (the gate could not run, or ran past its time limit) → `ESCALATION item=<item> phase=8 reason=gate-unavailable needs=<the script's message>`, never a red gate |
+| `--mark-ready` on a draft PR | first the proof, checked by the script and never by eye: `sh <review-proof.sh> <the --reviewed file> --item <item> --head <the PR's current headRefOid>` (`review-proof.sh` is next to this file). It prints `OK round=<k>` only when the file's first line is a full `VERDICT` line for this item that says `SAFE`, its `head=` is at least 7 characters and the start of the PR's head, and it is the newest review file for the item (a later round replaces an earlier verdict). `NO …`, no `--reviewed`, or a script that cannot run → leave the PR a draft and `ESCALATION item=<item> phase=8 reason=no-safe-verdict needs=a SAFE second-model review of <current head> (<what the script said>)`. A PR that is already ready needs no proof: it was shown to people before this run. Run the script again right before a deferred `gh pr ready`: the head may have moved while the quiet window was on |
 | Phase 4 step 3, a red gate | once: back through `receive-review-and-execute` with the failing output, as in Phase 3 step 3. Twice in a row: the `gate-red` escalation above. Nothing is pushed on red |
 
 **Nothing deferred is lost.** Before printing `READY`, run every deferred command; if the quiet
 window is still on, keep waiting in Phase 2 (feedback that arrives meanwhile is handled as usual)
-until it ends, then run them. Before printing an `ESCALATION`, write the deferred commands
-that have not run to a file beside the draft or gate log and print one `HELD` line for all deferred
+until it ends, then run them. While anything is deferred, every Phase 2 wait carries
+`--hold-approval`: without it an approved PR (or an approved draft whose `gh pr ready` is the
+deferred command) wakes the wait at once, every time, for the whole quiet window. Before printing an `ESCALATION`, write the deferred commands
+that have not run to a file beside the draft or gate log (never a deferred `gh pr ready`: the
+next run proves and marks ready itself) and print one `HELD` line for all deferred
 commands: `HELD item=<item> action=run <n> deferred replies and review requests, listed in <path>`,
 so the coordinator records one open loop, not one per command.
 
@@ -192,7 +203,9 @@ order, at the first wake after the window ends. Fixes, gates and pushes never wa
 5. Script: `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/pr-state.sh` when `CLAUDE_PLUGIN_ROOT` is
    set, otherwise `pr-state.sh` next to this SKILL.md.
 6. Cursor: `--since` when given, else the PR's `createdAt`, so feedback that arrived before this
-   skill started is handled in round 1. Quiet-since: now.
+   skill started is handled in round 1. After that the cursor is whatever `pr-state.sh` last
+   printed as `cursor`, an opaque string passed back unchanged. Quiet-since: now, as an ISO time
+   with `Z` (`2026-10-01T09:00:00Z`).
 7. With `--mark-ready` and a draft PR (`gh pr view <pr> --json isDraft,headRefOid`): under
    `--unattended`, check the `--reviewed` proof first ("Unattended mode"); then `gh pr ready <pr>`, once,
    or defer it per "Unattended mode" when inside `--quiet-hours`. A PR that is already ready is left
@@ -213,7 +226,7 @@ Act on the printed object's `wake`:
 |---|---|
 | `feedback` | Phase 3 with this object's `new_feedback`, `reviewers` and `cursor` |
 | `approved` | Phase 4 |
-| `draft` | The PR is approved but is a draft again (someone converted it back). If this run's own `gh pr ready` is still deferred, wait again. Otherwise tell the user and stop; under `--unattended`: `ESCALATION item=<item> phase=8 reason=pr-draft-again needs=someone turned the PR back into a draft` |
+| `draft` | The PR is approved but is a draft (someone converted it back, or this run's own `gh pr ready` is still deferred). In the second case wait again, with `--hold-approval`. Otherwise tell the user and stop; under `--unattended`: `ESCALATION item=<item> phase=8 reason=pr-draft-again needs=someone turned the PR back into a draft` |
 | `closed` | Phase 5: report "PR was closed or merged by someone else" and stop |
 | `errors` | Tell the user the `error` in one line, then wait again (same arguments) |
 | `silence` | Tell the user once "no feedback for 24 h, still waiting", then wait again with `--silence-hours 0` |

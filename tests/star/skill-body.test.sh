@@ -49,7 +49,7 @@ grep -q 'git check-ignore' "$SKILL" && grep -q 'only files git ignores' "$SKILL"
 grep -q -- 'check --ack <delivery_id> --wait' "$SKILL" && pass "F4 deliveries acknowledged" || fail "F4 ack"
 grep -q 'issue-<n>' "$SKILL" && grep -q -- '--item <name>' "$SKILL" && grep -q '| item | ref | project |' "$SKILL" && pass "F5 one item name everywhere" || fail "F5 item naming"
 grep -q '## Decisions' "$SKILL" && grep -q -- '--feedback' "$SKILL" && pass "F7 answers reach the restarted stage" || fail "F7 decisions"
-grep -q 'cursor=<iso>' "$SKILL" && grep -q 'MERGED item=' "$SKILL" && pass "F7/F8 escalation cursor and worker-seen merges" || fail "F7/F8 cursor, MERGED"
+grep -q 'cursor=<cursor>' "$SKILL" && grep -q 'MERGED item=' "$SKILL" && pass "F7/F8 escalation cursor and worker-seen merges" || fail "F7/F8 cursor, MERGED"
 grep -q '`gone`' "$SKILL" && grep -q 'three ticks in a row' "$SKILL" && pass "F2 gone and unknown handled" || fail "F2 probe results"
 grep -q 'A `verifying` row has no worker' "$SKILL" && pass "F8 verifying rows are re-checked, not restarted" || fail "F8 verifying reconcile"
 grep -q 'orca orchestration ask' "$SKILL" && pass "F16 workers ask through Orca" || fail "F16 worker asks"
@@ -102,7 +102,7 @@ grep -q 'last=<message id>' "$SKILL" && grep -q 'already applied' "$SKILL" && pa
 grep -q 'cannot be read, STOP' "$SKILL" && grep -q 'read it back' "$SKILL" && grep -q 'take over' "$SKILL" && pass "T2 one STAR per home fails closed, with a way to take over" || fail "T2 coordinator lock"
 grep -q 'a ref whose earlier row is `done` or `dropped`' "$SKILL" && pass "T4 a re-added ref gets its own name" || fail "T4 re-added ref"
 grep -q -- '--project - --item' "$SKILL" && pass "T7 a message with no row has a place in the queue" || fail "T7 unmatched message"
-grep -q 'ignoring punctuation' "$SKILL" && grep -q 'no letter or digit' "$SKILL" && pass "T16 answers are read without their punctuation" || fail "T16 answer punctuation"
+grep -q 'strip punctuation' "$SKILL" && grep -q 'no letter or digit' "$SKILL" && pass "T16 answers are read without their punctuation" || fail "T16 answer punctuation"
 grep -q 'clears every counter except `hold=` and `last=`' "$SKILL" && pass "T16 a retry answer clears the old counts" || fail "T16 counters on answer"
 grep -q 'retry-not-before <iso>` → `retry=<iso>`' "$SKILL" && pass "T16 the migration lists its conversions" || fail "T16 migration conversions"
 grep -q 'worker-stop' "$SKILL" && grep -q 'then `worker-release`' "$SKILL" && grep -q 'a dispatch STAR stopped itself' "$SKILL" && pass "T18 a stopped worker is released and its last report ignored" || fail "T18 stop then release"
@@ -116,5 +116,35 @@ grep -q '## Looking after the workers' "$SKILL" && grep -q 'STAR answers first' 
 grep -q 'quiet <minutes> <terminal>' "$SKILL" && grep -q 'nudge=' "$SKILL" && grep -q 'orca terminal send --terminal <terminal>' "$SKILL" && pass "STAR checks in on a quiet worker" || fail "check-in on a quiet worker"
 grep -q 'STAR answered' "$SKILL" && pass "what STAR decided for a worker is on record" || fail "STAR's answers recorded"
 grep -q 'Answer on' "$T/open-loops.md" && pass "the queue file says how to answer" || fail "template answer hint"
+# Final pass
+g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
+g "V1 away, back and stop are not a start" '`add`, `status`, `away`, `back`, `stop` and `draft-brief`'
+g "V2 a home with only an inbox is still created" 'a home without `star.json`'
+g "V2 add creates the inbox folder" 'mkdir -p HOME_DIR/inbox'
+g "V3 every tick checks it still owns the home" "is not this session's handle"
+g "V4 the heartbeat is renewed before it expires" 'heartbeatAt'
+g "V5 a lost build leaves its pool" 'and set the row to `failed`'
+g "V6 a stop or away request is written down at once" 'control: stop'
+g "V7 a command word counts only when it is the whole answer" 'the whole answer'
+g "V8 the reply goes out before the row is marked" 'the `reply`, then the row'
+g "V9 a worker is released before the message is marked done" '`worker-release`, then `processed.log`'
+g "V10 a resume does not spend the pending retry" 'its `retry=` time has passed'
+g "V11 an answer waits for the report that raised it" 'leave its answers for the next tick'
+g "V12 a draft is posted once" 'posted draft N-'
+g "V13 a worker STAR stopped is on record" 'stopped <iso>'
+g "V14 a re-added item gets its own branch" 'the same suffix'
+g "V15 a quiet worker is still a running worker" '`ok` or `quiet'
+g "V16 a second answer cannot revive a dropped row" 're-read the row'
+g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
+g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
+g "V19 a SAFE verdict needs a real head" '7 to 40 hex'
+g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 0'
+g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
+g "V22 an approval of an earlier commit is said so" 'approved on an earlier commit'
+g "V23 the feedback cursor is passed back as it is" 'opaque'
+g "V24 a custom home is set where every session sees it" 'shell profile'
+g "V26 a lost queue item is noticed" '`missing`'
+g "V29 inbox files are read in order" 'in file-name order'
+g "V30 back runs a tick" 'then run a tick'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

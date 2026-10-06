@@ -23,5 +23,9 @@ grep -q 'gate-lock.sh' "$SKILL" && pass "T9 executor heavy commands locked" || f
 # Stress test pass fixes
 grep -q 'STOPPED: missing PR number' "$SKILL" && pass "S4 a missing PR number never asks unattended" || fail "S4 missing PR"
 grep -q 'STOPPED: cannot pick a remote' "$SKILL" && pass "S4 an unclear remote never asks unattended" || fail "S4 remote"
+# Final pass
+grep -qF '## Decisions' "$SKILL" && pass "R1 a decision settles the finding it answers" || fail "R1 decisions not read"
+grep -qF 'one command with its arguments' "$SKILL" && pass "R2 the gate line never leaves part of a command outside the lock" || fail "R2 gate command form"
+grep -q 'id: orca' "$SKILL" && grep -q 'id: python3' "$SKILL" && pass "R3 orca and python3 are declared" || fail "R3 requirements"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
