@@ -366,7 +366,7 @@ rows.
 |---|---|
 | `sh S/ledger.sh name <ref>` | the item name the ref gets, or `open <item>` when the ref already has an open row |
 | `sh S/ledger.sh add <item> ref=<raw ref> project=<p>` | a new `inbox` row; exit 65 when the item, or an open row for the ref, already exists |
-| `sh S/ledger.sh set <item> <col>=<value> … counters.<key>=<n>\|+1\|-` | changes only the named cells, in that order; `counters=keep:hold,last` drops every other counter |
+| `sh S/ledger.sh set <item> <col>=<value> … counters.<key>=<n>\|+1\|-` | changes only the named cells, in that order; `counters=keep:hold,last,start,screen,tracker` drops every other counter |
 | `sh S/ledger.sh get <item> [<col>\|counters.<key>]` | one cell (`-` when absent), or the whole row as `col=value` lines |
 | `sh S/ledger.sh list [--state <s>,…]`, `counts` | one row per line (item, state, stage, round, worktree, dispatch, pr, updated), or `<state> <n>` |
 
@@ -487,10 +487,11 @@ runs in <handle>", and end the turn.
    away summaries and answers typed into the queue file wait for one of those.
 4. **Reconcile** every row in a worker stage with `sh S/worker-probe.sh <dispatch>`:
    `ok` or `quiet …` → keep it. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
-   catches it if it is not (a reviewer's review file and `agent_prompt_stalled` included). `gone` → Orca has no such worker (an Orca restart): a `briefing`,
-   `reviewing` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
+   catches it if it is not (a reviewer's review file and `agent_prompt_stalled` included). `gone` → Orca has no such worker (an Orca restart):
+   a `briefing`, `reviewing`, `screening`, `posting` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
    put the row in its stage's waiting state; `restarts` goes back to 0 whenever the row moves on to a new stage; babysit resumes with `--since <cursor>`), because
-   those stages can pick up safely; a row whose `restarts` is already 1 → `failed`, queue
+   those stages can pick up safely (a screen-check worker only runs checks, and a post worker first
+   looks for the comment it may already have posted); a row whose `restarts` is already 1 → `failed`, queue
    `--kind escalation` "<stage> worker lost twice". For a lost `building` or `fixing` row,
    queue `--kind restart-or-drop` and set the row to `failed` (restarting a half-finished build
    blindly would build on a dirty worktree, and a dead row must not keep holding a build slot or
@@ -615,10 +616,12 @@ message into the same end state.
    | `accept-report` | drop | row → `dropped` |
    | `accept-report` | anything else | it is a decision: append it to the brief under `## Decisions` with the date; row → `queued`, so the build stage runs again with it |
    | `escalation` | drop | row → `dropped` |
+   | `escalation` "<m> screen checks failed" | restart | row → `screen-queued`: the checks run again (the user changed something outside the code) |
+   | `escalation` "<m> screen checks failed" | anything else but drop | append the answer and the pending-checks file's path to the brief's `## Decisions` with the date; row → `pr-draft`: a new review round reads the failed checks as missed acceptance criteria, and its NOT-SAFE sends them to a fix. `counters.screen=` stays, so the checks run again after the next SAFE review |
    | `escalation` | anything else | the answer is the decision. Brief stage: append it to the brief file under `## Feedback` (creating the file with only that section when the worker stopped before writing a brief), row → `inbox`; the brief stage then runs with `--feedback`. `reason=no-safe-verdict` (the PR's head has no SAFE review): row → `pr-draft` for a new review round of the current head. A row with no PR whose worker lacked `gh`: an answer that is a PR URL records it, row → `pr-draft`. Any other stage: append the answer to the brief under `## Decisions` with the date (workers read that section first and treat it as binding; where two decisions disagree the later one wins), then put the row in the waiting state of the stage in its `stage` column (babysit resumes with `--since <cursor>`). A fix stage goes back to `fix-queued` only while `git -C <worktree> rev-parse HEAD` is still the row's `head` (the commit the review was written for); when the worktree has moved on (the interrupted run committed, or the user did), row → `pr-draft` instead, so the new commits get a review of their own. `reason=stale-review` from a fix worker means the same: row → `pr-draft`. After "review still NOT SAFE": row → `fix-queued` for one more fix and review round |
    | `prep` | any | append `- <date> before you go #<n> (<kind>): <question> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the question from its title); `can't now` on a `screen` item is recorded the same way, so the worker knows that check will block. The row does not change |
    | `question` | any | `orca orchestration reply --id <the item's msg id> --body "<answer>" --json` |
-   | every `escalation` and `restart-or-drop` answer that runs a stage again | also clears every counter except `hold=` and `last=` from the row, and `restarts` goes back to 0: the user's "try again" starts with fresh budgets |
+   | every `escalation` and `restart-or-drop` answer that runs a stage again | also clears every counter except `hold=`, `last=`, `start=`, `screen=` and `tracker=` from the row (`sh S/ledger.sh set <item> counters=keep:hold,last,start,screen,tracker`), and `restarts` goes back to 0: the user's "try again" starts with fresh budgets, while the attempt number (so a new start never reuses an old request id), the checks still waiting at the screen and the last status written stay |
    | `restart-or-drop` | restart | `git -C <worktree> status --porcelain` must print nothing. Clean → the waiting state of its stage (`queued`; for a fix, `fix-queued` or `pr-draft` by the head rule in the `escalation` row). Not clean → change nothing and add the item again with the title "<stage> was interrupted: clean <worktree> first, then answer restart" |
    | `restart-or-drop` | drop | row → `dropped` |
    | `restart-or-drop` | anything else | add the item again with the title "<stage> was interrupted: answer restart or drop" |
@@ -683,7 +686,10 @@ message into the same end state.
    `failed` only gets the queue item). Every other answer is ignored in these states. So no slot
    is ever given to an item whose PR is already merged or closed.
    Then, for each free slot, the row next in line: `sh S/stage-start.sh <stage> <item>` (add
-   `--round <k>` only to run review round k once more, the no-verdict rerun). It checks memory,
+   `--round <k>` only to run review round k once more, the no-verdict rerun). Run it with the Bash
+   tool's `run_in_background: true` and wait for its completion notification,
+   like `gate-lock.sh` in a worker: creating a worktree with a setup hook, clearing the dialogs
+   and starting the worker can take longer than the tool's 600 s foreground cap. It checks memory,
    sets up a build's worktree, clears Claude Code's first-run trust dialogs, writes the prompt and
    starts the worker, writing the row as it goes; a worktree named in another open row is refused
    (`failed in-use`). Its one line:
@@ -694,6 +700,7 @@ message into the same end state.
    | `hold memory <gb>` | start nothing else this tick; `counters.hold=+1` on that row; at `hold=3`, `--kind held` "memory below 3 GB: nothing can start" and notify. The next start that succeeds clears `hold=` and closes that item |
    | `hold trust <path>` | `--kind held` "trust <path> for Claude Code once: run `claude` there and accept, then answer done"; the row keeps waiting and the next tick tries again |
    | `failed <step>: <why>` | row → `failed`, `--kind escalation` "<stage> could not start: <step>: <why>" |
+   | no line, or a non-zero exit | the script was cut off: put the row back in its stage's waiting state with its `counters` as they are (its `live=` makes the next start a replay of this one), and file an improvement issue ("Improvement issues") |
 
    A `screen-queued` row starts only while the user is not away and it is not quiet hours
    (`quiet-hours.sh`), with a push notification first: "<item> needs you at the screen for <n>
@@ -921,7 +928,9 @@ old PR.
 as an Orca worker, after the user accepted a report item's report. It never edits the repo and
 never changes the work item's status (STAR does that). It is unattended, like `draft-brief`.
 Resolve the work source exactly as `draft-brief` steps 2 and 3 do, then post the report file as
-one comment on the work item:
+one comment on the work item. First look at the work item's latest comments: one that
+already starts with the report's first line is this report, posted by an earlier post worker
+that was lost; then report `POSTED` with its URL and post nothing.
 
 | Provider | Post |
 |---|---|
@@ -1231,8 +1240,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - **A closed session:** workers keep running and their reports wait in the Orca run. The user
   runs `/juel:star` in the project again, from any Orca terminal: the old terminal is no longer
   listed, so the new session takes over.
-- **An Orca restart:** every worker is gone. The reconcile step restarts review, babysit and brief
-  stages once and queues lost builds and fixes for the user.
+- **An Orca restart:** every worker is gone. The reconcile step restarts review, babysit, brief,
+  screen and post stages once and queues lost builds and fixes for the user.
 - **A stop in the middle of a tick:** nothing is lost and nothing runs twice. A message not yet in
   `processed.log` is replayed into the same end state (the order of effects above); a row written
   before its `task-create` goes back to its waiting state; an inbox file read twice adds no row.

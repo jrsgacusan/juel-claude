@@ -11,9 +11,10 @@
 # nothing. The body gets a hidden "star-fingerprint" marker.
 # Before anything is posted, the title and body are refused (exit 65, "refused <kind>: <term>",
 # nothing posted) when they still contain the project's name, an item name or ref from the
-# ledger, the repository's path, its remote URL or owner/name, or an absolute path under $HOME.
-# Matching ignores case and needs a whole word; the placeholders <project>, <repo>, <app>,
-# <item> and ITEM-<n> are what STAR writes instead, and never count.
+# ledger or a ref's prefix (SPH in SPH-13, matched as written), the repository's path, its remote
+# URL, owner or name, the user's login name, git user.name or user.email, or a path under $HOME.
+# Matching ignores case (except for a ref prefix) and needs a whole word; the placeholders
+# <project>, <repo>, <app>, <item> and ITEM-<n> are what STAR writes instead, and never count.
 # Exit: 0 (a gh failure is the "failed" line), 2 the STAR folder or the repository cannot be
 # read, 64 usage, 65 refused.
 STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
@@ -132,41 +133,53 @@ def terms():
     except (OSError, ValueError):
         die(2, f"cannot read {home}/star.json")
     project = star.get("project") if isinstance(star.get("project"), dict) else {}
-    found = []
+    found, exact = [], []
     if project.get("name"):
         found.append(("project name", project["name"]))
     if project.get("repo"):
         found.append(("repository path", project["repo"]))
         remote = project.get("remote") or "origin"
-        url = subprocess.run(["git", "-C", project["repo"], "remote", "get-url", remote],
-                             capture_output=True, text=True).stdout.strip()
+        git = lambda *a: subprocess.run(["git", "-C", project["repo"], *a], capture_output=True,
+                                        text=True).stdout.strip()
+        url = git("remote", "get-url", remote)
         if url:
             found.append(("remote URL", url))
-            m = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?$", url)
+            m = re.search(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$", url)
             if m:
-                found.append(("repository name", m.group(1)))
+                found += [("repository name", f"{m.group(1)}/{m.group(2)}"), ("repository name", m.group(2)),
+                          ("remote owner", m.group(1))]
+        for key, kind in (("user.name", "git user name"), ("user.email", "git user email")):
+            if git("config", key):
+                found.append((kind, git("config", key)))
     try:
         for line in open(os.path.join(home, "ledger.md"), encoding="utf-8"):
             cells = [c.strip() for c in line.strip().strip("|").split("|")]
             if line.startswith("| ") and len(cells) >= 2 and cells[0] not in ("item", ""):
                 found += [("item", cells[0])] + ([("ref", cells[1])] if cells[1] not in ("-", cells[0]) else [])
+                prefix = re.match(r"([A-Z][A-Z0-9]+)-\d+$", cells[1])
+                if prefix:
+                    exact.append(("ref prefix", prefix.group(1)))
     except OSError:
         pass
-    return found
+    login = os.path.basename(os.path.expanduser("~").rstrip("/"))
+    if len(login) >= 3:
+        found.append(("user name", login))
+    return [(k, t, False) for k, t in found] + [(k, t, True) for k, t in exact]
 
 
-def hit(text, term):
-    return re.search(r"(?<![A-Za-z0-9])" + re.escape(term) + r"(?![A-Za-z0-9])", text, re.I) is not None
+def hit(text, term, case_sensitive=False):
+    return re.search(r"(?<![A-Za-z0-9])" + re.escape(term) + r"(?![A-Za-z0-9])", text,
+                     0 if case_sensitive else re.I) is not None
 
 
 checked = PLACEHOLDERS.sub(" ", opts.get("title", "") + "\n" + body)
 # longest first, so a repository path is named as one even though it ends in the project name
-for kind, term in sorted(terms(), key=lambda t: -len(t[1])):
-    if term and hit(checked, term):
-        out(f"refused {kind}: {term}", 65)
-home_dir = os.path.expanduser("~").rstrip("/") + "/"
-if home_dir != "/" and home_dir in checked:
+home_dir = os.path.expanduser("~").rstrip("/")
+if home_dir and re.search(re.escape(home_dir) + r"(?![A-Za-z0-9_-])", checked):
     out(f"refused home path: {home_dir}", 65)
+for kind, term, case_sensitive in sorted(terms(), key=lambda t: -len(t[1])):
+    if term and hit(checked, term, case_sensitive):
+        out(f"refused {kind}: {term}", 65)
 
 with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
     f.write(body.rstrip("\n") + f"\n\n<!-- star-fingerprint: {fp} -->\n")

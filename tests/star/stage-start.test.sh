@@ -149,6 +149,37 @@ grep -q "/juel:babysit-pr 42 --unattended --mark-ready --reviewed $H/reviews/app
 reset; L set SPH-12 "worktree=$WT" state=fix-queued >/dev/null
 out=$(ST fix SPH-12); case "$out" in "failed in-use: $WT is already in use by SPH-11") pass "a worktree in another open row is refused" ;; *) fail "in-use ($out)" ;; esac
 
+# a launch failure that names a model, on a stage whose setting only adds an executor, is an ordinary retry
+L set SPH-12 "worktree=$APP/.worktrees/app/SPH-12" >/dev/null
+reset; printf '{"ok":false,"result":{"dispatch":{"id":"ctx_dead2"}},"error":{"message":"model access check failed"}}\n' > "$TMP/ws-fail-1"
+out=$(ST babysit SPH-11)
+case "$out" in *fallback*) fail "the same model reported as a fallback ($out)" ;; "started "*) pass "no fallback when the fallback is the same model" ;; *) fail "babysit retry ($out)" ;; esac
+grep -q -- '--retry-of ctx_dead2' "$TMP/calls" && pass "it retries with --retry-of instead" || fail "no --retry-of on the plain retry"
+
+# the main checkout on the brief's branch is never reused as a build worktree
+reset; L add SPH-20 ref=SPH-20 project=app state=queued >/dev/null; brief SPH-20
+git -C "$APP" switch -q -c feat/sph-20-x
+out=$(ST build SPH-20)
+case "$out" in "failed branch: "*) pass "a brief branch checked out in the main checkout is not built there" ;; *) fail "main checkout reused ($out)" ;; esac
+[ "$(L get SPH-20 worktree)" != "$APP" ] && pass "the main checkout is not recorded as the worktree" || fail "worktree cell is the main checkout"
+git -C "$APP" switch -q main
+
+# a trust hold after the row is written puts the row back and keeps the start replayable
+WT21="$APP/.worktrees/app/SPH-21"; git -C "$APP" worktree add -q -b feat/sph-21-x "$WT21" >/dev/null 2>&1
+L add SPH-21 ref=SPH-21 project=app state=pr-draft "worktree=$WT21" >/dev/null; brief SPH-21
+python3 - "$H/star.json" <<'PY2'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["reviewer"] = {"agent": "claude", "model": "opus", "effort": "xhigh"}; json.dump(d, open(p, "w"), indent=2)
+PY2
+reset; touch "$TMP/dialog-always"; printf '{"ok":false,"error":{"message":"model gpt-6-astra is not available to this account"}}\n' > "$TMP/ws-fail-1"
+out=$(ST review SPH-21)
+[ "$out" = "hold trust $WT21" ] && pass "a refused codex review falls back to claude and holds on trust" || fail "late hold ($out)"
+[ "$(L get SPH-21 state)" = "pr-draft" ] && pass "the row goes back to its waiting state" || fail "row left running ($(L get SPH-21 state))"
+[ "$(L get SPH-21 task)" = "task_aa11" ] && [ "$(L get SPH-21 counters.live)" != "-" ] && pass "the task and live= are kept for the replay" || fail "replay state lost ($(L get SPH-21))"
+reset; trust "$APP" "$WT" "$WT21"
+out=$(ST review SPH-21)
+case "$out" in "started task=task_aa11 "*) ! grep -q task-create "$TMP/calls" && pass "the next start reuses the task instead of making a second" || fail "a second task was created" ;; *) fail "replay after hold ($out)" ;; esac
+
 # usage and unknown items
 ST nope SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "an unknown stage is 64" || fail "usage"
 ST brief NOPE-1 >/dev/null 2>&1; [ $? -eq 4 ] && pass "an unknown item is 4" || fail "unknown item"

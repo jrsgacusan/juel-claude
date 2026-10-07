@@ -41,8 +41,13 @@ OVERNIGHT = {
     "fixing": "fixing review findings, then the next review round; goes to reviewers when you're back",
     "babysit-queued": "reviewed and safe; it is marked ready and sent to reviewers when you're back",
     "babysitting": "already with reviewers: keeps answering them and pushing fixes, outside your quiet hours",
+    "screen-queued": "reviewed and safe; some checks wait for you at the Mac, then it is marked ready",
+    "screening": "running the checks that need you at the Mac",
     "verifying": "final check on the exact head, then it waits for your merge",
     "ready": "waits for your merge",
+    "reported": "its report is written and waits for your accept",
+    "post-queued": "accepted; the report is posted to the work item when you are back, outside your quiet hours",
+    "posting": "posting the report to the work item",
     "escalated": "stopped; waits for your answer",
     "failed": "stopped; waits for your answer",
 }
@@ -274,7 +279,7 @@ elif a.cmd == "summary":
             sent.append(f"{cells[1]} {cells[2]}: {cells[3]}"[:200])
     if len(sent) > SENT_SHOWN:
         sent = sent[-SENT_SHOWN:] + [f"(+{len(sent) - SENT_SHOWN} earlier)"]
-    running = sum(counts.get(s, 0) for s in ("briefing", "building", "reviewing", "fixing", "babysitting"))
+    running = sum(counts.get(s, 0) for s in ("briefing", "building", "reviewing", "fixing", "screening", "babysitting", "posting"))
     block = [
         f"### {now()}",
         "- Items: " + (" · ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none open"),

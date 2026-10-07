@@ -101,7 +101,7 @@ grep -q 'cannot be read, STOP' "$SKILL" && grep -q 'read it back' "$SKILL" && gr
 grep -q 'a ref whose earlier row is `done` or `dropped`' "$SKILL" && pass "T4 a re-added ref gets its own name" || fail "T4 re-added ref"
 grep -q -- '--project - --item' "$SKILL" && pass "T7 a message with no row has a place in the queue" || fail "T7 unmatched message"
 grep -q 'strip punctuation' "$SKILL" && grep -q 'no letter or digit' "$SKILL" && pass "T16 answers are read without their punctuation" || fail "T16 answer punctuation"
-grep -q 'clears every counter except `hold=` and `last=`' "$SKILL" && pass "T16 a retry answer clears the old counts" || fail "T16 counters on answer"
+grep -q 'clears every counter except `hold=`, `last=`, `start=`, `screen=` and `tracker=`' "$SKILL" && pass "T16 a retry answer clears the old counts" || fail "T16 counters on answer"
 grep -q 'worker-stop' "$SKILL" && grep -q 'then `worker-release`' "$SKILL" && grep -q 'a dispatch STAR stopped itself' "$SKILL" && pass "T18 a stopped worker is released and its last report ignored" || fail "T18 stop then release"
 grep -q 'Before filling' "$SKILL" && pass "T18 the PR check runs before slots are filled" || fail "T18 PR check order"
 grep -q 'the time the message was sent plus 30 minutes' "$SKILL" && pass "T21 a replayed question is the same item" || fail "T21 question deadline"
@@ -218,5 +218,13 @@ g "N1 STAR files its own issues" '## Improvement issues'
 g "N2 through star-issue.sh" 'sh S/star-issue.sh file --fingerprint'
 g "N3 workers can report friction" 'STAR-ISSUE:'
 g "N4 project details never go out" '`<project>`, `ITEM-1`, `<repo>` and `<app>`'
+# Final review fixes
+g "FR1 a retry keeps the attempt number, screen checks and status" '`counters=keep:hold,last,start,screen,tracker`'
+g "FR2 lost screen-check and post workers restart once" 'a `briefing`, `reviewing`, `screening`, `posting` or `babysitting` row restarts once'
+g "FR2 a restarted post worker does not post twice" 'already starts with the report'
+g "FR6 stage-start runs in the background" 'like `gate-lock.sh` in a worker'
+g "FR6 a start that printed nothing is replayed" '| no line, or a non-zero exit |'
+g "FR12 failed screen checks can reach a fix" 'reads the failed checks as missed acceptance criteria'
+grep -q 'a screen check recorded there as failed' "$T/reviewer-prompt.md" && pass "FR12 the reviewer reads failed screen checks" || fail "FR12 reviewer prompt"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

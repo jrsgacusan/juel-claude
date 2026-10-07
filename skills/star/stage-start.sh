@@ -40,6 +40,8 @@ import time
 S = os.environ["STAR_SKILL_DIR"]
 RUNNING = {"brief": "briefing", "build": "building", "review": "reviewing", "fix": "fixing",
            "screen": "screening", "babysit": "babysitting", "post": "posting"}
+WAITING = {"brief": "inbox", "build": "queued", "review": "pr-draft", "fix": "fix-queued",
+           "screen": "screen-queued", "babysit": "babysit-queued", "post": "post-queued"}
 EFFORTS = ["max", "xhigh", "high", "medium", "low"]
 REFUSED = ("not installed", "unknown agent", "model", "access", "credit", "quota", "not available")
 ENV_NAMES = (".env", ".envrc", ".npmrc", ".tool-versions")
@@ -275,7 +277,8 @@ def build_worktree(fm):
     for block in git("worktree", "list", "--porcelain").stdout.split("\n\n"):
         lines = block.splitlines()
         wt = next((l[len("worktree "):] for l in lines if l.startswith("worktree ")), None)
-        if wt and f"branch refs/heads/{branch}" in lines:
+        # the main checkout is the user's own: a build never runs there, even on the brief's branch
+        if wt and os.path.realpath(wt) != os.path.realpath(repo) and f"branch refs/heads/{branch}" in lines:
             other = other_row_using(wt)
             if other:
                 out(f"failed in-use: branch {branch} is already being built as {other}")
@@ -447,7 +450,16 @@ else:
 
 def ensure_trust(setting_):
     if (setting_.get("agent") or "claude") == "claude" and not trusted_in_config(place) and not clear_trust(place):
-        finish(f"hold trust {place}")
+        if started_row:
+            # the row is already written (a fallback agent needed the dialogs): put it back to wait,
+            # and keep live= so the next start replays this one instead of making a second task
+            ledger("set", item, f"state={WAITING[stage]}")
+        out(f"hold trust {place}")
+
+
+def same_launch(a, b):
+    """Two settings launch the same thing when agent, model and effort match; executor is not part of a launch."""
+    return all((a.get(k) or None) == (b.get(k) or None) for k in ("agent", "model", "effort"))
 
 
 ensure_trust(entry)
@@ -494,7 +506,7 @@ if first.returncode != 0 or not dispatch:
     reason, level = why(first), entry.get("effort")
     if "effort" in reason.lower() and level in EFFORTS[:-1]:
         second = worker_start(entry, 2, effort=EFFORTS[EFFORTS.index(level) + 1])
-    elif entry != fallback and any(w in reason.lower() for w in REFUSED):
+    elif not same_launch(entry, fallback) and any(w in reason.lower() for w in REFUSED):
         ensure_trust(fallback)
         second = worker_start(fallback, 2)
         note = f" fallback {fallback.get('model') or 'default'}: {reason}"

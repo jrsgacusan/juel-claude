@@ -144,5 +144,17 @@ out=$(cd "$TMP/proj" && env -u JUEL_STAR_HOME STAR_NOW=2026-10-07T13:00:00Z sh "
 [ "$out" = "$PH/handoff.md" ] && [ -f "$PH/handoff.md" ] && pass "the default home is the project's" || fail "default home ($out)"
 mkdir -p "$TMP/noproj"; err=$(cd "$TMP/noproj" && env -u JUEL_STAR_HOME sh "$SCRIPT" due 2>&1 >/dev/null); [ $? -eq 2 ] && printf '%s' "$err" | grep -q 'not inside a project' && pass "outside a project with no --home is exit 2" || fail "no project, no --home"
 
+# The states the intake and report items added are listed too, and their workers counted
+R="$TMP/r"; mkdir -p "$R"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$R/"
+for st in screen-queued screening reported post-queued posting; do
+  printf '| %s | %s | p | /w/%s | %s | - | 1 | t | d | 0 | - | abc1234 | - | - | - | 2026-10-07T12:00:00Z |\n' "$st" "$st" "$st" "$st" >> "$R/ledger.md"
+done
+STAR_NOW=2026-10-07T13:00:00Z sh "$SCRIPT" --home "$R" start >/dev/null
+for st in screen-queued screening reported post-queued posting; do
+  grep -q "p · $st · $st: " "$R/handoff.md" && pass "part C lists a $st row" || fail "part C misses $st"
+done
+STAR_NOW=2026-10-07T17:01:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$R" summary >/dev/null
+sed -n '/^### 2026-10-07T17:01:00Z/,/^### /p' "$R/handoff.md" | grep -q 'workers running: 2' && pass "screening and posting count as running workers" || fail "running workers miss screening/posting"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

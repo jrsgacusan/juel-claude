@@ -57,8 +57,19 @@ refused path "it failed in $APP/src" "repository path"
 refused remote "pushed to git@github.com:acme/sphere-browser.git" "remote URL"
 refused reponame "see acme/sphere-browser for the run" "repository name"
 refused home "the log is at $HOME/notes.txt" "home path"
+git -C "$APP" config user.name "Pat Example"; git -C "$APP" config user.email "pat@example.com"
+refused owner "the acme team runs it" "remote owner"
+refused barerepo "the sphere-browser checkout" "repository name"
+refused username "ask $(basename "$HOME") about it" "user name"
+refused gitname "Pat Example saw it first" "git user name"
+refused gitmail "mail pat@example.com" "git user email"
+refused homeend "it lives in $HOME." "home path"
+refused prefix "every SPH ticket stalls" "ref prefix"
 body "x"; out=$(I file --fingerprint r-title --title "star: SPH-13 stalls" --label bug --body-file "$TMP/body.md"); [ $? -eq 65 ] && pass "the title is checked too" || fail "title ($out)"
 [ "$(wc -l < "$TMP/calls")" -eq "$n" ] && pass "nothing refused reached gh" || fail "a refused body was posted"
+body "it is fine: the IT item and the sph word in lower case"
+out=$(I file --fingerprint prefix-case-ok --title "star: prefix case" --label bug --body-file "$TMP/body.md")
+case "$out" in "filed "*) pass "a ref prefix only counts as written (upper case)" ;; *) fail "prefix false refusal ($out)" ;; esac
 # Review Focus 3: the placeholders themselves pass
 body "<app> showed <project>'s ITEM-2 in <repo>; ~/notes is fine"
 out=$(I file --fingerprint placeholders-ok --title "star: placeholders" --label bug --body-file "$TMP/body.md")
