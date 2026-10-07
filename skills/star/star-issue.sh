@@ -149,8 +149,9 @@ def terms():
                 found += [("repository name", f"{m.group(1)}/{m.group(2)}"), ("repository name", m.group(2)),
                           ("remote owner", m.group(1))]
         for key, kind in (("user.name", "git user name"), ("user.email", "git user email")):
-            if git("config", key):
-                found.append((kind, git("config", key)))
+            value = git("config", key)
+            if value:
+                found.append((kind, value))
     try:
         for line in open(os.path.join(home, "ledger.md"), encoding="utf-8"):
             cells = [c.strip() for c in line.strip().strip("|").split("|")]

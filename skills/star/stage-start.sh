@@ -402,7 +402,8 @@ def reviewer_spec(fm):
 
 def prompt(entry, fm):
     executor = " --executor session" if entry.get("executor") == "session" else ""
-    quiet = f" --quiet-hours {window()}" if window() else ""
+    quiet_window = window()
+    quiet = f" --quiet-hours {quiet_window}" if quiet_window else ""
     if stage == "brief":
         feedback = " --feedback" if has_feedback(brief) else ""
         return f"/juel:star draft-brief {row['ref']} --project {name} --item {item} --out {brief}{feedback}"
