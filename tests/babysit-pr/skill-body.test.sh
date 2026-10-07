@@ -80,5 +80,6 @@ g "B8 the cursor is passed back as it is" 'opaque'
 g "B9 the report starts with its state line" 'body starts with it'
 grep -q 'id: orca' "$SKILL" && pass "B10 orca is declared" || fail "B10 orca not declared"
 g "X4 babysit passes the executor choice on" '--executor'
+grep -qF 'STAR-ISSUE: <one line>' "$SKILL" && pass "babysit can report friction with STAR" || fail "STAR-ISSUE line"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -27,7 +27,7 @@ metadata:
         fallback: phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped
       - id: python3
         hard: false
-        why: gate-lock.sh, run-gates.sh and quiet-hours.sh, used only under --unattended, run on it
+        why: gate-lock.sh, run-gates.sh, quiet-hours.sh and screen-lock.sh, used only under --unattended, run on it
         check: "command -v python3"
         fallback: an interactive run does not need it; an unattended run stops with the preflight escalation
       - id: orca
@@ -155,6 +155,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
 | `--fix-review <file>` | off | Fix mode for a NOT-SAFE second-model review; requires `--unattended --brief`. See "Unattended mode" |
+| `--screen-checks <file>` | off | Screen-check mode for a `juel:star` worker: run only the checks an earlier run left blocked, with the user at the screen; requires `--unattended --brief`. See "Unattended mode" |
 | `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. `quiet-hours.sh` decides inside or outside. See "Unattended mode" |
 
@@ -311,10 +312,16 @@ line:
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
 | build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
+| checks left for the user at the screen (after `DONE`) | `SCREEN path=<pending-checks file> pending=<n>` |
+| report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
+| screen checks run (`--screen-checks`) | `VERIFIED item=<item> passed=<n> failing=<m> head=<sha>` |
+| friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
 
 **Reporting.** You are an Orca worker. The `worker_done` body is at most 12 lines: the run's final
-line (`DONE`, `FIXED` or `ESCALATION`) is the first line of the `worker_done` body, then
-`GATES <path>` after a `DONE`, each `HELD` line from the run, and at most one `NOTE: <one line>` —
+line (`DONE`, `FIXED`, `REPORTED`, `VERIFIED` or `ESCALATION`) is the
+first line of the `worker_done` body, then `GATES <path>` and, when checks are pending,
+`SCREEN path=<file> pending=<n>` after a `DONE`, each `HELD` line from the run, at most one
+`STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` —
 a fact the next worker in this project should know (a required env var, a flaky test, a naming
 rule), never a status update. With more than two `HELD` lines, write them all to a file beside the
 gate manifest and report one line instead: `HELD item=<item> action=<n> held actions, listed in
@@ -342,7 +349,7 @@ invokes, that says to ask, confirm with or wait for the user means this under `-
 | ask which remote or base branch | the brief's `baseBranch`; one remote → it, `origin` → it, otherwise `ESCALATION … phase=0 reason=preflight needs=which remote to push to: <names>` |
 | stop and ask the user to commit, stash, or create a worktree | `ESCALATION … phase=<n> reason=preflight needs=<what is wrong>` |
 | A gate inside an invoked skill: `superpowers:brainstorming`'s design approval, `superpowers:writing-plans`' plan review and its choice of execution method, a confirmation in `juel:review-and-execute`, `juel:verify` or `run` | the approved brief is the approval. Tell the skill so when invoking it ("unattended: the brief is approved, take your default path, ask nothing"), treat every such gate as answered yes, take the default or recommended option, and never wait on it. What only a person can supply is the `needs-human-input` escalation |
-| any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; "No answer from the user: escalate this." → `unanswered-question` |
+| any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; "No answer from the user: escalate this." → `unanswered-question` A question that needs the user's hands at the Mac (sign in, drag a DMG, a keychain or Gatekeeper prompt) ends with ` deadline=60`, names the item and the window, and is asked under the screen lock (see "The screen"). |
 
 `AskUserQuestion` is never called.
 
@@ -387,6 +394,54 @@ next to the findings (`<findings file without .md>-fix.md`), so the next reviewe
 was rejected. The final line is `FIXED item=<item> head=<sha>`; the line after it gives only the
 counts (`fixed=<n> rejected=<m>`), because the outcomes themselves are in that file.
 
+**Report deliverable.** A brief with `deliverable: report` asks for evidence or a write-up, not a
+code change. Phases 2 to 5 are SKIPPED with "report deliverable: the acceptance criteria are the
+checklist". Phase 6 is the work: build the checklist from the acceptance criteria, run every
+check, and record each as verified, failing or blocked with its evidence. A failing flow is a
+finding to report: never the `verification-failed` escalation, and Phase 6 does not loop back to
+Phase 5. Phase 7 writes the report to `<star.reports>/<item>.md` (the brief's `star:` block): one
+section per criterion with its result and evidence paths, then any proposed bug tickets (title,
+steps, evidence), and prints `REPORTED item=<item> path=<path>` as the final line. No commit, no
+push, no PR, no status write; Phase 8 is SKIPPED.
+
+**Screen-check mode (`--screen-checks <file>`).** The coordinator starts it once the user is back,
+for the checks an earlier run of this item left blocked; the file lists them. Phases 1 to 5 and 7
+to 8 are SKIPPED: the spec, the plan and the PR exist. Phase 6 runs only the listed checks, under
+the screen lock, asking the user at the screen as needed, and records them in the same evidence
+directory. A check that fails is reported, not fixed here. The final line is
+`VERIFIED item=<item> passed=<n> failing=<m> head=<sha>`.
+
+**The screen.** Before launching an app you will drive, before driving any GUI (computer use, an
+app window, a browser that is not Playwright's own), and before asking the user to act at the
+screen, take the machine-wide screen lock; release it as soon as that part ends, and before any
+escalation:
+
+```sh
+sh <screen-lock.sh> acquire --holder "<item>"    # held by <item> since <iso>, or exit 75: busy
+sh <screen-lock.sh> release --holder "<item>"
+```
+
+(`screen-lock.sh` is next to this file: `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/screen-lock.sh`
+when that is set.) Exit 75 means another item has the screen, which is normal: do any screen-free
+work in the plan, then try again; after 2 hours of tries escalate `screen-busy`. Where an app lets
+you set a window or profile title, include the item name, and every question that needs the user
+at the screen names the item and the window ("<item>'s app window: sign in"). A check that needs a
+person and cannot have one (the brief's `## Decisions` say `can't now` for it, or the answer came
+back "No answer from the user: escalate this.") is recorded as `blocked: needs you at the screen`:
+never PASS, and never the `unanswered-question` escalation. Finish everything else, write the
+blocked checks to `<directory of star.gates>/<item>-screen.md` (one numbered check per line, with
+what the user must do), open the draft PR with them listed under **Pending: needs a person at the
+screen**, and add `SCREEN path=<that file> pending=<n>` after `DONE`.
+
+**Status writes under STAR.** When the brief has a `star:` block, the coordinator owns the work
+item's status: Phase 7 step 4 prints `Status: skipped (STAR owns the status)` and writes nothing,
+and no other phase writes it either.
+
+**Decisions made while the user was away.** When the brief's `## Decisions` has lines that say
+"decided while you were away" or "default taken", the Phase 7 PR body gets a section
+**Decided while you were away** that lists them, so the person who merges sees every call that
+was made without them.
+
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
 
@@ -406,13 +461,16 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
 8. `unanswered-question` — a question you sent the coordinator with `orca orchestration ask` came
    back with "No answer from the user: escalate this." Clean up as below, then escalate with the
-   question in `needs=`.
+   question in `needs=`. Never for a check that needs the user at the screen: that check is blocked
+   instead (see "The screen").
 9. `gate-busy` — `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
    `needs=` quotes its "busy, held by …" line.
 10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
     exited 71 (a lock file, manifest or directory problem), or 124 (the command ran past its time
     limit and was stopped). Neither is a red gate: do not start fixing code. `needs=` quotes the
     script's message.
+11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
+    quotes its "busy, held by …" line.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -768,7 +826,7 @@ the evidence directory. Ask to proceed to PR.
 3. Open the PR, or degrade if `gh` is unavailable:
    - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. It is marked ready once, in Phase 8, only after the second-model review says SAFE.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
-4. Update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
+4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 
    | Source | `update_status(in_review)` |
    |---|---|

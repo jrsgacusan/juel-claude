@@ -92,5 +92,10 @@ grep -q 'id: orca' "$SKILL" && pass "W7 orca is declared (a worker asks the coor
 g "X1 the plan executor is a choice" '| `--executor <session|codex>` |'
 g "X2 session means this session runs the plan" 'superpowers:executing-plans'
 grep -qF -- '--executor' "$ROOT/skills/review-and-execute/SKILL.md" && pass "X3 review-and-execute takes the same choice" || fail "X3 review-and-execute --executor"
+# STAR issues #7 to #18: reports, the screen, status
+grep -qF -- '--screen-checks <file>' "$SKILL" && pass "flag --screen-checks" || fail "flag --screen-checks"
+for l in 'REPORTED item=' 'VERIFIED item=' 'SCREEN path=' 'STAR-ISSUE:' 'screen-lock.sh' 'Status: skipped (STAR owns the status)' 'deliverable: report' 'deadline=60' 'screen-busy' 'Decided while you were away' 'blocked: needs you at the screen'; do
+  grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
