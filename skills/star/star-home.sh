@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 
-SUBDIRS = ("inbox", "briefs", "reviews", "gates", "releases", "drafts", "memory")
+SUBDIRS = ("inbox", "briefs", "reviews", "gates", "releases", "drafts", "memory", "specs", "reports")
 FILES = ("open-loops.md", "ledger.md", "star.json")
 
 

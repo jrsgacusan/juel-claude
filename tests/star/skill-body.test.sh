@@ -149,10 +149,11 @@ g "M4 build, fix and babysit run the plan in their own session" '--executor sess
 python3 - "$T/star.json" <<'PY2' && pass "M5 template: the best model per stage" || fail "M5 template stages"
 import json, sys
 d = json.load(open(sys.argv[1])); s = d["stages"]
-assert set(s) == {"brief", "build", "fix", "review", "babysit"}, sorted(s)
+assert set(s) == {"brief", "build", "fix", "review", "babysit", "screen", "post"}, sorted(s)
 assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["brief"]
-for k in ("build", "fix", "babysit"):
+for k in ("build", "fix", "babysit", "screen"):
     assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"}, (k, s[k])
+assert s["post"] == s["brief"], s["post"]
 assert s["review"] == {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}, s["review"]
 assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and d["reviewer"] == s["review"]
 PY2

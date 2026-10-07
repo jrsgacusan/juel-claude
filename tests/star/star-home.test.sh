@@ -27,7 +27,7 @@ HS=$(sh "$SCRIPT" --cwd "$SP" init) && [ "$HS" = "$SP/docs/superpowers/context/s
 # init: creates once, never overwrites, makes git ignore it without touching .gitignore
 H=$(sh "$SCRIPT" --cwd "$APP" init)
 [ "$H" = "$APP/docs/superpowers/context/star" ] && [ -f "$H/open-loops.md" ] && [ -f "$H/ledger.md" ] && [ -f "$H/star.json" ] && pass "init creates the folder from the template" || fail "init"
-for d in inbox briefs reviews gates releases drafts memory; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
+for d in inbox briefs reviews gates releases drafts memory specs reports; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["project"]=={"name":"app","repo":sys.argv[2]}, d["project"]; assert d["maxParallel"]==3' "$H/star.json" "$APP" && pass "init records the project in star.json" || fail "project block"
 (cd "$APP" && git check-ignore -q "$H/open-loops.md") && pass "git ignores the folder" || fail "folder not ignored"
 [ ! -e "$APP/.gitignore" ] && [ -z "$(cd "$APP" && git status --porcelain)" ] && pass ".gitignore untouched, nothing shows as a change" || fail "repo shows changes: $(cd "$APP" && git status --porcelain)"

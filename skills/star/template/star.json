@@ -29,6 +29,17 @@
       "model": "opus",
       "effort": "xhigh",
       "executor": "session"
+    },
+    "screen": {
+      "agent": "claude",
+      "model": "opus",
+      "effort": "xhigh",
+      "executor": "session"
+    },
+    "post": {
+      "agent": "claude",
+      "model": "opus",
+      "effort": "xhigh"
     }
   },
   "worker": {
