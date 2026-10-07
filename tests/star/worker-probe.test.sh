@@ -156,5 +156,13 @@ done
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_RAW='{"ok":false,"error":"boom"}' ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
 case "$out" in "unknown "*) echo "ok   an error given as a string is unknown, not a crash" ;; *) echo "FAIL string error ($out)"; fails=$((fails + 1)) ;; esac
 
+# Orca's failure reason travels with a failed settlement (#7)
+printf '{"result":{"worker":{"stage":"settled","state":"failed"},"dispatch":{"status":"failed","last_failure":"agent_prompt_stalled"}}}\n' > "$TMP/show.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
+[ "$out" = "settled failed agent_prompt_stalled" ] && echo "ok   a stalled prompt is named" || { echo "FAIL stalled prompt ($out)"; fails=$((fails + 1)); }
+printf '{"result":{"worker":{"stage":"settled","state":"succeeded"},"dispatch":{"status":"completed","lastFailure":"agent_prompt_stalled"}}}\n' > "$TMP/show.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
+[ "$out" = "settled succeeded" ] && echo "ok   a success carries no failure reason" || { echo "FAIL success with old reason ($out)"; fails=$((fails + 1)); }
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

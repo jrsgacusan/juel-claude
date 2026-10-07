@@ -2,7 +2,9 @@
 # Tells STAR whether a worker is stuck at a screen it will never leave by itself, without
 # putting the worker's screen into STAR's context.
 #   worker-probe.sh <dispatch>
-#     ->   ok | quiet <minutes> <terminal> | settled <state> | stuck: <label> | gone | unknown <why>
+#     ->   ok | quiet <minutes> <terminal> | settled <state> [<reason>] | stuck: <label> | gone | unknown <why>
+# <reason> follows only a failed settlement, when Orca gives one (agent_prompt_stalled: the agent
+# never took its prompt, most often because Claude Code's trust dialog was on screen).
 # "stuck" labels: usage limit, login, trust dialog, model switch, confirmation dialog, waiting for
 # input (a "press enter", a y/n or a password prompt).
 # "quiet" means the worker is running but its terminal has printed nothing for STAR_QUIET_MINUTES
@@ -94,10 +96,25 @@ if not isinstance(worker, dict) or not isinstance(dispatch, dict):
     out("unknown unreadable orca output")
 if not worker and not dispatch:
     out("unknown no worker record")
+def reason(state):
+    """Orca's reason for a failed dispatch (agent_prompt_stalled), when it gives one."""
+    if state != "failed":
+        return ""
+    for record in (dispatch, worker):
+        for key in ("last_failure", "lastFailure"):
+            value = record.get(key)
+            if isinstance(value, dict):
+                value = value.get("code") or value.get("reason")
+            if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,60}", value):
+                return " " + value
+    return ""
+
+
 if worker.get("stage") == "settled" or worker.get("state") in TERMINAL:
-    out("settled " + (worker.get("state") or "unknown"))
+    state = worker.get("state") or "unknown"
+    out("settled " + state + reason(state))
 if dispatch.get("status") in ("completed", "failed"):
-    out("settled " + dispatch["status"])
+    out("settled " + dispatch["status"] + reason(dispatch["status"]))
 read = call("worker-read", "--limit", "40")
 terminal, messages = read.get("terminal"), read.get("messages")
 lines = [str(l) for l in ((terminal or {}).get("tail") or [])][-25:] if isinstance(terminal, dict) else []
