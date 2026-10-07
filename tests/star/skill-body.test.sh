@@ -226,5 +226,9 @@ g "FR6 stage-start runs in the background" 'like `gate-lock.sh` in a worker'
 g "FR6 a start that printed nothing is replayed" '| no line, or a non-zero exit |'
 g "FR12 failed screen checks can reach a fix" 'reads the failed checks as missed acceptance criteria'
 grep -q 'a screen check recorded there as failed' "$T/reviewer-prompt.md" && pass "FR12 the reviewer reads failed screen checks" || fail "FR12 reviewer prompt"
+# Finished worktrees (#19)
+g "W1 finished worktrees are removed" 'sh S/worktree-clean.sh <item>'
+g "W2 a kept worktree waits for the user" '`kept=1`'
+g "W3 never with work in it" 'never with work in it'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

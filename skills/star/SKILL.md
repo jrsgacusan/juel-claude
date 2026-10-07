@@ -24,7 +24,7 @@ metadata:
         check: "command -v git"
       - id: python3
         hard: true
-        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh and the session hook run on it
+        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, worktree-clean.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh and the session hook run on it
         check: "command -v python3"
       - id: claude
         hard: true
@@ -352,7 +352,8 @@ or item with a line break or ` · ` in it, and it writes body lines that look li
 
 Every transition into `escalated` or `failed` queues a `--kind escalation` item in the same step,
 so no row is ever stranded: its answer either runs the stage again with the user's decision or
-drops the row. A `held` item is only a reminder of an outward action; closing it changes no row.
+drops the row. A `held` item is only a reminder; closing it never changes a row's state (two `done` answers set a
+counter: a status the user moved by hand, and a kept worktree to try again).
 
 ### The ledger
 
@@ -390,6 +391,7 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `last=<message id>` | not a count: the id of the last message applied to this row | never; the next message overwrites it |
 | `tracker=<status>` | not a count: the last status STAR wrote to the work item, `!<status>` when that write failed | never; the next write overwrites it |
 | `start=<n>`, `live=<n>` | written by `stage-start.sh`: the attempt number, and an attempt still being started | `live=` when that start ends; never `start=` |
+| `kept=1` | the worktree of a finished row was kept (`worktree-clean.sh`): STAR does not try again by itself | its held item is answered `done` |
 
 **An item has one name everywhere**, set once at ingest by `sh S/ledger.sh name <ref>` and used
 for its row, its brief, review and gate paths, its worktree and every report line: a tracker ref
@@ -627,6 +629,7 @@ message into the same end state.
    | `restart-or-drop` | anything else | add the item again with the title "<stage> was interrupted: answer restart or drop" |
    | `draft` | send | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`; any other draft is the user's to send, say so. Before posting, append `<iso>\tSTAR\t<item>\tposted draft N-<id>` to `sent.log`; when that line is already there the draft was posted and only the close was lost: just close the item. Posting is an outward action: inside quiet hours or while the user is away, leave the item open (do not close it) and say "posts at the first tick outside the quiet window"; the Answers step sees it again every tick and posts it then |
    | `held` "could not move <item> to <status>…" | done | `counters.tracker=<status>` (the user moved it), then close it |
+   | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `draft`, `held` | anything else | close it |
 3. **Messages**, only while some row is in a worker stage or waiting for a slot:
    `sh S/messages.sh --wait --timeout-ms 540000`. It prints `delivery <id> <n>`, then each message
@@ -734,6 +737,12 @@ message into the same end state.
    - Notifications (below).
    - The tracker status ("The tracker status").
    - Improvement issues met this tick ("Improvement issues").
+   - Finished worktrees: each `done` or `dropped` row that still has a worktree and no `kept=` gets
+     `sh S/worktree-clean.sh <item>`. It removes the worktree only when nothing in it would be lost
+     (clean, and its work on the remote or merged), never with work in it that exists nowhere else.
+     `removed <path>` → name it in the status line. `kept <path>: <why>` → `--kind held` "<item>'s
+     worktree <path> was kept: <why>", and `counters.kept=1`. `none` → nothing. `failed` and
+     `escalated` rows keep their worktrees until the user answers.
    - Away: `sh S/handoff.sh --home HOME_DIR due` printing `due` → `sh S/handoff.sh --home HOME_DIR summary`.
 6. **Write.** `loops.sh resume …` with the current pools and the next step;
    `loops.sh waiting "<one line per PR in review, per blocked question>"`. Nothing is committed:
@@ -1260,6 +1269,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - Never put a project's details in an improvement issue: placeholders only, and `star-issue.sh`
   refuses the rest.
 - AskUserQuestion only in the intake, between ticks.
+- A worktree is removed only by `worktree-clean.sh`, and never with work in it that exists nowhere
+  else.
 - `open-loops.md` is written only through `loops.sh`, and `ledger.md` only through `ledger.sh`.
 
 ## Common mistakes
@@ -1304,6 +1315,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A ticket that only asks for a QA run or a write-up | `deliverable: report`: a report the user accepts, posted by a post worker; no PR |
 | The tracker cannot be reached from STAR's session | One held item per status move; the user answers done once they moved it |
 | A finding that is already an open issue | `star-issue.sh comment` adds the new evidence to it |
+| A finished item's worktree still holds uncommitted or unpushed work | It stays; the queue says why, and `done` there makes STAR try again |
 | The STAR folder was deleted | That project's state is gone; the next `/juel:star` starts fresh. Stop STAR first: workers still running would report to nobody |
 | Two projects each run a STAR | Each has its own queue and its own 3 + 3 slots; the gate lock and the memory check are shared by the machine |
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
