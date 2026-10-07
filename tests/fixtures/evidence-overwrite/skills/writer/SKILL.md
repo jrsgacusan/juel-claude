@@ -5,7 +5,7 @@ description: Fixture - writes an evidence report under docsRoot and states no co
 
 # Writer
 
-<!-- juel:protocol v7 -->
+<!-- juel:protocol v8 -->
 
 ## Phases
 

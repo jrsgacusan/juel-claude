@@ -53,7 +53,7 @@ executes, and capture what actually happens. That capture is the evidence. Nothi
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v7 -->
+<!-- juel:protocol v8 -->
 
 **0. Harness check, before every other rule.** If you do not have the `TaskCreate` tool, you are not running in Claude Code. Read `references/harness-codex.md`, resolved relative to this skill file's own location (`../../references/harness-codex.md`), and apply its construct map, corrected facts, dependency substitutions and degradation contract to every rule below and to every phase body in this skill. This single read is the one action permitted before rule 1's preflight, and only in that case. If you do have `TaskCreate`, ignore that file entirely and continue to rule 1.
 

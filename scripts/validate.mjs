@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel:protocol v7 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v8 -->';
 for (const [name, text] of skillBodies) {
   if (!text.includes(PROTOCOL_MARKER))
     fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
@@ -467,18 +467,18 @@ for (const [name, text] of skillBodies) {
 // skill on a future edit — the same defect class checks 8, 9, and the prior
 // rule-6 check (this block, before this edit) each closed for their own
 // rule. This check closes it for rule 1's fallback clause: every skill must
-// carry both the v7 marker and the clause's canonical lead sentence,
+// carry both the v8 marker and the clause's canonical lead sentence,
 // byte-identical.
 {
-  const PROTOCOL_MARKER_V7 = '<!-- juel:protocol v7 -->';
+  const PROTOCOL_MARKER_V8 = '<!-- juel:protocol v8 -->';
   const RULE1_FALLBACK_LEAD =
-    '- **If `TaskCreate`/`TaskUpdate` genuinely fail** — one attempted call returns an error, never merely assumed unavailable in advance';
+    '- **If `TaskCreate`/`TaskUpdate` are not in your tool list, or genuinely fail** — one attempted call returns an error; never assumed unavailable without checking the tool list';
 
   for (const [name, text] of skillBodies) {
-    if (!text.includes(PROTOCOL_MARKER_V7))
-      fail('protocol-v7', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V7} — rule 1's fallback clause requires the v7 marker`);
+    if (!text.includes(PROTOCOL_MARKER_V8))
+      fail('protocol-v8', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V8} — rule 1's fallback clause requires the v8 marker`);
     if (!text.includes(RULE1_FALLBACK_LEAD))
-      fail('protocol-v7', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
+      fail('protocol-v8', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
   }
 }
 
@@ -497,7 +497,7 @@ for (const [name, text] of skillBodies) {
   // requires adding it here too — if it is not in this list, its absence
   // from the map is not caught. Whoever edits the protocol owns this list.
   const CONSTRUCTS = [
-    'TaskCreate', 'TaskUpdate', 'Skill', 'Agent', 'ListAgents',
+    'TaskCreate', 'TaskUpdate', 'TodoWrite', 'Skill', 'Agent', 'ListAgents',
     'AskUserQuestion', 'Monitor', 'Write',
   ];
   const harnessPath = join(root, 'references', 'harness-codex.md');

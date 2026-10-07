@@ -1,7 +1,8 @@
 # Harness adapter — Codex
 
-**Read this only if you do not have the `TaskCreate` tool.** If you do have it, you are in Claude
-Code, this file does not apply, and rule 0 has already told you to ignore it.
+**Read this only when rule 0 says you are in Codex:** you have the `update_plan` tool and no
+`Skill` tool. Claude Code without `TaskCreate` is still Claude Code: this file does not apply
+there, and rule 1's fallback (`TodoWrite`, else a numbered phase log) covers it.
 
 This plugin's skills are written against Claude Code. Everything below translates them for Codex
 CLI. Apply it to every rule in the Strict Execution Protocol and to every phase body in the skill
@@ -13,6 +14,7 @@ you are running.
 | --- | --- | --- |
 | `TaskCreate` | `update_plan` | One plan item per phase. The plan IS the checklist rule 1 demands. |
 | `TaskUpdate` | `update_plan` | Rewrite the plan with the item's new status; there is no separate update call. |
+| `TodoWrite` | `update_plan` | Rule 1's second choice in Claude Code. Here `update_plan` is already the first choice. |
 | `Skill` | `$<skill-name>` | Explicit invocation. Plugin skills are namespaced `juel:<skill>`; skills under `~/.agents/skills/` are not namespaced. |
 | `Agent` | `spawn_agent` | Then `wait` for the result. `list_agents` enumerates in-flight agents. |
 | `codex exec (as executor)` | `spawn_agent` + `wait` | A Codex session must not shell out to another Codex session. Spawn a subagent, then `wait` for it. `multi_agent` is stable; `max_threads` and `max_depth` come from `[agents]` in `~/.codex/config.toml`. |
