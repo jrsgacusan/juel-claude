@@ -45,7 +45,7 @@ grep -qE '(^|[^-])ship-tickets' "$ROOT/README.md" "$ROOT/skills/ship-ticket/SKIL
 # Team test pass fixes
 grep -q 'Every transition into `escalated` or `failed` queues' "$SKILL" && pass "F1 no stranded rows" || fail "F1 stranded rows"
 grep -q 'git check-ignore' "$SKILL" && grep -q 'only files git ignores' "$SKILL" && pass "F6 copy keeps the tree clean" || fail "F6 copy step"
-grep -q -- 'check --ack <delivery_id> --wait' "$SKILL" && pass "F4 deliveries acknowledged" || fail "F4 ack"
+grep -q -- 'messages.sh --ack <delivery> --wait' "$SKILL" && pass "F4 deliveries acknowledged" || fail "F4 ack"
 grep -q 'issue-<n>' "$SKILL" && grep -q -- '--item <name>' "$SKILL" && grep -q '| item | ref | project |' "$SKILL" && pass "F5 one item name everywhere" || fail "F5 item naming"
 grep -q '## Decisions' "$SKILL" && grep -q -- '--feedback' "$SKILL" && pass "F7 answers reach the restarted stage" || fail "F7 decisions"
 grep -q 'cursor=<cursor>' "$SKILL" && grep -q 'MERGED item=' "$SKILL" && pass "F7/F8 escalation cursor and worker-seen merges" || fail "F7/F8 cursor, MERGED"
@@ -173,5 +173,21 @@ g "F2 take over is a command, not filler" 'whole text is `take over`'
 g "F3 an inbox file for another repo is kept, not deleted" 'leave the file where it is'
 g "F4 the worktree is created from the recorded repo id" '`<REPO_ID>` is `project.orcaRepo`'
 g "F5 a late registration is recorded" 'write it to `star.json` as `project.orcaRepo`'
+# Issues #7 to #18: the scripts, the goal, the pool
+g "G1 the goal is stated" '## Goal'
+g "I13 the ledger is written through ledger.sh" 'sh S/ledger.sh set <item>'
+g "I13 the item name comes from ledger.sh" 'sh S/ledger.sh name <ref>'
+g "I13 messages are read through messages.sh" 'sh S/messages.sh --wait --timeout-ms 540000'
+g "I13 stages start through stage-start.sh" 'sh S/stage-start.sh <stage> <item>'
+g "I8 a heartbeat-only nudge is a no-op" 'holds only heartbeats is a no-op'
+g "I11 every spec is one line" 'Every spec is one line'
+g "I11 a replay reuses its request ids" 'same `--retry-request` ids'
+g "I12 a settled reviewer's verdict is read from its file" 'head -n 1'
+g "I7 a stalled prompt names the trust dialog" 'agent_prompt_stalled'
+g "I7 dialogs that cannot be cleared reach the user" 'hold trust <path>'
+g "I9 a worktree inside the repo is excluded" '.git/info/exclude'
+g "I18 builds keep a slot while briefs draft" '`maxParallel - 1`'
+grep -q 'reviewer-prompt.md' "$SKILL" && [ -f "$T/reviewer-prompt.md" ] && pass "the reviewer prompt is a template" || fail "reviewer template"
+! grep -q 'payload.dispatchId' "$SKILL" && ! grep -q "orca orchestration task-create --spec" "$SKILL" && pass "no hand-rolled message reading or task creation left" || fail "hand-rolled steps left"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
