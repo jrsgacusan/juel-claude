@@ -115,7 +115,7 @@ grep -q 'STAR answered' "$SKILL" && pass "what STAR decided for a worker is on r
 grep -q 'Answer on' "$T/open-loops.md" && pass "the queue file says how to answer" || fail "template answer hint"
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
-g "V1 away, back and stop are not a start" '`status`, `away`, `back`, `stop` and `draft-brief` are not a start'
+g "V1 away, back and stop are not a start" '`status`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start'
 g "V3 every tick checks it still owns the home" "is not this session's handle"
 g "V4 the heartbeat is renewed before it expires" 'heartbeatAt'
 g "V5 a lost build leaves its pool" 'and set the row to `failed`'
@@ -204,5 +204,19 @@ g "B5 the screen report" 'VERIFIED item='
 g "B6 STAR decides an in-scope product call while you are away" 'decided while you were away'
 g "B7 the brief report counts its asks" 'asks=<n>'
 g "B8 later ends the walk-through" '"later" as any answer'
+# Report items, the tracker status, improvement issues
+g "R1 report items" 'deliverable: report'
+g "R2 the report is accepted in the queue" '--kind accept-report'
+g "R3 a post worker posts it" '/juel:star post-report <ref> --item <name> --report <path>'
+g "R4 report states" '`post-queued`'
+g "R5 the report lines" 'REPORTED item='
+g "R5 the post line" 'POSTED item='
+g "T1 STAR owns the tracker status" '## The tracker status'
+g "T2 the status follows the row" 'counters.tracker='
+g "T3 status writes are logged" 'status <status>'
+g "N1 STAR files its own issues" '## Improvement issues'
+g "N2 through star-issue.sh" 'sh S/star-issue.sh file --fingerprint'
+g "N3 workers can report friction" 'STAR-ISSUE:'
+g "N4 project details never go out" '`<project>`, `ITEM-1`, `<repo>` and `<app>`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
