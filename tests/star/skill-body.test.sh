@@ -189,5 +189,20 @@ g "I9 a worktree inside the repo is excluded" '.git/info/exclude'
 g "I18 builds keep a slot while briefs draft" '`maxParallel - 1`'
 grep -q 'reviewer-prompt.md' "$SKILL" && [ -f "$T/reviewer-prompt.md" ] && pass "the reviewer prompt is a template" || fail "reviewer template"
 ! grep -q 'payload.dispatchId' "$SKILL" && ! grep -q "orca orchestration task-create --spec" "$SKILL" && pass "no hand-rolled message reading or task creation left" || fail "hand-rolled steps left"
+# Questions and the intake
+g "Q1 a worker sets its own deadline" 'deadline=<minutes>'
+g "Q2 a new ask supersedes the open one" 'Superseded by your newer question.'
+g "Q3 one reminder before No answer" 'still waiting on you'
+g "Q3 the reminder is counted" '`reask=1`'
+g "B1 the intake section" '## Before you go'
+g "B2 the brief's questions are queued" '--kind prep'
+g "B3 the intake asks between ticks only" 'Between ticks, never inside one'
+g "B4 a skipped decision takes its default" 'default taken'
+g "B5 screen checks wait for the user" '`screen-queued`'
+g "B5 the screen stage" '--screen-checks'
+g "B5 the screen report" 'VERIFIED item='
+g "B6 STAR decides an in-scope product call while you are away" 'decided while you were away'
+g "B7 the brief report counts its asks" 'asks=<n>'
+g "B8 later ends the walk-through" '"later" as any answer'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
