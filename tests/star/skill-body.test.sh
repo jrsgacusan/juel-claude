@@ -274,5 +274,13 @@ g "B10 rest is never feedback on an open approve question" 'STAR records nothing
 g "B11 an edit that leaves no criterion writes NEEDS CRITERIA" 'leaves the brief with no acceptance criterion'
 g "B12 the changed mark is only in chat" 'only in the question STAR asks in chat, never in the brief file'
 g "B13 an existing PR fixes branch and baseBranch" 'On a brief with `existingPr`, `branch` and `baseBranch` are not small edits'
+# Final fix wave (Z4 and Z5 are issue #27's)
+g "Z1 the base sync clears pending=" 'write `counters.synced=<sha7>` and `counters.pending=-`'
+g "Z2 a bare number is refused only where options are numbered" 'On a question with numbered options, a bare number that names no option is not an answer'
+grep -qF 'on any open question that is not a `decision`: STAR records nothing for it and prints it again' "$SKILL" && ! grep -qF 'feedback on one of them: when the open question is one' "$SKILL" && pass "Z3 rest on any open question but a decision is printed again" || fail "Z3 rest on any open question but a decision is printed again"
+grep -qF 'so a change to either is answered in chat' "$SKILL" && grep -qF 'A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR' "$SKILL" && ! grep -qF 'a change to either is feedback for the brief worker' "$SKILL" && pass "Z6 an existing PR's branches are changed on GitHub, not by a re-draft" || fail "Z6 an existing PR's branches are changed on GitHub, not by a re-draft"
+grep -qF 'it makes sure the brief has `- [ ] NEEDS CRITERIA`' "$SKILL" && ! grep -qF 'it writes `- [ ] NEEDS CRITERIA`' "$SKILL" && pass "Z7 an edit that leaves no criterion never adds a second marker" || fail "Z7 an edit that leaves no criterion never adds a second marker"
+grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL" && ! grep -qF '`PROPOSED-CRITERIA` (case 3)' "$SKILL" && pass "Z8 PROPOSED-CRITERIA whenever a criterion is proposed" || fail "Z8 PROPOSED-CRITERIA whenever a criterion is proposed"
+grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

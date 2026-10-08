@@ -615,7 +615,7 @@ message into the same end state.
    |---|---|---|
    | `approve-brief` | exactly `approve`, `yes` or `ok` (any case) | stamp `approved: <iso>` in the brief's frontmatter; row → `queued`. Not while the brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more): then nothing is stamped; add the item again titled "approve brief — it has no acceptance criteria yet: answer with the criteria" (an answer in words is feedback: criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A brief with proposed criteria (`grep -c '(proposed)' <brief>` prints 1 or more) is approved only by this explicit answer from the user, never by `rest`, a default or a blanket answer; in the same write that stamps `approved:`, remove each ` (proposed)` suffix, so builders and reviewers read plain criteria |
    | `approve-brief` | drop | row → `dropped` |
-   | `approve-brief` | anything else, including "approve, but …" | it is feedback, never a conditional approval: append it to the brief file under `## Feedback` with the date (so it survives a restart of STAR). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `approve-brief` item again, asking with the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line in that question, since the inline approve view does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is feedback for the brief worker (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix. When STAR's edit leaves the brief with no acceptance criterion, it writes `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
+   | `approve-brief` | anything else, including "approve, but …" | it is feedback, never a conditional approval: append it to the brief file under `## Feedback` with the date (so it survives a restart of STAR). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `approve-brief` item again, asking with the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line in that question, since the inline approve view does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded, and the approve question is printed again. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
    | `merge-pr` | drop / not merging | row → `dropped` |
    | `merge-pr` | anything else | nothing changes: a merge is detected from GitHub, never taken from an answer. After closing the item, add the same `merge-pr` item again, so the reminder stays in the queue |
    | `accept-report` | exactly `accept`, `yes` or `ok` (any case) | row → `post-queued` |
@@ -943,17 +943,18 @@ old PR.
 
    `existingPr` is set only when the item's outcome is to bring an open PR to mergeable (the item
    links an open PR and asks to finish, update or merge it, rather than to build something new):
-   `gh pr view <url> --json url,headRefName,baseRefName,isCrossRepository`. Then `branch` is its
-   `headRefName` and `baseBranch` its `baseRefName`, and step 5's naming rule does not apply. A PR
-   whose `isCrossRepository` is true comes from a fork, which cannot be pushed to: leave
-   `existingPr` out and add a `decision` line under `## Before you go`: `<url> comes from a fork:
-   open a new PR from a copy of its branch, or drop the item? | options: new PR / drop | default:
-   new PR`.
+   `gh pr view <url> --json url,headRefName,baseRefName,isCrossRepository,state`, and
+   only when `state` is `OPEN`; otherwise leave `existingPr` out and note it under
+   `## Before you go` as a `decision`. Then `branch` is its `headRefName` and `baseBranch` its
+   `baseRefName`, and step 5's naming rule does not apply. A PR whose `isCrossRepository` is
+   true comes from a fork, which cannot be pushed to: leave `existingPr` out and add a
+   `decision` line under `## Before you go`: `<url> comes from a fork: open a new PR from a copy
+   of its branch, or drop the item? | options: new PR / drop | default: new PR`.
 7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n>` (`<n>` is the
    number of lines under `## Before you go`, 0 for `none`), then `NEEDS-CRITERIA` (case 4 of
-   step 6) or `PROPOSED-CRITERIA` (case 3) when that applies, then at most one
-   `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own contract or
-   tools got in the way (no project or ticket names).
+   step 6) when that applies, or `PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`,
+   then at most one `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own
+   contract or tools got in the way (no project or ticket names).
 
 ## Post worker mode: `post-report`
 
@@ -1011,10 +1012,10 @@ for a row in `verifying` or `ready` means the base branch moved since babysit la
 most often because the user merged a sibling PR. Read the base's head:
 `git -C <project.repo> ls-remote <project.remote> refs/heads/<the brief's baseBranch>`, its first
 7 characters. When the row's `counters.synced` is not that sha: close its `merge-pr` item if it
-has one, write `counters.synced=<sha7>`, and the row → `babysit-queued` (babysit resumes with
-`--since <cursor>`; its Phase 4 merges the base in and resolves mechanical conflicts itself).
-When it is: syncing did not help: → `escalated`, queue `--kind escalation` "<what> again after
-syncing with <base> at <sha7>". `ls-remote` failing: the table's own rule for that verdict.
+has one, write `counters.synced=<sha7>` and `counters.pending=-`, and the row → `babysit-queued`
+(babysit resumes with `--since <cursor>`; its Phase 4 merges the base in and resolves mechanical
+conflicts itself). When it is: syncing did not help: → `escalated`, queue `--kind escalation`
+"<what> again after syncing with <base> at <sha7>". `ls-remote` failing: the table's own rule for that verdict.
 
 ## Drafts
 
@@ -1245,7 +1246,8 @@ or an inbox file that adds rows), and again on `away`.
    answer in words. An option's text is the exact command word the Answers step acts on
    (`approve`, `drop`, `restart`) or, for a `prep` item or a `question`, the exact answer it
    records (`done`, `can't now`, a decision's choice), so a numbered reply always reaches the
-   right row. A bare number that names no option is not an answer: print the question again.
+   right row. On a question with numbered options, a bare number that names no option is not an answer:
+   print the question again.
    Record the answer with `loops.sh set-answer <id> "<the option's text, or the words>"` and run
    the Answers step for it at once, so STAR stays the only writer of briefs and rows, then ask
    the next question. A message that is Orca's nudge (it starts with "You have" and names
@@ -1261,8 +1263,8 @@ or an inbox file that adds rows), and again on `away`.
    Recommended option, each recorded as
    `loops.sh set-answer <id> "<option> (recommended; you said rest)"` and applied like any
    answer. It never answers an approve, `criteria`, `secret`, `account` or `screen` question:
-   those are still asked one by one. Nor is `rest` ever an answer in words or feedback on one of
-   them: when the open question is one, STAR records nothing for it and prints it again.
+   those are still asked one by one. Nor is `rest` ever an answer in words or feedback
+   on any open question that is not a `decision`: STAR records nothing for it and prints it again.
 3. `screen` items are things to do now: "sign in to <app> as <account>", "approve the keychain
    prompt once". Options: `done` / `can't now`.
 4. When nothing is left to ask and no brief is still drafting: "All set: <n> approved, <m>
