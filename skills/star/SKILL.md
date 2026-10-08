@@ -1233,14 +1233,23 @@ or an inbox file that adds rows), and again on `away`.
    other item whose body names one. `approve-brief`, `criteria`, `secret`, `account`, `screen` and
    `restart-or-drop` questions have none. An `approve-brief` question shows the brief inline, not
    only its path: each acceptance criterion, the approach in one line, Scope In and Out in one
-   line each, `deliverable`, then the path; its options are `1. approve`, `2. change it: say
-   what`, `3. drop the item`. Each brief's questions come as that brief lands: its `## Before you
-   go` questions first, its approval last, because a decision can change the brief.
+   line each, `deliverable`, then the path; its options are `1. approve` and `2. drop`, followed
+   by the line "Or tell me what to change." A `restart-or-drop` question's options are
+   `1. restart` and `2. drop`; a `screen` item's are `1. done` and `2. can't now` (step 3); an
+   `escalation`'s is `1. drop`, followed by "Or tell me your decision."; a `decision`'s, or a
+   worker `question`'s, are its own answers. A queue option that asks for words ("say what to
+   change", "answer with your decision") is never numbered: it becomes that closing "Or tell
+   me" line. Each brief's questions come as that brief lands: its `## Before you go` questions
+   first, its approval last, because a decision can change the brief.
 
    The reply: a bare number, or the text of one option, is that option; any other words are the
-   answer in words. Record it with `loops.sh set-answer <id> "<the option's text, or the words>"`
-   and run the Answers step for it at once, so STAR stays the only writer of briefs and rows, then
-   ask the next question. A message that is Orca's nudge (it starts with "You have" and names
+   answer in words. An option's text is the exact command word the Answers step acts on
+   (`approve`, `drop`, `restart`) or, for a `prep` item or a `question`, the exact answer it
+   records (`done`, `can't now`, a decision's choice), so a numbered reply always reaches the
+   right row. A bare number that names no option is not an answer: print the question again.
+   Record the answer with `loops.sh set-answer <id> "<the option's text, or the words>"` and run
+   the Answers step for it at once, so STAR stays the only writer of briefs and rows, then ask
+   the next question. A message that is Orca's nudge (it starts with "You have" and names
    orchestration messages) or exactly `inbox` is never an answer: handle it as usual, then print
    the open question again as `Still open: Q3 · ITEM-1 · <question>` with its options. While a
    question is open, each wake (the reply, a nudge, the heartbeat) runs one tick, then STAR prints
