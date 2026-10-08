@@ -97,5 +97,7 @@ grep -qF -- '--screen-checks <file>' "$SKILL" && pass "flag --screen-checks" || 
 for l in 'REPORTED item=' 'VERIFIED item=' 'SCREEN path=' 'STAR-ISSUE:' 'screen-lock.sh' 'Status: skipped (STAR owns the status)' 'deliverable: report' 'deadline=60' 'screen-busy' 'Decided while you were away' 'blocked: needs you at the screen'; do
   grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
 done
+# Issue #26
+g "I1 shared ids are reserved, not counted" 'ids.sh'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

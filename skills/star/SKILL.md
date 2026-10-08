@@ -271,6 +271,7 @@ reviews/<project>/<item>-r<k>.md   and   <item>-r<k>-fix.md
 specs/<project>/<item>-review-r<k>.md   the reviewer's instructions (stage-start.sh writes them)
 reports/<project>/<item>.md   a report item's report (deliverable: report)
 issues.log              <iso>\t<fingerprint>\t<url>: every improvement issue STAR filed (star-issue.sh)
+ids.json                ids reserved from sequences that branches share (ids.sh; workers write it, under a lock)
 gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
@@ -1357,3 +1358,4 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
 | A check-in Orca refuses with `agent_prompt_blocked` | The worker is busy, not idle: `busy=` counts it, not `nudge=`, and the next try waits a full quiet window |
+| Two items that each add a decision to the same register | Each worker reserves its ids through `ids.sh`, so siblings never take the same number |

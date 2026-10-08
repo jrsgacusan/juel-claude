@@ -338,6 +338,16 @@ earlier escalations on this item, dated. Read it before anything else in the bri
 overrides the Approach where they differ and settles the question it answers: apply it, and do not
 escalate the same question again. Where two decisions disagree, the later one wins.
 
+**Shared ids.** Under a `star:` block, before you add an entry with a sequential id to a file that
+other branches also append to (a decision register, an ADR index, numbered migrations), reserve
+the id instead of taking the next number in your own copy: `git fetch <remote> <baseBranch>`,
+take the highest id in that file on `<remote>/<baseBranch>` and on your branch as the floor, then
+run `sh <ids.sh> --home <star.home> reserve <the file's path in the repo> --item <item> --count <n>
+--floor <highest>` (`ids.sh` is in `juel:star`: `../star/ids.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/star/ids.sh`). It prints one id per line: use them in order, written
+the way the file writes them (`D-041`). Siblings building at the same time then never take the
+same number. Without a `star:` block, or for a file nobody else appends to, nothing changes.
+
 **Nothing is asked at the terminal.** Nobody is there. Every place in this file, or in a skill it
 invokes, that says to ask, confirm with or wait for the user means this under `--unattended`:
 

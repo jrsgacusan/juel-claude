@@ -243,5 +243,7 @@ g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
 # Issue #28
 g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
 g "U5 the sync is named in the counters table" '`synced=<sha7>`'
+# Issue #26
+g "I2 STAR's home keeps the id ledger" 'ids.json'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
