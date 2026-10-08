@@ -125,5 +125,25 @@ out=$(U); rc=$?
 [ $rc -eq 1 ] && [ "$out" = "conflict t.md edited on both sides" ] && pass "an overlapping insertion is edited on both sides (exit 1)" || fail "overlap: exit $rc ($out)"
 [ -n "$(git -C "$R" ls-files -u t.md)" ] && pass "an overlapping insertion stays conflicted" || fail "overlap: staged ($(cat "$R/t.md"))"
 
+# 8. the overlap is in whole lines: dist/ and app/dist/ share text but no line, so both are kept
+repo lines
+put .gitignore 'node_modules/\n'; commit base; git -C "$R" branch feat
+put .gitignore 'node_modules/\ndist/\n'; commit main
+git -C "$R" switch -q feat; put .gitignore 'node_modules/\napp/dist/\n'; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$out" = "resolved .gitignore" ] && pass "lines that only share text both resolve" || fail "shared text: exit $rc ($out)"
+[ "$(cat "$R/.gitignore")" = "$(printf 'node_modules/\ndist/\napp/dist/')" ] && pass "lines that only share text: the base branch's first, then the PR's" || fail "shared text ($(cat "$R/.gitignore"))"
+
+# 9. one insertion's lines inside the other's block are edited on both sides, never 0, 2, 1, 2, 3
+repo midblock
+put m.md '| 0 |\n'; commit base; git -C "$R" branch feat
+put m.md '| 0 |\n| 2 |\n'; commit main
+git -C "$R" switch -q feat; put m.md '| 0 |\n| 1 |\n| 2 |\n| 3 |\n'; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict m.md edited on both sides" ] && pass "an insertion inside the other's block is edited on both sides (exit 1)" || fail "mid-block: exit $rc ($out)"
+[ -n "$(git -C "$R" ls-files -u m.md)" ] && pass "an insertion inside the other's block stays conflicted" || fail "mid-block: staged ($(cat "$R/m.md"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
