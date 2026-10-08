@@ -21,6 +21,8 @@
 # --round defaults to the row's round, plus one for a review that is not a replay.
 # A brief with existingPr: <url> and no local branch yet gets its branch fetched from the
 # project's remote and checked out tracking it (an open PR's head), instead of a renamed branch.
+# For fix and babysit, a review the reviewer wrote at the same relative path inside the worktree
+# instead of the STAR folder is moved into the STAR folder first (never over one already there).
 # Every spec sent is one line: the reviewer's instructions go to specs/<project>/ and the spec
 # points at them. A failed worker-start is retried once: with --retry-of, one effort level lower
 # when the effort was refused, or on "worker" ("reviewer" for review) when the model was refused.
@@ -136,6 +138,7 @@ if len(positional) != 2 or positional[0] not in RUNNING:
 stage, item = positional
 if not home:
     die(2, "no STAR folder: pass --home, or run inside a project")
+home = os.path.abspath(home)
 try:
     star = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
 except (OSError, ValueError) as e:
@@ -459,6 +462,15 @@ else:
     other = other_row_using(place)
     if other:
         out(f"failed in-use: {place} is already in use by {other}")
+    if stage in ("fix", "babysit"):
+        # a review written inside the worktree instead of the STAR folder (#35): see the header
+        review = os.path.join(reviews, f"{item}-r{round_}.md")
+        rel = os.path.relpath(review, repo)
+        stray = os.path.join(place, rel)
+        if not rel.startswith("..") and not os.path.exists(review) and os.path.isfile(stray):
+            os.makedirs(reviews, exist_ok=True)
+            shutil.move(stray, review)
+            print(f"stage-start.sh: moved {stray} to {review}", file=sys.stderr)
 
 
 def ensure_trust(setting_):

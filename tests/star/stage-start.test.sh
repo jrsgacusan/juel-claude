@@ -145,6 +145,15 @@ reset; L set SPH-11 state=babysit-queued pr=https://github.com/o/r/pull/42 "curs
 ST babysit SPH-11 >/dev/null
 grep -q "/juel:babysit-pr 42 --unattended --mark-ready --reviewed $H/reviews/app/SPH-11-r1.md --item SPH-11 --brief $H/briefs/app/SPH-11.md --gates-file $H/gates/app/SPH-11.json --executor session --since 2026-10-07T07:00:00Z#c1" "$TMP/calls" && pass "the babysit prompt" || fail "babysit prompt ($(grep task-create "$TMP/calls"))"
 
+# a review the reviewer wrote inside its worktree (#35) moves into the STAR folder before babysit or fix reads it
+REL=${H#"$APP"/}; HR="$H/reviews/app/SPH-11-r1.md"; WR="$WT/$REL/reviews/app/SPH-11-r1.md"
+reset; rm -f "$HR"; mkdir -p "$(dirname "$WR")"; echo 'VERDICT item=SPH-11 round=1 SAFE findings=0 head=abc1234' > "$WR"
+L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
+[ -f "$HR" ] && [ ! -e "$WR" ] && pass "a review left in the worktree moves to the STAR folder" || fail "review not moved"
+reset; echo 'stray' > "$WR"; L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
+grep -q VERDICT "$HR" && [ -f "$WR" ] && pass "a review already in the STAR folder is never overwritten" || fail "home review overwritten"
+rm -f "$WR"
+
 # one row per worktree
 reset; L set SPH-12 "worktree=$WT" state=fix-queued >/dev/null
 out=$(ST fix SPH-12); case "$out" in "failed in-use: $WT is already in use by SPH-11") pass "a worktree in another open row is refused" ;; *) fail "in-use ($out)" ;; esac

@@ -12,7 +12,9 @@ NOT-SAFE only for a defect that breaks behaviour, loses data, opens a security h
 acceptance criterion or leaves scope. Anything smaller goes under "Notes" and does not block.
 Write the full review to {{review}}. Its first line is the verdict line below; then the numbered
 findings (severity, file:line, the failure scenario, the fix); then Notes. That file is the only
-thing you write. <sha> is `git rev-parse HEAD`, the commit you reviewed.
+thing you write. <sha> is `git rev-parse HEAD`, the commit you reviewed. That path is in STAR's
+folder in the project's main checkout, outside this worktree: write it exactly there, never at
+the same relative path inside the worktree.
 Your worker_done body starts with exactly that one line:
 VERDICT item={{item}} round={{round}} SAFE findings=<n> head=<sha>
 or
