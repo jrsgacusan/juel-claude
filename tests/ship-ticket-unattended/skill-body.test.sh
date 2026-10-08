@@ -116,5 +116,11 @@ g "T24a a cleanup entry can be handed off" 'handed-off'
 g "T24b handed-off records are listed in the PR" 'Left for you to clean up'
 g "T24c and held for the user" 'action=clean up <identifier> on <service>'
 grep -qF 'handed-off' "$ROOT/references/local-e2e.md" && pass "T24d rule 3 knows handed-off" || fail "T24d local-e2e rule 3"
+# Task 13-15 review, round 1
+g "T21d a file the app loads is runtime whatever its extension" 'is runtime whatever its extension'
+grep -qF 'docs, `*.md` and `docs/`' "$SKILL" && fail "T21e every Markdown file no longer counts as outside runtime" || pass "T21e every Markdown file no longer counts as outside runtime"
+g "T21f the failure row defers to the reuse case" "re-run phase 6 in full (except step 6's evidence-reuse case)"
+g "T24e a PR template gets the handed-off section" 'the one section added to a template'
+g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

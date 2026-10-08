@@ -838,10 +838,12 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
 
    One exception. When every checklist item passed and only the regression gate went red, and
    every file changed since the evidence head (`git diff --name-only <evidence head>..HEAD`) is
-   outside runtime (test files, under the repo's test directories or matching its test naming;
-   docs, `*.md` and `docs/`; paths a memory note or the brief names as not loaded at runtime),
-   re-run only the regression gate (step 5) after the fix, in the same evidence directory. The
-   live checks are not run again: their evidence still holds for code that did not change. Record
+   outside runtime, re-run only the regression gate (step 5) after the fix, in the same evidence
+   directory. Outside runtime means test files (under the repo's test directories or matching its
+   test naming), docs the app does not load at runtime (`*.md`, `docs/`), and paths a memory note
+   or the brief names as not loaded at runtime. A file the app loads at runtime (skills, prompts,
+   templates, content) is runtime whatever its extension. The live checks are not run again: their
+   evidence still holds for code that did not change. Record
    `evidence reused from <evidence head> for <HEAD>: <changed files>` in `report.md`, and under
    `--unattended` add `"evidence": {"head": "<evidence head>", "reusedFor": "<HEAD>"}` to the gate
    manifest (`run-gates.sh` reads only the gate keys). Any other changed file, any FAIL item,
@@ -863,14 +865,15 @@ the evidence directory. Ask to proceed to PR.
 1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
 2. Resolve the PR title and body per "Base branch & repo conventions" above:
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
-   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off.
+   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections, except that when Phase 6 handed off a `cleanup.md` entry, a **Left for you to clean up** section listing each one is appended after the template's last section: the one section added to a template. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off.
 3. Open the PR, or degrade if `gh` is unavailable:
    - **`existingPr` in the brief:** do not run `gh pr create`. Push to its branch (step 1). Leave
      the PR's title and the author's text as they are: write this run's summary, QA instructions
-     and test plan into one section of the body that starts with the line `<!-- juel:update -->`
-     and ends with `<!-- juel:update end -->`, replacing that section when the body already has it
-     and appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp
-     file, then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
+     and test plan (plus **Left for you to clean up** when Phase 6 handed off an entry) into one
+     section of the body that starts with the line `<!-- juel:update -->` and ends with
+     `<!-- juel:update end -->`, replacing that section when the body already has it and
+     appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
+     then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
      `PR item=<item> url=<url> existing`.
    - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. It is marked ready once, in Phase 8, only after the second-model review says SAFE.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
@@ -914,7 +917,7 @@ and "Ready for you to merge" or why it stopped.
 | Working tree dirty before phase 4 | Stop. Ask user to commit/stash. |
 | Zero actionable findings in phase 5 | `/juel:review-and-execute` handles this internally; still run phase 6 (verification) and phase 7 (PR). |
 | Lint/tests fail after phase 5 | Loop back: invoke `/juel:review-and-execute` again — it will write a `-vN` plan and dispatch Codex. Do not hand-edit. |
-| Verification finds a defect in phase 6 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 6 in full. Do not open the PR until every checklist item is PASS and the regression gate is green. |
+| Verification finds a defect in phase 6 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 6 in full (except step 6's evidence-reuse case). Do not open the PR until every checklist item is PASS and the regression gate is green. |
 | Claude cannot self-verify a FE item in phase 6 (`juel:verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
 | A port the stack needs is already taken in phase 6 | Pick the next free port and rewire (rule 2 of `references/local-e2e.md`). Never stop the process holding it. |
 | An item FAILs in phase 6 while `cleanup.md` has open entries | Clean up first (step 7), then loop back. The re-run starts a fresh `-vN` evidence directory with an empty ledger. |
