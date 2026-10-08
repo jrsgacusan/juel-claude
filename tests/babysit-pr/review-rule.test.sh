@@ -42,6 +42,13 @@ printf '[{"type":"pull_request","parameters":{"required_approving_review_count":
 out=$(R o/r main)
 [ "$(printf '%s\n' "$out" | sed -n 1p)" = "required 1" ] && printf '%s\n' "$out" | grep -qx 'check build' && pass "readable classic protection counts, and its higher count wins" || fail "classic protection ($out)"
 
+reset; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}}]\n' > "$TMP/rules.json"
+printf 'HTTP 502: Bad gateway\n' > "$TMP/protection.err"
+case "$(R o/r main)" in "unknown "*) pass "an unreadable classic rule is unknown, never required 0" ;; *) fail "unreadable classic ($(R o/r main))" ;; esac
+
+reset; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}}]\n' > "$TMP/rules.json"
+[ "$(R o/r main)" = "required 0" ] && pass "a classic 404 is no classic rule" || fail "classic 404 ($(R o/r main))"
+
 reset; printf '[{"type":"pull_request","parameters":{}}]\n' > "$TMP/rules.json"
 [ "$(R o/r main)" = "required 1" ] && pass "a review rule with no count is read as 1, never 0" || fail "missing count ($(R o/r main))"
 
