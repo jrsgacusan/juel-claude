@@ -268,5 +268,11 @@ g "F4 changed lines are marked" '(changed)'
 grep -qF 'briefs may take every build slot' "$SKILL" && fail "F5 briefs no longer take build slots" || pass "F5 briefs no longer take build slots"
 g "F6 STAR's own edit keeps the criteria markers right" 'carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line'
 g "Q6 the heartbeat and STAR's own commands are never an answer" 'a message that starts with `STAR heartbeat:`, or one'
+# Faster briefs: review fixes
+grep -qF 'STAR writes itself, as below; otherwise the brief worker writes them from it' "$SKILL" && ! grep -qF 'is feedback, and the brief worker writes the criteria from it' "$SKILL" && pass "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write" || fail "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write"
+g "B10 rest is never feedback on an open approve question" 'STAR records nothing for it and prints it again'
+g "B11 an edit that leaves no criterion writes NEEDS CRITERIA" 'leaves the brief with no acceptance criterion'
+g "B12 the changed mark is only in chat" 'only in the question STAR asks in chat, never in the brief file'
+g "B13 an existing PR fixes branch and baseBranch" 'On a brief with `existingPr`, `branch` and `baseBranch` are not small edits'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
