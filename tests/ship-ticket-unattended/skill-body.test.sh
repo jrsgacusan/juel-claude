@@ -45,7 +45,7 @@ grep -q 'kernel lock' "$SKILL" && ! grep -q 'reclaims a lock whose' "$SKILL" && 
 grep -q 'Under `--unattended`, this phase is SKIPPED' "$SKILL" && pass "phase 8 left to the coordinator" || fail "phase 8 unattended"
 grep -q 'HELD item=<item> action=open a draft PR from <compare-url>' "$SKILL" && pass "no-gh unattended path" || fail "no-gh unattended path"
 grep -q 'gate-lock.sh' "$SKILL" && pass "S2 gates run through gate-lock.sh" || fail "S2 gate-lock.sh"
-grep -q 'Phase 5.s `test` and `lint`' "$SKILL" && pass "S2 Phase 5 gates locked too" || fail "S2 phase 5 locked"
+grep -q 'Phase 5.s targeted tests' "$SKILL" && pass "S2 Phase 5 gates locked too" || fail "S2 phase 5 locked"
 grep -q 'unanswered-question' "$SKILL" && pass "S4 unanswered-question escalation" || fail "S4 unanswered-question"
 grep -q 'Tier C is never used' "$SKILL" && pass "S12 no interactive Tier C unattended" || fail "S12 Tier C"
 grep -q 'item.path' "$SKILL" && pass "S11 file status write targets item.path" || fail "S11 item.path"
@@ -103,5 +103,9 @@ g "I1 shared ids are reserved, not counted" 'ids.sh'
 g "E1 an existing PR is updated, not opened" 'url=<url> existing'
 g "E2 its body keeps the author's text" '<!-- juel:update -->'
 g "E3 never rebased or force-pushed" 'never by rebasing'
+# Issue #32
+g "T32a Phase 5 runs targeted tests only" 'run only the tests for the files remediation changed'
+g "T32b project instructions on test scope win" 'say something else about test scope, they win'
+grep -qF 'run the `test` and `lint` commands resolved in Phase 4' "$SKILL" && fail "T32c the full run after remediation is gone" || pass "T32c the full run after remediation is gone"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

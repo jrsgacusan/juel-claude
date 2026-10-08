@@ -518,7 +518,7 @@ Inside the window, the phase 7 status write becomes a `HELD` line. Marking the P
 reviewers and re-requesting review happen later, in the babysit stage, which gets the same window.
 Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
 
-**Gate lock.** Under `--unattended`, every heavy command — Phase 5's `test` and `lint` run after
+**Gate lock.** Under `--unattended`, every heavy command — Phase 5's targeted tests after
 remediation, the Phase 6 regression gate, and the heavy verification commands in the plan Codex
 executes (full suites, builds; targeted single-file tests are fine without it) — runs through
 `gate-lock.sh`, next to this file (`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when
@@ -713,7 +713,15 @@ That skill internally runs:
 
 If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (verification still runs) either way.
 
-After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused here — do not re-derive) to verify nothing regressed (under `--unattended`, through `gate-lock.sh`; see "Gate lock"). Run a command only when its resolved value is non-null; a `null` command reports its one-line skip note (e.g. "no lint command resolved — lint gate skipped") and the phase continues rather than stopping.
+After it returns, run only the tests for the files remediation changed (`git diff --name-only
+<the commit before it>..HEAD`): the test files it touched, plus the tests the repo's own naming
+maps to the changed source files (`foo.py` → `test_foo.py`, `Foo.tsx` → `Foo.test.tsx`), through
+the runner of the `test` command resolved in Phase 4, given those paths. Lint those files the same
+way when the resolved `lint` command accepts paths. The one full run of every gate is Phase 6
+step 5, before the PR; there is never a second full run here. No file changed, or no test found
+for them: say so in one line and continue. When the project's own instructions (CLAUDE.md,
+AGENTS.md) say something else about test scope, they win. Under `--unattended`, these runs go
+through `gate-lock.sh` too (see "Gate lock").
 
 **Checkpoint:** show diff summary post-remediation. Ask to proceed.
 
