@@ -9,7 +9,7 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -d "$ROOT/skills/ship-tickets" ] && fail "ship-tickets removed" || pass "ship-tickets removed"
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
 grep -q '^name: star$' "$SKILL" && pass "name" || fail "name"
-grep -q 'juel:protocol v8' "$SKILL" && pass "protocol block" || fail "protocol block"
+grep -q 'juel:protocol v9' "$SKILL" && pass "protocol block" || fail "protocol block"
 for id in orca-terminal git-repo; do grep -q "id: $id" "$SKILL" && pass "requires $id" || fail "requires $id"; done
 for m in '`/juel:star SPH-11 and SPH-12`' '`/juel:star status`' '`/juel:star stop`' 'draft-brief <ref> --project <name> --out <path>'; do
   grep -qF -- "$m" "$SKILL" && pass "mode $m" || fail "mode $m"
