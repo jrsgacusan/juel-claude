@@ -180,6 +180,26 @@ reset; trust "$APP" "$WT" "$WT21"
 out=$(ST review SPH-21)
 case "$out" in "started task=task_aa11 "*) ! grep -q task-create "$TMP/calls" && pass "the next start reuses the task instead of making a second" || fail "a second task was created" ;; *) fail "replay after hold ($out)" ;; esac
 
+# an existing PR's branch is fetched and tracked, never renamed from Orca's (#33)
+git init -q --bare "$TMP/remote.git"
+git -C "$APP" remote add origin "$TMP/remote.git"
+git -C "$APP" push -q origin main
+git -C "$APP" switch -q -c feat/sph-30-existing
+git -C "$APP" commit -q --allow-empty -m "the PR's own work"
+git -C "$APP" push -q origin feat/sph-30-existing
+PRHEAD=$(git -C "$APP" rev-parse HEAD)
+git -C "$APP" switch -q main; git -C "$APP" branch -q -D feat/sph-30-existing
+L add SPH-30 ref=SPH-30 project=app state=queued >/dev/null
+printf -- '---\njuel_brief: 1\nbranch: feat/sph-30-existing\nbaseBranch: main\nexistingPr: https://github.com/o/r/pull/30\ndeliverable: pr\n---\n## Work item\nx\n' > "$H/briefs/app/SPH-30.md"
+WT30="$APP/.worktrees/app/SPH-30"
+reset; trust "$APP" "$WT30"
+out=$(ST build SPH-30)
+case "$out" in "started "*) pass "an existing PR's item starts" ;; *) fail "existing PR start ($out)" ;; esac
+[ "$(git -C "$WT30" rev-parse --abbrev-ref HEAD)" = "feat/sph-30-existing" ] && pass "the worktree is on the PR's branch" || fail "branch ($(git -C "$WT30" rev-parse --abbrev-ref HEAD))"
+[ "$(git -C "$WT30" rev-parse --abbrev-ref '@{upstream}')" = "origin/feat/sph-30-existing" ] && pass "it tracks the remote branch" || fail "upstream"
+[ "$(git -C "$WT30" rev-parse HEAD)" = "$PRHEAD" ] && pass "it starts at the PR's head" || fail "head"
+git -C "$APP" show-ref --verify --quiet refs/heads/orca/SPH-30 && fail "Orca's branch was left behind" || pass "Orca's own branch is deleted"
+
 # usage and unknown items
 ST nope SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "an unknown stage is 64" || fail "usage"
 ST brief NOPE-1 >/dev/null 2>&1; [ $? -eq 4 ] && pass "an unknown item is 4" || fail "unknown item"
