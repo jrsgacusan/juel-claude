@@ -266,5 +266,6 @@ g "F2 rest takes the recommended options" 'you said rest'
 g "F3 STAR edits a brief itself" '(applied by STAR)'
 g "F4 changed lines are marked" '(changed)'
 grep -qF 'briefs may take every build slot' "$SKILL" && fail "F5 briefs no longer take build slots" || pass "F5 briefs no longer take build slots"
+g "Q6 the heartbeat and STAR's own commands are never an answer" 'a message that starts with `STAR heartbeat:`, or one'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -1249,10 +1249,13 @@ or an inbox file that adds rows), and again on `away`.
    Record the answer with `loops.sh set-answer <id> "<the option's text, or the words>"` and run
    the Answers step for it at once, so STAR stays the only writer of briefs and rows, then ask
    the next question. A message that is Orca's nudge (it starts with "You have" and names
-   orchestration messages) or exactly `inbox` is never an answer: handle it as usual, then print
-   the open question again as `Still open: Q3 · ITEM-1 · <question>` with its options. While a
-   question is open, each wake (the reply, a nudge, the heartbeat) runs one tick, then STAR prints
-   the open question (or the next one) and ends the turn.
+   orchestration messages), exactly `inbox`, a message that starts with `STAR heartbeat:`, or one
+   whose whole text is one of STAR's own control phrases (`stop`, `away` or "I'm leaving", `back`
+   or "I'm back", `take over`) is never an answer: handle the nudge, `inbox` and the heartbeat as
+   usual, and run a control phrase as the command it is, then print the open question again as
+   `Still open: Q3 · ITEM-1 · <question>` with its options. While a question is open, each wake
+   (the reply, a nudge, the heartbeat) runs one tick, then STAR prints the open question (or the
+   next one) and ends the turn.
 
    A reply of `rest` answers every remaining `decision` question of the current brief with its
    Recommended option, each recorded as
@@ -1421,4 +1424,4 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
 | A check-in Orca refuses with `agent_prompt_blocked` | The worker is busy, not idle: `busy=` counts it, not `nudge=`, and the next try waits a full quiet window |
 | Two items that each add a decision to the same register | Each worker reserves its ids through `ids.sh`, so siblings never take the same number |
-| An Orca nudge arrives while a question is open in chat | It is handled as a nudge, never as the answer; the question is printed again |
+| An Orca nudge, the heartbeat or one of STAR's control phrases arrives while a question is open in chat | It is handled as what it is (a control phrase runs as its command), never as the answer; the question is printed again |
