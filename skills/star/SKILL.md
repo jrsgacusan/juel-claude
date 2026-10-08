@@ -955,15 +955,17 @@ reason=post-failed needs=<what the tracker said>`.
 
 ## Exact-head verification
 
-`sh S/pr-verify.sh <pr url> --head <head from the ledger>` prints one line. How it judges: without
-a review rule on the repo, an approval counts only when it was given on the current head commit;
-with a rule, GitHub's own decision stands. Green means every check that reported is green and
-GitHub's merge state is not blocked or behind, so a required check that has not started is
-`PENDING`, not a pass. A repo with no reviewers at all never passes: someone has to approve.
+`sh S/pr-verify.sh <pr url> --head <head from the ledger>` prints one line. How it judges: where the
+base branch's rules explicitly require 0 approving reviews, no approval is needed (`PASS no
+approval required`), though changes requested still fail; without any review rule on the repo,
+an approval counts only when it was given on the current head commit; with a rule, GitHub's own
+decision stands. Green means every check that reported is green and GitHub's merge state is not
+blocked or behind, so a required check that has not started is `PENDING`, not a pass. A repo with
+no review rule at all never passes without an approval: someone has to approve.
 
 | Verdict | Row in `verifying` | Row in `ready` |
 |---|---|---|
-| `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify. `PASS approval is on an earlier commit` is the same, with the queue title "merge PR #<n> — approved on an earlier commit, green, head <sha7>": the repo's rule is satisfied, but nobody approved the newest commits, and the person who merges should know When `grep -cE 'decided while you were away|default taken' <brief>` prints k > 0, the title ends "— k decisions made while you were away" and the body adds the brief's path, so the user sees them before merging. | nothing |
+| `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify. `PASS approval is on an earlier commit` is the same, with the queue title "merge PR #<n> — approved on an earlier commit, green, head <sha7>": the repo's rule is satisfied, but nobody approved the newest commits, and the person who merges should know. `PASS no approval required` is the same, with the queue title "merge PR #<n> — green, no approval required, head <sha7>". When `grep -cE 'decided while you were away|default taken' <brief>` prints k > 0, the title ends "— k decisions made while you were away" and the body adds the brief's path, so the user sees them before merging. | nothing |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` | nothing |
 | `PENDING <what>` | `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" | nothing |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" | the same, and close its `merge-pr` item |
@@ -974,6 +976,12 @@ Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. 
 `merge-pr` item" means `loops.sh close` on the open item of that kind for the row; none open (exit
 4, or nothing to find) is fine. STAR never merges, and never marks a PR ready: babysit does that
 once, and the merge is the user's.
+
+**`gh` that cannot see the repository.** `PENDING gh cannot see <repo>: export GH_TOKEN for this
+repository` (or a worker's escalation that says so) is not retried blind and does not count as a
+`pending=`: queue `--kind held` "export GH_TOKEN for <repo> in the shell that runs STAR and its
+workers, then answer done" once, and leave the row as it is. The next check runs after that
+item is answered.
 
 ## Drafts
 

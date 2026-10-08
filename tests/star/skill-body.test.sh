@@ -237,5 +237,8 @@ grep -qF 'Never type \n inside a quoted --body' "$T/reviewer-prompt.md" && pass 
 g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
 g "K2 busy has its own count" '`busy=<n>`'
 g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
+# Issue #27
+g "Z4 the exact-head check knows an explicit zero" 'PASS no approval required'
+g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

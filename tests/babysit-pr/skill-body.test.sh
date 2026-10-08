@@ -81,5 +81,9 @@ g "B9 the report starts with its state line" 'body starts with it'
 grep -q 'id: orca' "$SKILL" && pass "B10 orca is declared" || fail "B10 orca not declared"
 g "X4 babysit passes the executor choice on" '--executor'
 grep -qF 'STAR-ISSUE: <one line>' "$SKILL" && pass "babysit can report friction with STAR" || fail "STAR-ISSUE line"
+# Issue #27
+g "Z1 an explicit zero needs no approval" '`required: 0`'
+g "Z2 review bots are configurable" 'config.reviewBots'
+g "Z3 a token gh lacks is escalated at once" 'gh cannot see'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
