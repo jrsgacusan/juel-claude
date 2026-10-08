@@ -248,5 +248,10 @@ g "I2 STAR's home keeps the id ledger" 'ids.json'
 # Issue #33
 g "E4 the brief names an existing PR" 'existingPr'
 g "E5 a fork's PR is asked about" 'comes from a fork'
+# Issue #20
+g "C1 proposed criteria are reported" 'PROPOSED-CRITERIA'
+g "C2 their own approve title" 'approve brief — criteria are proposed'
+g "C3 the marker is removed on approval" 'remove each ` (proposed)` suffix'
+g "C4 the order of precedence" 'in this order of precedence'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
