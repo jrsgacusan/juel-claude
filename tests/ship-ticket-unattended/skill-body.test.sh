@@ -45,7 +45,7 @@ grep -q 'kernel lock' "$SKILL" && ! grep -q 'reclaims a lock whose' "$SKILL" && 
 grep -q 'Under `--unattended`, this phase is SKIPPED' "$SKILL" && pass "phase 8 left to the coordinator" || fail "phase 8 unattended"
 grep -q 'HELD item=<item> action=open a draft PR from <compare-url>' "$SKILL" && pass "no-gh unattended path" || fail "no-gh unattended path"
 grep -q 'gate-lock.sh' "$SKILL" && pass "S2 gates run through gate-lock.sh" || fail "S2 gate-lock.sh"
-grep -q 'Phase 5.s `test` and `lint`' "$SKILL" && pass "S2 Phase 5 gates locked too" || fail "S2 phase 5 locked"
+grep -q 'Phase 5.s targeted tests' "$SKILL" && pass "S2 Phase 5 gates locked too" || fail "S2 phase 5 locked"
 grep -q 'unanswered-question' "$SKILL" && pass "S4 unanswered-question escalation" || fail "S4 unanswered-question"
 grep -q 'Tier C is never used' "$SKILL" && pass "S12 no interactive Tier C unattended" || fail "S12 Tier C"
 grep -q 'item.path' "$SKILL" && pass "S11 file status write targets item.path" || fail "S11 item.path"
@@ -97,5 +97,33 @@ grep -qF -- '--screen-checks <file>' "$SKILL" && pass "flag --screen-checks" || 
 for l in 'REPORTED item=' 'VERIFIED item=' 'SCREEN path=' 'STAR-ISSUE:' 'screen-lock.sh' 'Status: skipped (STAR owns the status)' 'deliverable: report' 'deadline=60' 'screen-busy' 'Decided while you were away' 'blocked: needs you at the screen'; do
   grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
 done
+# Issue #26
+g "I1 shared ids are reserved, not counted" 'ids.sh'
+g "Z10 --floor takes the number only" '`<highest>` is the number only (40 for D-040)'
+grep -qF 'When `ids.sh` exits' "$SKILL" && grep -qF 'non-zero or is missing, escalate `needs-human-input`, and never take the next number yourself' "$SKILL" && pass "Z10 an ids.sh that cannot run is escalated" || fail "Z10 an ids.sh that cannot run is escalated"
+g "Z11 Codex gets the ids in the plan" 'With `executor: codex`, reserve the ids while writing the plan and put them in it.'
+# Issue #33
+g "E1 an existing PR is updated, not opened" 'url=<url> existing'
+g "E2 its body keeps the author's text" '<!-- juel:update -->'
+g "E3 never rebased or force-pushed" 'never by rebasing'
+# Issue #32
+g "T32a Phase 5 runs targeted tests only" 'run only the tests for the files remediation changed'
+g "T32b project instructions on test scope win" 'say something else about test scope, they win'
+grep -qF 'run the `test` and `lint` commands resolved in Phase 4' "$SKILL" && fail "T32c the full run after remediation is gone" || pass "T32c the full run after remediation is gone"
+# Issue #21
+g "T21a the evidence names its head" 'evidence head=<sha>'
+g "T21b a test-only fix reuses it" 'evidence reused from <evidence head> for <HEAD>'
+g "T21c any doubt runs the whole phase" 'or any doubt about a file'
+# Issue #24
+g "T24a a cleanup entry can be handed off" 'handed-off'
+g "T24b handed-off records are listed in the PR" 'Left for you to clean up'
+g "T24c and held for the user" 'action=clean up <identifier> on <service>'
+grep -qF 'handed-off' "$ROOT/references/local-e2e.md" && pass "T24d rule 3 knows handed-off" || fail "T24d local-e2e rule 3"
+# Task 13-15 review, round 1
+g "T21d a file the app loads is runtime whatever its extension" 'is runtime whatever its extension'
+grep -qF 'docs, `*.md` and `docs/`' "$SKILL" && fail "T21e every Markdown file no longer counts as outside runtime" || pass "T21e every Markdown file no longer counts as outside runtime"
+g "T21f the failure row defers to the reuse case" "re-run phase 6 in full (except step 6's evidence-reuse case)"
+g "T24e a PR template gets the handed-off section" 'the one section added to a template'
+g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

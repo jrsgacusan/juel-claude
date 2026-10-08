@@ -39,7 +39,7 @@ previews before submitting. The skill never decides the tracker: the project doe
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v8 -->
+<!-- juel:protocol v9 -->
 
 **0. Harness check, before every other rule.** You are running in Codex when you have the `update_plan` tool and no `Skill` tool. Only then read `references/harness-codex.md`, resolved relative to this skill file's own location (`../../references/harness-codex.md`), and apply its construct map, corrected facts, dependency substitutions and degradation contract to every rule below and to every phase body in this skill. This single read is the one action permitted before rule 1's preflight, and only in that case. In every other case, Claude Code without the `TaskCreate` tool included, ignore that file entirely and continue to rule 1.
 
@@ -52,7 +52,7 @@ previews before submitting. The skill never decides the tracker: the project doe
 
 **4. `review-pr`'s agents run in PARALLEL and FOREGROUND; `code-simplifier` runs FOREGROUND; `codex exec` runs BACKGROUND, WATCHED, and WAITED-ON.** This overrides every other instruction in this file and in any skill invoked from it. Foreground/background is about whether the tool call blocks; watched is about whether output still streams somewhere the user can see it — these are different axes, and `codex exec` needs the second without the first. `review-pr`'s agents additionally need PARALLEL: dispatched together, not one at a time.
 - `pr-review-toolkit:review-pr`'s agents MUST be dispatched in parallel: pass `all parallel`, or dispatch the agents together in ONE message. Its sequential default — one agent at a time — is the exact slowness this rule exists to prevent; requesting it, or omitting `all parallel`, is a violation.
-- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. Invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
+- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. When your Agent tool has a `run_in_background` parameter, invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. When your Agent tool has no such parameter, dispatch every one of them together in one message, wait for each one's completion, read each result in full, and check `ListAgents` before treating an idle agent as empty (rule 6); the phase never ends while one is still out. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
 - `codex exec` runs through the **Bash tool**, whose `timeout` parameter is capped at 600000ms (10 minutes). A real `codex exec` applying a plan routinely runs longer than that, so a foreground dispatch gets silently DETACHED by the harness at the cap regardless of this rule — nothing then watches it, nothing reads its output, and the skill would wrongly proceed as if the phase had ended. `review-pr` and `code-simplifier` run through the **Skill/Agent tool**, which carries no such cap — that is the entire reason only `codex exec` changes. Do not "fix" this back to foreground; the cap is a harness fact, not a preference.
 - **Always dispatch `codex exec` with `run_in_background: true`** — not optional, not "if it looks long," always. Omitting the flag, or passing `false`, is a violation.
 - **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. This applies to all three, and is now MORE load-bearing for `codex exec`: backgrounded with no ceiling, the shell is the only place the user watches it work.
@@ -107,9 +107,9 @@ The project decides where the ticket goes. Resolve the provider once, stop at th
 2. `.claude/workflow.local.json`, then `.claude/workflow.json`: `tracker.type` (and `tracker.project`).
 3. A `## Work Source` block in the repo's CLAUDE.md or AGENTS.md (`- type:` / `- project:`), then
    the legacy `## Linear Worktrees Config` block (`linear-project:` implies `linear`).
-4. Auto-detect: a connected Linear MCP (a domain tool under `mcp__linear__` or
-   `mcp__claude_ai_Linear__`), a connected Jira/Atlassian MCP, or a GitHub remote with `gh`
-   authenticated. Exactly one candidate → use it. More than one → step 5.
+4. Auto-detect: a connected Linear MCP (`LINEAR_PREFIX` resolves, as in the `linear` row below), a
+   connected Jira/Atlassian MCP, or a GitHub remote with `gh` authenticated. Exactly one
+   candidate → use it. More than one → step 5.
 5. Ask once with AskUserQuestion, then offer to persist the answer as `tracker` in
    `.claude/workflow.json`. Never write config without a yes.
 
@@ -117,7 +117,7 @@ The resolved source must be able to `create`:
 
 | Source | `create` | Notes |
 |---|---|---|
-| `linear` | Yes | resolve `LINEAR_PREFIX` now: `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (anything but `authenticate`/`complete_authentication`); every Linear call below is written `<LINEAR_PREFIX>tool_name`. Neither does → STOP: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." |
+| `linear` | Yes | resolve `LINEAR_PREFIX` now: the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues` (`authenticate`/`complete_authentication` alone never count); every Linear call below is written `<LINEAR_PREFIX>tool_name`. None does → STOP: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." |
 | `jira` | Yes | needs a connected Jira/Atlassian MCP |
 | `github` | Yes | needs `gh auth status` to pass and a GitHub remote |
 | `file` | Yes | writes into `<docsRoot>/specs/`, where docsRoot is `config.docsRoot` if set, else `docs/.superpowers/` when it exists and is non-empty, else `docs/superpowers/` (the same directory `juel:daily-worktrees` lists) |

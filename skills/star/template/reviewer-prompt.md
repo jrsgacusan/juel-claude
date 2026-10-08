@@ -17,5 +17,11 @@ Your worker_done body starts with exactly that one line:
 VERDICT item={{item}} round={{round}} SAFE findings=<n> head=<sha>
 or
 VERDICT item={{item}} round={{round}} NOT-SAFE findings=<n> head=<sha>
+Send that body with real line breaks and without writing any file: pass it as
+--body "$(cat <<'EOF'
+<the body>
+EOF
+)". Never type \n inside a quoted --body: it arrives as two characters and glues your summary
+onto the VERDICT line.
 Only when STAR's own contract or tools got in your way (a path that did not exist, an instruction
 that contradicted itself), add one more line: STAR-ISSUE: <one line, no project or ticket names>.

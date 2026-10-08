@@ -49,10 +49,17 @@ The owner pre-authorizes remote data access for local runs. No need to ask.
     payments, or third-party webhooks.
   - Never modify or delete a record this run did not create.
 - Cleanup runs at the end of the run whatever the verdict, including FAIL and BLOCKED. Reverse
-  each ledger entry, confirm it is gone by reading it back, and mark it done in `cleanup.md`.
+  each ledger entry that is not handed off, confirm it is gone by reading it back, and mark it
+  done in `cleanup.md`.
+- An entry is open until it is reversed and read back (`done`), or `handed-off`: left in place
+  for the user. Handing off is allowed only when the brief's Scope, its `## Decisions` or an
+  answer to its Before-you-go questions says this record may stay (no delete access, a shared
+  environment). A handed-off entry names its identifier and where it lives, and the same goes into
+  the PR body under **Left for you to clean up**.
 - Delete local copies of remote data (dumps, exports) at teardown.
-- **The run cannot be reported complete with an open ledger entry.** A failed cleanup is reported
-  first and loudly, with the exact leftover identifiers and where they live.
+- **The run cannot be reported complete with an open ledger entry.** A `handed-off` one does not
+  block it. A failed cleanup is reported first and loudly, with the exact leftover identifiers and
+  where they live.
 
 ## 4. Screenshots and one end-to-end recording for UI changes
 

@@ -118,7 +118,7 @@ for (const [name, text] of skillBodies) {
 }
 
 // --- Check 5: protocol marker ----------------------------------------------
-const PROTOCOL_MARKER = '<!-- juel:protocol v8 -->';
+const PROTOCOL_MARKER = '<!-- juel:protocol v9 -->';
 for (const [name, text] of skillBodies) {
   if (!text.includes(PROTOCOL_MARKER))
     fail('protocol', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER}`);
@@ -467,18 +467,22 @@ for (const [name, text] of skillBodies) {
 // skill on a future edit — the same defect class checks 8, 9, and the prior
 // rule-6 check (this block, before this edit) each closed for their own
 // rule. This check closes it for rule 1's fallback clause: every skill must
-// carry both the v8 marker and the clause's canonical lead sentence,
+// carry the v9 marker, rule 1's fallback lead and rule 4's no-foreground-flag lead,
 // byte-identical.
 {
-  const PROTOCOL_MARKER_V8 = '<!-- juel:protocol v8 -->';
+  const PROTOCOL_MARKER_V9 = '<!-- juel:protocol v9 -->';
   const RULE1_FALLBACK_LEAD =
     '- **If `TaskCreate`/`TaskUpdate` are not in your tool list, or genuinely fail** — one attempted call returns an error; never assumed unavailable without checking the tool list';
+  const RULE4_NO_FLAG_LEAD =
+    "When your Agent tool has no such parameter, dispatch every one of them together in one message, wait for each one's completion, read each result in full";
 
   for (const [name, text] of skillBodies) {
-    if (!text.includes(PROTOCOL_MARKER_V8))
-      fail('protocol-v8', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V8} — rule 1's fallback clause requires the v8 marker`);
+    if (!text.includes(PROTOCOL_MARKER_V9))
+      fail('protocol-v9', `skills/${name}/SKILL.md: missing ${PROTOCOL_MARKER_V9}`);
     if (!text.includes(RULE1_FALLBACK_LEAD))
-      fail('protocol-v8', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause — it must read exactly: ${RULE1_FALLBACK_LEAD}`);
+      fail('protocol-v9', `skills/${name}/SKILL.md: missing rule 1's TaskCreate/TaskUpdate fallback clause; it must read exactly: ${RULE1_FALLBACK_LEAD}`);
+    if (!text.includes(RULE4_NO_FLAG_LEAD))
+      fail('protocol-v9', `skills/${name}/SKILL.md: missing rule 4's no-foreground-flag clause (#23); it must read exactly: ${RULE4_NO_FLAG_LEAD}`);
   }
 }
 

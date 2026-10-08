@@ -9,7 +9,7 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -d "$ROOT/skills/ship-tickets" ] && fail "ship-tickets removed" || pass "ship-tickets removed"
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
 grep -q '^name: star$' "$SKILL" && pass "name" || fail "name"
-grep -q 'juel:protocol v8' "$SKILL" && pass "protocol block" || fail "protocol block"
+grep -q 'juel:protocol v9' "$SKILL" && pass "protocol block" || fail "protocol block"
 for id in orca-terminal git-repo; do grep -q "id: $id" "$SKILL" && pass "requires $id" || fail "requires $id"; done
 for m in '`/juel:star SPH-11 and SPH-12`' '`/juel:star status`' '`/juel:star stop`' 'draft-brief <ref> --project <name> --out <path>'; do
   grep -qF -- "$m" "$SKILL" && pass "mode $m" || fail "mode $m"
@@ -132,7 +132,7 @@ g "V15 a quiet worker is still a running worker" '`ok` or `quiet'
 g "V16 a second answer cannot revive a dropped row" 're-read the row'
 g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
 g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
-g "V19 a SAFE verdict needs a real head" '7 to 40 hex'
+g "V19 a SAFE verdict needs a real head" 'A run shorter than 7 is not a verdict babysit can use'
 g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 0'
 g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
 g "V22 an approval of an earlier commit is said so" 'approved on an earlier commit'
@@ -150,10 +150,11 @@ python3 - "$T/star.json" <<'PY2' && pass "M5 template: the best model per stage"
 import json, sys
 d = json.load(open(sys.argv[1])); s = d["stages"]
 assert set(s) == {"brief", "build", "fix", "review", "babysit", "screen", "post"}, sorted(s)
-assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["brief"]
+assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "high"}, s["brief"]
+assert d["maxBriefs"] == 4, d.get("maxBriefs")
 for k in ("build", "fix", "babysit", "screen"):
     assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"}, (k, s[k])
-assert s["post"] == s["brief"], s["post"]
+assert s["post"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["post"]
 assert s["review"] == {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}, s["review"]
 assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and d["reviewer"] == s["review"]
 PY2
@@ -186,7 +187,7 @@ g "I12 a settled reviewer's verdict is read from its file" 'head -n 1'
 g "I7 a stalled prompt names the trust dialog" 'agent_prompt_stalled'
 g "I7 dialogs that cannot be cleared reach the user" 'hold trust <path>'
 g "I9 a worktree inside the repo is excluded" '.git/info/exclude'
-g "I18 builds keep a slot while briefs draft" '`maxParallel - 1`'
+g "I18 briefs have a pool of their own" '`maxBriefs`'
 grep -q 'reviewer-prompt.md' "$SKILL" && [ -f "$T/reviewer-prompt.md" ] && pass "the reviewer prompt is a template" || fail "reviewer template"
 ! grep -q 'payload.dispatchId' "$SKILL" && ! grep -q "orca orchestration task-create --spec" "$SKILL" && pass "no hand-rolled message reading or task creation left" || fail "hand-rolled steps left"
 # Questions and the intake
@@ -230,5 +231,58 @@ grep -q 'a screen check recorded there as failed' "$T/reviewer-prompt.md" && pas
 g "W1 finished worktrees are removed" 'sh S/worktree-clean.sh <item>'
 g "W2 a kept worktree waits for the user" '`kept=1`'
 g "W3 never with work in it" 'never with work in it'
+# Issue #22
+g "L1 head= is its leading hex run" 'leading run of hex characters'
+grep -qF 'Never type \n inside a quoted --body' "$T/reviewer-prompt.md" && pass "L2 the reviewer sends real line breaks" || fail "L2 reviewer prompt"
+# Issue #25
+g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
+g "K2 busy has its own count" '`busy=<n>`'
+g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
+# Issue #27
+g "Z4 the exact-head check knows an explicit zero" 'PASS no approval required'
+g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
+# Issue #28
+g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
+g "U5 the sync is named in the counters table" '`synced=<sha7>`'
+# Issue #26
+g "I2 STAR's home keeps the id ledger" 'ids.json'
+# Issue #33
+g "E4 the brief names an existing PR" 'existingPr'
+g "E5 a fork's PR is asked about" 'comes from a fork'
+# Issue #20
+g "C1 proposed criteria are reported" 'PROPOSED-CRITERIA'
+g "C2 their own approve title" 'approve brief — criteria are proposed'
+g "C3 the marker is removed on approval" 'remove each ` (proposed)` suffix'
+g "C4 a re-draft keeps proposed criteria marked" 'on every re-draft, keep the earlier draft'
+# Issue #29
+g "Q1 plain chat, one question per message" 'one question per message'
+g "Q2 the recommended option is labelled" '(Recommended)'
+g "Q3 a nudge is never an answer" 'is never an answer'
+g "Q4 the picker only before any worker" 'AskUserQuestion only for the first-run setup question, before any worker exists'
+grep -qF 'AskUserQuestion only in the intake' "$SKILL" && fail "Q5 the old hard rule is gone" || pass "Q5 the old hard rule is gone"
+# Faster briefs
+g "F1 the pool default is documented" '"maxBriefs": 4'
+g "F2 rest takes the recommended options" 'you said rest'
+g "F3 STAR edits a brief itself" '(applied by STAR)'
+g "F4 changed lines are marked" '(changed)'
+grep -qF 'briefs may take every build slot' "$SKILL" && fail "F5 briefs no longer take build slots" || pass "F5 briefs no longer take build slots"
+g "F6 STAR's own edit keeps the criteria markers right" 'carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line'
+g "Q6 the heartbeat and STAR's own commands are never an answer" 'a message that starts with `STAR heartbeat:`, or one'
+# Faster briefs: review fixes
+grep -qF 'STAR writes itself, as below; otherwise the brief worker writes them from it' "$SKILL" && ! grep -qF 'is feedback, and the brief worker writes the criteria from it' "$SKILL" && pass "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write" || fail "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write"
+g "B10 rest is never feedback on an open approve question" 'STAR records nothing for it and prints it again'
+g "B11 an edit that leaves no criterion writes NEEDS CRITERIA" 'leaves the brief with no acceptance criterion'
+g "B12 the changed mark is only in chat" 'only in the question STAR asks in chat, never in the brief file'
+g "B13 an existing PR fixes branch and baseBranch" 'On a brief with `existingPr`, `branch` and `baseBranch` are not small edits'
+# Final fix wave (Z4 and Z5 are issue #27's)
+g "Z1 the base sync clears pending=" 'write `counters.synced=<sha7>` and `counters.pending=-`'
+g "Z2 a bare number is refused only where options are numbered" 'On a question with numbered options, a bare number that names no option is not an answer'
+grep -qF 'on any open question that is not a `decision`: STAR records nothing for it and prints it again' "$SKILL" && ! grep -qF 'feedback on one of them: when the open question is one' "$SKILL" && pass "Z3 rest on any open question but a decision is printed again" || fail "Z3 rest on any open question but a decision is printed again"
+grep -qF 'so a change to either is answered in chat' "$SKILL" && grep -qF 'A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR' "$SKILL" && ! grep -qF 'a change to either is feedback for the brief worker' "$SKILL" && pass "Z6 an existing PR's branches are changed on GitHub, not by a re-draft" || fail "Z6 an existing PR's branches are changed on GitHub, not by a re-draft"
+grep -qF 'it makes sure the brief has `- [ ] NEEDS CRITERIA`' "$SKILL" && ! grep -qF 'it writes `- [ ] NEEDS CRITERIA`' "$SKILL" && pass "Z7 an edit that leaves no criterion never adds a second marker" || fail "Z7 an edit that leaves no criterion never adds a second marker"
+grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL" && ! grep -qF '`PROPOSED-CRITERIA` (case 3)' "$SKILL" && pass "Z8 PROPOSED-CRITERIA whenever a criterion is proposed" || fail "Z8 PROPOSED-CRITERIA whenever a criterion is proposed"
+grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
+grep -qF '`ls-remote` failing: the Otherwise branch of the cell that sent it here.' "$SKILL" && ! grep -qF "the table's own rule for that verdict" "$SKILL" && pass "Z13 an ls-remote failure goes to the Otherwise branch of its own cell" || fail "Z13 an ls-remote failure goes to the Otherwise branch of its own cell"
+grep -qF 'Nothing is recorded (no `## Feedback` entry), and STAR adds the `approve-brief` item again, with that explanation in its title' "$SKILL" && grep -qF 'except a `branch` or `baseBranch` change on a brief with `existingPr` (below)' "$SKILL" && ! grep -qF 'Nothing is recorded, and the approve question is printed again' "$SKILL" && pass "Z14 an existingPr branch answer re-asks the approve question" || fail "Z14 an existingPr branch answer re-asks the approve question"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

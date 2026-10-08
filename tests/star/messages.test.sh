@@ -97,5 +97,13 @@ case "$(M)" in "unknown "*) pass "orca failure is unknown" ;; *) fail "orca fail
 
 M --bogus >/dev/null 2>&1; [ $? -eq 64 ] && pass "bad usage is 64" || fail "usage"
 
+# a literal \n in the first line is a line break; a later line keeps its own (#22)
+reset
+printf '{"ok":true,"result":{"deliveryId":"dl_20","messages":[%s]}}\n' "$(done_msg msg_20 'VERDICT item=A round=1 SAFE findings=0 head=abc1234def\\nReviewed the full diff\nNOTE: use printf \\n here' ctx_20)" > "$TMP/r1.json"
+out=$(M)
+[ "$(printf '%s\n' "$out" | sed -n 3p)" = "  VERDICT item=A round=1 SAFE findings=0 head=abc1234def" ] && pass "a literal \\n ends the first line" || fail "literal newline ($out)"
+[ "$(printf '%s\n' "$out" | sed -n 4p)" = "  Reviewed the full diff" ] && pass "the glued summary becomes its own line" || fail "glued summary ($out)"
+printf '%s\n' "$out" | sed -n 5p | grep -qF '  NOTE: use printf \n here' && pass "a literal \\n on a later line is kept" || fail "later literal ($out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

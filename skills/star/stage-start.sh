@@ -19,6 +19,8 @@
 # and counters.live), after it (task) and after worker-start (dispatch, live cleared). A row whose
 # counters still hold live= for this stage is a start that died: it is replayed with the same ids.
 # --round defaults to the row's round, plus one for a review that is not a replay.
+# A brief with existingPr: <url> and no local branch yet gets its branch fetched from the
+# project's remote and checked out tracking it (an open PR's head), instead of a renamed branch.
 # Every spec sent is one line: the reviewer's instructions go to specs/<project>/ and the spec
 # points at them. A failed worker-start is retried once: with --retry-of, one effort level lower
 # when the effort was refused, or on "worker" ("reviewer" for review) when the model was refused.
@@ -306,6 +308,16 @@ def build_worktree(fm):
             r = git("switch", branch, cwd=wt)
             if r.returncode != 0:
                 out(f"failed branch: git switch {branch}: {why(r)}")
+            if current and current != "HEAD":
+                git("branch", "-D", current)
+        elif fm.get("existingPr"):
+            # an open PR's head branch: build on it, never on a fresh branch of the same name (#33)
+            r = git("fetch", remote, branch, cwd=wt)
+            if r.returncode != 0:
+                out(f"failed branch: git fetch {remote} {branch}: {why(r)}")
+            r = git("switch", "-c", branch, "--track", f"{remote}/{branch}", cwd=wt)
+            if r.returncode != 0:
+                out(f"failed branch: git switch --track {remote}/{branch}: {why(r)}")
             if current and current != "HEAD":
                 git("branch", "-D", current)
         else:

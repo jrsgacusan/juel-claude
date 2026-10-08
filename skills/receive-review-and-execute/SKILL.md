@@ -60,7 +60,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v8 -->
+<!-- juel:protocol v9 -->
 
 **0. Harness check, before every other rule.** You are running in Codex when you have the `update_plan` tool and no `Skill` tool. Only then read `references/harness-codex.md`, resolved relative to this skill file's own location (`../../references/harness-codex.md`), and apply its construct map, corrected facts, dependency substitutions and degradation contract to every rule below and to every phase body in this skill. This single read is the one action permitted before rule 1's preflight, and only in that case. In every other case, Claude Code without the `TaskCreate` tool included, ignore that file entirely and continue to rule 1.
 
@@ -73,7 +73,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 
 **4. `review-pr`'s agents run in PARALLEL and FOREGROUND; `code-simplifier` runs FOREGROUND; `codex exec` runs BACKGROUND, WATCHED, and WAITED-ON.** This overrides every other instruction in this file and in any skill invoked from it. Foreground/background is about whether the tool call blocks; watched is about whether output still streams somewhere the user can see it — these are different axes, and `codex exec` needs the second without the first. `review-pr`'s agents additionally need PARALLEL: dispatched together, not one at a time.
 - `pr-review-toolkit:review-pr`'s agents MUST be dispatched in parallel: pass `all parallel`, or dispatch the agents together in ONE message. Its sequential default — one agent at a time — is the exact slowness this rule exists to prevent; requesting it, or omitting `all parallel`, is a violation.
-- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. Invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
+- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. When your Agent tool has a `run_in_background` parameter, invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. When your Agent tool has no such parameter, dispatch every one of them together in one message, wait for each one's completion, read each result in full, and check `ListAgents` before treating an idle agent as empty (rule 6); the phase never ends while one is still out. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
 - `codex exec` runs through the **Bash tool**, whose `timeout` parameter is capped at 600000ms (10 minutes). A real `codex exec` applying a plan routinely runs longer than that, so a foreground dispatch gets silently DETACHED by the harness at the cap regardless of this rule — nothing then watches it, nothing reads its output, and the skill would wrongly proceed as if the phase had ended. `review-pr` and `code-simplifier` run through the **Skill/Agent tool**, which carries no such cap — that is the entire reason only `codex exec` changes. Do not "fix" this back to foreground; the cap is a harness fact, not a preference.
 - **Always dispatch `codex exec` with `run_in_background: true`** — not optional, not "if it looks long," always. Omitting the flag, or passing `false`, is a violation.
 - **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. This applies to all three, and is now MORE load-bearing for `codex exec`: backgrounded with no ceiling, the shell is the only place the user watches it work.
@@ -141,7 +141,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
 
 **With `--unattended`**, nothing is asked:
-- A merge conflict in phase 2: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop.
+- A merge conflict in phase 2 that `merge-union.sh` cannot resolve: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop.
 - Any ambiguous finding in phase 5: do not ask and do not execute anything, including the
   actionable findings, so a fix never ships half-decided. Print `AMBIGUOUS: <author> <file:line>
   <comment, trimmed> — <why it is ambiguous>` for each one and stop; the caller escalates them.
@@ -242,10 +242,18 @@ git status --porcelain
 5. Outcomes, each with one evidence line:
    - `Already up to date.`: continue.
    - Clean merge: report the merge commit's short SHA and the number of files it brought in.
-   - Conflicts: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`). Under
-     `--unattended`, abort and print `CONFLICT:` per "Arguments". Otherwise ask via
+   - Conflicts: first run `sh <merge-union.sh>` (`../babysit-pr/merge-union.sh` from this file, or
+     `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/merge-union.sh`). Exit 0 means every conflict was
+     mechanical (both sides inserted text at the same point and changed nothing else) and is
+     resolved and staged: conclude the merge with
+     `git commit -m "Merge <remote>/<base> into <branch>; mechanical conflicts resolved in <files>"`,
+     print one evidence line naming the files, and continue. This skill runs no gate here: the
+     caller's gates check the merge (`juel:babysit-pr` runs them right after this skill), and
+     nothing is pushed on red.
+   - Any other exit: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`).
+     Under `--unattended`, abort and print `CONFLICT:` per "Arguments". Otherwise ask via
      `AskUserQuestion`: resolve the conflicts in this session, or `git merge --abort` and stop the
-     skill. Never auto-resolve, and never pick a side silently.
+     skill. Never resolve a conflict that is not mechanical, and never pick a side silently.
    - If the user chooses to resolve in-session: propose each file's resolution and apply it only
      after the user approves it. Then confirm no conflict markers remain
      (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
@@ -399,7 +407,7 @@ Wait for Codex to complete, then state the exit status and files changed before 
 |---------|-----|
 | Proceeding without a PR number | Step 0 — ask, do not guess |
 | Validating comments against a stale base | Step 0a merges the PR's base branch first; outdated comments are then rejected, not re-fixed |
-| Auto-resolving merge conflicts, or checking out the PR branch for the user | Never. Step 0a stops, lists the files, and asks |
+| Auto-resolving merge conflicts, or checking out the PR branch for the user | Never, beyond the mechanical ones `merge-union.sh` resolves. Step 0a stops, lists the files, and asks |
 | Acting on every PR comment blindly | Step 2 — validate before accepting |
 | Guessing reviewer intent on ambiguous comments | Step 2a — ask the user explicitly |
 | Skipping the plan and going straight to Codex | Codex needs a structured plan |

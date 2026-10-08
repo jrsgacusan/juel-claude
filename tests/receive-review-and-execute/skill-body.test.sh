@@ -28,5 +28,6 @@ grep -qF '## Decisions' "$SKILL" && pass "R1 a decision settles the finding it a
 grep -qF 'one command with its arguments' "$SKILL" && pass "R2 the gate line never leaves part of a command outside the lock" || fail "R2 gate command form"
 grep -q 'id: orca' "$SKILL" && grep -q 'id: python3' "$SKILL" && pass "R3 orca and python3 are declared" || fail "R3 requirements"
 grep -qF -- '| `--executor <session|codex>` |' "$SKILL" && pass "X5 receive-review takes the executor choice" || fail "X5 --executor"
+grep -q 'merge-union.sh' "$SKILL" && pass "U3 mechanical conflicts are resolved before asking" || fail "U3 merge-union"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

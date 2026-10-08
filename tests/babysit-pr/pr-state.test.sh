@@ -16,13 +16,16 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
 D="$STUB_FIX"; C="$D/.calls"
-if [ "${STUB_FAIL:-}" = 1 ]; then echo "boom" >&2; exit 1; fi
+if [ "${STUB_FAIL:-}" = 1 ]; then echo "${STUB_MSG:-boom}" >&2; exit 1; fi
 [ -n "${STUB_DELAY:-}" ] && sleep "$STUB_DELAY"
 if [ "$1" = "pr" ]; then
   n=$(( $(cat "$C" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$C"; f=pr
 else
   n=$(cat "$C" 2>/dev/null || echo 1)
   case "$*" in
+    */rules/branches/*) f=rules; [ -f "$D/rules.json" ] || { echo '[]'; exit 0; } ;;
+    */protection*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
+    */check-runs*) f=checkruns ;;
     */reviews*) f=reviews ;;
     */pulls/*/comments*) f=inline ;;
     */issues/*/comments*) f=comments ;;
@@ -217,6 +220,75 @@ STUB_FAIL=1; export STUB_FAIL
 run wait-feedback 10 --wait --interval 0
 check "wait: three errors in a row wake with errors" 'd["wake"] == "errors" and "exited 1" in d["error"]'
 unset STUB_FAIL
+
+# ---- an explicit zero in the base branch's rules (#27) ----
+ZR='[{"type":"pull_request","parameters":{"required_approving_review_count":0}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"CodeRabbit"}]}}]'
+PEND='{"state":"OPEN","reviewDecision":"","headRefOid":"h","author":{"login":"me"},"baseRefName":"main","url":"https://github.com/o/r/pull/12","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+GRN='{"state":"OPEN","reviewDecision":"","headRefOid":"h","author":{"login":"me"},"baseRefName":"main","url":"https://github.com/o/r/pull/12","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"CodeRabbit","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+fixture zero pr.1.json "$PEND"
+fixture zero pr.json "$GRN"
+fixture zero rules.json "$ZR"
+fixture zero reviews.json ''
+fixture zero inline.json ''
+fixture zero comments.json ''
+fixture zero checkruns.json '{"name":"CodeRabbit","app":{"slug":"coderabbitai"}}'
+run zero 12
+check "zero required: the snapshot says so" 'd["approval"] == "required" and d["required"] == 0'
+check "zero required: a required check that has not reported is pending" 'd["checks"] == "pending"'
+run zero 12 --wait --interval 0 --max-seconds 5
+check "zero required: wakes approved once every required check is green" 'd["wake"] == "approved" and calls == 2 and d["checks"] == "green"'
+
+fixture zero-cr pr.json "$GRN"
+fixture zero-cr rules.json "$ZR"
+fixture zero-cr reviews.json '{"id":31,"user":{"login":"mstr-ezra","type":"User"},"state":"CHANGES_REQUESTED","body":"","submitted_at":"2026-10-01T03:00:00Z","html_url":"u31"}'
+fixture zero-cr inline.json ''
+fixture zero-cr comments.json ''
+fixture zero-cr checkruns.json ''
+run zero-cr 13 --since 2026-10-01T03:00:00Z --wait --interval 0 --max-seconds 0
+check "zero required: changes requested never wakes approved" 'd["wake"] == "timeout" and d["changes_requested"] == ["mstr-ezra"]'
+
+fixture norule pr.json "$GRN"
+fixture norule reviews.json ''
+fixture norule inline.json ''
+fixture norule comments.json ''
+run norule 15 --wait --interval 0 --max-seconds 0
+check "no review rule: green alone never wakes approved" 'd["wake"] == "timeout" and d["approval"] == "none"'
+
+# ---- bots that review (#27) ----
+fixture bots pr.json '{"state":"OPEN","reviewDecision":"REVIEW_REQUIRED","headRefOid":"h","author":{"login":"me"},"baseRefName":"main","url":"https://github.com/o/r/pull/14","statusCheckRollup":[]}'
+fixture bots rules.json "$ZR"
+fixture bots checkruns.json '{"name":"CodeRabbit","app":{"slug":"coderabbitai"}}
+{"name":"lint","app":{"slug":"github-actions"}}'
+fixture bots reviews.json '{"id":41,"user":{"login":"coderabbitai[bot]","type":"Bot"},"state":"COMMENTED","body":"2 findings","submitted_at":"2026-10-01T01:00:00Z","html_url":"u41"}'
+fixture bots inline.json '{"id":42,"user":{"login":"coderabbitai[bot]","type":"Bot"},"body":"P1: null deref","created_at":"2026-10-01T01:00:00Z","html_url":"c42","path":"a.py","line":9,"in_reply_to_id":null}'
+fixture bots comments.json '{"id":43,"user":{"login":"linear[bot]","type":"Bot"},"body":"linkback","created_at":"2026-10-01T00:30:00Z","html_url":"i43"}
+{"id":44,"user":{"login":"greptile-apps[bot]","type":"Bot"},"body":"summary","created_at":"2026-10-01T02:00:00Z","html_url":"i44"}
+{"id":45,"user":{"login":"github-actions[bot]","type":"Bot"},"body":"coverage","created_at":"2026-10-01T02:30:00Z","html_url":"i45"}'
+run bots 14
+check "the required-check bot's review and inline findings are feedback" 'ids == [41, 42]'
+check "a bot is never a reviewer to re-request" 'd["reviewers"] == []'
+run bots 14 --review-bots 'greptile-apps[bot]'
+check "a listed bot is kept too; the link-back bot and other bots are not" 'ids == [41, 42, 44]'
+
+# A required GitHub Actions job is CI, not a reviewer: its bot counts only when listed.
+fixture actions pr.json '{"state":"OPEN","reviewDecision":"REVIEW_REQUIRED","headRefOid":"h","author":{"login":"me"},"baseRefName":"main","url":"https://github.com/o/r/pull/16","statusCheckRollup":[]}'
+fixture actions rules.json '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"lint"},{"context":"CodeRabbit"}]}}]'
+fixture actions checkruns.json '{"name":"lint","app":{"slug":"github-actions"}}
+{"name":"CodeRabbit","app":{"slug":"coderabbitai"}}'
+fixture actions reviews.json ''
+fixture actions inline.json ''
+fixture actions comments.json '{"id":61,"user":{"login":"github-actions[bot]","type":"Bot"},"body":"coverage 91%","created_at":"2026-10-01T02:30:00Z","html_url":"i61"}
+{"id":62,"user":{"login":"coderabbitai[bot]","type":"Bot"},"body":"walkthrough","created_at":"2026-10-01T02:40:00Z","html_url":"i62"}'
+run actions 16
+check "a required Actions job never makes github-actions[bot] feedback" 'ids == [62]'
+run actions 16 --review-bots 'github-actions[bot]'
+check "--review-bots opts github-actions[bot] in" 'ids == [61, 62] and d["reviewers"] == []'
+
+# ---- a repository gh cannot see (#27) ----
+STUB_FAIL=1; STUB_MSG="GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)"; export STUB_FAIL STUB_MSG
+run basic 7
+check "a repository gh cannot see says how to fix it" '"gh cannot see o/r: export GH_TOKEN for this repository" in d["error"]'
+unset STUB_FAIL STUB_MSG
 
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

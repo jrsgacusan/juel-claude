@@ -50,7 +50,7 @@ metadata:
         check: "git rev-parse --show-toplevel"
       - id: interactive-user
         hard: true
-        why: the first run asks for quiet hours; the loop itself never asks through AskUserQuestion
+        why: the first run asks for quiet hours, before any worker starts; every later question is asked in plain chat
     skills:
       - id: juel:ship-ticket
         hard: true
@@ -87,7 +87,7 @@ report, merge.
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v8 -->
+<!-- juel:protocol v9 -->
 
 **0. Harness check, before every other rule.** You are running in Codex when you have the `update_plan` tool and no `Skill` tool. Only then read `references/harness-codex.md`, resolved relative to this skill file's own location (`../../references/harness-codex.md`), and apply its construct map, corrected facts, dependency substitutions and degradation contract to every rule below and to every phase body in this skill. This single read is the one action permitted before rule 1's preflight, and only in that case. In every other case, Claude Code without the `TaskCreate` tool included, ignore that file entirely and continue to rule 1.
 
@@ -100,7 +100,7 @@ report, merge.
 
 **4. `review-pr`'s agents run in PARALLEL and FOREGROUND; `code-simplifier` runs FOREGROUND; `codex exec` runs BACKGROUND, WATCHED, and WAITED-ON.** This overrides every other instruction in this file and in any skill invoked from it. Foreground/background is about whether the tool call blocks; watched is about whether output still streams somewhere the user can see it — these are different axes, and `codex exec` needs the second without the first. `review-pr`'s agents additionally need PARALLEL: dispatched together, not one at a time.
 - `pr-review-toolkit:review-pr`'s agents MUST be dispatched in parallel: pass `all parallel`, or dispatch the agents together in ONE message. Its sequential default — one agent at a time — is the exact slowness this rule exists to prevent; requesting it, or omitting `all parallel`, is a violation.
-- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. Invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
+- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. When your Agent tool has a `run_in_background` parameter, invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. When your Agent tool has no such parameter, dispatch every one of them together in one message, wait for each one's completion, read each result in full, and check `ListAgents` before treating an idle agent as empty (rule 6); the phase never ends while one is still out. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
 - `codex exec` runs through the **Bash tool**, whose `timeout` parameter is capped at 600000ms (10 minutes). A real `codex exec` applying a plan routinely runs longer than that, so a foreground dispatch gets silently DETACHED by the harness at the cap regardless of this rule — nothing then watches it, nothing reads its output, and the skill would wrongly proceed as if the phase had ended. `review-pr` and `code-simplifier` run through the **Skill/Agent tool**, which carries no such cap — that is the entire reason only `codex exec` changes. Do not "fix" this back to foreground; the cap is a harness fact, not a preference.
 - **Always dispatch `codex exec` with `run_in_background: true`** — not optional, not "if it looks long," always. Omitting the flag, or passing `false`, is a violation.
 - **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. This applies to all three, and is now MORE load-bearing for `codex exec`: backgrounded with no ceiling, the shell is the only place the user watches it work.
@@ -138,7 +138,7 @@ session is the Stop rule below, nothing more: it does not run the start sequence
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
 | running in an Orca terminal | context | HARD | `[ -n "$ORCA_TERMINAL_HANDLE" ]` | STOP → start Claude Code from an Orca terminal and re-run there |
 | inside a git repository | context | HARD | `git rev-parse --show-toplevel` | STOP → run `/juel:star` from inside the project's repository |
-| AskUserQuestion | context | HARD | always available interactively | STOP → the first run asks one setup question |
+| AskUserQuestion | context | HARD | always available interactively | STOP → the first run asks one setup question, before any worker exists |
 | juel:ship-ticket, juel:babysit-pr, juel:receive-review-and-execute | skill | HARD | ship with this plugin | STOP |
 
 Claude Code's first-run trust dialogs are not a preflight item: `stage-start.sh` clears them in a
@@ -247,7 +247,7 @@ read-only repository is fine). It records the project in `star.json` as
 `orca repo list --json` and adds the id to that block as `orcaRepo` (the Inbox step does the same
 later when the repo was not registered yet), and adds the remote as `remote`: the only one
 `git -C <project.repo> remote` prints, else `origin`. The work source and base branch are not
-kept here: each item's brief carries them. Then it asks once, with
+kept here: each item's brief carries them. Then, before any worker starts, it asks once, with
 AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking or status changes while
 you're away?"), writes it to `star.json`, and tells the user where the queue is:
 `HOME_DIR/open-loops.md`.
@@ -271,6 +271,7 @@ reviews/<project>/<item>-r<k>.md   and   <item>-r<k>-fix.md
 specs/<project>/<item>-review-r<k>.md   the reviewer's instructions (stage-start.sh writes them)
 reports/<project>/<item>.md   a report item's report (deliverable: report)
 issues.log              <iso>\t<fingerprint>\t<url>: every improvement issue STAR filed (star-issue.sh)
+ids.json                ids reserved from sequences that branches share (ids.sh; workers write it, under a lock)
 gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
@@ -286,8 +287,9 @@ Settings in `star.json`:
 {
   "maxParallel": 3,                                      // build pool
   "maxInReview": 3,                                      // review pool
+  "maxBriefs": 4,                                        // brief pool
   "stages": {                                            // the best model for each stage's kind of work
-    "brief":   { "agent": "claude", "model": "opus",        "effort": "xhigh" },
+    "brief":   { "agent": "claude", "model": "opus",        "effort": "high" },
     "build":   { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
     "fix":     { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
     "review":  { "agent": "codex",  "model": "gpt-6-astra", "effort": "xhigh" },
@@ -308,13 +310,14 @@ model for each kind of work, by benchmark, among the models the two installed ag
 | Stage | Default | Why this one |
 |---|---|---|
 | STAR itself | Fable 5.1 (the model the STAR session is started on; not a setting here) | the strongest rule-following of the Claude models, with top-level reasoning |
-| brief, build, fix, screen, babysit, post | Opus 5.5, xhigh | the best agentic coding and plain coding available, and it acts on an Orca dispatch. Fable 5.1 scores higher on rule-following but, started as an Orca worker, it treated the dispatch as pasted text and did nothing until told to go ahead (tried 2026-10-07): do not put it on a worker stage without trying that again |
+| brief | Opus 5.5, high | a brief reads the item and enough code to propose an approach, and the user approves every brief: `high` lands briefs sooner |
+| build, fix, screen, babysit, post | Opus 5.5, xhigh | the best agentic coding and plain coding available, and it acts on an Orca dispatch. Fable 5.1 scores higher on rule-following but, started as an Orca worker, it treated the dispatch as pasted text and did nothing until told to go ahead (tried 2026-10-07): do not put it on a worker stage without trying that again |
 | review | GPT-6-Astra, xhigh | the highest reasoning score, and a different model family from the builder |
 
 `executor` says who runs a written plan inside a stage: `session` (the worker's own model, the
 default here, because the Claude models lead agentic coding) or `codex` (dispatch `codex exec`).
 The reviewer must stay a different model family from the builder: a review by the builder's own
-family is a weaker second opinion. Effort is `xhigh` on every stage. These are the most capable models and
+family is a weaker second opinion. Effort is `xhigh` on every stage but brief (`high`). These are the most capable models and
 they use more of the Claude and Codex usage limits than a mid-tier setup; `max` effort costs
 about three times `xhigh` for a gain the benchmark cannot show reliably, so it is not the
 default.
@@ -386,10 +389,12 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `moved=<n>` | exact-head checks that found the head moved | the row reaches `ready`, or the user answers its escalation |
 | `pending=<n>` | exact-head checks in a row that said `PENDING` | any other verdict |
 | `nudge=<n>` | check-ins sent to this row's worker with no report since | a report from it is processed, or a new worker starts |
+| `busy=<n>` | check-ins Orca refused with `agent_prompt_blocked` in this row's current silent stretch | the probe prints anything but `quiet`, a report from it is processed, or a new worker starts |
 | `reask=1` | the open question's deadline was extended once (Housekeeping) | the question is answered or closed |
 | `screen=<n>` | checks that wait for the user at the screen (a `SCREEN` line after `DONE`) | a `VERIFIED` report with `failing=0` |
 | `last=<message id>` | not a count: the id of the last message applied to this row | never; the next message overwrites it |
 | `tracker=<status>` | not a count: the last status STAR wrote to the work item, `!<status>` when that write failed | never; the next write overwrites it |
+| `synced=<sha7>` | not a count: the base head this row was last sent back to babysitting to sync with | never; the next sync overwrites it |
 | `start=<n>`, `live=<n>` | written by `stage-start.sh`: the attempt number, and an attempt still being started | `live=` when that start ends; never `start=` |
 | `kept=1` | the worktree of a finished row was kept (`worktree-clean.sh`): STAR does not try again by itself | its held item is answered `done` |
 
@@ -410,8 +415,8 @@ answer can never land on the old row.
 
 | State | Pool | Meaning |
 |---|---|---|
-| `inbox` | — | ingested; waiting for a build slot to draft its brief |
-| `briefing` | build | a brief worker is reading the item and the code |
+| `inbox` | — | ingested; waiting for a brief slot to draft its brief |
+| `briefing` | brief | a brief worker is reading the item and the code |
 | `brief-ready` | — | brief drafted; waiting for the user's approval |
 | `queued` | — | approved; waiting for a build slot |
 | `building` | build | build worker running |
@@ -433,16 +438,13 @@ answer can never land on the old row.
 | `failed` | — | a worker settled without its report or could not start; in the queue |
 | `dropped` | — | the user dropped it |
 
-Build pool (at most `maxParallel`): `fix-queued` rows first, then `screen-queued` rows (only
-while the user is not away and it is not quiet hours), then `post-queued` rows (the same: posting
-is outward), then `inbox` rows (briefs are short and unblock the user), then `queued` rows; within
-each, the oldest `updated` first. While any `queued` row waits, rows in `briefing` hold at most
-`maxParallel - 1` build slots, so an approved build never waits for every other brief to be
-drafted. With `maxParallel` 1 there is nothing to reserve: the older of the waiting `inbox` and
-`queued` rows goes first. Review pool (at most `maxInReview`): `babysit-queued` rows first, then
-the oldest `pr-draft`. A row counts against a pool exactly while its state is one the table marks
-`build` or `review`. During the intake ("Before you go") briefs may take every build slot: nothing
-is building yet.
+Brief pool (at most `maxBriefs`; 4 when `star.json` has no such key): `inbox` rows, the oldest
+`updated` first. Briefs never take a build slot: they only read, and run no gate. Build pool (at
+most `maxParallel`): `fix-queued` rows first, then `screen-queued` rows (only while the user is
+not away and it is not quiet hours), then `post-queued` rows (the same: posting is outward), then
+`queued` rows; within each, the oldest `updated` first. Review pool (at most `maxInReview`):
+`babysit-queued` rows first, then the oldest `pr-draft`. A row counts against a pool exactly
+while its state is one the table marks `brief`, `build` or `review`.
 
 Each stage has a waiting state, used whenever a stage is to run (again): brief → `inbox`, build →
 `queued`, review → `pr-draft`, fix → `fix-queued`, screen → `screen-queued`, babysit →
@@ -507,7 +509,7 @@ runs in <handle>", and end the turn.
    counted, and leave its `counters` as they are. Its `live=` tells the next `stage-start.sh`
    that this is the same start, so it sends the same `--retry-request` ids and Orca hands back
    the task or dispatch it already made instead of a second one.
-5. `loops.sh resume --state running --run <id> --pools "build <n>/<max> · review <n>/<max>" --next "<one line>"`, then tick.
+5. `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · review <n>/<max>" --next "<one line>"`, then tick.
 
 A stop or an "I'm leaving" said in chat is written down at once, before the tick goes on: a file
 `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` with the line `control: stop` (or
@@ -524,9 +526,11 @@ next `/juel:star` in this project becomes the coordinator), and print the queue.
 
 ## The tick
 
-Never call AskUserQuestion inside a tick: it would block every other item until answered. Questions
-for the user go into the queue and are notified; the answer arrives in the file or as an ordinary
-message. The intake ("Before you go") asks them between ticks while the user is there.
+Never call AskUserQuestion inside a tick, or anywhere once a worker exists: Orca types its nudge
+into this terminal, and a nudge that lands on an open picker answers it with the first option
+(#29). Questions for the user go into the queue and are notified; the answer arrives in the file
+or as an ordinary message. The intake ("Before you go") asks them in plain chat while the user is
+there.
 
 **Persist before acting.** Every ledger write goes through `ledger.sh`. `stage-start.sh` writes
 the row before `task-create` (state, stage, round), the task id right after `task-create` and the
@@ -609,9 +613,9 @@ message into the same end state.
 
    | Kind | Answer | Action |
    |---|---|---|
-   | `approve-brief` | exactly `approve`, `yes` or `ok` (any case) | stamp `approved: <iso>` in the brief's frontmatter; row → `queued`. Not while the brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more): then nothing is stamped; add the item again titled "approve brief — it has no acceptance criteria yet: answer with the criteria" (an answer in words is feedback, and the brief worker writes the criteria from it) |
+   | `approve-brief` | exactly `approve`, `yes` or `ok` (any case) | stamp `approved: <iso>` in the brief's frontmatter; row → `queued`. Not while the brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more): then nothing is stamped; add the item again titled "approve brief — it has no acceptance criteria yet: answer with the criteria" (an answer in words is feedback: criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A brief with proposed criteria (`grep -c '(proposed)' <brief>` prints 1 or more) is approved only by this explicit answer from the user, never by `rest`, a default or a blanket answer; in the same write that stamps `approved:`, remove each ` (proposed)` suffix, so builders and reviewers read plain criteria |
    | `approve-brief` | drop | row → `dropped` |
-   | `approve-brief` | anything else, including "approve, but …" | it is feedback, never a conditional approval: append it to the brief file under `## Feedback` with the date (so it survives a restart of STAR), row → `inbox`; the brief stage then runs with `--feedback` |
+   | `approve-brief` | anything else, including "approve, but …" | it is feedback, never a conditional approval: append it to the brief file under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `approve-brief` item again, asking with the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line in that question, since the inline approve view does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `approve-brief` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
    | `merge-pr` | drop / not merging | row → `dropped` |
    | `merge-pr` | anything else | nothing changes: a merge is detected from GitHub, never taken from an answer. After closing the item, add the same `merge-pr` item again, so the reminder stays in the queue |
    | `accept-report` | exactly `accept`, `yes` or `ok` (any case) | row → `post-queued` |
@@ -651,9 +655,9 @@ message into the same end state.
 
    | First line of the report | Action |
    |---|---|
-   | `BRIEF item=… path=… [asks=<n>]` | row → `brief-ready`; queue `--kind approve-brief` (title "approve brief — add acceptance criteria first" when the report has a `NEEDS-CRITERIA` line), then one `--kind prep` per line of the brief's `## Before you go` section (`sed -n '/^## Before you go/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief) |
+   | `BRIEF item=… path=… [asks=<n>]` | row → `brief-ready`; queue `--kind approve-brief` (title "approve brief — add acceptance criteria first" when the report has a `NEEDS-CRITERIA` line, "approve brief — criteria are proposed" when it has a `PROPOSED-CRITERIA` line), then one `--kind prep` per line of the brief's `## Before you go` section (`sed -n '/^## Before you go/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief) |
    | `DONE item=… pr=<url>` | record the PR; row → `pr-draft`; free the build slot. A compare URL (no `/pull/`) → `escalated`, queue `--kind escalation` "no gh on this machine: open a draft PR from <url>, then answer with the PR's URL" (and skip the worker's own `HELD … open a draft PR` line) A `SCREEN path=<file> pending=<n>` line in the report → `counters.screen=<n>`. |
-   | `VERDICT item=… round=<k> SAFE findings=<n> head=<sha>` | record head; row → `babysit-queued` (`screen-queued` while `counters` has `screen=`); free the review slot. `SAFE` wins whatever `findings=` says: they are notes. A `head=` that is not 7 to 40 hex characters is not a verdict babysit can use: treat the report as one with no `VERDICT` line (next row but two) |
+   | `VERDICT item=… round=<k> SAFE findings=<n> head=<sha>` | record head; row → `babysit-queued` (`screen-queued` while `counters` has `screen=`); free the review slot. `SAFE` wins whatever `findings=` says: they are notes. `head=` is its leading run of hex characters, at most 40 (a summary glued on after a literal `\n` does not spoil it). A run shorter than 7 is not a verdict babysit can use: treat the report as one with no `VERDICT` line (next row but two) |
    | `VERDICT … NOT-SAFE findings=<n>`, round 1 or 2 | row → `fix-queued`; free the review slot |
    | `VERDICT … NOT-SAFE`, round 3 or later | row → `escalated`; queue `--kind escalation` "review still NOT SAFE after <k> rounds" with the review's path |
    | a report from a reviewer (the row is `reviewing`) with no `VERDICT` line, including an empty one | `counters` has no `miss=1`: write it, row → `pr-draft`, and the same round runs once more. It has: → `escalated`, queue `--kind escalation` "reviewer gave no verdict twice" |
@@ -755,7 +759,9 @@ message into the same end state.
 `verifying`, or in `screen-queued` or `post-queued` while it may start, stay in the turn and tick
 again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
 `state: idle` and STAR ends its turn. It is woken by a hand-over nudge, by the user, or by the
-heartbeat, and each wake runs one tick.
+heartbeat, and each wake runs one tick. While an intake question is open in chat, STAR does not
+stay in the turn: each wake runs one tick, then STAR prints the open question again and ends the
+turn ("Before you go").
 
 ## Stages
 
@@ -783,8 +789,10 @@ branch:
    "<remote>/<baseBranch>" --no-parent --setup run --json` (`<REPO_ID>` is `project.orcaRepo` and
    `<remote>` is `project.remote` in `star.json`; `<baseBranch>` is the brief's).
 3. **The brief's branch:** switch to it when it exists (a branch left by an earlier attempt), then
-   delete Orca's; otherwise rename Orca's branch to it. Git is authoritative; Orca's view of the
-   branch can lag for a moment.
+   delete Orca's; otherwise, for a brief with `existingPr`, fetch it from `project.remote` and
+   check it out tracking the remote branch (the open PR's head), then delete Orca's; otherwise
+   rename Orca's branch to it. Git is authoritative; Orca's view of the branch can lag for a
+   moment.
 4. **Environment files** from the main checkout, only files git ignores (`git check-ignore`):
    `.env*`, `*.local`, `.envrc`, `.npmrc`, `.tool-versions` and ignored files under `.claude/`.
    Ignored files never show in `git status`, so `ship-ticket`'s clean-tree check still passes,
@@ -849,7 +857,7 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
 
 | Provider | `list` | `fetch` |
 |---|---|---|
-| `linear` | resolve `LINEAR_PREFIX` (`mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>get_issue(id: <ref>)` |
+| `linear` | resolve `LINEAR_PREFIX` (the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues`), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>get_issue(id: <ref>)` |
 | `jira` | the connected Jira/Atlassian MCP's JQL search: `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | the MCP's get-issue tool |
 | `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels` (skip `status:in-progress` / `status:in-review`) | `gh issue view <n> --json number,title,body,url,labels` |
 | `file` | `*.md` in the spec directory whose status is explicitly `todo` | read the file |
@@ -887,6 +895,7 @@ old PR.
      labels: [<labels>]
    branch: <branch>
    baseBranch: <base>
+   existingPr: <url>       # only for an item that brings an open PR to mergeable: see below
    deliverable: pr          # or report: see step 6
    approved:               # stamped by STAR when the user approves
    star:
@@ -910,8 +919,13 @@ old PR.
    1. [<kind>] <question> | options: <a> / <b> | default: <recommended option, or none>
    ```
 
-   Acceptance criteria come from the item, or from a `## Feedback` entry in which the user states
-   them. When neither has any, write the single line `- [ ] NEEDS CRITERIA` and never invent any.
+   Acceptance criteria, by case. (1) The item's own and (2) any the user states in a `## Feedback`
+   entry go in together, with no suffix. (3) When neither gives any and a memory note or a
+   `## Feedback` entry asks for proposed criteria, propose them from the item's body, each line
+   ending in ` (proposed)`; on every re-draft, keep the earlier draft's proposed criteria with
+   their ` (proposed)` suffix, except those a `## Feedback` entry replaces or removes, next to any
+   from cases 1 and 2. (4) When none of these gives any, write the single line
+   `- [ ] NEEDS CRITERIA`. Never invent criteria outside case 3.
 
    `## Before you go` lists everything a builder would predictably need from a person, so the
    user can answer it before leaving: one numbered line each, `<n>. [<kind>] <question> |
@@ -926,10 +940,21 @@ old PR.
    disposition or a write-up (exercise flows and record what passed, map an impact, assess a PR,
    post a status) and nothing in the item asks for a change to code or docs in the repository;
    otherwise `pr`. A `## Feedback` entry that names one ("deliverable: pr") wins.
+
+   `existingPr` is set only when the item's outcome is to bring an open PR to mergeable (the item
+   links an open PR and asks to finish, update or merge it, rather than to build something new):
+   `gh pr view <url> --json url,headRefName,baseRefName,isCrossRepository,state`, and
+   only when `state` is `OPEN`; otherwise leave `existingPr` out and note it under
+   `## Before you go` as a `decision`. Then `branch` is its `headRefName` and `baseBranch` its
+   `baseRefName`, and step 5's naming rule does not apply. A PR whose `isCrossRepository` is
+   true comes from a fork, which cannot be pushed to: leave `existingPr` out and add a
+   `decision` line under `## Before you go`: `<url> comes from a fork: open a new PR from a copy
+   of its branch, or drop the item? | options: new PR / drop | default: new PR`.
 7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n>` (`<n>` is the
-   number of lines under `## Before you go`, 0 for `none`), then `NEEDS-CRITERIA` when that
-   applies, then at most one `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's
-   own contract or tools got in the way (no project or ticket names).
+   number of lines under `## Before you go`, 0 for `none`), then `NEEDS-CRITERIA` (case 4 of
+   step 6) when that applies, or `PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`,
+   then at most one `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own
+   contract or tools got in the way (no project or ticket names).
 
 ## Post worker mode: `post-report`
 
@@ -943,7 +968,7 @@ that was lost; then report `POSTED` with its URL and post nothing.
 
 | Provider | Post |
 |---|---|
-| `linear` | the Linear MCP's comment tool, `<LINEAR_PREFIX>create_comment(issueId: <id>, body: <the report file's text>)` |
+| `linear` | the Linear MCP's comment tool, `<LINEAR_PREFIX>save_comment` or `<LINEAR_PREFIX>create_comment`, whichever that prefix has, with `(issueId: <id>, body: <the report file's text>)` |
 | `github` | `gh issue comment <n> --body-file <path>` |
 | `jira` | the connected Jira/Atlassian MCP's add-comment tool |
 | `file` | nothing to post: add `report: <path>` to the spec file's frontmatter |
@@ -954,25 +979,43 @@ reason=post-failed needs=<what the tracker said>`.
 
 ## Exact-head verification
 
-`sh S/pr-verify.sh <pr url> --head <head from the ledger>` prints one line. How it judges: without
-a review rule on the repo, an approval counts only when it was given on the current head commit;
-with a rule, GitHub's own decision stands. Green means every check that reported is green and
-GitHub's merge state is not blocked or behind, so a required check that has not started is
-`PENDING`, not a pass. A repo with no reviewers at all never passes: someone has to approve.
+`sh S/pr-verify.sh <pr url> --head <head from the ledger>` prints one line. How it judges: where the
+base branch's rules explicitly require 0 approving reviews, no approval is needed (`PASS no
+approval required`), though changes requested still fail; without any review rule on the repo,
+an approval counts only when it was given on the current head commit; with a rule, GitHub's own
+decision stands. Green means every check that reported is green and GitHub's merge state is not
+blocked or behind, so a required check that has not started is `PENDING`, not a pass. A repo with
+no review rule at all never passes without an approval: someone has to approve.
 
 | Verdict | Row in `verifying` | Row in `ready` |
 |---|---|---|
-| `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify. `PASS approval is on an earlier commit` is the same, with the queue title "merge PR #<n> — approved on an earlier commit, green, head <sha7>": the repo's rule is satisfied, but nobody approved the newest commits, and the person who merges should know When `grep -cE 'decided while you were away|default taken' <brief>` prints k > 0, the title ends "— k decisions made while you were away" and the body adds the brief's path, so the user sees them before merging. | nothing |
+| `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify. `PASS approval is on an earlier commit` is the same, with the queue title "merge PR #<n> — approved on an earlier commit, green, head <sha7>": the repo's rule is satisfied, but nobody approved the newest commits, and the person who merges should know. `PASS no approval required` is the same, with the queue title "merge PR #<n> — green, no approval required, head <sha7>". When `grep -cE 'decided while you were away|default taken' <brief>` prints k > 0, the title ends "— k decisions made while you were away" and the body adds the brief's path, so the user sees them before merging. | nothing |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` | nothing |
-| `PENDING <what>` | `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" | nothing |
+| `PENDING <what>` | `PENDING merge state: behind the base branch`: the sync rule below. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" | `PENDING merge state: behind the base branch`: the sync rule below; otherwise nothing |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" | the same, and close its `merge-pr` item |
 | `MERGED <sha>` | as for `ready` (there is no `merge-pr` item to close yet) | close its `merge-pr` item, then `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
-| `FAIL <what>` | → `escalated`; queue `--kind escalation` "<what>" | → `escalated`; close its `merge-pr` item; queue `--kind escalation` "<what>" |
+| `FAIL <what>` | `FAIL conflicts`: the sync rule below. Otherwise: → `escalated`; queue `--kind escalation` "<what>" | `FAIL conflicts`: the sync rule below. Otherwise: → `escalated`; close its `merge-pr` item; queue `--kind escalation` "<what>" |
 
 Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. "Close its
 `merge-pr` item" means `loops.sh close` on the open item of that kind for the row; none open (exit
 4, or nothing to find) is fine. STAR never merges, and never marks a PR ready: babysit does that
 once, and the merge is the user's.
+
+**`gh` that cannot see the repository.** `PENDING gh cannot see <repo>: export GH_TOKEN for this
+repository` is not retried blind and does not count as a `pending=`: queue `--kind held`
+"export GH_TOKEN for <repo> in the shell that runs STAR and its workers, then answer done" once,
+and leave the row as it is. The next check runs after that item is answered. A worker's escalation
+that says so goes through the `ESCALATION` row of the report table as usual.
+
+**Sync after the base moved.** `FAIL conflicts` or `PENDING merge state: behind the base branch`
+for a row in `verifying` or `ready` means the base branch moved since babysit last merged it in,
+most often because the user merged a sibling PR. Read the base's head:
+`git -C <project.repo> ls-remote <project.remote> refs/heads/<the brief's baseBranch>`, its first
+7 characters. When the row's `counters.synced` is not that sha: close its `merge-pr` item if it
+has one, write `counters.synced=<sha7>` and `counters.pending=-`, and the row → `babysit-queued`
+(babysit resumes with `--since <cursor>`; its Phase 4 merges the base in and resolves mechanical
+conflicts itself). When it is: syncing did not help: → `escalated`, queue `--kind escalation`
+"<what> again after syncing with <base> at <sha7>". `ls-remote` failing: the Otherwise branch of the cell that sent it here.
 
 ## Drafts
 
@@ -1046,6 +1089,16 @@ an answer, which is expected), send it one message and add one to `nudge=` in `c
 ```sh
 orca terminal send --terminal <terminal> --text "STAR checking in on <item>: say in one line where you are. Waiting on a background command: keep waiting. Blocked or unsure: ask me with orca orchestration ask. Finished: send your worker_done report now." --enter --json
 ```
+
+**A refused check-in.** `orca terminal send` answering with the error code `agent_prompt_blocked`
+means the worker's agent is mid-turn: busy, not idle, often inside a long command such as a wait
+for the gate lock. It is not a nudge: add one to `busy=` in `counters` and leave `nudge=` alone.
+While `busy=<n>` is set, send the next check-in only when this tick's probe prints `quiet <m>`
+with `m` at least 15 × (n + 1) (30 minutes of silence after one refusal, 45 after two), so one
+silent stretch gets one try per quiet window. At `busy=8` (a little over two hours of one silent
+stretch) queue `--kind held` "<stage> worker for <item> silent and busy for 2 h: look at terminal
+<terminal>", notify, and send it no more check-ins; the worker is not stopped. Any probe result
+other than `quiet` clears `busy=`: the terminal printed something, so that silent stretch is over.
 
 The probe never says `quiet` while a question with numbered options is on the worker's screen
 (that is `stuck: confirmation dialog`), because the check-in ends with Enter and Enter would
@@ -1162,19 +1215,63 @@ intake runs in STAR's own session when it ingests new refs (a start with refs, r
 or an inbox file that adds rows), and again on `away`.
 
 1. Say "drafting <n> briefs; I'll walk you through each as it lands". While the intake runs, the
-   Messages wait is `--timeout-ms 60000`, and briefs may take every build slot.
+   Messages wait is `--timeout-ms 60000`.
 2. Between ticks, never inside one: ask every open item that blocks work (`approve-brief`,
-   `prep`, `question`, `escalation`, `restart-or-drop`) with AskUserQuestion, up to 4 questions a
-   call, the recommended option first. Record each answer with `loops.sh set-answer <id>
-   "<answer>"` and run the Answers step for it at once, so STAR stays the only writer of briefs
-   and rows.
+   `prep`, `question`, `escalation`, `restart-or-drop`) in plain chat, **one question per
+   message**, then end the turn. Never with AskUserQuestion: workers are running, and an Orca
+   nudge that lands on an open picker answers it with its first option.
+
+   ```
+   Q3 of 7 · ITEM-1 · decision
+   Should the export include archived rows?
+   1. No, active rows only (Recommended)
+   2. Yes, all rows
+   ```
+
+   `Q<k> of <n>` counts the open questions known now; `n` grows as briefs land. A question with a
+   default lists it first, labelled `(Recommended)`: every `decision` (its `default:`), and any
+   other item whose body names one. `approve-brief`, `criteria`, `secret`, `account`, `screen` and
+   `restart-or-drop` questions have none. An `approve-brief` question shows the brief inline, not
+   only its path: each acceptance criterion, the approach in one line, Scope In and Out in one
+   line each, `deliverable`, then the path; its options are `1. approve` and `2. drop`, followed
+   by the line "Or tell me what to change." A `restart-or-drop` question's options are
+   `1. restart` and `2. drop`; a `screen` item's are `1. done` and `2. can't now` (step 3); an
+   `escalation`'s is `1. drop`, followed by "Or tell me your decision."; a `decision`'s, or a
+   worker `question`'s, are its own answers. A queue option that asks for words ("say what to
+   change", "answer with your decision") is never numbered: it becomes that closing "Or tell
+   me" line. Each brief's questions come as that brief lands: its `## Before you go` questions
+   first, its approval last, because a decision can change the brief.
+
+   The reply: a bare number, or the text of one option, is that option; any other words are the
+   answer in words. An option's text is the exact command word the Answers step acts on
+   (`approve`, `drop`, `restart`) or, for a `prep` item or a `question`, the exact answer it
+   records (`done`, `can't now`, a decision's choice), so a numbered reply always reaches the
+   right row. On a question with numbered options, a bare number that names no option is not an answer:
+   print the question again.
+   Record the answer with `loops.sh set-answer <id> "<the option's text, or the words>"` and run
+   the Answers step for it at once, so STAR stays the only writer of briefs and rows, then ask
+   the next question. A message that is Orca's nudge (it starts with "You have" and names
+   orchestration messages), exactly `inbox`, a message that starts with `STAR heartbeat:`, or one
+   whose whole text is one of STAR's own control phrases (`stop`, `away` or "I'm leaving", `back`
+   or "I'm back", `take over`) is never an answer: handle the nudge, `inbox` and the heartbeat as
+   usual, and run a control phrase as the command it is, then print the open question again as
+   `Still open: Q3 · ITEM-1 · <question>` with its options. While a question is open, each wake
+   (the reply, a nudge, the heartbeat) runs one tick, then STAR prints the open question (or the
+   next one) and ends the turn.
+
+   A reply of `rest` answers every remaining `decision` question of the current brief with its
+   Recommended option, each recorded as
+   `loops.sh set-answer <id> "<option> (recommended; you said rest)"` and applied like any
+   answer. It never answers an approve, `criteria`, `secret`, `account` or `screen` question:
+   those are still asked one by one. Nor is `rest` ever an answer in words or feedback
+   on any open question that is not a `decision`: STAR records nothing for it and prints it again.
 3. `screen` items are things to do now: "sign in to <app> as <account>", "approve the keychain
    prompt once". Options: `done` / `can't now`.
 4. When nothing is left to ask and no brief is still drafting: "All set: <n> approved, <m>
    decisions recorded. Leaving now?" Yes → Away (Handoff). No → STAR keeps ticking as usual.
 5. "later" as any answer ends the walk-through at once and goes to Away with what is known.
-   AskUserQuestion holds STAR's loop until it is answered; workers keep running in Orca and their
-   reports wait there, so the cost is slots left unfilled while a question is on screen.
+   A question in chat does not hold the loop: every wake while it is open still runs a tick, so
+   reports are applied and slots filled between answers.
 
 Refs handed over from another session: STAR's own session runs the walk-through, the handing
 session says "answer STAR's intake in <terminal>", and STAR notifies when the first item is ready.
@@ -1268,7 +1365,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - The work item's status is written only by STAR, from the row's state ("The tracker status").
 - Never put a project's details in an improvement issue: placeholders only, and `star-issue.sh`
   refuses the rest.
-- AskUserQuestion only in the intake, between ticks.
+- AskUserQuestion only for the first-run setup question, before any worker exists. Every other
+  question is asked in plain chat, one question per message.
 - A worktree is removed only by `worktree-clean.sh`, and never with work in it that exists nowhere
   else.
 - `open-loops.md` is written only through `loops.sh`, and `ledger.md` only through `ledger.sh`.
@@ -1295,7 +1393,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Writing a ledger row by hand, or building a `set` line by splitting a string | `ledger.sh`, one quoted argument per field |
 | Parsing `orca orchestration check` yourself | `messages.sh`: it drops heartbeats, replays and processed messages |
 | Putting a line break in a task spec | `stage-start.sh` writes long prompts to a file and sends one line |
-| Letting briefs take every build slot | While a `queued` row waits, briefs hold at most `maxParallel - 1` |
+| Starting a brief in a build slot | Briefs have their own pool, `maxBriefs`; build slots are for building |
+| Asking the user with AskUserQuestion while workers run | Plain chat, one question per message: an Orca nudge answers an open picker with its first option |
 
 ## Edge cases
 
@@ -1317,7 +1416,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A finding that is already an open issue | `star-issue.sh comment` adds the new evidence to it |
 | A finished item's worktree still holds uncommitted or unpushed work | It stays; the queue says why, and `done` there makes STAR try again |
 | The STAR folder was deleted | That project's state is gone; the next `/juel:star` starts fresh. Stop STAR first: workers still running would report to nobody |
-| Two projects each run a STAR | Each has its own queue and its own 3 + 3 slots; the gate lock and the memory check are shared by the machine |
+| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock and the memory check are shared by the machine |
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
 | The user leaves with "Before you go" items unanswered | Decisions take their defaults, screen items count as "can't now", the rest stop the item where it needs them |
 | A check needs the user at the screen while they are away | The check is blocked, the PR opens with it pending, and the row waits in `screen-queued` after its SAFE review |
@@ -1326,3 +1425,6 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A worktree Orca created inside the repository | `.git/info/exclude` gets a line for its top folder |
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
+| A check-in Orca refuses with `agent_prompt_blocked` | The worker is busy, not idle: `busy=` counts it, not `nudge=`, and the next try waits a full quiet window |
+| Two items that each add a decision to the same register | Each worker reserves its ids through `ids.sh`, so siblings never take the same number |
+| An Orca nudge, the heartbeat or one of STAR's control phrases arrives while a question is open in chat | It is handled as what it is (a control phrase runs as its command), never as the answer; the question is printed again |

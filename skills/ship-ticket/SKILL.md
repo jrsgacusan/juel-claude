@@ -84,7 +84,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 
 ## Strict Execution Protocol (non-negotiable)
 
-<!-- juel:protocol v8 -->
+<!-- juel:protocol v9 -->
 
 **0. Harness check, before every other rule.** You are running in Codex when you have the `update_plan` tool and no `Skill` tool. Only then read `references/harness-codex.md`, resolved relative to this skill file's own location (`../../references/harness-codex.md`), and apply its construct map, corrected facts, dependency substitutions and degradation contract to every rule below and to every phase body in this skill. This single read is the one action permitted before rule 1's preflight, and only in that case. In every other case, Claude Code without the `TaskCreate` tool included, ignore that file entirely and continue to rule 1.
 
@@ -97,7 +97,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 
 **4. `review-pr`'s agents run in PARALLEL and FOREGROUND; `code-simplifier` runs FOREGROUND; `codex exec` runs BACKGROUND, WATCHED, and WAITED-ON.** This overrides every other instruction in this file and in any skill invoked from it. Foreground/background is about whether the tool call blocks; watched is about whether output still streams somewhere the user can see it — these are different axes, and `codex exec` needs the second without the first. `review-pr`'s agents additionally need PARALLEL: dispatched together, not one at a time.
 - `pr-review-toolkit:review-pr`'s agents MUST be dispatched in parallel: pass `all parallel`, or dispatch the agents together in ONE message. Its sequential default — one agent at a time — is the exact slowness this rule exists to prevent; requesting it, or omitting `all parallel`, is a violation.
-- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. Invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
+- `pr-review-toolkit:review-pr` and `code-simplifier` are foreground-only. When your Agent tool has a `run_in_background` parameter, invoke both with `run_in_background: false` **explicitly** — the harness backgrounds subagents by default, so omitting the flag is a violation, not a neutral choice. Dispatching review-pr's agents in parallel does not relax this: each agent in that one message still carries its own explicit `run_in_background: false`. When your Agent tool has no such parameter, dispatch every one of them together in one message, wait for each one's completion, read each result in full, and check `ListAgents` before treating an idle agent as empty (rule 6); the phase never ends while one is still out. Never `&`. Never `run_in_background: true` for these two. Never "dispatch and continue".
 - `codex exec` runs through the **Bash tool**, whose `timeout` parameter is capped at 600000ms (10 minutes). A real `codex exec` applying a plan routinely runs longer than that, so a foreground dispatch gets silently DETACHED by the harness at the cap regardless of this rule — nothing then watches it, nothing reads its output, and the skill would wrongly proceed as if the phase had ended. `review-pr` and `code-simplifier` run through the **Skill/Agent tool**, which carries no such cap — that is the entire reason only `codex exec` changes. Do not "fix" this back to foreground; the cap is a harness fact, not a preference.
 - **Always dispatch `codex exec` with `run_in_background: true`** — not optional, not "if it looks long," always. Omitting the flag, or passing `false`, is a violation.
 - **Never redirect a command's output to a log file.** No `> out.log`, no `| tee`, no writing output somewhere to read back later. This applies to all three, and is now MORE load-bearing for `codex exec`: backgrounded with no ceiling, the shell is the only place the user watches it work.
@@ -309,6 +309,7 @@ line:
 | start of each phase | `PHASE <n> <item>` |
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
+| an existing PR updated (`existingPr`) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
 | build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
@@ -337,6 +338,19 @@ before Phase 1: notes left by earlier workers in this project and by the human.
 earlier escalations on this item, dated. Read it before anything else in the brief. A decision
 overrides the Approach where they differ and settles the question it answers: apply it, and do not
 escalate the same question again. Where two decisions disagree, the later one wins.
+
+**Shared ids.** Under a `star:` block, before you add an entry with a sequential id to a file that
+other branches also append to (a decision register, an ADR index, numbered migrations), reserve
+the id instead of taking the next number in your own copy: `git fetch <remote> <baseBranch>`,
+take the highest id in that file on `<remote>/<baseBranch>` and on your branch as the floor, then
+run `sh <ids.sh> --home <star.home> reserve <the file's path in the repo> --item <item> --count <n>
+--floor <highest>` (`ids.sh` is in `juel:star`: `../star/ids.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/star/ids.sh`); `<highest>` is the number only (40 for D-040). It
+prints one id per line: use them in order, written the way the file writes them (`D-041`).
+Siblings building at the same time then never take the same number. When `ids.sh` exits
+non-zero or is missing, escalate `needs-human-input`, and never take the next number yourself.
+With `executor: codex`, reserve the ids while writing the plan and put them in it. Without a
+`star:` block, or for a file nobody else appends to, nothing changes.
 
 **Nothing is asked at the terminal.** Nobody is there. Every place in this file, or in a skill it
 invokes, that says to ask, confirm with or wait for the user means this under `--unattended`:
@@ -484,6 +498,11 @@ conventions", Phase 5 reviews against `baseBranch`, and Phase 7 opens the PR wit
 `--base <baseBranch>`. Before Phase 1, check that the checkout's current branch is the brief's
 `branch`; a mismatch is `ESCALATION item=<item> phase=0 reason=preflight needs=checkout on <branch>`.
 
+**An existing PR.** A brief with `existingPr: <url>` asks for that open PR to be made mergeable,
+not for a new one. Its `branch` is the PR's head branch, already checked out and tracking the
+remote. Bring it up to date by merging `<remote>/<baseBranch>` in, never by rebasing, and never
+force-push. Phase 7 updates that PR instead of opening one.
+
 **Quiet hours.** With `--quiet-hours`, check the window at the moment of each outward action, not
 once at the start — a run that starts before the window and acts inside it must still hold. Never
 work the window out by hand; `quiet-hours.sh`, next to this file, prints `inside` or `outside`:
@@ -502,7 +521,7 @@ Inside the window, the phase 7 status write becomes a `HELD` line. Marking the P
 reviewers and re-requesting review happen later, in the babysit stage, which gets the same window.
 Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
 
-**Gate lock.** Under `--unattended`, every heavy command — Phase 5's `test` and `lint` run after
+**Gate lock.** Under `--unattended`, every heavy command — Phase 5's targeted tests after
 remediation, the Phase 6 regression gate, and the heavy verification commands in the plan Codex
 executes (full suites, builds; targeted single-file tests are fine without it) — runs through
 `gate-lock.sh`, next to this file (`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when
@@ -697,7 +716,15 @@ That skill internally runs:
 
 If the inner skill announces zero actionable findings, remediation is skipped automatically. Continue to phase 6 (verification still runs) either way.
 
-After it returns, run the `test` and `lint` commands resolved in Phase 4 (reused here — do not re-derive) to verify nothing regressed (under `--unattended`, through `gate-lock.sh`; see "Gate lock"). Run a command only when its resolved value is non-null; a `null` command reports its one-line skip note (e.g. "no lint command resolved — lint gate skipped") and the phase continues rather than stopping.
+After it returns, run only the tests for the files remediation changed (`git diff --name-only
+<the commit before it>..HEAD`): the test files it touched, plus the tests the repo's own naming
+maps to the changed source files (`foo.py` → `test_foo.py`, `Foo.tsx` → `Foo.test.tsx`), through
+the runner of the `test` command resolved in Phase 4, given those paths. Lint those files the same
+way when the resolved `lint` command accepts paths. The one full run of every gate is Phase 6
+step 5, before the PR; there is never a second full run here. No file changed, or no test found
+for them: say so in one line and continue. When the project's own instructions (CLAUDE.md,
+AGENTS.md) say something else about test scope, they win. Under `--unattended`, these runs go
+through `gate-lock.sh` too (see "Gate lock").
 
 **Checkpoint:** show diff summary post-remediation. Ask to proceed.
 
@@ -794,7 +821,9 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
      directly. Under `--unattended` nobody can: escalate `needs-human-input` for those items.
    - **If `run` is unavailable:** execute the `commands.run` resolved in Phase 4 directly and
      observe.
-4. **Record evidence per item, not in aggregate, in the evidence directory's `report.md`.** For every numbered item from Step 1, record:
+4. **Record evidence per item, not in aggregate, in the evidence directory's `report.md`.** Its
+   first line is `evidence head=<sha>`: the commit the checks ran on (`git rev-parse HEAD` when
+   the first check starts). For every numbered item from Step 1, record:
    method (`juel:verify` / `run` / user-confirmed), the evidence (request/response, log lines,
    screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
    items may be collapsed into one "looks good" line.
@@ -809,12 +838,29 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    then **do not patch by hand** — loop
    back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-run this
    entire phase after the fix — a partial re-verify is not sufficient.
+
+   One exception. When every checklist item passed and only the regression gate went red, and
+   every file changed since the evidence head (`git diff --name-only <evidence head>..HEAD`) is
+   outside runtime, re-run only the regression gate (step 5) after the fix, in the same evidence
+   directory. Outside runtime means test files (under the repo's test directories or matching its
+   test naming), docs the app does not load at runtime (`*.md`, `docs/`), and paths a memory note
+   or the brief names as not loaded at runtime. A file the app loads at runtime (skills, prompts,
+   templates, content) is runtime whatever its extension. The live checks are not run again: their
+   evidence still holds for code that did not change. Record
+   `evidence reused from <evidence head> for <HEAD>: <changed files>` in `report.md`, and under
+   `--unattended` add `"evidence": {"head": "<evidence head>", "reusedFor": "<HEAD>"}` to the gate
+   manifest (`run-gates.sh` reads only the gate keys). Any other changed file, any FAIL item,
+   or any doubt about a file: the whole phase runs again.
 7. **Clean up before the checkpoint.** Stop only what this phase started, remove port-redirect
-   files, delete local copies of remote data, and reverse every `cleanup.md` entry per rule 3.
-   This phase cannot be marked complete with an open ledger entry.
+   files, delete local copies of remote data, and reverse every `cleanup.md` entry per rule 3
+   except a `handed-off` one. This phase cannot be marked complete with an open ledger entry. A
+   `handed-off` entry does not block it, but each one goes into the PR body under **Left for you
+   to clean up** (identifier and service) and, under `--unattended`, into the report as
+   `HELD item=<item> action=clean up <identifier> on <service>`. Interactively, ask the user at
+   the checkpoint before handing one off.
 
 **Checkpoint:** show the full per-item checklist (all PASS), the regression-gate result, the
-cleanup result, the recording's path (or the `Recording missing` line), and the absolute path of
+cleanup result (handed-off entries listed), the recording's path (or the `Recording missing` line), and the absolute path of
 the evidence directory. Ask to proceed to PR.
 
 ### Phase 7 — Open PR
@@ -822,15 +868,23 @@ the evidence directory. Ask to proceed to PR.
 1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
 2. Resolve the PR title and body per "Base branch & repo conventions" above:
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
-   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist).
+   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections, except that when Phase 6 handed off a `cleanup.md` entry, a **Left for you to clean up** section listing each one is appended after the template's last section: the one section added to a template. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off.
 3. Open the PR, or degrade if `gh` is unavailable:
+   - **`existingPr` in the brief:** do not run `gh pr create`. Push to its branch (step 1). Leave
+     the PR's title and the author's text as they are: write this run's summary, QA instructions
+     and test plan (plus **Left for you to clean up** when Phase 6 handed off an entry) into one
+     section of the body that starts with the line `<!-- juel:update -->` and ends with
+     `<!-- juel:update end -->`, replacing that section when the body already has it and
+     appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
+     then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
+     `PR item=<item> url=<url> existing`.
    - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. It is marked ready once, in Phase 8, only after the second-model review says SAFE.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 
    | Source | `update_status(in_review)` |
    |---|---|
-   | `linear` | resolve the active prefix — `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)`; `save_issue` is the sole create-or-update verb |
+   | `linear` | resolve `LINEAR_PREFIX`, the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues` (never a hardcoded prefix), then `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)`; `save_issue` is the sole create-or-update verb |
    | `jira` | the transition named by `config.tracker.statusMap.in_review`, through the connected Jira/Atlassian MCP's transition tool; no `statusMap` → treat as no `update_status` |
    | `github` | `gh label create status:in-review --force`, then `gh issue edit <n> --add-label status:in-review`, adding `--remove-label status:in-progress` only when the issue has that label |
    | `file` | rewrite the spec file's status marker to `in_review`. With `--brief`, the file is the brief's `item.path` (an absolute path in the main checkout), never a file in this worktree |
@@ -866,11 +920,12 @@ and "Ready for you to merge" or why it stopped.
 | Working tree dirty before phase 4 | Stop. Ask user to commit/stash. |
 | Zero actionable findings in phase 5 | `/juel:review-and-execute` handles this internally; still run phase 6 (verification) and phase 7 (PR). |
 | Lint/tests fail after phase 5 | Loop back: invoke `/juel:review-and-execute` again — it will write a `-vN` plan and dispatch Codex. Do not hand-edit. |
-| Verification finds a defect in phase 6 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 6 in full. Do not open the PR until every checklist item is PASS and the regression gate is green. |
+| Verification finds a defect in phase 6 | Do not hand-patch. Loop back to phase 5 (`/juel:review-and-execute`) or phase 4 (adjust plan, re-run Codex), then re-run phase 6 in full (except step 6's evidence-reuse case). Do not open the PR until every checklist item is PASS and the regression gate is green. |
 | Claude cannot self-verify a FE item in phase 6 (`juel:verify` unavailable, or the running app/test data is not accessible to Claude) | Ask the user to drive the browser themselves and confirm the affected item(s), recording which were not verified by Claude directly. |
 | A port the stack needs is already taken in phase 6 | Pick the next free port and rewire (rule 2 of `references/local-e2e.md`). Never stop the process holding it. |
 | An item FAILs in phase 6 while `cleanup.md` has open entries | Clean up first (step 7), then loop back. The re-run starts a fresh `-vN` evidence directory with an empty ledger. |
 | A remote cleanup fails in phase 6 | Report the leftover identifiers first. Do not mark the phase complete or open the PR until the owner decides. |
+| A remote record this run cannot delete (no delete access) | Only when the brief, its Decisions or a Before-you-go answer allows it: mark the entry `handed-off`, list it in the PR body and report a `HELD` line. Otherwise it is a failed cleanup. |
 | Not in a worktree | Ask user; do not auto-create one. |
 | `--unattended` hits anything on the escalation list | Print the `ESCALATION` line and end the run. Never work around it, never mark an unverifiable item PASS. |
 | `--unattended` without `--brief` | Refuse with the `no-brief` escalation; never run unattended without an approved brief. |
