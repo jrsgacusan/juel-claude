@@ -85,5 +85,8 @@ grep -qF 'STAR-ISSUE: <one line>' "$SKILL" && pass "babysit can report friction 
 g "Z1 an explicit zero needs no approval" '`required: 0`'
 g "Z2 review bots are configurable" 'config.reviewBots'
 g "Z3 a token gh lacks is escalated at once" 'gh cannot see'
+# Issue #28
+g "U1 mechanical conflicts go through the script" 'merge-union.sh'
+g "U2 a red gate after a union resets" 'the mechanical resolution failed'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

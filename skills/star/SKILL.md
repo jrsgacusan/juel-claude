@@ -391,6 +391,7 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `screen=<n>` | checks that wait for the user at the screen (a `SCREEN` line after `DONE`) | a `VERIFIED` report with `failing=0` |
 | `last=<message id>` | not a count: the id of the last message applied to this row | never; the next message overwrites it |
 | `tracker=<status>` | not a count: the last status STAR wrote to the work item, `!<status>` when that write failed | never; the next write overwrites it |
+| `synced=<sha7>` | not a count: the base head this row was last sent back to babysitting to sync with | never; the next sync overwrites it |
 | `start=<n>`, `live=<n>` | written by `stage-start.sh`: the attempt number, and an attempt still being started | `live=` when that start ends; never `start=` |
 | `kept=1` | the worktree of a finished row was kept (`worktree-clean.sh`): STAR does not try again by itself | its held item is answered `done` |
 
@@ -967,10 +968,10 @@ no review rule at all never passes without an approval: someone has to approve.
 |---|---|---|
 | `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify. `PASS approval is on an earlier commit` is the same, with the queue title "merge PR #<n> — approved on an earlier commit, green, head <sha7>": the repo's rule is satisfied, but nobody approved the newest commits, and the person who merges should know. `PASS no approval required` is the same, with the queue title "merge PR #<n> — green, no approval required, head <sha7>". When `grep -cE 'decided while you were away|default taken' <brief>` prints k > 0, the title ends "— k decisions made while you were away" and the body adds the brief's path, so the user sees them before merging. | nothing |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` | nothing |
-| `PENDING <what>` | `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" | nothing |
+| `PENDING <what>` | `PENDING merge state: behind the base branch`: the sync rule below. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" | `PENDING merge state: behind the base branch`: the sync rule below; otherwise nothing |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" | the same, and close its `merge-pr` item |
 | `MERGED <sha>` | as for `ready` (there is no `merge-pr` item to close yet) | close its `merge-pr` item, then `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
-| `FAIL <what>` | → `escalated`; queue `--kind escalation` "<what>" | → `escalated`; close its `merge-pr` item; queue `--kind escalation` "<what>" |
+| `FAIL <what>` | `FAIL conflicts`: the sync rule below. Otherwise: → `escalated`; queue `--kind escalation` "<what>" | `FAIL conflicts`: the sync rule below. Otherwise: → `escalated`; close its `merge-pr` item; queue `--kind escalation` "<what>" |
 
 Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. "Close its
 `merge-pr` item" means `loops.sh close` on the open item of that kind for the row; none open (exit
@@ -982,6 +983,16 @@ repository` (or a worker's escalation that says so) is not retried blind and doe
 `pending=`: queue `--kind held` "export GH_TOKEN for <repo> in the shell that runs STAR and its
 workers, then answer done" once, and leave the row as it is. The next check runs after that
 item is answered.
+
+**Sync after the base moved.** `FAIL conflicts` or `PENDING merge state: behind the base branch`
+for a row in `verifying` or `ready` means the base branch moved since babysit last merged it in,
+most often because the user merged a sibling PR. Read the base's head:
+`git -C <project.repo> ls-remote <project.remote> refs/heads/<the brief's baseBranch>`, its first
+7 characters. When the row's `counters.synced` is not that sha: close its `merge-pr` item if it
+has one, write `counters.synced=<sha7>`, and the row → `babysit-queued` (babysit resumes with
+`--since <cursor>`; its Phase 4 merges the base in and resolves mechanical conflicts itself).
+When it is: syncing did not help: → `escalated`, queue `--kind escalation` "<what> again after
+syncing with <base> at <sha7>". `ls-remote` failing: the table's own rule for that verdict.
 
 ## Drafts
 

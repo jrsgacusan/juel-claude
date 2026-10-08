@@ -158,7 +158,7 @@ table before doing a step, even where the step's own text does not point back he
 | `decision` is `CHANGES_REQUESTED`, this run has had nothing to act on since it started or since its last push, and 24 h have passed (a bot, or a reviewer who left no comment, blocks the PR; a reviewer who was just re-requested gets the same 24 h) | `ESCALATION item=<item> phase=8 reason=blocked-without-feedback needs=changes were requested with no comment to act on` |
 | stuck on the same thing three times (a gate, a tool, two ways to read a comment) | ask the coordinator before escalating: `orca orchestration ask --question "<one question, with what you tried>" --json`. Its answer binds like a Decision. A check-in message from the coordinator in the terminal gets a one-line answer, then carry on |
 | a question sent with `orca orchestration ask` comes back "No answer from the user: escalate this." | `ESCALATION item=<item> phase=8 reason=unanswered-question needs=<the question>` |
-| merge conflicts: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
+| merge conflicts `merge-union.sh` cannot resolve: stop and ask | `git merge --abort`, then `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<conflicted files>` |
 | `receive-review-and-execute` prints `STOPPED: <reason>` | `ESCALATION item=<item> phase=8 reason=remediation-stopped needs=<reason>`; never read it as "zero actionable" |
 | before `READY`, whether or not Phase 4 pushed | **wait for CI and the approval** before reporting (the last Phase 3 push's checks may still be running when Phase 4 has nothing to push): poll `gh pr checks <pr> --json name,bucket` in foreground calls of at most 540 s until no check is `pending`, for at most 3 hours in all. `gh pr checks` exiting 1 with "no checks reported" means none has registered yet: that is pending for the first 5 minutes after the last push, and "this repo has no CI" after that. Also before `READY`: one last snapshot, and `draft: true` in it is the `pr-draft-again` escalation, never `READY`; still pending then → `ESCALATION item=<item> phase=8 reason=ci-stuck needs=<the pending check names>`. Any `fail` or `cancel` → `ESCALATION item=<item> phase=8 reason=ci-failed needs=<failing or cancelled check names>`. Then re-read `reviewDecision` (null and an empty string mean the repo requires no review). If the push dismissed the approval, or (no review required, and the snapshot does not say `required: 0`) no `APPROVED` review has the new head as its `commit.oid`, run `gh pr edit <pr> --add-reviewer <each reviewer whose approval is for an older commit or was dismissed>` (a reviewer-facing action, deferred in quiet hours), then go back to Phase 2 |
 | Phase 5 report | its state line is `READY item=<item> pr=<url> head=<pushed sha> cursor=<last cursor>` (only on "Ready for you to merge", with checks green; here `<last cursor>` is the newest cursor, everything before it is answered); any other outcome is an `ESCALATION` with the reason. Print it as the last line in the terminal; the `worker_done` body starts with it. The `worker_done` body is at most 12 lines: that line is the first line of the `worker_done` body, then `SENT replies=<n> review-requests=<m>` when anything was posted in this run (the coordinator logs it for the user's summary), at most one `DRAFT <path>` (one draft file holds every ambiguous comment), one `HELD` line for all deferred commands together (below), at most two other `HELD` lines (more: write them to a file and report one `HELD item=<item> action=<n> held actions, listed in <path>`), at most one `NOTE: <one line>` (a fact the next worker in this project should know), and at most one `STAR-ISSUE: <one line>` (friction with STAR's own contract or tools, no project names). That is 8 lines at most, so the first line, with its head and cursor, is never dropped to fit; `--outcome failed` for an `ESCALATION` |
@@ -274,9 +274,23 @@ Act on the printed object's `wake`:
 
 1. `<base>` is the snapshot's `base` from the last `pr-state.sh` output, not the one resolved in
    Phase 1: someone may have retargeted the PR. `git fetch <remote> <base>` then `git merge --no-edit <remote>/<base>`.
-   Conflicts: list the conflicted files, stop and ask the user to resolve or abort
-   (`git merge --abort`). Never resolve conflicts silently. Under `--unattended`: `git merge --abort`,
-   then the `merge-conflict` escalation; nothing is asked.
+   Note `git rev-parse HEAD` before the merge. Conflicts: first run `sh <merge-union.sh>`
+   (next to this file; `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/merge-union.sh` when that is set).
+   It resolves only mechanical conflicts, where in every conflicted file both sides inserted text
+   at the same point and changed nothing else (two rows appended to one table, two entries added
+   to one list), and never touches a lockfile or a binary file.
+   - Exit 0 (`resolved <path>` lines): commit the merge with
+     `git commit -m "Merge <remote>/<base> into <branch>; mechanical conflicts resolved in <files>"`,
+     then step 3's gates run as usual. A red gate there resets to the commit noted before the merge
+     (`git reset --hard <that sha>`; nothing is pushed) and stops with the conflicted files and the
+     failing gate: under `--unattended`,
+     `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<files>; the mechanical resolution failed <gate>`
+     instead of the red-gate row. A green gate pushes, and the Phase 5 report names the resolved
+     files.
+   - Any other exit (`conflict <path> <why>` lines): list the conflicted files, stop and ask the
+     user to resolve or abort (`git merge --abort`). Under `--unattended`: `git merge --abort`, then
+     the `merge-conflict` escalation; nothing is asked.
+   Never resolve a conflict that is not mechanical, and always name the files that were.
 2. Already up to date and nothing unpushed (`git status -sb` shows no `ahead`): go to step 5.
 3. Run every gate. Red: stop and report the failing command and output. Push nothing. (Under
    `--unattended`: the red-gate row of "Unattended mode".)

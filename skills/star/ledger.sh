@@ -39,7 +39,7 @@ STATES = ["inbox", "briefing", "brief-ready", "queued", "building", "pr-draft", 
 STAGES = ["brief", "build", "review", "fix", "screen", "babysit", "post"]
 COUNTS = ["miss", "silent", "unknown", "hold", "moved", "pending", "nudge", "reask", "screen", "start",
           "kept", "busy"]
-WORDS = ["last", "tracker", "live"]
+WORDS = ["last", "tracker", "live", "synced"]
 DEFAULTS = {"worktree": "-", "state": "inbox", "stage": "brief", "round": "0", "task": "-",
             "dispatch": "-", "restarts": "0", "pr": "-", "head": "-", "cursor": "-", "verify": "-",
             "counters": "-"}

@@ -141,7 +141,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
 
 **With `--unattended`**, nothing is asked:
-- A merge conflict in phase 2: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop.
+- A merge conflict in phase 2 that `merge-union.sh` cannot resolve: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop.
 - Any ambiguous finding in phase 5: do not ask and do not execute anything, including the
   actionable findings, so a fix never ships half-decided. Print `AMBIGUOUS: <author> <file:line>
   <comment, trimmed> — <why it is ambiguous>` for each one and stop; the caller escalates them.
@@ -242,10 +242,18 @@ git status --porcelain
 5. Outcomes, each with one evidence line:
    - `Already up to date.`: continue.
    - Clean merge: report the merge commit's short SHA and the number of files it brought in.
-   - Conflicts: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`). Under
-     `--unattended`, abort and print `CONFLICT:` per "Arguments". Otherwise ask via
+   - Conflicts: first run `sh <merge-union.sh>` (`../babysit-pr/merge-union.sh` from this file, or
+     `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/merge-union.sh`). Exit 0 means every conflict was
+     mechanical (both sides inserted text at the same point and changed nothing else) and is
+     resolved and staged: conclude the merge with
+     `git commit -m "Merge <remote>/<base> into <branch>; mechanical conflicts resolved in <files>"`,
+     print one evidence line naming the files, and continue. This skill runs no gate here: the
+     caller's gates check the merge (`juel:babysit-pr` runs them right after this skill), and
+     nothing is pushed on red.
+   - Any other exit: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`).
+     Under `--unattended`, abort and print `CONFLICT:` per "Arguments". Otherwise ask via
      `AskUserQuestion`: resolve the conflicts in this session, or `git merge --abort` and stop the
-     skill. Never auto-resolve, and never pick a side silently.
+     skill. Never resolve a conflict that is not mechanical, and never pick a side silently.
    - If the user chooses to resolve in-session: propose each file's resolution and apply it only
      after the user approves it. Then confirm no conflict markers remain
      (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
@@ -399,7 +407,7 @@ Wait for Codex to complete, then state the exit status and files changed before 
 |---------|-----|
 | Proceeding without a PR number | Step 0 — ask, do not guess |
 | Validating comments against a stale base | Step 0a merges the PR's base branch first; outdated comments are then rejected, not re-fixed |
-| Auto-resolving merge conflicts, or checking out the PR branch for the user | Never. Step 0a stops, lists the files, and asks |
+| Auto-resolving merge conflicts, or checking out the PR branch for the user | Never, beyond the mechanical ones `merge-union.sh` resolves. Step 0a stops, lists the files, and asks |
 | Acting on every PR comment blindly | Step 2 — validate before accepting |
 | Guessing reviewer intent on ambiguous comments | Step 2a — ask the user explicitly |
 | Skipping the plan and going straight to Codex | Codex needs a structured plan |

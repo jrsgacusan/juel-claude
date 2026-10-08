@@ -45,6 +45,9 @@ L set SPH-11 counters=- >/dev/null; [ "$(L get SPH-11 counters)" = "-" ] && pass
 L set SPH-11 counters.kept=1 >/dev/null && [ "$(L get SPH-11 counters.kept)" = "1" ] && pass "kept= is a counter (#19)" || fail "kept counter"
 L set SPH-11 counters.busy=+1 >/dev/null && L set SPH-11 counters.busy=+1 >/dev/null && [ "$(L get SPH-11 counters.busy)" = "2" ] && pass "busy= counts refused check-ins (#25)" || fail "busy counter"
 L set SPH-11 counters.busy=- >/dev/null
+L set SPH-11 counters.synced=abc1234 >/dev/null && [ "$(L get SPH-11 counters.synced)" = "abc1234" ] && pass "synced= holds a base head (#28)" || fail "synced word"
+L set SPH-11 counters.synced=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "synced= does not count" || fail "synced +1"
+L set SPH-11 counters.synced=- >/dev/null
 L set SPH-11 counters=- >/dev/null
 [ "$(L get SPH-11 counters.silent)" = "-" ] && pass "an absent counter reads -" || fail "absent counter"
 

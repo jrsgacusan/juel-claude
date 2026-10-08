@@ -240,5 +240,8 @@ g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
 # Issue #27
 g "Z4 the exact-head check knows an explicit zero" 'PASS no approval required'
 g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
+# Issue #28
+g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
+g "U5 the sync is named in the counters table" '`synced=<sha7>`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
