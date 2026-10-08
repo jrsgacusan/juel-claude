@@ -386,6 +386,7 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `moved=<n>` | exact-head checks that found the head moved | the row reaches `ready`, or the user answers its escalation |
 | `pending=<n>` | exact-head checks in a row that said `PENDING` | any other verdict |
 | `nudge=<n>` | check-ins sent to this row's worker with no report since | a report from it is processed, or a new worker starts |
+| `busy=<n>` | check-ins Orca refused with `agent_prompt_blocked` in this row's current silent stretch | the probe prints anything but `quiet`, a report from it is processed, or a new worker starts |
 | `reask=1` | the open question's deadline was extended once (Housekeeping) | the question is answered or closed |
 | `screen=<n>` | checks that wait for the user at the screen (a `SCREEN` line after `DONE`) | a `VERIFIED` report with `failing=0` |
 | `last=<message id>` | not a count: the id of the last message applied to this row | never; the next message overwrites it |
@@ -1047,6 +1048,16 @@ an answer, which is expected), send it one message and add one to `nudge=` in `c
 orca terminal send --terminal <terminal> --text "STAR checking in on <item>: say in one line where you are. Waiting on a background command: keep waiting. Blocked or unsure: ask me with orca orchestration ask. Finished: send your worker_done report now." --enter --json
 ```
 
+**A refused check-in.** `orca terminal send` answering with the error code `agent_prompt_blocked`
+means the worker's agent is mid-turn: busy, not idle, often inside a long command such as a wait
+for the gate lock. It is not a nudge: add one to `busy=` in `counters` and leave `nudge=` alone.
+While `busy=<n>` is set, send the next check-in only when this tick's probe prints `quiet <m>`
+with `m` at least 15 × (n + 1) (30 minutes of silence after one refusal, 45 after two), so one
+silent stretch gets one try per quiet window. At `busy=8` (a little over two hours of one silent
+stretch) queue `--kind held` "<stage> worker for <item> silent and busy for 2 h: look at terminal
+<terminal>", notify, and send it no more check-ins; the worker is not stopped. Any probe result
+other than `quiet` clears `busy=`: the terminal printed something, so that silent stretch is over.
+
 The probe never says `quiet` while a question with numbered options is on the worker's screen
 (that is `stuck: confirmation dialog`), because the check-in ends with Enter and Enter would
 answer the prompt. Send a check-in only on a `quiet` result from this tick's probe, never from
@@ -1326,3 +1337,4 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A worktree Orca created inside the repository | `.git/info/exclude` gets a line for its top folder |
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
+| A check-in Orca refuses with `agent_prompt_blocked` | The worker is busy, not idle: `busy=` counts it, not `nudge=`, and the next try waits a full quiet window |

@@ -233,5 +233,9 @@ g "W3 never with work in it" 'never with work in it'
 # Issue #22
 g "L1 head= is its leading hex run" 'leading run of hex characters'
 grep -qF 'Never type \n inside a quoted --body' "$T/reviewer-prompt.md" && pass "L2 the reviewer sends real line breaks" || fail "L2 reviewer prompt"
+# Issue #25
+g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
+g "K2 busy has its own count" '`busy=<n>`'
+g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

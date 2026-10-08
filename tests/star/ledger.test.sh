@@ -43,6 +43,8 @@ L set SPH-11 counters.hold=3 counters.silent=- >/dev/null
 L set SPH-11 counters=keep:hold >/dev/null; [ "$(L get SPH-11 counters)" = "hold=3" ] && pass "keep: drops every other key" || fail "keep ($(L get SPH-11 counters))"
 L set SPH-11 counters=- >/dev/null; [ "$(L get SPH-11 counters)" = "-" ] && pass "counters=- clears them" || fail "clear"
 L set SPH-11 counters.kept=1 >/dev/null && [ "$(L get SPH-11 counters.kept)" = "1" ] && pass "kept= is a counter (#19)" || fail "kept counter"
+L set SPH-11 counters.busy=+1 >/dev/null && L set SPH-11 counters.busy=+1 >/dev/null && [ "$(L get SPH-11 counters.busy)" = "2" ] && pass "busy= counts refused check-ins (#25)" || fail "busy counter"
+L set SPH-11 counters.busy=- >/dev/null
 L set SPH-11 counters=- >/dev/null
 [ "$(L get SPH-11 counters.silent)" = "-" ] && pass "an absent counter reads -" || fail "absent counter"
 
