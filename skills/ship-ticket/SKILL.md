@@ -818,7 +818,9 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
      directly. Under `--unattended` nobody can: escalate `needs-human-input` for those items.
    - **If `run` is unavailable:** execute the `commands.run` resolved in Phase 4 directly and
      observe.
-4. **Record evidence per item, not in aggregate, in the evidence directory's `report.md`.** For every numbered item from Step 1, record:
+4. **Record evidence per item, not in aggregate, in the evidence directory's `report.md`.** Its
+   first line is `evidence head=<sha>`: the commit the checks ran on (`git rev-parse HEAD` when
+   the first check starts). For every numbered item from Step 1, record:
    method (`juel:verify` / `run` / user-confirmed), the evidence (request/response, log lines,
    screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
    items may be collapsed into one "looks good" line.
@@ -833,6 +835,17 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    then **do not patch by hand** — loop
    back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-run this
    entire phase after the fix — a partial re-verify is not sufficient.
+
+   One exception. When every checklist item passed and only the regression gate went red, and
+   every file changed since the evidence head (`git diff --name-only <evidence head>..HEAD`) is
+   outside runtime (test files, under the repo's test directories or matching its test naming;
+   docs, `*.md` and `docs/`; paths a memory note or the brief names as not loaded at runtime),
+   re-run only the regression gate (step 5) after the fix, in the same evidence directory. The
+   live checks are not run again: their evidence still holds for code that did not change. Record
+   `evidence reused from <evidence head> for <HEAD>: <changed files>` in `report.md`, and under
+   `--unattended` add `"evidence": {"head": "<evidence head>", "reusedFor": "<HEAD>"}` to the gate
+   manifest (`run-gates.sh` reads only the gate keys). Any other changed file, any FAIL item,
+   or any doubt about a file: the whole phase runs again.
 7. **Clean up before the checkpoint.** Stop only what this phase started, remove port-redirect
    files, delete local copies of remote data, and reverse every `cleanup.md` entry per rule 3.
    This phase cannot be marked complete with an open ledger entry.

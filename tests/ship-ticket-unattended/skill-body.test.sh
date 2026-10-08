@@ -107,5 +107,9 @@ g "E3 never rebased or force-pushed" 'never by rebasing'
 g "T32a Phase 5 runs targeted tests only" 'run only the tests for the files remediation changed'
 g "T32b project instructions on test scope win" 'say something else about test scope, they win'
 grep -qF 'run the `test` and `lint` commands resolved in Phase 4' "$SKILL" && fail "T32c the full run after remediation is gone" || pass "T32c the full run after remediation is gone"
+# Issue #21
+g "T21a the evidence names its head" 'evidence head=<sha>'
+g "T21b a test-only fix reuses it" 'evidence reused from <evidence head> for <HEAD>'
+g "T21c any doubt runs the whole phase" 'or any doubt about a file'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
