@@ -28,6 +28,9 @@ R() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" sh "$SCRIPT" "$@"; }
 reset
 [ "$(R o/r main)" = "none" ] && pass "no rules is none" || fail "no rules ($(R o/r main))"
 
+reset; printf 'gh: Resource not accessible by integration (HTTP 403)\n' > "$TMP/protection.err"
+[ "$(R o/r main)" = "none" ] && pass "a classic 403 is no classic rule, as a 404 is" || fail "classic 403 ($(R o/r main))"
+
 reset; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"CodeRabbit"},{"context":"ci"}]}}]\n' > "$TMP/rules.json"
 out=$(R o/r main)
 [ "$(printf '%s\n' "$out" | sed -n 1p)" = "required 0" ] && pass "an explicit zero is required 0" || fail "explicit zero ($out)"

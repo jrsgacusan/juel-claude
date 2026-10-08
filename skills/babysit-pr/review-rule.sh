@@ -6,7 +6,7 @@
 #   required <n>     a rule asks for n approving reviews (n may be 0: an explicit zero)
 #   none             no ruleset, and no readable classic protection, asks for reviews
 #   unknown <why>    the rulesets or classic protection could not be read (the only line);
-#                    every caller treats it like none
+#                    callers keep today's approval rule (pr-verify.sh answers PENDING, never a pass)
 # then one line per status check the rules require:
 #   check <context>
 # Sources: the rulesets that apply to the branch (repos/<repo>/rules/branches/<base>, readable

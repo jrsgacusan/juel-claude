@@ -11,7 +11,8 @@
 # merged in, which is the base branch for babysit-pr and receive-review-and-execute), then ours
 # (stage 2), then the base after the point; an insertion identical on both sides is kept once.
 # An insertion that would join two word characters (\w), as 1 to 10 does, is not mechanical.
-# Where two different insertions meet, theirs must end or ours start with whitespace or , ; |.
+# Where two different insertions meet, neither may start or end with the other's whole text, and
+# theirs must end or ours start with whitespace or , ; |.
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
 # (added on both sides), a delete or rename conflict, a mode change, a binary file, a lockfile,
 # a file whose last line has no newline. Hunks are found with
@@ -104,6 +105,9 @@ def resolve_hunk(base, ours, theirs):
         return None
     if t[1] == o[1]:
         return before + t[1] + after
+    shorter, longer = sorted((t[1], o[1]), key=len)
+    if shorter and (longer.startswith(shorter) or longer.endswith(shorter)):
+        return None
     if t[1] and o[1] and t[1][-1] not in SEPARATORS and o[1][0] not in SEPARATORS:
         return None
     return before + t[1] + o[1] + after
@@ -171,8 +175,11 @@ def resolve_file(path, entry):
     modes = {entry[k][0] for k in (1, 2, 3)}
     if len(modes) != 1 or modes.pop() not in ("100644", "100755"):
         return None, "mode or file type changed"
-    raw = {label: git("cat-file", "blob", entry[k][1], cwd=top).stdout
-           for label, k in (("base", 1), ("ours", 2), ("theirs", 3))}
+    blobs = {label: git("cat-file", "blob", entry[k][1], cwd=top)
+             for label, k in (("base", 1), ("ours", 2), ("theirs", 3))}
+    if any(b.returncode != 0 for b in blobs.values()):
+        return None, "unreadable blob"
+    raw = {label: b.stdout for label, b in blobs.items()}
     if any(b"\0" in v for v in raw.values()):
         return None, "binary"
     try:
@@ -199,7 +206,7 @@ if problems:
 for path, text in results.items():
     with open(os.path.join(top, path), "w", encoding="utf-8", newline="") as f:
         f.write(text)
-added = git("add", "--", *results, cwd=top)
+added = git("--literal-pathspecs", "add", "--", *results, cwd=top)
 if added.returncode != 0:
     stop("git add failed: " + added.stderr.decode().strip()[:160])
 for path in results:

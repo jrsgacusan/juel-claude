@@ -90,5 +90,40 @@ for dir in "$TMP/nope" "$TMP/clean/a.txt"; do
   [ $rc -eq 2 ] && [ "$err" = "merge-union.sh: no such directory: $dir" ] && pass "a --repo-dir that is not a directory is 2" || fail "repo-dir $dir: exit $rc ($err)"
 done
 
+# 5. a resolved path is staged as written, never as a glob: n[1].md must not take n1.md along
+repo glob
+put 'n[1].md' '| 1 |\n'; commit base; git -C "$R" branch feat
+put 'n[1].md' '| 1 |\n| 2 |\n'; commit main
+git -C "$R" switch -q feat; put 'n[1].md' '| 1 |\n| 3 |\n'; commit feat
+merge
+put n1.md 'not part of the merge\n'
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$out" = "resolved n[1].md" ] && pass "a path with glob characters resolves" || fail "glob path: exit $rc ($out)"
+[ "$(git -C "$R" status --porcelain -- n1.md)" = "?? n1.md" ] && pass "an untracked file the path would match as a glob stays untracked" || fail "n1.md was staged ($(git -C "$R" status --porcelain))"
+
+# 6. a stage whose blob cannot be read is a conflict, never an empty text
+repo blob
+put b.md '| 1 |\n'; commit base; git -C "$R" branch feat
+put b.md '| 1 |\n| 2 |\n'; commit main
+git -C "$R" switch -q feat; put b.md '| 1 |\n| 3 |\n'; commit feat
+merge
+sha=$(git -C "$R" ls-files -u -- b.md | awk '$3 == 1 { print $2 }')
+rm -f "$R/.git/objects/$(printf '%s' "$sha" | cut -c1-2)/$(printf '%s' "$sha" | cut -c3-)"
+before=$(cat "$R/b.md")
+out=$(U); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict b.md unreadable blob" ] && pass "an unreadable blob is a conflict (exit 1)" || fail "unreadable blob: exit $rc ($out)"
+[ "$(cat "$R/b.md")" = "$before" ] && [ -n "$(git -C "$R" ls-files -u b.md)" ] && pass "an unreadable blob: nothing is written or staged" || fail "unreadable blob: written ($(cat "$R/b.md"))"
+
+# 7. one insertion that starts or ends with the other's whole text is edited on both sides,
+# never theirs then ours (1, 2, 3, 2)
+repo overlap
+put t.md '| 1 |\n'; commit base; git -C "$R" branch feat
+put t.md '| 1 |\n| 2 |\n| 3 |\n'; commit main
+git -C "$R" switch -q feat; put t.md '| 1 |\n| 2 |\n'; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict t.md edited on both sides" ] && pass "an overlapping insertion is edited on both sides (exit 1)" || fail "overlap: exit $rc ($out)"
+[ -n "$(git -C "$R" ls-files -u t.md)" ] && pass "an overlapping insertion stays conflicted" || fail "overlap: staged ($(cat "$R/t.md"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
