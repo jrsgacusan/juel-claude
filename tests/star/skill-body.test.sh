@@ -252,7 +252,7 @@ g "E5 a fork's PR is asked about" 'comes from a fork'
 g "C1 proposed criteria are reported" 'PROPOSED-CRITERIA'
 g "C2 their own approve title" 'approve brief — criteria are proposed'
 g "C3 the marker is removed on approval" 'remove each ` (proposed)` suffix'
-g "C4 the order of precedence" 'in this order of precedence'
+g "C4 a re-draft keeps proposed criteria marked" 'on every re-draft, keep the earlier draft'
 # Issue #29
 g "Q1 plain chat, one question per message" 'one question per message'
 g "Q2 the recommended option is labelled" '(Recommended)'

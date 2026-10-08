@@ -920,11 +920,13 @@ old PR.
    1. [<kind>] <question> | options: <a> / <b> | default: <recommended option, or none>
    ```
 
-   Acceptance criteria, in this order of precedence: (1) the item's own; (2) criteria the user
-   stated in a `## Feedback` entry; (3) when neither has any and a memory note or a `## Feedback`
-   entry asks for proposed criteria, criteria you propose from the item's body, each line ending
-   in ` (proposed)`; (4) otherwise the single line `- [ ] NEEDS CRITERIA`. Never invent criteria
-   outside case 3.
+   Acceptance criteria, by case. (1) The item's own and (2) any the user states in a `## Feedback`
+   entry go in together, with no suffix. (3) When neither gives any and a memory note or a
+   `## Feedback` entry asks for proposed criteria, propose them from the item's body, each line
+   ending in ` (proposed)`; on every re-draft, keep the earlier draft's proposed criteria with
+   their ` (proposed)` suffix, except those a `## Feedback` entry replaces or removes, next to any
+   from cases 1 and 2. (4) When none of these gives any, write the single line
+   `- [ ] NEEDS CRITERIA`. Never invent criteria outside case 3.
 
    `## Before you go` lists everything a builder would predictably need from a person, so the
    user can answer it before leaving: one numbered line each, `<n>. [<kind>] <question> |
@@ -950,9 +952,9 @@ old PR.
    new PR`.
 7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n>` (`<n>` is the
    number of lines under `## Before you go`, 0 for `none`), then `NEEDS-CRITERIA` (case 4 of
-   step 6) or `PROPOSED-CRITERIA` (case 3) when that applies, then at most one `NOTE: <one
-   line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own contract or tools got in the
-   way (no project or ticket names).
+   step 6) or `PROPOSED-CRITERIA` (case 3) when that applies, then at most one
+   `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own contract or
+   tools got in the way (no project or ticket names).
 
 ## Post worker mode: `post-report`
 
