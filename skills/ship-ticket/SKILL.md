@@ -847,11 +847,15 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    manifest (`run-gates.sh` reads only the gate keys). Any other changed file, any FAIL item,
    or any doubt about a file: the whole phase runs again.
 7. **Clean up before the checkpoint.** Stop only what this phase started, remove port-redirect
-   files, delete local copies of remote data, and reverse every `cleanup.md` entry per rule 3.
-   This phase cannot be marked complete with an open ledger entry.
+   files, delete local copies of remote data, and reverse every `cleanup.md` entry per rule 3
+   except a `handed-off` one. This phase cannot be marked complete with an open ledger entry. A
+   `handed-off` entry does not block it, but each one goes into the PR body under **Left for you
+   to clean up** (identifier and service) and, under `--unattended`, into the report as
+   `HELD item=<item> action=clean up <identifier> on <service>`. Interactively, ask the user at
+   the checkpoint before handing one off.
 
 **Checkpoint:** show the full per-item checklist (all PASS), the regression-gate result, the
-cleanup result, the recording's path (or the `Recording missing` line), and the absolute path of
+cleanup result (handed-off entries listed), the recording's path (or the `Recording missing` line), and the absolute path of
 the evidence directory. Ask to proceed to PR.
 
 ### Phase 7 — Open PR
@@ -859,7 +863,7 @@ the evidence directory. Ask to proceed to PR.
 1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
 2. Resolve the PR title and body per "Base branch & repo conventions" above:
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
-   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist).
+   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off.
 3. Open the PR, or degrade if `gh` is unavailable:
    - **`existingPr` in the brief:** do not run `gh pr create`. Push to its branch (step 1). Leave
      the PR's title and the author's text as they are: write this run's summary, QA instructions
@@ -915,6 +919,7 @@ and "Ready for you to merge" or why it stopped.
 | A port the stack needs is already taken in phase 6 | Pick the next free port and rewire (rule 2 of `references/local-e2e.md`). Never stop the process holding it. |
 | An item FAILs in phase 6 while `cleanup.md` has open entries | Clean up first (step 7), then loop back. The re-run starts a fresh `-vN` evidence directory with an empty ledger. |
 | A remote cleanup fails in phase 6 | Report the leftover identifiers first. Do not mark the phase complete or open the PR until the owner decides. |
+| A remote record this run cannot delete (no delete access) | Only when the brief, its Decisions or a Before-you-go answer allows it: mark the entry `handed-off`, list it in the PR body and report a `HELD` line. Otherwise it is a failed cleanup. |
 | Not in a worktree | Ask user; do not auto-create one. |
 | `--unattended` hits anything on the escalation list | Print the `ESCALATION` line and end the run. Never work around it, never mark an unverifiable item PASS. |
 | `--unattended` without `--brief` | Refuse with the `no-brief` escalation; never run unattended without an approved brief. |

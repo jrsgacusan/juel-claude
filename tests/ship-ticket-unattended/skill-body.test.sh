@@ -111,5 +111,10 @@ grep -qF 'run the `test` and `lint` commands resolved in Phase 4' "$SKILL" && fa
 g "T21a the evidence names its head" 'evidence head=<sha>'
 g "T21b a test-only fix reuses it" 'evidence reused from <evidence head> for <HEAD>'
 g "T21c any doubt runs the whole phase" 'or any doubt about a file'
+# Issue #24
+g "T24a a cleanup entry can be handed off" 'handed-off'
+g "T24b handed-off records are listed in the PR" 'Left for you to clean up'
+g "T24c and held for the user" 'action=clean up <identifier> on <service>'
+grep -qF 'handed-off' "$ROOT/references/local-e2e.md" && pass "T24d rule 3 knows handed-off" || fail "T24d local-e2e rule 3"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
