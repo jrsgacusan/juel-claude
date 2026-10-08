@@ -50,7 +50,7 @@ metadata:
         check: "git rev-parse --show-toplevel"
       - id: interactive-user
         hard: true
-        why: the first run asks for quiet hours; the loop itself never asks through AskUserQuestion
+        why: the first run asks for quiet hours, before any worker starts; every later question is asked in plain chat
     skills:
       - id: juel:ship-ticket
         hard: true
@@ -138,7 +138,7 @@ session is the Stop rule below, nothing more: it does not run the start sequence
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
 | running in an Orca terminal | context | HARD | `[ -n "$ORCA_TERMINAL_HANDLE" ]` | STOP → start Claude Code from an Orca terminal and re-run there |
 | inside a git repository | context | HARD | `git rev-parse --show-toplevel` | STOP → run `/juel:star` from inside the project's repository |
-| AskUserQuestion | context | HARD | always available interactively | STOP → the first run asks one setup question |
+| AskUserQuestion | context | HARD | always available interactively | STOP → the first run asks one setup question, before any worker exists |
 | juel:ship-ticket, juel:babysit-pr, juel:receive-review-and-execute | skill | HARD | ship with this plugin | STOP |
 
 Claude Code's first-run trust dialogs are not a preflight item: `stage-start.sh` clears them in a
@@ -247,7 +247,7 @@ read-only repository is fine). It records the project in `star.json` as
 `orca repo list --json` and adds the id to that block as `orcaRepo` (the Inbox step does the same
 later when the repo was not registered yet), and adds the remote as `remote`: the only one
 `git -C <project.repo> remote` prints, else `origin`. The work source and base branch are not
-kept here: each item's brief carries them. Then it asks once, with
+kept here: each item's brief carries them. Then, before any worker starts, it asks once, with
 AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking or status changes while
 you're away?"), writes it to `star.json`, and tells the user where the queue is:
 `HOME_DIR/open-loops.md`.
@@ -527,9 +527,11 @@ next `/juel:star` in this project becomes the coordinator), and print the queue.
 
 ## The tick
 
-Never call AskUserQuestion inside a tick: it would block every other item until answered. Questions
-for the user go into the queue and are notified; the answer arrives in the file or as an ordinary
-message. The intake ("Before you go") asks them between ticks while the user is there.
+Never call AskUserQuestion inside a tick, or anywhere once a worker exists: Orca types its nudge
+into this terminal, and a nudge that lands on an open picker answers it with the first option
+(#29). Questions for the user go into the queue and are notified; the answer arrives in the file
+or as an ordinary message. The intake ("Before you go") asks them in plain chat while the user is
+there.
 
 **Persist before acting.** Every ledger write goes through `ledger.sh`. `stage-start.sh` writes
 the row before `task-create` (state, stage, round), the task id right after `task-create` and the
@@ -758,7 +760,9 @@ message into the same end state.
 `verifying`, or in `screen-queued` or `post-queued` while it may start, stay in the turn and tick
 again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
 `state: idle` and STAR ends its turn. It is woken by a hand-over nudge, by the user, or by the
-heartbeat, and each wake runs one tick.
+heartbeat, and each wake runs one tick. While an intake question is open in chat, STAR does not
+stay in the turn: each wake runs one tick, then STAR prints the open question again and ends the
+turn ("Before you go").
 
 ## Stages
 
@@ -1211,17 +1215,41 @@ or an inbox file that adds rows), and again on `away`.
 1. Say "drafting <n> briefs; I'll walk you through each as it lands". While the intake runs, the
    Messages wait is `--timeout-ms 60000`, and briefs may take every build slot.
 2. Between ticks, never inside one: ask every open item that blocks work (`approve-brief`,
-   `prep`, `question`, `escalation`, `restart-or-drop`) with AskUserQuestion, up to 4 questions a
-   call, the recommended option first. Record each answer with `loops.sh set-answer <id>
-   "<answer>"` and run the Answers step for it at once, so STAR stays the only writer of briefs
-   and rows.
+   `prep`, `question`, `escalation`, `restart-or-drop`) in plain chat, **one question per
+   message**, then end the turn. Never with AskUserQuestion: workers are running, and an Orca
+   nudge that lands on an open picker answers it with its first option.
+
+   ```
+   Q3 of 7 · ITEM-1 · decision
+   Should the export include archived rows?
+   1. No, active rows only (Recommended)
+   2. Yes, all rows
+   ```
+
+   `Q<k> of <n>` counts the open questions known now; `n` grows as briefs land. A question with a
+   default lists it first, labelled `(Recommended)`: every `decision` (its `default:`), and any
+   other item whose body names one. `approve-brief`, `criteria`, `secret`, `account`, `screen` and
+   `restart-or-drop` questions have none. An `approve-brief` question shows the brief inline, not
+   only its path: each acceptance criterion, the approach in one line, Scope In and Out in one
+   line each, `deliverable`, then the path; its options are `1. approve`, `2. change it: say
+   what`, `3. drop the item`. Each brief's questions come as that brief lands: its `## Before you
+   go` questions first, its approval last, because a decision can change the brief.
+
+   The reply: a bare number, or the text of one option, is that option; any other words are the
+   answer in words. Record it with `loops.sh set-answer <id> "<the option's text, or the words>"`
+   and run the Answers step for it at once, so STAR stays the only writer of briefs and rows, then
+   ask the next question. A message that is Orca's nudge (it starts with "You have" and names
+   orchestration messages) or exactly `inbox` is never an answer: handle it as usual, then print
+   the open question again as `Still open: Q3 · ITEM-1 · <question>` with its options. While a
+   question is open, each wake (the reply, a nudge, the heartbeat) runs one tick, then STAR prints
+   the open question (or the next one) and ends the turn.
 3. `screen` items are things to do now: "sign in to <app> as <account>", "approve the keychain
    prompt once". Options: `done` / `can't now`.
 4. When nothing is left to ask and no brief is still drafting: "All set: <n> approved, <m>
    decisions recorded. Leaving now?" Yes → Away (Handoff). No → STAR keeps ticking as usual.
 5. "later" as any answer ends the walk-through at once and goes to Away with what is known.
-   AskUserQuestion holds STAR's loop until it is answered; workers keep running in Orca and their
-   reports wait there, so the cost is slots left unfilled while a question is on screen.
+   A question in chat does not hold the loop: every wake while it is open still runs a tick, so
+   reports are applied and slots filled between answers.
 
 Refs handed over from another session: STAR's own session runs the walk-through, the handing
 session says "answer STAR's intake in <terminal>", and STAR notifies when the first item is ready.
@@ -1315,7 +1343,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - The work item's status is written only by STAR, from the row's state ("The tracker status").
 - Never put a project's details in an improvement issue: placeholders only, and `star-issue.sh`
   refuses the rest.
-- AskUserQuestion only in the intake, between ticks.
+- AskUserQuestion only for the first-run setup question, before any worker exists. Every other
+  question is asked in plain chat, one question per message.
 - A worktree is removed only by `worktree-clean.sh`, and never with work in it that exists nowhere
   else.
 - `open-loops.md` is written only through `loops.sh`, and `ledger.md` only through `ledger.sh`.
@@ -1343,6 +1372,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Parsing `orca orchestration check` yourself | `messages.sh`: it drops heartbeats, replays and processed messages |
 | Putting a line break in a task spec | `stage-start.sh` writes long prompts to a file and sends one line |
 | Letting briefs take every build slot | While a `queued` row waits, briefs hold at most `maxParallel - 1` |
+| Asking the user with AskUserQuestion while workers run | Plain chat, one question per message: an Orca nudge answers an open picker with its first option |
 
 ## Edge cases
 
@@ -1375,3 +1405,4 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
 | A check-in Orca refuses with `agent_prompt_blocked` | The worker is busy, not idle: `busy=` counts it, not `nudge=`, and the next try waits a full quiet window |
 | Two items that each add a decision to the same register | Each worker reserves its ids through `ids.sh`, so siblings never take the same number |
+| An Orca nudge arrives while a question is open in chat | It is handled as a nudge, never as the answer; the question is printed again |
