@@ -99,7 +99,9 @@ def review_rule(repo, base):
     script = os.path.join(os.environ.get("BABYSIT_DIR") or "", "review-rule.sh")
     first, checks = "unknown", []
     if repo and base and os.path.isfile(script):
-        limit = 2 * TIMEOUT + 5 if DEADLINE is None else max(1.0, min(2 * TIMEOUT + 5, DEADLINE - time.monotonic()))
+        limit = 2 * TIMEOUT + 5
+        if DEADLINE is not None:
+            limit = max(1.0, min(limit, DEADLINE - time.monotonic()))
         try:
             proc = subprocess.run(["sh", script, repo, base], capture_output=True, text=True, timeout=limit)
             lines = (proc.stdout or "").splitlines()
@@ -214,12 +216,16 @@ def snapshot(pr, since, repo, bots=()):
         newest = ts(items[-1]["at"])
         at_newest = sorted({str(i["id"]) for i in everything if ts(i["at"]) == newest}, key=lambda x: (len(x), x))
         cursor = items[-1]["at"] + "#" + ",".join(at_newest)
-    required = int(rule.split()[1]) if rule.startswith("required ") and rule.split()[1].isdigit() else None
+    approval, required = "unknown", None
+    if rule == "none":
+        approval = "none"
+    elif rule.startswith("required ") and rule.split()[1].isdigit():
+        approval, required = "required", int(rule.split()[1])
     return {"state": view["state"], "decision": view.get("reviewDecision") or None,
             "head": head, "draft": bool(view.get("isDraft")),
             "base": view.get("baseRefName"), "author": author, "url": url,
-            "approval": "required" if required is not None else ("none" if rule == "none" else "unknown"),
-            "required": required, "checks": checks_state(view.get("statusCheckRollup"), required_checks),
+            "approval": approval, "required": required,
+            "checks": checks_state(view.get("statusCheckRollup"), required_checks),
             "changes_requested": sorted(w for w, s in latest.items() if s == "CHANGES_REQUESTED"),
             "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor}
 

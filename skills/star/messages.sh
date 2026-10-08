@@ -13,9 +13,9 @@
 #   msg <id> <type> <dispatch or -> <sent>[ deadline=<iso>]
 #     <body line>            at most 12, each indented two spaces
 #   cut <n>                  the body had n more lines
-# A literal \n (backslash, n) in a body's first line is read as a line break.
 #   none                     nothing to act on before the timeout (a timed-out wait included)
 #   unknown <why>            Orca could not be read; it says nothing about the workers
+# A literal \n (backslash, n) in a body's first line is read as a line break.
 # A question's deadline is its sent time plus the minutes of a trailing "deadline=<minutes>"
 # (1 to 240; default 30; more than 240 is 240), so a replay computes the same deadline.
 # Orca's JSON is read leniently: a raw line break inside a string does not make it unreadable.

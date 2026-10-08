@@ -159,40 +159,38 @@ def merged(texts):
     return "".join(out), None
 
 
-results, problems = {}, []
-for path in sorted(stages):
-    entry, name = stages[path], os.path.basename(path)
+def resolve_file(path, entry):
+    """(the merged file, None), or (None, why) when the conflict in path is not mechanical."""
+    name = os.path.basename(path)
     if name in LOCKFILES or name.endswith(".lock"):
-        problems.append((path, "lockfile"))
-        continue
+        return None, "lockfile"
     if 1 not in entry:
-        problems.append((path, "added on both sides"))
-        continue
+        return None, "added on both sides"
     if 2 not in entry or 3 not in entry:
-        problems.append((path, "deleted on one side"))
-        continue
+        return None, "deleted on one side"
     modes = {entry[k][0] for k in (1, 2, 3)}
     if len(modes) != 1 or modes.pop() not in ("100644", "100755"):
-        problems.append((path, "mode or file type changed"))
-        continue
+        return None, "mode or file type changed"
     raw = {label: git("cat-file", "blob", entry[k][1], cwd=top).stdout
            for label, k in (("base", 1), ("ours", 2), ("theirs", 3))}
     if any(b"\0" in v for v in raw.values()):
-        problems.append((path, "binary"))
-        continue
+        return None, "binary"
     try:
         texts = {k: v.decode("utf-8") for k, v in raw.items()}
     except UnicodeDecodeError:
-        problems.append((path, "binary"))
-        continue
+        return None, "binary"
     if any(v and not v.endswith("\n") for v in texts.values()):
-        problems.append((path, "no newline at the end of the file"))
-        continue
-    text, why = merged(texts)
+        return None, "no newline at the end of the file"
+    return merged(texts)
+
+
+results, problems = {}, []
+for path in sorted(stages):
+    text, why = resolve_file(path, stages[path])
     if text is None:
         problems.append((path, why))
-        continue
-    results[path] = text
+    else:
+        results[path] = text
 
 if problems:
     for path, why in problems:

@@ -59,6 +59,17 @@ if not home or not os.path.isdir(home):
 path = os.path.join(home, "ids.json")
 
 
+def whole(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def well_formed(entry):
+    return (isinstance(entry, dict) and whole(entry.get("next")) and entry["next"] >= 1
+            and isinstance(entry.get("reserved"), list)
+            and all(isinstance(r, dict) and isinstance(r.get("item"), str) and whole(r.get("id"))
+                    for r in entry["reserved"]))
+
+
 def load():
     try:
         with open(path, encoding="utf-8") as f:
@@ -73,26 +84,15 @@ def load():
     return data
 
 
-def whole(value):
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
-def well_formed(entry):
-    return (isinstance(entry, dict) and whole(entry.get("next")) and entry["next"] >= 1
-            and isinstance(entry.get("reserved"), list)
-            and all(isinstance(r, dict) and isinstance(r.get("item"), str) and whole(r.get("id"))
-                    for r in entry["reserved"]))
-
-
 if argv[0] == "list":
     want = options(argv[1:], {"--item"}).get("--item")
     for seq, entry in sorted(load()["sequences"].items()):
-        for r in entry.get("reserved") or []:
-            if want is None or r.get("item") == want:
-                print(f"{seq} {r.get('item')} {r.get('id')}")
+        for r in entry["reserved"]:
+            if want is None or r["item"] == want:
+                print(f"{seq} {r['item']} {r['id']}")
     sys.exit(0)
 
-if len(argv) < 2 or argv[1].startswith("--") or not argv[1].strip() or any(c.isspace() for c in argv[1]):
+if len(argv) < 2 or argv[1].startswith("--") or not argv[1] or any(c.isspace() for c in argv[1]):
     die(64, USAGE)
 seq = argv[1]
 o = options(argv[2:], {"--item", "--count", "--floor"})

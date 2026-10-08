@@ -178,7 +178,11 @@ def main():
         out("PENDING merge state: blocked (a required check or review has not reported)")
     if merge_state == "BEHIND":
         out("PENDING merge state: behind the base branch")
-    out("PASS" if on_head else "PASS no approval required" if zero else "PASS approval is on an earlier commit")
+    if on_head:
+        out("PASS")
+    if zero:
+        out("PASS no approval required")
+    out("PASS approval is on an earlier commit")
 
 
 try:
