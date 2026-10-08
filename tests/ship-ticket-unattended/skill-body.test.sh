@@ -99,6 +99,9 @@ for l in 'REPORTED item=' 'VERIFIED item=' 'SCREEN path=' 'STAR-ISSUE:' 'screen-
 done
 # Issue #26
 g "I1 shared ids are reserved, not counted" 'ids.sh'
+g "Z10 --floor takes the number only" '`<highest>` is the number only (40 for D-040)'
+grep -qF 'When `ids.sh` exits' "$SKILL" && grep -qF 'non-zero or is missing, escalate `needs-human-input`, and never take the next number yourself' "$SKILL" && pass "Z10 an ids.sh that cannot run is escalated" || fail "Z10 an ids.sh that cannot run is escalated"
+g "Z11 Codex gets the ids in the plan" 'With `executor: codex`, reserve the ids while writing the plan and put them in it.'
 # Issue #33
 g "E1 an existing PR is updated, not opened" 'url=<url> existing'
 g "E2 its body keeps the author's text" '<!-- juel:update -->'

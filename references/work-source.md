@@ -276,7 +276,7 @@ cases.
 
 **Standing user constraint — comment posting requires explicit per-instance confirmation.** No
 Linear comment may be posted without the user's explicit go-ahead for that specific instance. Any
-call to `<LINEAR_PREFIX>save_comment` (§4.1) must be preceded by an explicit confirmation prompt
+call to `<LINEAR_COMMENT>` (§4.1) must be preceded by an explicit confirmation prompt
 naming the issue and the comment text — it must never be automatic, never inferred from an earlier
 blanket "yes," and never fired as a side effect of another operation (e.g. a status update, a PR
 open, or a worktree setup must never silently also drop a comment). This is a hard rule, not a

@@ -345,9 +345,12 @@ the id instead of taking the next number in your own copy: `git fetch <remote> <
 take the highest id in that file on `<remote>/<baseBranch>` and on your branch as the floor, then
 run `sh <ids.sh> --home <star.home> reserve <the file's path in the repo> --item <item> --count <n>
 --floor <highest>` (`ids.sh` is in `juel:star`: `../star/ids.sh` from this file, or
-`${CLAUDE_PLUGIN_ROOT}/skills/star/ids.sh`). It prints one id per line: use them in order, written
-the way the file writes them (`D-041`). Siblings building at the same time then never take the
-same number. Without a `star:` block, or for a file nobody else appends to, nothing changes.
+`${CLAUDE_PLUGIN_ROOT}/skills/star/ids.sh`); `<highest>` is the number only (40 for D-040). It
+prints one id per line: use them in order, written the way the file writes them (`D-041`).
+Siblings building at the same time then never take the same number. When `ids.sh` exits
+non-zero or is missing, escalate `needs-human-input`, and never take the next number yourself.
+With `executor: codex`, reserve the ids while writing the plan and put them in it. Without a
+`star:` block, or for a file nobody else appends to, nothing changes.
 
 **Nothing is asked at the terminal.** Nobody is there. Every place in this file, or in a skill it
 invokes, that says to ask, confirm with or wait for the user means this under `--unattended`:
