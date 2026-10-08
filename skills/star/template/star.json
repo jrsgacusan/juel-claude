@@ -1,11 +1,12 @@
 {
   "maxParallel": 3,
   "maxInReview": 3,
+  "maxBriefs": 4,
   "stages": {
     "brief": {
       "agent": "claude",
       "model": "opus",
-      "effort": "xhigh"
+      "effort": "high"
     },
     "build": {
       "agent": "claude",

@@ -150,10 +150,11 @@ python3 - "$T/star.json" <<'PY2' && pass "M5 template: the best model per stage"
 import json, sys
 d = json.load(open(sys.argv[1])); s = d["stages"]
 assert set(s) == {"brief", "build", "fix", "review", "babysit", "screen", "post"}, sorted(s)
-assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["brief"]
+assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "high"}, s["brief"]
+assert d["maxBriefs"] == 4, d.get("maxBriefs")
 for k in ("build", "fix", "babysit", "screen"):
     assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"}, (k, s[k])
-assert s["post"] == s["brief"], s["post"]
+assert s["post"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["post"]
 assert s["review"] == {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}, s["review"]
 assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and d["reviewer"] == s["review"]
 PY2
@@ -186,7 +187,7 @@ g "I12 a settled reviewer's verdict is read from its file" 'head -n 1'
 g "I7 a stalled prompt names the trust dialog" 'agent_prompt_stalled'
 g "I7 dialogs that cannot be cleared reach the user" 'hold trust <path>'
 g "I9 a worktree inside the repo is excluded" '.git/info/exclude'
-g "I18 builds keep a slot while briefs draft" '`maxParallel - 1`'
+g "I18 briefs have a pool of their own" '`maxBriefs`'
 grep -q 'reviewer-prompt.md' "$SKILL" && [ -f "$T/reviewer-prompt.md" ] && pass "the reviewer prompt is a template" || fail "reviewer template"
 ! grep -q 'payload.dispatchId' "$SKILL" && ! grep -q "orca orchestration task-create --spec" "$SKILL" && pass "no hand-rolled message reading or task creation left" || fail "hand-rolled steps left"
 # Questions and the intake
@@ -259,5 +260,11 @@ g "Q2 the recommended option is labelled" '(Recommended)'
 g "Q3 a nudge is never an answer" 'is never an answer'
 g "Q4 the picker only before any worker" 'AskUserQuestion only for the first-run setup question, before any worker exists'
 grep -qF 'AskUserQuestion only in the intake' "$SKILL" && fail "Q5 the old hard rule is gone" || pass "Q5 the old hard rule is gone"
+# Faster briefs
+g "F1 the pool default is documented" '"maxBriefs": 4'
+g "F2 rest takes the recommended options" 'you said rest'
+g "F3 STAR edits a brief itself" '(applied by STAR)'
+g "F4 changed lines are marked" '(changed)'
+grep -qF 'briefs may take every build slot' "$SKILL" && fail "F5 briefs no longer take build slots" || pass "F5 briefs no longer take build slots"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
