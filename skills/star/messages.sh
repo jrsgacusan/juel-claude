@@ -13,6 +13,7 @@
 #   msg <id> <type> <dispatch or -> <sent>[ deadline=<iso>]
 #     <body line>            at most 12, each indented two spaces
 #   cut <n>                  the body had n more lines
+# A literal \n (backslash, n) in a body's first line is read as a line break.
 #   none                     nothing to act on before the timeout (a timed-out wait included)
 #   unknown <why>            Orca could not be read; it says nothing about the workers
 # A question's deadline is its sent time plus the minutes of a trailing "deadline=<minutes>"
@@ -132,6 +133,11 @@ def deadline_for(body, sent):
 
 def show(m):
     p, body, sent = payload(m), str(m.get("body") or ""), str(m.get("created_at") or "-")
+    first, sep, rest = body.partition("\n")
+    # A report typed with an escaped "\n" inside a quoted --body arrives with a literal backslash-n
+    # on its first line; split it there so one bad report cannot glue its fields together (#22).
+    # Later lines keep theirs: a NOTE may quote "\n" on purpose.
+    body = first.replace("\\n", "\n") + sep + rest
     line = f"msg {m.get('id')} {m.get('type')} {p.get('dispatchId') or p.get('dispatch_id') or '-'} {sent}"
     if m.get("type") == "question":
         line += " deadline=" + deadline_for(body, sent)

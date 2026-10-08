@@ -132,7 +132,7 @@ g "V15 a quiet worker is still a running worker" '`ok` or `quiet'
 g "V16 a second answer cannot revive a dropped row" 're-read the row'
 g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
 g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
-g "V19 a SAFE verdict needs a real head" '7 to 40 hex'
+g "V19 a SAFE verdict needs a real head" 'A run shorter than 7 is not a verdict babysit can use'
 g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 0'
 g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
 g "V22 an approval of an earlier commit is said so" 'approved on an earlier commit'
@@ -230,5 +230,8 @@ grep -q 'a screen check recorded there as failed' "$T/reviewer-prompt.md" && pas
 g "W1 finished worktrees are removed" 'sh S/worktree-clean.sh <item>'
 g "W2 a kept worktree waits for the user" '`kept=1`'
 g "W3 never with work in it" 'never with work in it'
+# Issue #22
+g "L1 head= is its leading hex run" 'leading run of hex characters'
+grep -qF 'Never type \n inside a quoted --body' "$T/reviewer-prompt.md" && pass "L2 the reviewer sends real line breaks" || fail "L2 reviewer prompt"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
