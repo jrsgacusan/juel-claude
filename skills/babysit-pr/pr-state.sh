@@ -4,7 +4,8 @@
 #    "changes_requested","new_feedback":[...],"reviewers","cursor"}
 # Feedback = review bodies, inline comments and conversation comments from humans other than
 # the PR author, plus two kinds of bot: the app behind a status check the base branch's rules
-# require (a code-review app whose status is required), and any login given in --review-bots.
+# require (a code-review app whose status is required; never github-actions[bot], which is CI),
+# and any login given in --review-bots (github-actions[bot] counts only when listed there).
 # Every other bot ([bot] logins or type Bot) is ignored, and no bot is ever in "reviewers".
 # "approval"/"required" come from review-rule.sh: required <n>, none or unknown. "checks" is
 # green (every check on the head finished passing and every required one reported), pending or
@@ -149,7 +150,8 @@ def snapshot(pr, since, repo, bots=()):
         try:
             for run in gh_list(f"{base}/commits/{head}/check-runs", ".check_runs[]"):
                 slug = (run.get("app") or {}).get("slug")
-                if slug and run.get("name") in required_checks:
+                # GitHub Actions is CI, not a reviewer: only --review-bots can keep its bot
+                if slug and slug != "github-actions" and run.get("name") in required_checks:
                     kept.add(f"{slug}[bot]".lower())
         except (GhError, ValueError):
             pass  # no required-check bots this time; humans and listed bots still count

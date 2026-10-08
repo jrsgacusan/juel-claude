@@ -235,7 +235,7 @@ fixture zero checkruns.json '{"name":"CodeRabbit","app":{"slug":"coderabbitai"}}
 run zero 12
 check "zero required: the snapshot says so" 'd["approval"] == "required" and d["required"] == 0'
 check "zero required: a required check that has not reported is pending" 'd["checks"] == "pending"'
-run zero 12 --wait --interval 0
+run zero 12 --wait --interval 0 --max-seconds 5
 check "zero required: wakes approved once every required check is green" 'd["wake"] == "approved" and calls == 2 and d["checks"] == "green"'
 
 fixture zero-cr pr.json "$GRN"
@@ -269,6 +269,20 @@ check "the required-check bot's review and inline findings are feedback" 'ids ==
 check "a bot is never a reviewer to re-request" 'd["reviewers"] == []'
 run bots 14 --review-bots 'greptile-apps[bot]'
 check "a listed bot is kept too; the link-back bot and other bots are not" 'ids == [41, 42, 44]'
+
+# A required GitHub Actions job is CI, not a reviewer: its bot counts only when listed.
+fixture actions pr.json '{"state":"OPEN","reviewDecision":"REVIEW_REQUIRED","headRefOid":"h","author":{"login":"me"},"baseRefName":"main","url":"https://github.com/o/r/pull/16","statusCheckRollup":[]}'
+fixture actions rules.json '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"lint"},{"context":"CodeRabbit"}]}}]'
+fixture actions checkruns.json '{"name":"lint","app":{"slug":"github-actions"}}
+{"name":"CodeRabbit","app":{"slug":"coderabbitai"}}'
+fixture actions reviews.json ''
+fixture actions inline.json ''
+fixture actions comments.json '{"id":61,"user":{"login":"github-actions[bot]","type":"Bot"},"body":"coverage 91%","created_at":"2026-10-01T02:30:00Z","html_url":"i61"}
+{"id":62,"user":{"login":"coderabbitai[bot]","type":"Bot"},"body":"walkthrough","created_at":"2026-10-01T02:40:00Z","html_url":"i62"}'
+run actions 16
+check "a required Actions job never makes github-actions[bot] feedback" 'ids == [62]'
+run actions 16 --review-bots 'github-actions[bot]'
+check "--review-bots opts github-actions[bot] in" 'ids == [61, 62] and d["reviewers"] == []'
 
 # ---- a repository gh cannot see (#27) ----
 STUB_FAIL=1; STUB_MSG="GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)"; export STUB_FAIL STUB_MSG
