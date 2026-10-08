@@ -979,10 +979,10 @@ Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. 
 once, and the merge is the user's.
 
 **`gh` that cannot see the repository.** `PENDING gh cannot see <repo>: export GH_TOKEN for this
-repository` (or a worker's escalation that says so) is not retried blind and does not count as a
-`pending=`: queue `--kind held` "export GH_TOKEN for <repo> in the shell that runs STAR and its
-workers, then answer done" once, and leave the row as it is. The next check runs after that
-item is answered.
+repository` is not retried blind and does not count as a `pending=`: queue `--kind held`
+"export GH_TOKEN for <repo> in the shell that runs STAR and its workers, then answer done" once,
+and leave the row as it is. The next check runs after that item is answered. A worker's escalation
+that says so goes through the `ESCALATION` row of the report table as usual.
 
 **Sync after the base moved.** `FAIL conflicts` or `PENDING merge state: behind the base branch`
 for a row in `verifying` or `ready` means the base branch moved since babysit last merged it in,
