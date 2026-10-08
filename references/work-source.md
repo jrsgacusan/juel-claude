@@ -104,28 +104,32 @@ today is `mcp__claude_ai_Linear__*`, not `mcp__linear__*` — the opposite of wh
 either prefix, and must not treat presence of the `mcp__linear__` namespace alone as proof the
 plugin connector is usable.
 
-**Detection rule (dual-prefix, revised to account for the present-but-unauthenticated state):**
+**Detection rule (every known prefix, then any `linear__` prefix):**
 
 ```
-LINEAR_PREFIX = the first of "mcp__linear__" or "mcp__claude_ai_Linear__" for which a DOMAIN
-                tool — i.e. anything other than authenticate / complete_authentication — with
-                that prefix appears in the current session's tool set.
-                If "mcp__linear__" is present but exposes only authenticate/
-                complete_authentication, treat it as present-but-unauthenticated, NOT as
-                satisfying the Linear dependency — fall through to "mcp__claude_ai_Linear__".
-                If neither prefix has a domain tool, Linear capability is absent.
+LINEAR_PREFIX = the first of "mcp__linear__", "mcp__plugin_linear_linear__" or
+                "mcp__claude_ai_Linear__", then any other loaded prefix ending in "linear__",
+                under which BOTH get_issue and list_issues are present in the current
+                session's tool set. A prefix that exposes only authenticate /
+                complete_authentication is present-but-unauthenticated, NOT a match: try the
+                next one. If no prefix has both, Linear capability is absent.
+
+LINEAR_COMMENT = <LINEAR_PREFIX>save_comment when that tool exists, else
+                 <LINEAR_PREFIX>create_comment.
 
 LINEAR_STATE = one of three values, carried alongside LINEAR_PREFIX and kept distinguishable
                all the way to the degrade message a skill actually prints — never collapsed
                into a single "unavailable" bucket:
-                 "working"     — LINEAR_PREFIX resolved to a domain tool. Proceed normally.
-                 "auth_needed" — "mcp__linear__" exposes only authenticate/
-                                 complete_authentication, AND "mcp__claude_ai_Linear__" has
-                                 no domain tool either. Degrade per §5's auth-needed message,
-                                 NOT the generic absent message.
-                 "absent"      — neither prefix appears at all. Degrade per §5's generic
+                 "working"     — LINEAR_PREFIX resolved. Proceed normally.
+                 "auth_needed" — no prefix resolved, and at least one candidate exposes only
+                                 authenticate/complete_authentication. Degrade per §5's
+                                 auth-needed message, NOT the generic absent message.
+                 "absent"      — no candidate prefix appears at all. Degrade per §5's generic
                                  absent message.
 ```
+
+The Linear plugin exposes the same server as `mcp__plugin_linear_linear__` (seen in a STAR run on
+2026-10-08, #30), which the two-prefix rule missed.
 
 A downstream preflight table renders these three differently: `working` → proceed / `✓`,
 `auth_needed` → its own line (never folded into `✗` or the generic `!`), `absent` → `✗`/`!` per
@@ -184,7 +188,7 @@ update_status(id, status) → map normalized status to Linear's native state nam
                      <LINEAR_PREFIX>save_issue(id: id, state: <native-state-name>)
 create(fields)    → <LINEAR_PREFIX>save_issue(title: …, teamId: …, description: …, …)
 url(item)         → item.url as returned by fetch/list — Linear issues always carry one
-comment(id, body) → <LINEAR_PREFIX>save_comment(issueId: id, body: body) — subject to the
+comment(id, body) → <LINEAR_COMMENT>(issueId: id, body: body) — subject to the
                      mandatory per-instance confirmation rule in §5; never automatic
 ```
 

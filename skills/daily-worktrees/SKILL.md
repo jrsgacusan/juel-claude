@@ -108,9 +108,9 @@ Resolve the work-source provider first, once, stopping at the first hit:
 3. A `## Work Source` block in the repo's CLAUDE.md or AGENTS.md (`- type:` / `- project:`).
 4. The legacy `## Linear Worktrees Config` block (`linear-project:` implies `linear`). This is read
    whenever steps 2 and 3 yielded no `tracker.type`, even if `workflow.json` exists for other keys.
-5. Auto-detect: a connected Linear MCP (a domain tool under `mcp__linear__` or
-   `mcp__claude_ai_Linear__`), a connected Jira/Atlassian MCP, a GitHub remote with `gh auth status`
-   passing, or a spec directory with `status: todo` files. Exactly one candidate → use it.
+5. Auto-detect: a connected Linear MCP (a Linear prefix resolves, as in the `linear` row below), a
+   connected Jira/Atlassian MCP, a GitHub remote with `gh auth status` passing, or a spec directory
+   with `status: todo` files. Exactly one candidate → use it.
 6. Otherwise ask once with AskUserQuestion, and offer to persist the answer as `tracker` in
    `.claude/workflow.json`.
 
@@ -148,7 +148,7 @@ this skill that names a provider's tools.
 
 | Provider | `list` (todo, assigned to me) | `update_status` → `in_progress` |
 |---|---|---|
-| `linear` | resolve `LINEAR_PREFIX` (`mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>save_issue(id: <id>, state: "In Progress")` (`save_issue` is the only write verb) |
+| `linear` | resolve `LINEAR_PREFIX` (the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues`), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>save_issue(id: <id>, state: "In Progress")` (`save_issue` is the only write verb) |
 | `jira` | the connected Jira/Atlassian MCP's JQL search tool with `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | look up the transition named by `config.tracker.statusMap.in_progress`, then the MCP's transition tool. No `statusMap` → print the skip note |
 | `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels`, keeping issues without a `status:in-progress` or `status:in-review` label | `gh label create status:in-progress --force`, then `gh issue edit <n> --add-label status:in-progress`, adding `--remove-label status:todo` only when the issue's `labels` include it (label-emulated) |
 | `file` | every `*.md` in the spec directory whose frontmatter `status` (or `Status:` line) is explicitly `todo`. A file with no status marker is not a work item: design specs, plans and briefs live there too | rewrite that file's status marker to `in_progress` |

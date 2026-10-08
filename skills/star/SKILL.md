@@ -854,7 +854,7 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
 
 | Provider | `list` | `fetch` |
 |---|---|---|
-| `linear` | resolve `LINEAR_PREFIX` (`mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>get_issue(id: <ref>)` |
+| `linear` | resolve `LINEAR_PREFIX` (the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues`), then `<LINEAR_PREFIX>list_issues(assignee: "me", project: <id>, state: "Todo")` | `<LINEAR_PREFIX>get_issue(id: <ref>)` |
 | `jira` | the connected Jira/Atlassian MCP's JQL search: `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | the MCP's get-issue tool |
 | `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels` (skip `status:in-progress` / `status:in-review`) | `gh issue view <n> --json number,title,body,url,labels` |
 | `file` | `*.md` in the spec directory whose status is explicitly `todo` | read the file |
@@ -958,7 +958,7 @@ that was lost; then report `POSTED` with its URL and post nothing.
 
 | Provider | Post |
 |---|---|
-| `linear` | the Linear MCP's comment tool, `<LINEAR_PREFIX>create_comment(issueId: <id>, body: <the report file's text>)` |
+| `linear` | the Linear MCP's comment tool, `<LINEAR_PREFIX>save_comment` or `<LINEAR_PREFIX>create_comment`, whichever that prefix has, with `(issueId: <id>, body: <the report file's text>)` |
 | `github` | `gh issue comment <n> --body-file <path>` |
 | `jira` | the connected Jira/Atlassian MCP's add-comment tool |
 | `file` | nothing to post: add `report: <path>` to the spec file's frontmatter |

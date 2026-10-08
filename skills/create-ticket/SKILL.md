@@ -107,9 +107,9 @@ The project decides where the ticket goes. Resolve the provider once, stop at th
 2. `.claude/workflow.local.json`, then `.claude/workflow.json`: `tracker.type` (and `tracker.project`).
 3. A `## Work Source` block in the repo's CLAUDE.md or AGENTS.md (`- type:` / `- project:`), then
    the legacy `## Linear Worktrees Config` block (`linear-project:` implies `linear`).
-4. Auto-detect: a connected Linear MCP (a domain tool under `mcp__linear__` or
-   `mcp__claude_ai_Linear__`), a connected Jira/Atlassian MCP, or a GitHub remote with `gh`
-   authenticated. Exactly one candidate → use it. More than one → step 5.
+4. Auto-detect: a connected Linear MCP (`LINEAR_PREFIX` resolves, as in the `linear` row below), a
+   connected Jira/Atlassian MCP, or a GitHub remote with `gh` authenticated. Exactly one
+   candidate → use it. More than one → step 5.
 5. Ask once with AskUserQuestion, then offer to persist the answer as `tracker` in
    `.claude/workflow.json`. Never write config without a yes.
 
@@ -117,7 +117,7 @@ The resolved source must be able to `create`:
 
 | Source | `create` | Notes |
 |---|---|---|
-| `linear` | Yes | resolve `LINEAR_PREFIX` now: `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (anything but `authenticate`/`complete_authentication`); every Linear call below is written `<LINEAR_PREFIX>tool_name`. Neither does → STOP: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." |
+| `linear` | Yes | resolve `LINEAR_PREFIX` now: the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues` (`authenticate`/`complete_authentication` alone never count); every Linear call below is written `<LINEAR_PREFIX>tool_name`. None does → STOP: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." |
 | `jira` | Yes | needs a connected Jira/Atlassian MCP |
 | `github` | Yes | needs `gh auth status` to pass and a GitHub remote |
 | `file` | Yes | writes into `<docsRoot>/specs/`, where docsRoot is `config.docsRoot` if set, else `docs/.superpowers/` when it exists and is non-empty, else `docs/superpowers/` (the same directory `juel:daily-worktrees` lists) |

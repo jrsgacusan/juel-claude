@@ -174,7 +174,7 @@ it never picks the provider by itself.
 
 | Source | `fetch(ref)` |
 |---|---|
-| `linear` | resolve `LINEAR_PREFIX`: `mcp__linear__` (the plugin dependency) or `mcp__claude_ai_Linear__` (the claude.ai connector), whichever exposes a *domain* tool (anything other than `authenticate`/`complete_authentication`; an installed but unauthorized connector is not usable). Then `<LINEAR_PREFIX>get_issue(id: ref)` — the verb is **`get_issue`**, not `fetch_issue` or `get_ticket`. Neither prefix has a domain tool → **STOP**: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." Do not retry, and do not fall back to `gh` or the web |
+| `linear` | resolve `LINEAR_PREFIX`: the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues` (an installed but unauthorized connector exposes only `authenticate`/`complete_authentication` and is not usable). Then `<LINEAR_PREFIX>get_issue(id: ref)` — the verb is **`get_issue`**, not `fetch_issue` or `get_ticket`. No prefix has them → **STOP**: "Linear MCP is not connected. Enable the connector, restart this session (connectors bind at startup), then re-run." Do not retry, and do not fall back to `gh` or the web |
 | `jira` | the connected Jira/Atlassian MCP's get-issue tool for the key. No Jira MCP connected → STOP with the same connect-and-restart message, naming Jira |
 | `github` | `gh issue view <n> --json number,title,body,url,labels` for `#<n>` (or `issue-<n>` in a branch) |
 | `file` | read the spec file directly |

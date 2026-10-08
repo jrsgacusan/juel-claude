@@ -878,7 +878,7 @@ the evidence directory. Ask to proceed to PR.
 
    | Source | `update_status(in_review)` |
    |---|---|
-   | `linear` | resolve the active prefix — `mcp__linear__` or `mcp__claude_ai_Linear__`, whichever exposes a domain tool (never a hardcoded prefix) — then `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)`; `save_issue` is the sole create-or-update verb |
+   | `linear` | resolve `LINEAR_PREFIX`, the first of `mcp__linear__`, `mcp__plugin_linear_linear__` or `mcp__claude_ai_Linear__` (then any other loaded prefix ending in `linear__`) that exposes both `get_issue` and `list_issues` (never a hardcoded prefix), then `<LINEAR_PREFIX>save_issue(id: <id>, state: <team's "In Review" state>)`; `save_issue` is the sole create-or-update verb |
    | `jira` | the transition named by `config.tracker.statusMap.in_review`, through the connected Jira/Atlassian MCP's transition tool; no `statusMap` → treat as no `update_status` |
    | `github` | `gh label create status:in-review --force`, then `gh issue edit <n> --add-label status:in-review`, adding `--remove-label status:in-progress` only when the issue has that label |
    | `file` | rewrite the spec file's status marker to `in_review`. With `--brief`, the file is the brief's `item.path` (an absolute path in the main checkout), never a file in this worktree |
