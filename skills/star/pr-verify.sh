@@ -10,13 +10,19 @@
 # PENDING means "ask again later" (checks running, mergeable not computed, gh unreachable or
 # its output unreadable). Where the repo has no review rule (empty reviewDecision), an approval
 # counts only when it was given on the current head commit: dates are not compared, because a
-# commit made earlier and pushed later carries an older date than the approval. Where the repo
+# commit made earlier and pushed later carries an older date than the approval. Where the base
+# branch's rules explicitly require 0 approving reviews (review-rule.sh prints "required 0"), no
+# approval is needed: "PASS no approval required" (changes requested still fail). Where the repo
 # has a review rule, GitHub's own reviewDecision is trusted as it stands (it follows the repo's
-# "dismiss stale approvals" setting).
+# "dismiss stale approvals" setting). gh signed in to an account that cannot see the repository
+# prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
+JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
+export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -50,23 +56,49 @@ try:
 except SystemExit as e:
     sys.exit(64 if e.code not in (0, None) else 0)
 
+try:
+    LIMIT = float(os.environ.get("STAR_GH_TIMEOUT", "60"))
+except ValueError:
+    LIMIT = 60.0
+
+
+def repo_of(url):
+    parts = url.split("/") if isinstance(url, str) else []
+    return "/".join(parts[3:5]) if len(parts) >= 5 and parts[0] in ("https:", "http:") else ""
+
+
+def review_rule(d):
+    """The first line review-rule.sh prints for this PR's base branch; "unknown" when it cannot run."""
+    repo = a.repo or repo_of(d.get("url")) or repo_of(a.pr)
+    base = d.get("baseRefName") if isinstance(d.get("baseRefName"), str) else ""
+    script = os.path.join(os.environ.get("JUEL_SKILLS_DIR") or "", "babysit-pr", "review-rule.sh")
+    if not repo or not base or not os.path.isfile(script):
+        return "unknown"
+    try:
+        proc = subprocess.run(["sh", script, repo, base], capture_output=True, text=True, timeout=2 * LIMIT + 5)
+    except (OSError, subprocess.TimeoutExpired):
+        return "unknown"
+    return ((proc.stdout or "").splitlines() or ["unknown"])[0].strip()
+
+
 def main():
     cmd = ["gh", "pr", "view", a.pr, "--json",
-           "state,isDraft,reviewDecision,reviews,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit"]
+           "state,isDraft,reviewDecision,reviews,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,url,baseRefName"]
     if a.repo:
         cmd += ["-R", a.repo]
     try:
-        limit = float(os.environ.get("STAR_GH_TIMEOUT", "60"))
-    except ValueError:
-        limit = 60.0
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=limit)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=LIMIT)
     except FileNotFoundError:
         out("PENDING gh: not found on PATH")
     except subprocess.TimeoutExpired:
         out("PENDING gh: timed out")
     if proc.returncode != 0:
-        out("PENDING gh: " + ((proc.stderr or "").strip().splitlines() or ["failed"])[0][:120])
+        first = ((proc.stderr or "").strip().splitlines() or ["failed"])[0]
+        if "Could not resolve to a Repository" in first:
+            named = re.search(r"name '([^']+)'", first)
+            repo = a.repo or (named.group(1) if named else "") or repo_of(a.pr) or "this repository"
+            out(f"PENDING gh cannot see {repo}: export GH_TOKEN for this repository")
+        out("PENDING gh: " + first[:120])
     try:
         d = json.loads(proc.stdout)
     except ValueError:
@@ -96,6 +128,7 @@ def main():
         out("FAIL draft")
 
     decision = d.get("reviewDecision") or None
+    zero = False
     if decision is None:
         latest = {}
         for n, r in enumerate(sorted(reviews, key=lambda r: r.get("submittedAt") or "")):
@@ -107,8 +140,9 @@ def main():
                            for who, r in latest.items() if r.get("state") == "CHANGES_REQUESTED"})
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))
-        if not any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
-                   for r in latest.values()):
+        zero = review_rule(d) == "required 0"
+        if not zero and not any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
+                                for r in latest.values()):
             out("FAIL approval: none on the current head")
     elif decision != "APPROVED":
         out("FAIL approval: " + decision)
@@ -138,7 +172,7 @@ def main():
         out("PENDING merge state: blocked (a required check or review has not reported)")
     if merge_state == "BEHIND":
         out("PENDING merge state: behind the base branch")
-    out("PASS" if on_head else "PASS approval is on an earlier commit")
+    out("PASS" if on_head else "PASS no approval required" if zero else "PASS approval is on an earlier commit")
 
 
 try:
