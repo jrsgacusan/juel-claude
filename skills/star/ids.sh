@@ -67,9 +67,21 @@ def load():
         return {"sequences": {}}
     except (OSError, ValueError):
         die(2, f"{path} is not valid JSON: fix or remove it")
-    if not isinstance(data, dict) or not isinstance(data.get("sequences"), dict):
+    if not isinstance(data, dict) or not isinstance(data.get("sequences"), dict) or not all(
+            map(well_formed, data["sequences"].values())):
         die(2, f"{path} is not an ids ledger: fix or remove it")
     return data
+
+
+def whole(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def well_formed(entry):
+    return (isinstance(entry, dict) and whole(entry.get("next")) and entry["next"] >= 1
+            and isinstance(entry.get("reserved"), list)
+            and all(isinstance(r, dict) and isinstance(r.get("item"), str) and whole(r.get("id"))
+                    for r in entry["reserved"]))
 
 
 if argv[0] == "list":
@@ -95,10 +107,10 @@ with open(path + ".lock", "a") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     data = load()
     entry = data["sequences"].setdefault(seq, {"next": 1, "reserved": []})
-    start = max(int(entry.get("next") or 1), floor + 1)
+    start = max(entry["next"], floor + 1)
     ids = list(range(start, start + count))
     entry["next"] = start + count
-    entry.setdefault("reserved", []).extend({"item": o["--item"], "id": n} for n in ids)
+    entry["reserved"].extend({"item": o["--item"], "id": n} for n in ids)
     tmp = f"{path}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)

@@ -30,6 +30,14 @@ sh "$SCRIPT" --home "$TMP/missing" list >/dev/null 2>&1; [ $? -eq 2 ] && pass "a
 printf 'not json' > "$H/ids.json"
 I list >/dev/null 2>&1; [ $? -eq 2 ] && pass "a damaged ids.json is 2, never overwritten" || fail "bad json"
 [ "$(cat "$H/ids.json")" = "not json" ] && pass "the damaged file is left as it was" || fail "bad json rewritten"
+for bad in '{"sequences":{"d":5}}' '{"sequences":{"d":{"next":"abc","reserved":[]}}}'; do
+  printf '%s' "$bad" > "$H/ids.json"
+  err=$(I list 2>&1 >/dev/null); rc=$?
+  [ "$rc" -eq 2 ] && case "$err" in *"is not an ids ledger: fix or remove it") true ;; *) false ;; esac \
+    && pass "list refuses the malformed ledger $bad with 2" || fail "list $bad ($rc: $err)"
+  I reserve d --item A --count 1 --floor 0 >/dev/null 2>&1; [ $? -eq 2 ] && pass "reserve refuses the malformed ledger $bad with 2" || fail "reserve $bad"
+  [ "$(cat "$H/ids.json")" = "$bad" ] && pass "the malformed ledger $bad is left as it was" || fail "malformed ledger rewritten ($bad)"
+done
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
