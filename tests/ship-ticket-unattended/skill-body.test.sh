@@ -99,5 +99,9 @@ for l in 'REPORTED item=' 'VERIFIED item=' 'SCREEN path=' 'STAR-ISSUE:' 'screen-
 done
 # Issue #26
 g "I1 shared ids are reserved, not counted" 'ids.sh'
+# Issue #33
+g "E1 an existing PR is updated, not opened" 'url=<url> existing'
+g "E2 its body keeps the author's text" '<!-- juel:update -->'
+g "E3 never rebased or force-pushed" 'never by rebasing'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

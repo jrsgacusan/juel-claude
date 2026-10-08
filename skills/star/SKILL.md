@@ -786,8 +786,10 @@ branch:
    "<remote>/<baseBranch>" --no-parent --setup run --json` (`<REPO_ID>` is `project.orcaRepo` and
    `<remote>` is `project.remote` in `star.json`; `<baseBranch>` is the brief's).
 3. **The brief's branch:** switch to it when it exists (a branch left by an earlier attempt), then
-   delete Orca's; otherwise rename Orca's branch to it. Git is authoritative; Orca's view of the
-   branch can lag for a moment.
+   delete Orca's; otherwise, for a brief with `existingPr`, fetch it from `project.remote` and
+   check it out tracking the remote branch (the open PR's head), then delete Orca's; otherwise
+   rename Orca's branch to it. Git is authoritative; Orca's view of the branch can lag for a
+   moment.
 4. **Environment files** from the main checkout, only files git ignores (`git check-ignore`):
    `.env*`, `*.local`, `.envrc`, `.npmrc`, `.tool-versions` and ignored files under `.claude/`.
    Ignored files never show in `git status`, so `ship-ticket`'s clean-tree check still passes,
@@ -890,6 +892,7 @@ old PR.
      labels: [<labels>]
    branch: <branch>
    baseBranch: <base>
+   existingPr: <url>       # only for an item that brings an open PR to mergeable: see below
    deliverable: pr          # or report: see step 6
    approved:               # stamped by STAR when the user approves
    star:
@@ -929,6 +932,15 @@ old PR.
    disposition or a write-up (exercise flows and record what passed, map an impact, assess a PR,
    post a status) and nothing in the item asks for a change to code or docs in the repository;
    otherwise `pr`. A `## Feedback` entry that names one ("deliverable: pr") wins.
+
+   `existingPr` is set only when the item's outcome is to bring an open PR to mergeable (the item
+   links an open PR and asks to finish, update or merge it, rather than to build something new):
+   `gh pr view <url> --json url,headRefName,baseRefName,isCrossRepository`. Then `branch` is its
+   `headRefName` and `baseBranch` its `baseRefName`, and step 5's naming rule does not apply. A PR
+   whose `isCrossRepository` is true comes from a fork, which cannot be pushed to: leave
+   `existingPr` out and add a `decision` line under `## Before you go`: `<url> comes from a fork:
+   open a new PR from a copy of its branch, or drop the item? | options: new PR / drop | default:
+   new PR`.
 7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n>` (`<n>` is the
    number of lines under `## Before you go`, 0 for `none`), then `NEEDS-CRITERIA` when that
    applies, then at most one `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's

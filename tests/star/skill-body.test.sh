@@ -245,5 +245,8 @@ g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
 g "U5 the sync is named in the counters table" '`synced=<sha7>`'
 # Issue #26
 g "I2 STAR's home keeps the id ledger" 'ids.json'
+# Issue #33
+g "E4 the brief names an existing PR" 'existingPr'
+g "E5 a fork's PR is asked about" 'comes from a fork'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

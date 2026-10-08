@@ -309,6 +309,7 @@ line:
 | start of each phase | `PHASE <n> <item>` |
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
+| an existing PR updated (`existingPr`) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
 | build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
@@ -493,6 +494,11 @@ the resolved values for this run: they head the base-branch chain in "Base branc
 conventions", Phase 5 reviews against `baseBranch`, and Phase 7 opens the PR with
 `--base <baseBranch>`. Before Phase 1, check that the checkout's current branch is the brief's
 `branch`; a mismatch is `ESCALATION item=<item> phase=0 reason=preflight needs=checkout on <branch>`.
+
+**An existing PR.** A brief with `existingPr: <url>` asks for that open PR to be made mergeable,
+not for a new one. Its `branch` is the PR's head branch, already checked out and tracking the
+remote. Bring it up to date by merging `<remote>/<baseBranch>` in, never by rebasing, and never
+force-push. Phase 7 updates that PR instead of opening one.
 
 **Quiet hours.** With `--quiet-hours`, check the window at the moment of each outward action, not
 once at the start — a run that starts before the window and acts inside it must still hold. Never
@@ -834,6 +840,13 @@ the evidence directory. Ask to proceed to PR.
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
    - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist).
 3. Open the PR, or degrade if `gh` is unavailable:
+   - **`existingPr` in the brief:** do not run `gh pr create`. Push to its branch (step 1). Leave
+     the PR's title and the author's text as they are: write this run's summary, QA instructions
+     and test plan into one section of the body that starts with the line `<!-- juel:update -->`
+     and ends with `<!-- juel:update end -->`, replacing that section when the body already has it
+     and appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp
+     file, then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
+     `PR item=<item> url=<url> existing`.
    - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. It is marked ready once, in Phase 8, only after the second-model review says SAFE.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
