@@ -12,7 +12,9 @@ cat > "$TMP/bin/gh" <<'EOF'
 [ "${STUB_FAIL:-}" = 1 ] && { echo "${STUB_ERR:-HTTP 502}" >&2; exit 1; }
 if [ "$1" = api ]; then
   case "$2" in
-    *"/rules/branches/"*) if [ -n "${STUB_RULES:-}" ]; then cat "$STUB_RULES"; else echo '[]'; fi ;;
+    *"/rules/branches/"*)
+      [ -n "${STUB_RULES_ERR:-}" ] && { echo "$STUB_RULES_ERR" >&2; exit 1; }
+      if [ -n "${STUB_RULES:-}" ]; then cat "$STUB_RULES"; else echo '[]'; fi ;;
     *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
   esac
   exit 0
@@ -23,6 +25,8 @@ chmod +x "$TMP/bin/gh"; ln -s "$(command -v python3)" "$TMP/bin/python3"
 OK='"state":"OPEN","isDraft":false,"headRefOid":"abc1234def","mergeable":"MERGEABLE","mergeCommit":null'
 APPROVED='"reviewDecision":"APPROVED","reviews":[{"author":{"login":"ezra"},"state":"APPROVED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"}}]'
 GREEN='"statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"deploy","state":"SUCCESS"}]'
+# what gh prints for url,baseRefName: review-rule.sh is asked about o/r main
+BASE='"url":"https://github.com/o/r/pull/5","baseRefName":"main"'
 # t <name> <expected line> <json body> [extra args]
 t() {
   printf '{%s}\n' "$3" > "$TMP/pr.json"
@@ -38,8 +42,8 @@ t "draft" "FAIL draft" "\"state\":\"OPEN\",\"isDraft\":true,\"headRefOid\":\"abc
 t "review required" "FAIL approval: REVIEW_REQUIRED" "$OK,\"reviewDecision\":\"REVIEW_REQUIRED\",\"reviews\":[],\"commits\":[],$GREEN"
 t "empty decision with an approval of the current head" "PASS" "$OK,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"abc1234def\"}}],$GREEN"
 # The approval is newer than the head's commit date (a commit made earlier, pushed later), but it is for another commit.
-t "empty decision with an approval of an older head" "FAIL approval: none on the current head" "$OK,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"0ld0000aaa\"}}],\"commits\":[{\"committedDate\":\"2026-10-01T00:00:00Z\"}],$GREEN"
-t "an approval with no commit on record does not count" "FAIL approval: none on the current head" "$OK,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN"
+t "empty decision with an approval of an older head" "FAIL approval: none on the current head" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"0ld0000aaa\"}}],\"commits\":[{\"committedDate\":\"2026-10-01T00:00:00Z\"}],$GREEN"
+t "an approval with no commit on record does not count" "FAIL approval: none on the current head" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN"
 t "two deleted accounts are two reviewers" "FAIL approval: changes requested by a deleted account" "$OK,\"reviewDecision\":\"\",\"reviews\":[{\"id\":\"R1\",\"author\":null,\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"},{\"id\":\"R2\",\"author\":null,\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-03T00:00:00Z\",\"commit\":{\"oid\":\"abc1234def\"}}],$GREEN"
 t "empty decision with changes requested" "FAIL approval: changes requested by ezra" "$OK,\"reviewDecision\":null,\"reviews\":[{\"author\":{\"login\":\"jp\"},\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"abc1234def\"}},{\"author\":{\"login\":\"ezra\"},\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-03T00:00:00Z\"}],\"commits\":[{\"committedDate\":\"2026-10-01T00:00:00Z\"}],$GREEN"
 t "failed check" "FAIL checks: ci" "$OK,$APPROVED,\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"COMPLETED\",\"conclusion\":\"FAILURE\"}]"
@@ -90,10 +94,9 @@ done
 # an explicit zero in the base branch's rules (#27)
 ZERO="$TMP/zero.json"; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}}]\n' > "$ZERO"
 BAD="$TMP/bad.json"; printf '{"x":1}\n' > "$BAD"
-BASE='"url":"https://github.com/o/r/pull/5","baseRefName":"main"'
 tz() {
   printf '{%s}\n' "$3" > "$TMP/pr.json"
-  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="${RULES:-$ZERO}" sh "$SCRIPT" 5 --head abc1234)
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="${RULES:-$ZERO}" STUB_RULES_ERR="${RULES_ERR:-}" sh "$SCRIPT" 5 --head abc1234)
   if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
 }
 APPROVED_HEAD='"reviews":[{"author":{"login":"ezra"},"state":"APPROVED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"}}]'
@@ -102,8 +105,21 @@ tz "zero required: an approval on the head is a plain pass" "PASS" "$OK,$BASE,\"
 tz "zero required: changes requested still fail" "FAIL approval: changes requested by ezra" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN"
 tz "zero required: a failing check still fails" "FAIL checks: ci" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"COMPLETED\",\"conclusion\":\"FAILURE\"}]"
 tz "zero required: a blocked merge state is still pending" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],$GREEN,\"mergeStateStatus\":\"BLOCKED\""
-RULES="$BAD" tz "unreadable rules keep today's rule" "FAIL approval: none on the current head" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],$GREEN"
+RULES="$BAD"
+tz "unreadable rules are pending, never a wrong FAIL" "PENDING review rule: unreadable rules" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],$GREEN"
+unset RULES
+RULES_ERR="gh: Not Found (HTTP 404)"
+tz "rules gh cannot see say how to fix it" "PENDING gh cannot see o/r: export GH_TOKEN for this repository" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],$GREEN"
+RULES_ERR="gh: Server Error (HTTP 502)"
+tz "a gh error on the rules is pending" "PENDING review rule: gh: Server Error (HTTP 502)" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],$GREEN"
+tz "an unreadable rule does not matter once the head is approved" "PASS" "$OK,$BASE,\"reviewDecision\":\"\",$APPROVED_HEAD,$GREEN"
+tz "an unreadable rule never hides changes requested" "FAIL approval: changes requested by ezra" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN"
+unset RULES_ERR
+t "a rule review-rule.sh cannot be asked for is pending" "PENDING review rule: unreadable" "$OK,\"reviewDecision\":\"\",\"reviews\":[],$GREEN"
 t "no review rule at all keeps today's rule" "FAIL approval: none on the current head" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],$GREEN"
+RULES="$TMP/one.json"; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":1}}]\n' > "$RULES"
+tz "a rule of one approval keeps today's rule" "FAIL approval: none on the current head" "$OK,$BASE,\"reviewDecision\":\"\",\"reviews\":[],$GREEN"
+unset RULES
 
 # a repository gh cannot see (#27)
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_FAIL=1 STUB_ERR="GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)" STUB_JSON=/dev/null sh "$SCRIPT" https://github.com/o/r/pull/5 --head abc1234)

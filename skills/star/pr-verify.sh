@@ -12,10 +12,11 @@
 # counts only when it was given on the current head commit: dates are not compared, because a
 # commit made earlier and pushed later carries an older date than the approval. Where the base
 # branch's rules explicitly require 0 approving reviews (review-rule.sh prints "required 0"), no
-# approval is needed: "PASS no approval required" (changes requested still fail). Where the repo
-# has a review rule, GitHub's own reviewDecision is trusted as it stands (it follows the repo's
-# "dismiss stale approvals" setting). gh signed in to an account that cannot see the repository
-# prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
+# approval is needed: "PASS no approval required" (changes requested still fail). An unreadable
+# rule with no approval on the head is PENDING ("PENDING review rule: <why>"), never a pass.
+# Where the repo has a review rule, GitHub's own reviewDecision is trusted as it stands (it
+# follows the repo's "dismiss stale approvals" setting). gh signed in to an account that cannot
+# see the repository prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
@@ -140,10 +141,15 @@ def main():
                            for who, r in latest.items() if r.get("state") == "CHANGES_REQUESTED"})
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))
-        zero = review_rule(d) == "required 0"
-        if not zero and not any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
-                                for r in latest.values()):
-            out("FAIL approval: none on the current head")
+        if not any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
+                   for r in latest.values()):
+            rule = review_rule(d)
+            if rule == "unknown" or rule.startswith("unknown "):
+                why = rule[len("unknown"):].strip() or "unreadable"
+                out("PENDING " + why if why.startswith("gh cannot see ") else "PENDING review rule: " + why)
+            zero = rule == "required 0"
+            if not zero:
+                out("FAIL approval: none on the current head")
     elif decision != "APPROVED":
         out("FAIL approval: " + decision)
     on_head = any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
