@@ -11,11 +11,12 @@
 # merged in, which is the base branch for babysit-pr and receive-review-and-execute), then ours
 # (stage 2), then the base after the point; an insertion identical on both sides is kept once.
 # An insertion that would join two word characters (\w), as 1 to 10 does, is not mechanical.
+# Where two different insertions meet, theirs must end or ours start with whitespace or , ; |.
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
 # (added on both sides), a delete or rename conflict, a mode change, a binary file, a lockfile,
 # a file whose last line has no newline. Hunks are found with
 # `git merge-file --diff3 --marker-size=31`, so a file's own 7-character marker-like lines are
-# never mistaken for a hunk.
+# never mistaken for a hunk, and with `--diff-algorithm=histogram`, the one `git merge` uses.
 # Exit: 0 all resolved; 1 something is not mechanical; 2 no merge with conflicts in progress;
 # 64 usage.
 exec python3 - "$@" <<'PY'
@@ -26,6 +27,7 @@ import sys
 import tempfile
 
 MARK = 31
+SEPARATORS = " \t\n,;|"
 LOCKFILES = {"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "go.sum"}
 
 
@@ -102,7 +104,7 @@ def resolve_hunk(base, ours, theirs):
         return None
     if t[1] == o[1]:
         return before + t[1] + after
-    if joins(t[1], o[1]):
+    if t[1] and o[1] and t[1][-1] not in SEPARATORS and o[1][0] not in SEPARATORS:
         return None
     return before + t[1] + o[1] + after
 
@@ -121,8 +123,8 @@ def merged(texts):
             with open(name, "w", encoding="utf-8", newline="") as f:
                 f.write(texts[label])
             names.append(name)
-        proc = subprocess.run(["git", "merge-file", "-p", "--diff3", f"--marker-size={MARK}", *names],
-                              capture_output=True)
+        proc = subprocess.run(["git", "merge-file", "-p", "--diff3", f"--marker-size={MARK}",
+                               "--diff-algorithm=histogram", *names], capture_output=True)
     if proc.returncode > 127:
         return None, "git merge-file failed"
     out, state, part = [], "text", None

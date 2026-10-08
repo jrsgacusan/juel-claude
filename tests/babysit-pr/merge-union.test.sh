@@ -53,15 +53,20 @@ out=$(U); rc=$?
 [ -n "$(git -C "$R" ls-files -u decisions.md)" ] && pass "all or nothing: the mechanical file is not staged either" || fail "partial write"
 git -C "$R" merge --abort && pass "the merge still aborts cleanly" || fail "abort"
 
-# 2b. a digit appended on both sides would splice a word: x = 1 must not become x = 101
-repo word
-put v.py 'x = 1\n'; commit base; git -C "$R" branch feat
-put v.py 'x = 10\n'; commit main
-git -C "$R" switch -q feat; put v.py 'x = 11\n'; commit feat
-merge
-out=$(U); rc=$?
-[ $rc -eq 1 ] && [ "$out" = "conflict v.py edited on both sides" ] && pass "an insertion that joins a word is edited on both sides" || fail "word exit $rc ($out)"
-[ -n "$(git -C "$R" ls-files -u v.py)" ] && pass "the spliced file is not staged" || fail "word staged"
+# 2b. insertions that would make a value neither side wrote: a spliced word (x = 101),
+# or two insertions fused where they meet (["requests""numpy"], x = -+1)
+edited_both() {
+  repo "$1"; put v.py "$2"; commit base; git -C "$R" branch feat
+  put v.py "$3"; commit main
+  git -C "$R" switch -q feat; put v.py "$4"; commit feat
+  merge
+  out=$(U); rc=$?
+  [ $rc -eq 1 ] && [ "$out" = "conflict v.py edited on both sides" ] && pass "$1: edited on both sides" || fail "$1: exit $rc ($out)"
+  [ -n "$(git -C "$R" ls-files -u v.py)" ] && pass "$1: nothing is staged" || fail "$1: staged"
+}
+edited_both word 'x = 1\n' 'x = 10\n' 'x = 11\n'
+edited_both quoted 'deps = []\n' 'deps = ["requests"]\n' 'deps = ["numpy"]\n'
+edited_both sign 'x = 1\n' 'x = -1\n' 'x = +1\n'
 
 # 3. shapes that are never mechanical
 repo shapes
