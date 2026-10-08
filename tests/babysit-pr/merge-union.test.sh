@@ -53,6 +53,16 @@ out=$(U); rc=$?
 [ -n "$(git -C "$R" ls-files -u decisions.md)" ] && pass "all or nothing: the mechanical file is not staged either" || fail "partial write"
 git -C "$R" merge --abort && pass "the merge still aborts cleanly" || fail "abort"
 
+# 2b. a digit appended on both sides would splice a word: x = 1 must not become x = 101
+repo word
+put v.py 'x = 1\n'; commit base; git -C "$R" branch feat
+put v.py 'x = 10\n'; commit main
+git -C "$R" switch -q feat; put v.py 'x = 11\n'; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict v.py edited on both sides" ] && pass "an insertion that joins a word is edited on both sides" || fail "word exit $rc ($out)"
+[ -n "$(git -C "$R" ls-files -u v.py)" ] && pass "the spliced file is not staged" || fail "word staged"
+
 # 3. shapes that are never mechanical
 repo shapes
 put package-lock.json '{\n  "a": 1\n}\n'; put old.txt 'one\n'; put blob.bin 'a\0b\n'; commit base; git -C "$R" branch feat
@@ -70,6 +80,10 @@ done
 repo clean; put a.txt 'x\n'; commit base
 U >/dev/null 2>&1; [ $? -eq 2 ] && pass "no merge in progress is 2" || fail "no merge"
 sh "$SCRIPT" --bogus >/dev/null 2>&1; [ $? -eq 64 ] && pass "bad usage is 64" || fail "usage"
+for dir in "$TMP/nope" "$TMP/clean/a.txt"; do
+  err=$(sh "$SCRIPT" --repo-dir "$dir" 2>&1 >/dev/null); rc=$?
+  [ $rc -eq 2 ] && [ "$err" = "merge-union.sh: no such directory: $dir" ] && pass "a --repo-dir that is not a directory is 2" || fail "repo-dir $dir: exit $rc ($err)"
+done
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

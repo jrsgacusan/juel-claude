@@ -10,6 +10,7 @@
 # A hunk resolves to the base before the insertion point, then theirs (stage 3: the branch being
 # merged in, which is the base branch for babysit-pr and receive-review-and-execute), then ours
 # (stage 2), then the base after the point; an insertion identical on both sides is kept once.
+# An insertion that would join two word characters (\w), as 1 to 10 does, is not mechanical.
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
 # (added on both sides), a delete or rename conflict, a mode change, a binary file, a lockfile,
 # a file whose last line has no newline. Hunks are found with
@@ -19,6 +20,7 @@
 # 64 usage.
 exec python3 - "$@" <<'PY'
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -45,6 +47,8 @@ if argv[:1] == ["--repo-dir"]:
     where = argv[1]
 elif argv:
     usage()
+if where is not None and not os.path.isdir(where):
+    stop(f"no such directory: {where}")
 
 
 def git(*args, cwd=None):
@@ -84,12 +88,23 @@ def insertion(base, side):
     return p, side[p:len(side) - s]
 
 
+def joins(left, right):
+    """True when left ends and right starts with a word character: put together, they splice a word."""
+    return bool(left and right and re.match(r"\w", left[-1]) and re.match(r"\w", right[0]))
+
+
 def resolve_hunk(base, ours, theirs):
     o, t = insertion(base, ours), insertion(base, theirs)
     if o is None or t is None or o[0] != t[0]:
         return None
-    middle = t[1] if t[1] == o[1] else t[1] + o[1]
-    return base[:o[0]] + middle + base[o[0]:]
+    before, after = base[:o[0]], base[o[0]:]
+    if any(joins(before, text) or joins(text, after) for text in (o[1], t[1])):
+        return None
+    if t[1] == o[1]:
+        return before + t[1] + after
+    if joins(t[1], o[1]):
+        return None
+    return before + t[1] + o[1] + after
 
 
 def marker(line, ch):
