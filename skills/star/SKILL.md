@@ -1015,7 +1015,7 @@ most often because the user merged a sibling PR. Read the base's head:
 has one, write `counters.synced=<sha7>` and `counters.pending=-`, and the row → `babysit-queued`
 (babysit resumes with `--since <cursor>`; its Phase 4 merges the base in and resolves mechanical
 conflicts itself). When it is: syncing did not help: → `escalated`, queue `--kind escalation`
-"<what> again after syncing with <base> at <sha7>". `ls-remote` failing: the table's own rule for that verdict.
+"<what> again after syncing with <base> at <sha7>". `ls-remote` failing: the Otherwise branch of the cell that sent it here.
 
 ## Drafts
 

@@ -282,5 +282,6 @@ grep -qF 'so a change to either is answered in chat' "$SKILL" && grep -qF 'A lat
 grep -qF 'it makes sure the brief has `- [ ] NEEDS CRITERIA`' "$SKILL" && ! grep -qF 'it writes `- [ ] NEEDS CRITERIA`' "$SKILL" && pass "Z7 an edit that leaves no criterion never adds a second marker" || fail "Z7 an edit that leaves no criterion never adds a second marker"
 grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL" && ! grep -qF '`PROPOSED-CRITERIA` (case 3)' "$SKILL" && pass "Z8 PROPOSED-CRITERIA whenever a criterion is proposed" || fail "Z8 PROPOSED-CRITERIA whenever a criterion is proposed"
 grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
+grep -qF '`ls-remote` failing: the Otherwise branch of the cell that sent it here.' "$SKILL" && ! grep -qF "the table's own rule for that verdict" "$SKILL" && pass "Z13 an ls-remote failure goes to the Otherwise branch of its own cell" || fail "Z13 an ls-remote failure goes to the Otherwise branch of its own cell"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
