@@ -372,5 +372,47 @@ assert d["definitions"]["mobbin"]["kind"] == "mcp", d["definitions"].get("mobbin
 PY3
 g "PF2 the codex row stops STAR" '| codex | cli | HARD |'
 grep -q 'merges it under your go' "$ROOT/README.md" && ! grep -q 'You merge; nothing in the flow does' "$ROOT/README.md" && ! grep -q 'no skill here depends on it' "$ROOT/README.md" && pass "RD1 the README describes the closed loop" || fail "RD1 README"
+# Final fix pass, group S: the Answers, Messages, merge gate, merge.sh and start rules.
+# gin looks a phrase up in one part of the skill only, so a rule cannot pass on another rule's words.
+gin() { printf '%s\n' "$2" | grep -qF -- "$3" && pass "$1" || fail "$1"; }
+start1=$(sed -n '/^1\. Migrate:/,/^2\. `orca orchestration run-use/p' "$SKILL")
+reconcile=$(sed -n '/^5\. \*\*Reconcile\*\*/,/^6\. `loops\.sh resume/p' "$SKILL")
+gatefail=$(grep -F '| `FAIL <what>` |' "$SKILL")
+[ -n "$start1" ] && [ -n "$reconcile" ] && [ -n "$gatefail" ] && pass "FS0 the parts of the skill that the FS lines look in are found" || fail "FS0 the parts of the skill that the FS lines look in are found"
+# FS1: a person step answered can't now is asked again
+g "FS1 a go leaves a row that has an open person item" 'or that has an open `person` item: those stay'
+grep -qF 'a `person` item still open, answered' "$SKILL" && fail "FS1 the go row no longer reads an answered item as open" || pass "FS1 the go row no longer reads an answered item as open"
+g "FS1 can't now closes the answered item, then asks the step again" 'then close the answered item and add the same `person` item again'
+g "FS1 add returns an item that is still in the queue" 'returns an item that is still in the queue, answered or not, and adds nothing'
+g "FS1 a refused risky step is not asked again" 'and do not add the item again: the brief stage plans without it'
+g "FS1 an answer in words is feedback on the step" '   | `person` | anything else | record it under `## Decisions` as feedback on that step'
+answers=$(sed -n '/^   | Kind | Answer | Action |/,/^3\. \*\*Messages\*\*/p' "$SKILL")
+[ -n "$answers" ] && ! printf '%s\n' "$answers" | grep -q '^|' && pass "FS1 every row of the Answers table keeps the table's indent" || fail "FS1 every row of the Answers table keeps the table's indent"
+# FS2: the reconcile step does not probe a building row whose DONE is pending
+gin "FS2 reconcile names the building row whose DONE is pending" "$reconcile" 'whose `verify` holds `retry=` has already reported'
+gin "FS2 reconcile does not probe it" "$reconcile" 'skip the probe for it'
+gin "FS2 reconcile runs done-check.sh for it" "$reconcile" 'run `done-check.sh` for it'
+# FS3: a re-scope BRIEF on a brief with no grant line
+g "FS3 a re-scope brief always adds its follow-up and keeps the lineage" 'in every case: `counters.rescoped=1`, clear `counters.rescope`, and add the follow-up spec as a new `inbox` row'
+g "FS3 with no grant line the row goes to brief-ready for the batch go" 'A brief with no grant line (it prints 0): row → `brief-ready`'
+grep -qF 'else treat it as the next row' "$SKILL" && fail "FS3 a re-scope brief no longer falls through to the next row" || pass "FS3 a re-scope brief no longer falls through to the next row"
+# FS4: the merge gate's FAIL no codex PASS goes back to the gate loop
+gin "FS4 a missing codex PASS resumes the gate loop on the existing PR" "$gatefail" 'no codex PASS for <sha7>; resume the gate loop on the existing PR'
+gin "FS4 it goes to queued like no-safe-verdict and spends no mergefail" "$gatefail" 'row → `queued` (the build resumes the gate loop, as for `reason=no-safe-verdict`); it spends no `mergefail=`'
+# FS5: the start gives its batch to every open row, not only the brief-ready ones
+gin "FS5 the start gives its batch to every open row" "$start1" 'give every open row (not `done` or `dropped`) with no `counters.batch`'
+grep -qF 'give each `brief-ready` row with no' "$SKILL" && fail "FS5 the batch is no longer given to brief-ready rows only" || pass "FS5 the batch is no longer given to brief-ready rows only"
+gin "FS5 the summary waits until no row of the batch is still being briefed" "$start1" 'once no row of the batch is `inbox` or `briefing`'
+# FS6: merge.sh failures that are not the PR's
+g "FS6 grant, merge-method and comment failures are held at once" '| `FAIL grant: …`, `FAIL merge methods: …` or `FAIL comment: …` | nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held`'
+g "FS6 the merge failure itself keeps the mergefail budget" '| `FAIL merge: …` | as the Otherwise branch of a merge-gate `FAIL <what>` (the `mergefail=` budget)'
+g "FS6 exit 64 names what merge.sh refuses" 'a head that is not 40 hex characters, a URL that is not a PR, or missing arguments'
+grep -qF 'or no grant file' "$SKILL" && fail "FS6 exit 64 is no longer blamed on a missing grant file" || pass "FS6 exit 64 is no longer blamed on a missing grant file"
+# FS7: a migrate that exits non-zero stops the start
+gin "FS7 a failing migrate stops the start" "$start1" 'A non-zero exit stops the start'
+gin "FS7 the stop lines it printed are still stopped and released" "$start1" 'stop and release each `stop <dispatch>` line it printed'
+gin "FS7 the claim is released as stop does" "$start1" 'release the claim'
+gin "FS7 the owner is told that running /juel:star again retries" "$start1" 'running `/juel:star` again retries the migrate'
+gin "FS7 no reconcile and no tick follow" "$start1" 'no reconcile and no tick'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

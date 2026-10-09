@@ -525,11 +525,16 @@ runs in <handle>", and end the turn.
    line. For each `stop <dispatch>` line (a v1 review, fix or screen worker whose row moved on):
    append `<dispatch> stopped <iso>` to `processed.log`, then
    `orca orchestration worker-stop --dispatch <id> --json` and `worker-release`. All before the
-   reconcile, so no v1 report lands on a row that moved. Then give each `brief-ready` row with no
-   `counters.batch` the batch `B-<this start's UTC time, YYYYMMDDTHHMMSSZ>-<4 hex>`, queue its
-   person-only steps (its brief's `## Person-only steps`, and for a row moved from a v1 screen
-   state the checks its decision record names, as `screen` steps), and print that batch's summary
-   and queue its `go-batch` item ("The batch summary and go"). When it printed `migrated rows=<n>`
+   reconcile, so no v1 report lands on a row that moved. A non-zero exit stops the start: print
+   its message, stop and release each `stop <dispatch>` line it printed as above,
+   release the claim (`"terminal": null` in `star.json`), tell the owner the folder may be half moved
+   and that running `/juel:star` again retries the migrate, and end here: no reconcile and no tick.
+   Then give every open row (not `done` or `dropped`) with no `counters.batch` the batch
+   `B-<this start's UTC time, YYYYMMDDTHHMMSSZ>-<4 hex>`. For that batch's `brief-ready` rows,
+   queue each one's person-only steps (its brief's `## Person-only steps`, and for a row moved
+   from a v1 screen state the checks its decision record names, as `screen` steps), and print the
+   batch's summary and queue its `go-batch` item once no row of the batch is `inbox` or `briefing`
+   ("The batch summary and go"). When it printed `migrated rows=<n>`
    and `star.json`'s `hostedReviewer` is null, run the hosted-reviewer lookup of "STAR's home" once.
 2. `orca orchestration run-use --id <run from star.json> --json`; when that run no longer exists,
    `orca orchestration run-create --objective "STAR" --json`. Record the run id and
@@ -545,7 +550,7 @@ runs in <handle>", and end the turn.
    finds `heartbeatAt` 6 or more days old deletes the job and registers a new one, the same way.
    No scheduler tool → skip it and say so: an idle STAR then wakes only on a hand-over nudge or the user, so
    away summaries and answers typed into the queue file wait for one of those.
-5. **Reconcile** every row in a worker stage with `sh S/worker-probe.sh <dispatch> --item <item> --home HOME_DIR --worktree <worktree> --deadline <progressDeadlineMin>` (no `--worktree` for a `briefing` or `posting` row):
+5. **Reconcile** every row in a worker stage, except a `building` row whose `verify` holds `retry=` (below), with `sh S/worker-probe.sh <dispatch> --item <item> --home HOME_DIR --worktree <worktree> --deadline <progressDeadlineMin>` (no `--worktree` for a `briefing` or `posting` row):
    `ok`, `quiet …` or `stale …` (with or without ` holds-screen <m>`) → keep it. `stalled: …` → housekeeping's capacity rule. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
    catches it if it is not (`agent_prompt_stalled` included). `gone` → Orca has no such worker (an Orca restart):
    a `briefing`, `posting` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
@@ -559,7 +564,11 @@ runs in <handle>", and end the turn.
    output) says nothing about the worker: keep the row and let housekeeping probe it again; it
    never justifies a restart. A `verifying` row has no worker: never restart it, and run the
    merge gate for it only when its `verify` is `-` or its `retry=` time has passed (a resume
-   inside the two-minute wait must not count as the second `PENDING`). A row in a worker stage with no task never started
+   inside the two-minute wait must not count as the second `PENDING`). A `building` row
+   whose `verify` holds `retry=` has already reported and its worker is released (its `DONE` waits
+   for `done-check.sh`): skip the probe for it, which would read as a lost worker, and once its
+   `retry=` time has passed run `done-check.sh` for it with its PR and head, as Housekeeping does,
+   and act on its line as the `DONE` row of the Messages table says. A row in a worker stage with no task never started
    (STAR stopped between writing the row and `task-create`), and a row with a task but no
    dispatch never got its worker: put either back in its stage's waiting state, no restart
    counted, and leave its `counters` as they are. Its `live=` tells the next `stage-start.sh`
@@ -678,12 +687,13 @@ message into the same end state.
 
    | Kind | Answer | Action |
    |---|---|---|
-   | `go-batch` | exactly `go`, `yes` or `ok` (any case) | the go is for every row of the batch that is `brief-ready`, except a row whose brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more) or that has a `person` item still open, answered `can't now`, or (a `risky` step) answered `no`: those stay. Write the grant once, for the rows that start: `HOME_DIR/grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md`, a frontmatter block with `date: <iso>` and `items: [<names>]`, then the user's answer exactly as typed. In each started row's brief, in one write: stamp `approved: <iso>` and `grant: <grant path>`, and remove each ` (proposed)` suffix, so builders and the gate read plain criteria. Those rows → `queued`. When rows stayed, add the `go-batch` item again for them, titled "go for <items> once <what each waits for>". A brief with `NEEDS CRITERIA` asks for criteria in that title: an answer in words is feedback (criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A go is only ever this explicit answer from the user, never a default, a timeout or a blanket answer |
+   | `go-batch` | exactly `go`, `yes` or `ok` (any case) | the go is for every row of the batch that is `brief-ready`, except a row whose brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more) or that has an open `person` item: those stay. Write the grant once, for the rows that start: `HOME_DIR/grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md`, a frontmatter block with `date: <iso>` and `items: [<names>]`, then the user's answer exactly as typed. In each started row's brief, in one write: stamp `approved: <iso>` and `grant: <grant path>`, and remove each ` (proposed)` suffix, so builders and the gate read plain criteria. Those rows → `queued`. When rows stayed, add the `go-batch` item again for them, titled "go for <items> once <what each waits for>". A brief with `NEEDS CRITERIA` asks for criteria in that title: an answer in words is feedback (criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A go is only ever this explicit answer from the user, never a default, a timeout or a blanket answer |
    | `go-batch` | `go except <items>` | the same, for every row of the batch but the named ones; those stay `brief-ready` with a `go-batch` item of their own |
    | `go-batch` | `drop <item>` | that row → `dropped`; add the `go-batch` item again for the rest |
    | `go-batch` | anything else, including "go, but …" | it is feedback for the item it names (it names none and the batch has more than one item: ask which, one question), never a conditional go: append it to that brief under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `go-batch` item again, showing the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line there, since the summary does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix until the go. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
    | `person` | `done` or `approve` | append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title); the row does not change |
-   | `person` | `can't now` or `no` | the same record; the item does not start on a go while it stands (`can't now`: the next batch summary asks it again). A `risky` step answered `no`: append "risky call refused: <step>" under `## Feedback`, row → `inbox`: the brief stage plans without it |
+   | `person` | `can't now` or `no` | the same record, then close the answered item and add the same `person` item again (`loops.sh add` returns an item that is still in the queue, answered or not, and adds nothing): the open item keeps the row from starting on a go, and the next batch summary asks it again. A `risky` step answered `no`: append "risky call refused: <step>" under `## Feedback`, row → `inbox`, and do not add the item again: the brief stage plans without it |
+   | `person` | anything else | record it under `## Decisions` as feedback on that step (the same line, ending `→ feedback: <answer>`), then close the answered item and add the same `person` item again: the step is asked again, and the row stays out of the go |
    | `go-merge` | exactly `go`, `yes` or `ok` | write a grant for that item as for `go-batch`, and stamp `grant:` in its brief; the row stays `verifying`, and the next merge-gate check may merge it |
    | `go-merge` | drop / not merging | row → `dropped`; its PR stays open for the user |
    | `go-merge` | anything else | nothing changes: add the same `go-merge` item again |
@@ -727,7 +737,7 @@ message into the same end state.
 
    | First line of the report | Action |
    |---|---|
-   | `BRIEF item=… path=… … rescoped=1 followup=<path>` (a re-scope's brief) | the brief keeps its `approved:` and `grant:` (check `grep -cE '^grant: [^ #]' <brief>` prints 1; else treat it as the next row). `counters.rescoped=1`, clear `counters.rescope`, row → `queued`. Add the follow-up spec as a new `inbox` row: its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>` |
+   | `BRIEF item=… path=… … rescoped=1 followup=<path>` (a re-scope's brief) | in every case: `counters.rescoped=1`, clear `counters.rescope`, and add the follow-up spec as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`). The brief keeps its `approved:` and `grant:` (`grep -cE '^grant: [^ #]' <brief>` prints 1): row → `queued`. A brief with no grant line (it prints 0): row → `brief-ready`, finished as the next row does (its person-only steps, the batch summary, the `go-batch` item), so the batch's go writes the grant |
    | `BRIEF item=… path=… [asks=<n>]` | row → `brief-ready`; queue one `--kind person` per line of the brief's `## Person-only steps` section (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief). A row with `counters.parent=` (a re-scope's follow-up) and no person-only step: stamp `approved: <iso>`, its parent's `grant:` and `rescopedFrom: <parent>` in its brief, row → `queued`, and say "covered by <parent>'s go" in the status line. When no row of its batch is `inbox` or `briefing` any more, print the batch summary and queue the `go-batch` item ("The batch summary and go") |
    | `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `counters.batch`); the row → `dropped`, and the status line says "split into <names>" |
    | `DONE item=… pr=<url> head=<sha> review=<path>` | first `sh S/done-check.sh <item> --pr <url> --head <sha>`. `OK` → record the PR and head, free the build slot, row → `babysit-queued`, clear `mismatch=`. `MISMATCH <what>` → record the PR and head; with no `mismatch=` yet: write `mismatch=1`, append to the brief's `## Decisions` "- <date> the report did not check out: <what>; resume the gate loop on the existing PR", row → `queued`. With `mismatch=1` already: → `escalated`, queue `--kind escalation` "the report did not check out twice: <what>" (`reason=mismatch`). `PENDING <why>`, no line, or a non-zero exit → process and ack the message as for any report, record the PR and head, and keep the row `building` with `verify` = `retry=<now + 2 min>`: it has reported, so neither the reconcile step nor Housekeeping's probe treats it as a lost worker, and Housekeeping runs `done-check.sh` again once that time has passed. Exit 64 (`done-check.sh` refused its arguments) also files an improvement issue |
@@ -1165,7 +1175,7 @@ before it reported `READY` (`juel:babysit-pr`), and the head check holds the gat
 | `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" |
 | `MERGED <sha>` | the PR is merged (by STAR's own earlier call, or by someone else): `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
-| `FAIL <what>` | `FAIL closed`: as the PR check's `FAIL closed` ("Fill slots"): row → `escalated`, queue `--kind escalation` "PR was closed without a merge". `FAIL conflicts`: the sync rule below. Otherwise: `counters` has no `mergefail=1`: write it, append "- <date> the merge gate said: <what>. Fix it on the PR." to the brief's `## Decisions`, row → `babysit-queued` (babysit resumes with `--since <cursor>`). It has: → `escalated`, queue `--kind escalation` "the merge gate failed twice: <what>" |
+| `FAIL <what>` | `FAIL closed`: as the PR check's `FAIL closed` ("Fill slots"): row → `escalated`, queue `--kind escalation` "PR was closed without a merge". `FAIL conflicts`: the sync rule below. `FAIL no codex PASS for <sha7>`: append "- <date> the merge gate said: no codex PASS for <sha7>; resume the gate loop on the existing PR" to the brief's `## Decisions`, row → `queued` (the build resumes the gate loop, as for `reason=no-safe-verdict`); it spends no `mergefail=`. Otherwise: `counters` has no `mergefail=1`: write it, append "- <date> the merge gate said: <what>. Fix it on the PR." to the brief's `## Decisions`, row → `babysit-queued` (babysit resumes with `--since <cursor>`). It has: → `escalated`, queue `--kind escalation` "the merge gate failed twice: <what>" |
 
 `merge.sh` prints one line:
 
@@ -1174,8 +1184,9 @@ before it reported `READY` (`juel:babysit-pr`), and the head check holds the gat
 | `MERGED <sha>` | as the verdict `MERGED`, then print it and push one notification, "merged <item>: PR #<n>" |
 | `HELD quiet hours` | put `retry=<now + 10 min>` in `verify`: the gate runs again after that, and merges at the first run outside quiet hours |
 | `FAIL head moved` | as the verdict `MOVED` |
-| `FAIL <anything else>` | as a merge-gate `FAIL <what>` that is not `conflicts` (the `mergefail=` budget) |
-| exit 64 | `merge.sh` refused its arguments (a head that is not all 40 characters, or no grant file): queue `--kind held` "merge.sh refused its arguments for PR #<n>" and file an improvement issue; the row stays as it is |
+| `FAIL grant: …`, `FAIL merge methods: …` or `FAIL comment: …` | nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
+| `FAIL merge: …` | as the Otherwise branch of a merge-gate `FAIL <what>` (the `mergefail=` budget) |
+| exit 64 | `merge.sh` refused its arguments (a head that is not 40 hex characters, a URL that is not a PR, or missing arguments): queue `--kind held` "merge.sh refused its arguments for PR #<n>" and file an improvement issue; the row stays as it is |
 | no line, or another exit that is not 0 | the merge may or may not have happened: change nothing; the next tick's gate prints `MERGED` when it did |
 
 Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. STAR merges only
