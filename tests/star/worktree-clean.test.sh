@@ -66,7 +66,7 @@ F=$(wt F); row F queued "$F"
 [ "$(WC F)" = "kept $F: row is queued" ] && pass "an open row keeps its worktree" || fail "queued ($(WC F))"
 row M done "$APP"
 [ "$(WC M)" = "kept $APP: the main checkout" ] && pass "the main checkout is never removed" || fail "main checkout ($(WC M))"
-G=$(wt G); git -C "$G" push -q origin feat/G; row G done "$G"; row G2 fix-queued "$G"
+G=$(wt G); git -C "$G" push -q origin feat/G; row G done "$G"; row G2 babysit-queued "$G"
 [ "$(WC G)" = "kept $G: in use by G2" ] && pass "a worktree another open row names is kept" || fail "in use ($(WC G))"
 
 # already gone: pruned, cell cleared, none
