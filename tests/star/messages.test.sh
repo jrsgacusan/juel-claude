@@ -105,5 +105,39 @@ out=$(M)
 [ "$(printf '%s\n' "$out" | sed -n 4p)" = "  Reviewed the full diff" ] && pass "the glued summary becomes its own line" || fail "glued summary ($out)"
 printf '%s\n' "$out" | sed -n 5p | grep -qF '  NOTE: use printf \n here' && pass "a literal \\n on a later line is kept" || fail "later literal ($out)"
 
+# Orca's own error code and message, never the first line of its JSON (#38)
+cat > "$TMP/bin/pgrep" <<'EOF'
+#!/bin/sh
+# only orphaned waiters may be listed: the script must ask for parent pid 1
+[ "$1" = "-P" ] && [ "$2" = 1 ] || { echo "pgrep called without -P 1: $*" >&2; exit 2; }
+[ -n "${STUB_PGREP:-}" ] && { printf '%s\n' $STUB_PGREP; exit 0; }
+exit 1
+EOF
+chmod +x "$TMP/bin/pgrep"
+waiter() { reset; printf '{\n  "ok": false,\n  "error": {"code": "waiter_exists", "message": "a waiter is already registered"}\n}\n' > "$TMP/r1.json"; echo 1 > "$TMP/r1.json.exit"; }
+waiter; out=$(export STUB_PGREP="4242 4343"; M --wait --timeout-ms 100)
+[ "$out" = "waiter-exists 4242,4343" ] && pass "waiter_exists names the stale waiters" || fail "waiter_exists ($out)"
+waiter; out=$(M --wait --timeout-ms 100)
+[ "$out" = "waiter-exists -" ] && pass "waiter_exists with none found is a dash" || fail "waiter_exists none ($out)"
+reset; printf '{"ok": false, "error": {"code": "runtime_error", "message": "boom\\nmore detail"}}\n' > "$TMP/r1.json"; echo 1 > "$TMP/r1.json.exit"
+out=$(M); [ "$out" = "unknown runtime_error: boom" ] && pass "another code keeps its code and message" || fail "other code ($out)"
+
+# a messages.sh that is killed ends its orca wait too (#38)
+mkdir -p "$TMP/slow"
+cat > "$TMP/slow/orca" <<'EOF'
+#!/bin/sh
+echo $$ > "$STUB_DIR/orca.pid"
+exec sleep 30
+EOF
+chmod +x "$TMP/slow/orca"
+rm -f "$TMP/orca.pid"
+PATH="$TMP/slow:$PATH" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" --home "$TMP/home" --wait --timeout-ms 600000 >/dev/null 2>&1 &
+MP=$!
+i=0; while [ ! -s "$TMP/orca.pid" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+OP=$(cat "$TMP/orca.pid" 2>/dev/null)
+kill -TERM "$MP" 2>/dev/null; wait "$MP" 2>/dev/null
+i=0; while kill -0 "$OP" 2>/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
+[ -n "$OP" ] && ! kill -0 "$OP" 2>/dev/null && pass "TERM to messages.sh ends its orca wait" || { fail "orca wait left running ($OP)"; kill "$OP" 2>/dev/null; }
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -90,5 +90,16 @@ sed -i.bak '$d' "$H/ledger.md"
 i=0; while [ $i -lt 15 ]; do L add "P-$i" "ref=P-$i" project=app >/dev/null & i=$((i + 1)); done; wait
 [ "$(L list | grep -c '^P-')" -eq 15 ] && pass "15 parallel adds keep 15 rows" || fail "parallel adds ($(L list | grep -c '^P-'))"
 
+# v2: four stages, no review, fix or screen states, the new counters
+L add V2-1 ref=V2-1 project=app >/dev/null
+for gone in pr-draft reviewing fix-queued fixing screen-queued screening ready; do
+  L set V2-1 "state=$gone" >/dev/null 2>&1; [ $? -eq 64 ] || fail "state $gone is still accepted"
+done; pass "the seven v1-only states are refused"
+for gone in review fix screen; do
+  L set V2-1 "stage=$gone" >/dev/null 2>&1; [ $? -eq 64 ] || fail "stage $gone is still accepted"
+done; pass "the three v1-only stages are refused"
+L set V2-1 state=babysit-queued stage=babysit counters.capacity=+1 counters.mismatch=1 counters.mergefail=1 counters.rescoped=1 counters.rescope=V2-1-r3.md counters.batch=B-20261009T081200Z counters.parent=SPH-11 >/dev/null
+[ "$(L get V2-1 counters.rescope)" = "V2-1-r3.md" ] && [ "$(L get V2-1 counters.batch)" = "B-20261009T081200Z" ] && [ "$(L get V2-1 counters.capacity)" = "1" ] && [ "$(L get V2-1 counters.parent)" = "SPH-11" ] && pass "the new counters and words are kept" || fail "new counters ($(L get V2-1 counters))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

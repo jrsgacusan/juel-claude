@@ -32,14 +32,12 @@ from datetime import datetime, timezone
 
 COLS = ["item", "ref", "project", "worktree", "state", "stage", "round", "task", "dispatch",
         "restarts", "pr", "head", "cursor", "verify", "counters", "updated"]
-STATES = ["inbox", "briefing", "brief-ready", "queued", "building", "pr-draft", "reviewing",
-          "fix-queued", "fixing", "screen-queued", "screening", "babysit-queued", "babysitting",
-          "verifying", "ready", "reported", "post-queued", "posting", "done", "escalated", "failed",
-          "dropped"]
-STAGES = ["brief", "build", "review", "fix", "screen", "babysit", "post"]
+STATES = ["inbox", "briefing", "brief-ready", "queued", "building", "babysit-queued", "babysitting",
+          "verifying", "reported", "post-queued", "posting", "done", "escalated", "failed", "dropped"]
+STAGES = ["brief", "build", "babysit", "post"]
 COUNTS = ["miss", "silent", "unknown", "hold", "moved", "pending", "nudge", "reask", "screen", "start",
-          "kept", "busy"]
-WORDS = ["last", "tracker", "live", "synced"]
+          "kept", "busy", "capacity", "mismatch", "mergefail", "rescoped"]
+WORDS = ["last", "tracker", "live", "synced", "rescope", "batch", "parent"]
 DEFAULTS = {"worktree": "-", "state": "inbox", "stage": "brief", "round": "0", "task": "-",
             "dispatch": "-", "restarts": "0", "pr": "-", "head": "-", "cursor": "-", "verify": "-",
             "counters": "-"}
