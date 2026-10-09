@@ -128,7 +128,7 @@ sh "$LS" --file "$Q" add --kind approve-brief --project mig --item A --title "ap
 sh "$LS" --file "$Q" add --kind prep --project mig --item C --title "a question" --body "x" >/dev/null
 sh "$LS" --file "$Q" add --kind escalation --project mig --item E --title "stuck" --body "x" >/dev/null
 out=$(sh "$SCRIPT" --cwd "$MIG" migrate)
-[ "$(printf '%s\n' "$out" | sed -n 1p)" = "migrated rows=5" ] && [ "$(printf '%s\n' "$out" | sed -n 2p)" = "stop ctx_r1" ] && [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 2 ] && [ ! -e "$HM2/migrate-stops.txt" ] && pass "migrate moves five rows, names the worker to stop, then forgets it" || fail "migrate output ($out)"
+[ "$out" = "$(printf 'stop ctx_r1\nmigrated rows=5')" ] && [ ! -e "$HM2/migrate-stops.txt" ] && pass "migrate names the worker to stop, moves five rows, then forgets the stop list" || fail "migrate output ($out)"
 LG() { sh "$ROOT/skills/star/ledger.sh" --home "$HM2" get "$@"; }
 [ "$(LG A state)/$(LG A stage)" = "queued/build" ] && [ "$(LG B state)/$(LG B dispatch)" = "queued/-" ] && [ "$(LG C state)" = "brief-ready" ] && [ "$(LG D state)/$(LG D stage)" = "brief-ready/build" ] && [ "$(LG G state)/$(LG G stage)" = "brief-ready/build" ] && [ "$(LG E state)" = "building" ] && [ "$(LG F state)" = "done" ] && pass "each v1 state lands where the table says" || fail "rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM2" list))"
 grep -q '### D1 Merge under a go' "$HM2/briefs/mig/D.md" && grep -q 'once you say go, the build resumes the gate loop on its existing PR, and STAR merges it under that go' "$HM2/briefs/mig/D.md" && pass "a v1 PR that waited for its merge waits for a go in the next batch" || fail "ready record ($(cat "$HM2/briefs/mig/D.md"))"
@@ -168,7 +168,47 @@ sh "$SCRIPT" --cwd "$MIG2" migrate >/dev/null 2> "$TMP/mig2.err"; rc=$?
 [ "$rc" -eq 1 ] && grep -q 'loops.sh list' "$TMP/mig2.err" && grep -qx 'stop ctx_r2' "$HM3/migrate-stops.txt" && pass "a queue loops.sh cannot read stops migrate with exit 1, and the stop list is kept" || fail "broken queue (rc=$rc: $(cat "$TMP/mig2.err"))"
 grep -v '^<<<<<<< HEAD$' "$HM3/open-loops.md" > "$TMP/q2"; cat "$TMP/q2" > "$HM3/open-loops.md"
 out=$(sh "$SCRIPT" --cwd "$MIG2" migrate)
-[ "$out" = "$(printf 'migrated rows=0\nstop ctx_r2')" ] && [ ! -e "$HM3/migrate-stops.txt" ] && pass "the rerun names the worker the stopped run had moved on" || fail "rerun ($out)"
+[ "$out" = "$(printf 'stop ctx_r2\nmigrated rows=0')" ] && [ ! -e "$HM3/migrate-stops.txt" ] && pass "the rerun names the worker the stopped run had moved on" || fail "rerun ($out)"
+
+# B-1: the stop lines are printed before the first row moves, so a run that fails still names them
+unschema() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.pop("schema",None); json.dump(d,open(p,"w"))' "$1/star.json"; }
+v1at() { printf '| %s | %s | p | /w/%s | %s | %s | 1 | t1 | %s | 0 | https://x/pull/1 | abc1234 | - | - | - | 2026-10-08T12:00:00Z |\n' "$2" "$2" "$2" "$3" "$4" "$5" >> "$1/ledger.md"; }
+mkrepo "$TMP/mig3"; MIG3=$(real "$TMP/mig3"); HM4=$(sh "$SCRIPT" --cwd "$MIG3" init); unschema "$HM4"
+v1at "$HM4" F fixing fix ctx_f3
+printf '<<<<<<< HEAD\n' >> "$HM4/open-loops.md"
+out=$(sh "$SCRIPT" --cwd "$MIG3" migrate 2> "$TMP/mig3.err"); rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "stop ctx_f3" ] && grep -q 'loops.sh list' "$TMP/mig3.err" && grep -qx 'stop ctx_f3' "$HM4/migrate-stops.txt" && pass "a failing migrate prints the stop line of a live v1 fixing worker and keeps the stop list" || fail "failing migrate (rc=$rc, stdout: $out, stderr: $(cat "$TMP/mig3.err"))"
+out=$(sh "$SCRIPT" --cwd "$MIG3" migrate 2>/dev/null); rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "stop ctx_f3" ] && pass "a rerun that finds the stop list prints it again, even when it fails again" || fail "failing rerun (rc=$rc, stdout: $out)"
+printf 'not a ledger\n' > "$HM4/ledger.md"
+out=$(sh "$SCRIPT" --cwd "$MIG3" migrate 2> "$TMP/mig3b.err"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "stop ctx_f3" ] && grep -q 'ledger.sh list' "$TMP/mig3b.err" && pass "a rerun that fails before it moves anything still prints the stop list it found" || fail "rerun with a broken ledger (rc=$rc, stdout: $out)"
+
+# a failure while the rows are moving: the second row's move is refused by a stand-in ledger.sh
+mkrepo "$TMP/mig4"; MIG4=$(real "$TMP/mig4"); HM5=$(sh "$SCRIPT" --cwd "$MIG4" init); unschema "$HM5"
+v1at "$HM5" A reviewing review ctx_a4; v1at "$HM5" B fixing fix ctx_b4
+STUB="$TMP/stubskill"; mkdir -p "$STUB"; cp "$SCRIPT" "$STUB/star-home.sh"; ln -s "$ROOT/skills/star/loops.sh" "$STUB/loops.sh"
+printf '#!/bin/sh\ncase "$*" in *" set B "*) echo "refused" >&2; exit 2 ;; esac\nexec sh "%s" "$@"\n' "$ROOT/skills/star/ledger.sh" > "$STUB/ledger.sh"
+out=$(sh "$STUB/star-home.sh" --cwd "$MIG4" migrate 2> "$TMP/mig4.err"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "$(printf 'stop ctx_a4\nstop ctx_b4')" ] && grep -q 'ledger.sh set B' "$TMP/mig4.err" && pass "a migrate that fails while moving rows has already named every worker to stop" || fail "failing while moving (rc=$rc, stdout: $out, stderr: $(cat "$TMP/mig4.err"))"
+out=$(sh "$SCRIPT" --cwd "$MIG4" migrate)
+[ "$out" = "$(printf 'stop ctx_a4\nstop ctx_b4\nmigrated rows=1')" ] && [ ! -e "$HM5/migrate-stops.txt" ] && pass "the rerun prints each stop line once and deletes the stop list when it succeeds" || fail "rerun after a failed move ($out)"
+
+# a folder already at schema 2 that still has a stop list (the run stopped after writing star.json)
+mkrepo "$TMP/cur"; CUR=$(real "$TMP/cur"); HC=$(sh "$SCRIPT" --cwd "$CUR" init)
+printf 'stop ctx_x\n' > "$HC/migrate-stops.txt"
+out=$(sh "$SCRIPT" --cwd "$CUR" migrate)
+[ "$out" = "$(printf 'stop ctx_x\ncurrent')" ] && [ ! -e "$HC/migrate-stops.txt" ] && pass "a current folder with a leftover stop list prints it, then forgets it" || fail "current with a stop list ($out)"
+
+# B-2: an open row that is not in a v1 state but still sits at a removed stage cannot be started by v2
+mkrepo "$TMP/mig5"; MIG5=$(real "$TMP/mig5"); HM6=$(sh "$SCRIPT" --cwd "$MIG5" init); unschema "$HM6"
+v1at "$HM6" E escalated fix -; v1at "$HM6" X failed review -; v1at "$HM6" Z babysitting screen -
+v1at "$HM6" D done fix -; v1at "$HM6" P dropped review -; v1at "$HM6" K queued build -; v1at "$HM6" R reviewing review ctx_r6
+out=$(sh "$SCRIPT" --cwd "$MIG5" migrate)
+LG5() { sh "$ROOT/skills/star/ledger.sh" --home "$HM6" get "$@"; }
+[ "$(LG5 E state)/$(LG5 E stage)" = "escalated/build" ] && [ "$(LG5 X state)/$(LG5 X stage)" = "failed/build" ] && [ "$(LG5 Z state)/$(LG5 Z stage)" = "babysitting/build" ] && pass "an open row left at a removed stage reads stage build and keeps its state" || fail "restaged rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
+[ "$(LG5 D stage)" = "fix" ] && [ "$(LG5 P stage)" = "review" ] && [ "$(LG5 K stage)" = "build" ] && pass "done and dropped rows keep their stage, and a row already at build is left alone" || fail "closed rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
+[ "$out" = "$(printf 'stop ctx_r6\nmigrated rows=1')" ] && [ "$(LG5 R state)/$(LG5 R stage)" = "queued/build" ] && pass "only the row moved out of a v1 state is counted" || fail "restage count ($out)"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

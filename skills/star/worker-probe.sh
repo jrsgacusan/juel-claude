@@ -10,7 +10,9 @@
 # never took its prompt, most often because Claude Code's trust dialog was on screen).
 # "stuck" labels: usage limit, login, trust dialog, model switch, confirmation dialog, waiting for
 # input (a "press enter", a y/n or a password prompt). "stalled: model at capacity" is a capacity,
-# overload or rate-limit error on screen: recoverable without the user (#41).
+# overload or rate-limit error on screen: recoverable without the user (#41). The error type names
+# overloaded_error and rate_limit_error count only on a line that also has "api error", an
+# "error:" prefix or a 4xx/5xx status, so code or docs that name them are not a stall.
 # With --item and --home, progress decides: the newest of <H>/progress/<item>.log, the worktree's
 # last commit and the files the worktree has changed. No progress for --deadline minutes (default
 # 30) is "stale <m> <terminal>". Without them, or with no progress source at all, the terminal
@@ -50,8 +52,12 @@ PATTERNS = [
     ("waiting for input", r"^\W*press (enter|return|any key)\b|^\W*(password|passphrase)( for [^:]*)?:\s*$"),
 ]
 # A model at capacity, overloaded or rate limited: the agent waits, and a retry nudge restarts it (#41).
-STALLED = (r"selected model is at capacity|\bmodel is at capacity\b|overloaded_error"
-           r"|\bapi error:?\s*(429|503|529)\b|rate_limit_error|^\W*(error:?\s*)?too many requests\b")
+STALLED = (r"selected model is at capacity|\bmodel is at capacity\b"
+           r"|\bapi error:?\s*(429|503|529)\b|^\W*(error:?\s*)?too many requests\b")
+# The API's error type names count only on a line that also carries an API error: code or docs that
+# merely name them are the worker reading, not the model failing.
+STALLED_TYPE = r"overloaded_error|rate_limit_error"
+API_ERROR = r"\bapi error\b|^\W*error:|\b[45]\d\d\b"
 # A y/n prompt counts only on the last line of the screen: mid-screen it is the worker talking about one.
 YES_NO = r"[\[(](y/n|yes/no)[\])]\s*:?\s*$"
 # A question counts as a dialog only with a numbered yes/no option on screen: prose asks
@@ -153,7 +159,15 @@ if isinstance(messages, list) and messages and isinstance(messages[-1], dict):
     if len(newest) <= 400:  # a blocking notice is short; a long message is the worker talking
         lines += newest.splitlines()
 lines = [l for l in (l.strip(BOX) for l in lines) if len(l) <= 200]
-if any(re.search(STALLED, l, re.IGNORECASE) for l in lines):
+
+
+def at_capacity(line):
+    if re.search(STALLED, line, re.IGNORECASE):
+        return True
+    return bool(re.search(STALLED_TYPE, line, re.IGNORECASE) and re.search(API_ERROR, line, re.IGNORECASE))
+
+
+if any(at_capacity(l) for l in lines):
     out("stalled: model at capacity")
 for label, pattern in PATTERNS:
     if any(re.search(pattern, l, re.IGNORECASE) for l in lines):

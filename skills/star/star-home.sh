@@ -4,8 +4,8 @@
 #   star-home.sh [--cwd <dir>] init      create it from the template when missing, make git ignore it,
 #                                        print it. Safe to repeat; never overwrites a file.
 #   star-home.sh [--cwd <dir>] migrate   bring a v1 folder to star.json schema 2 (STAR's closed loop):
-#                                        prints "current", or "migrated rows=<n>" and then one
-#                                        "stop <dispatch>" per worker of a removed stage
+#                                        prints one "stop <dispatch>" per worker of a removed stage,
+#                                        then "current" or "migrated rows=<n>"
 # The folder is <main checkout>/<docsRoot>/context/star. The main checkout is the first worktree
 # git lists, so a linked worktree and a subfolder give the same answer. docsRoot follows the
 # plugin's rule: "docsRoot" in .claude/workflow.local.json, else .claude/workflow.json; else
@@ -19,10 +19,14 @@
 # and screen stages, "reviewer" and every stage's "executor", adds the schema 2 keys it lacks,
 # moves rows out of the seven v1-only states and out of v1's verifying (pr-draft, reviewing,
 # fix-queued, fixing to queued; screen-queued, screening, ready, verifying to brief-ready) with a
-# decision record in each brief, and closes open approve-brief, prep and merge-pr queue items.
-# The stop lines go to migrate-stops.txt in the folder before the first row moves, are printed
-# after "migrated rows=<n>", and the file is then deleted; a run that finds the file (an earlier
-# migrate stopped half way) prints its lines too, after "current" or "migrated rows=<n>".
+# decision record in each brief (only those rows count in "migrated rows=<n>"), and closes open
+# approve-brief, prep and merge-pr queue items. Any other row that is not done or dropped and is
+# still at the review, fix or screen stage (an escalated or failed row, say) gets stage=build.
+# The stop lines go to migrate-stops.txt in the folder and are printed at once, before the first
+# row moves, so a run that fails later has still named every worker to stop (they come first, on
+# stdout, even when the exit is 1). The file is deleted only when the run succeeds; a run that
+# finds it (an earlier migrate stopped half way) prints its lines again, before "current" or
+# "migrated rows=<n>".
 # Exit: 0 ok, 1 not inside a usable git checkout, or a STAR folder migrate cannot read, or
 # ledger.sh or loops.sh failing during migrate (the message names it), 64 usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
@@ -50,6 +54,8 @@ MOVES = {"pr-draft": ("queued", "build", "resume"), "reviewing": ("queued", "bui
          "screen-queued": ("brief-ready", "build", "screen"), "screening": ("brief-ready", "build", "screen"),
          "ready": ("brief-ready", "build", "merge"), "verifying": ("brief-ready", "build", "merge")}
 RUNNING_V1 = ("reviewing", "fixing", "screening")
+REMOVED_STAGES = ("review", "fix", "screen")
+CLOSED = ("done", "dropped")
 RECORDS = {
     "resume": ("Resume under the closed loop",
                "STAR moved to the closed loop (juel v2.0.0) while this item was {old}.",
@@ -174,10 +180,8 @@ def record(project, item, old, kind):
     os.replace(tmp, path)
 
 
-def finish(stops, path):
-    """Print the stop lines, then forget them: STAR stops those workers now."""
-    for line in stops:
-        print(line)
+def forget(path):
+    """The run succeeded, so the stop lines it printed need no second chance."""
     try:
         os.remove(path)
     except FileNotFoundError:
@@ -187,26 +191,36 @@ def finish(stops, path):
 def migrate():
     star_path = os.path.join(home, "star.json")
     stops_path = os.path.join(home, "migrate-stops.txt")
+    try:  # an earlier run that stopped half way left these: their workers still have to be stopped
+        stops = [l.strip() for l in open(stops_path, encoding="utf-8") if l.strip()]
+    except OSError:
+        stops = []
+    printed = []
+
+    def announce():
+        """Print each stop line once, as soon as it is on disk: a run that fails later has named it."""
+        for line in stops:
+            if line not in printed:
+                print(line, flush=True)
+                printed.append(line)
+
+    announce()
     try:
         data = json.load(open(star_path, encoding="utf-8"))
     except (OSError, ValueError) as e:
         die(1, f"cannot read {star_path} ({e})")
     if not isinstance(data, dict):
         die(1, f"{star_path} is not a JSON object")
-    try:
-        stops = [l.strip() for l in open(stops_path, encoding="utf-8") if l.strip()]
-    except OSError:
-        stops = []
     if data.get("schema") == 2:
         print("current")
-        finish(stops, stops_path)
+        forget(stops_path)
         return
     for name in ("star.json", "ledger.md"):
         src = os.path.join(home, name)
         if os.path.exists(src) and not os.path.exists(src + ".v1.bak"):
             shutil.copyfile(src, src + ".v1.bak")
     stages = data.get("stages") if isinstance(data.get("stages"), dict) else {}
-    for gone in ("review", "fix", "screen"):
+    for gone in REMOVED_STAGES:
         stages.pop(gone, None)
     for entry in stages.values():
         if isinstance(entry, dict):
@@ -221,26 +235,37 @@ def migrate():
                           capture_output=True, text=True)
     if rows.returncode != 0:
         die(1, "ledger.sh list: " + (rows.stderr.strip() or f"exit {rows.returncode}"))
-    moving = []
+    moving, restage = [], []
     for line in rows.stdout.splitlines():
         cells = line.split("\t")
-        if len(cells) < 6 or cells[1] not in MOVES:
+        if len(cells) < 6:
             continue
-        moving.append((cells[0], cells[1]))
-        if cells[1] in RUNNING_V1 and cells[5] not in ("", "-") and f"stop {cells[5]}" not in stops:
-            stops.append(f"stop {cells[5]}")
-    if stops:  # on disk before any row moves, so a run that stops half way can still name them
+        if cells[1] in MOVES:
+            moving.append((cells[0], cells[1]))
+            if cells[1] in RUNNING_V1 and cells[5] not in ("", "-") and f"stop {cells[5]}" not in stops:
+                stops.append(f"stop {cells[5]}")
+        elif cells[1] not in CLOSED and cells[2] in REMOVED_STAGES:
+            restage.append(cells[0])
+    if stops:  # on disk and printed before any row moves, so a run that stops half way has named them
         tmp = f"{stops_path}.tmp.{os.getpid()}"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write("\n".join(stops) + "\n")
         os.replace(tmp, stops_path)
-    for item, old in moving:
-        new, stage, kind = MOVES[old]
-        done = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "set", item,
-                               f"state={new}", f"stage={stage}", "task=-", "dispatch=-"], capture_output=True, text=True)
+        announce()
+
+    def ledger_set(item, *fields):
+        done = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "set", item, *fields],
+                              capture_output=True, text=True)
         if done.returncode != 0:
             die(1, f"ledger.sh set {item}: " + (done.stderr.strip() or f"exit {done.returncode}"))
+
+    for item, old in moving:
+        new, stage, kind = MOVES[old]
+        ledger_set(item, f"state={new}", f"stage={stage}", "task=-", "dispatch=-")
         record(project, item, old, kind)
+    # no state move reaches an escalated or failed row, but v2 cannot start a row at a removed stage
+    for item in restage:
+        ledger_set(item, "stage=build")
     queue, loops = os.path.join(home, "open-loops.md"), os.path.join(skill, "loops.sh")
     items = subprocess.run(["sh", loops, "--file", queue, "list"], capture_output=True, text=True)
     if items.returncode != 0:
@@ -253,8 +278,8 @@ def migrate():
                 die(1, f"loops.sh close {cells[0]}: " + (closed.stderr.strip() or f"exit {closed.returncode}"))
     data["schema"] = 2
     write_json(star_path, data)
+    forget(stops_path)
     print(f"migrated rows={len(moving)}")
-    finish(stops, stops_path)
 
 
 os.makedirs(home, exist_ok=True)

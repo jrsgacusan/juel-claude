@@ -181,6 +181,15 @@ s "a rate-limit error" "stalled: model at capacity" "API Error: 429 rate_limit_e
 s "a worker adding a rate limiter is not stalled" "ok" "added a rate limiter to the upload route"
 s "a worker handling 429s is not stalled" "ok" "returns 429 Too Many Requests when the limit is hit"
 s "a usage limit is still stuck" "stuck: usage limit" "You've hit your usage limit. Upgrade to Pro"
+# B-3: the error type names are capacity only on a line that also carries an API error
+s "a mid-screen JSON line naming rate_limit_error (code being read) is not stalled" "ok" '    "type": "rate_limit_error",' '  }'
+s "code that checks for overloaded_error is not stalled" "ok" '    if (err.type === "overloaded_error") retry();' '  }'
+s "a worker's own sentence about overloaded_error is not stalled" "ok" "Next I add a retry with backoff for overloaded_error responses." "Then I run the tests."
+s "Claude Code's overloaded API error on the last line is stalled" "stalled: model at capacity" 'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
+s "an error type in a line that starts with Error: is stalled" "stalled: model at capacity" "Error: overloaded_error, retrying in 5 seconds"
+s "an error type next to a 5xx status is stalled" "stalled: model at capacity" "529 overloaded_error"
+s "an error type next to a 4xx status is stalled" "stalled: model at capacity" "HTTP 429: rate_limit_error"
+s "an error type in an API error line without a status is stalled" "stalled: model at capacity" "API error, retrying: rate_limit_error"
 
 # progress, not the terminal, says whether a worker is stale
 mkdir -p "$TMP/home/progress"
