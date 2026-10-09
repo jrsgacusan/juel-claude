@@ -28,25 +28,18 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 ITEM_RE = re.compile(r"^### (N-\d+) · (.*?) · (.*?) · (.*)$")
-BLOCKING = {"approve-brief", "question", "escalation", "restart-or-drop"}
+BLOCKING = {"go-batch", "person", "go-merge", "question", "escalation", "restart-or-drop"}
 OVERNIGHT = {
-    "inbox": "a worker drafts its brief, then it waits for your approval",
-    "briefing": "its brief is being drafted, then it waits for your approval",
-    "brief-ready": "waits for your approval; nothing runs",
-    "queued": "builds when a slot frees, up to a draft PR and second-model review; goes to reviewers when you're back",
-    "building": "building, up to a draft PR and second-model review; goes to reviewers when you're back",
-    "pr-draft": "second-model review and fixes (up to 3 rounds); goes to reviewers when you're back",
-    "reviewing": "second-model review and fixes (up to 3 rounds); goes to reviewers when you're back",
-    "fix-queued": "the review found problems; a fix runs when a slot frees, then the next review round",
-    "fixing": "fixing review findings, then the next review round; goes to reviewers when you're back",
-    "babysit-queued": "reviewed and safe; it is marked ready and sent to reviewers when you're back",
-    "babysitting": "already with reviewers: keeps answering them and pushing fixes, outside your quiet hours",
-    "screen-queued": "reviewed and safe; some checks wait for you at the Mac, then it is marked ready",
-    "screening": "running the checks that need you at the Mac",
-    "verifying": "final check on the exact head, then it waits for your merge",
-    "ready": "waits for your merge",
+    "inbox": "a worker drafts its brief; it then waits for the batch go",
+    "briefing": "its brief is being drafted; it then waits for the batch go",
+    "brief-ready": "waits for the batch go or a person-only step; nothing runs",
+    "queued": "builds when a slot frees: plan, luna executes, checks, draft PR, then the codex gate",
+    "building": "building: plan, luna executes, checks, draft PR, codex gate until it passes",
+    "babysit-queued": "gated and checked; marked ready when a babysit slot frees, outside your quiet hours",
+    "babysitting": "with the hosted reviewer or a reviewer: fixes are gated and pushed; ready and replies wait out your quiet hours",
+    "verifying": "STAR checks the merge gate on the exact head and merges it under your go, outside your quiet hours",
     "reported": "its report is written and waits for your accept",
-    "post-queued": "accepted; the report is posted to the work item when you are back, outside your quiet hours",
+    "post-queued": "accepted; the report is posted to the work item outside your quiet hours",
     "posting": "posting the report to the work item",
     "escalated": "stopped; waits for your answer",
     "failed": "stopped; waits for your answer",
@@ -226,9 +219,8 @@ if a.cmd == "start":
         "### C. What runs while you're away",
         *part_c,
         "",
-        "While you're away: building, second-model review and fixes continue. No new PR is marked ready or",
-        "sent to human reviewers until you're back; babysitting that had already started carries on.",
-        "Status changes are held. Nothing is merged.",
+        "While you're away everything keeps running: builds, the codex gate, babysitting and merges under your go.",
+        "Your quiet hours still hold marking ready, replies, reviewer pings, status changes and merges.",
     ])
     set_away(home, stamp)
     print(path)
@@ -268,7 +260,7 @@ elif a.cmd == "summary":
         t = parse(r.get("updated", ""))
         return bool(t and since and t > since)
 
-    ready = [f"{r.get('project')} {r.get('item')} {r.get('pr')}" for r in rows if r.get("state") == "ready"]
+    ready = [f"{r.get('project')} {r.get('item')} {r.get('pr')}" for r in rows if r.get("state") == "verifying"]
     merged = [f"{r.get('project')} {r.get('item')}" for r in rows if r.get("state") == "done" and changed(r)]
     stopped = [f"{r.get('project')} {r.get('item')} ({r.get('state')})" for r in rows if r.get("state") in ("escalated", "failed")]
     sent = []
@@ -279,11 +271,11 @@ elif a.cmd == "summary":
             sent.append(f"{cells[1]} {cells[2]}: {cells[3]}"[:200])
     if len(sent) > SENT_SHOWN:
         sent = sent[-SENT_SHOWN:] + [f"(+{len(sent) - SENT_SHOWN} earlier)"]
-    running = sum(counts.get(s, 0) for s in ("briefing", "building", "reviewing", "fixing", "screening", "babysitting", "posting"))
+    running = sum(counts.get(s, 0) for s in ("briefing", "building", "babysitting", "posting"))
     block = [
         f"### {now()}",
         "- Items: " + (" · ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none open"),
-        "- PRs ready for your merge: " + ("; ".join(ready) or "none"),
+        "- PRs waiting to merge: " + ("; ".join(ready) or "none"),
         "- Merged since the last summary: " + ("; ".join(merged) or "none"),
         "- Stopped, waiting for your answer: " + ("; ".join(stopped) or "none"),
         "- Sent since the last summary: " + ("; ".join(sent) or "nothing"),

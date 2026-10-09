@@ -136,6 +136,8 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 | `--unattended` | off | No human answers (a `juel:star` worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
 | `--brief <path>` | — | An approved `juel_brief: 1` brief. A reviewer request that needs work outside its Scope (or listed under Out) is not built: see below |
 | `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
+| `--executor-model <id|latest-<family>>` | `latest-luna` | The model `codex exec` runs the plan on, resolved by `executor-model.sh` |
+| `--executor-effort <level>` | `xhigh` | Its reasoning effort |
 | `--only <ids>` | all unanswered feedback | Comma-separated comment / review ids to act on this run. Every other thread is still read as context, but is never re-classified, planned or answered |
 
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
@@ -387,9 +389,20 @@ Run Codex CLI non-interactively with the workspace-write sandbox:
 
 The harness pipes stdin and never closes it, so codex waits for an EOF that never arrives, and without `< /dev/null` here it hangs silently with the prompt unprocessed.
 
+Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-model> --effort <--executor-effort>`
+(`juel:ship-ticket`'s `executor-model.sh`: `../ship-ticket/executor-model.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/executor-model.sh`). It prints `<model> <effort>`;
+`default <why>` means: drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in
+one line.
+
 ```bash
-codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/receive-review-plan<-vN if applicable>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" '$claude-plan-executor ${docsRoot}/plans/receive-review-plan<-vN if applicable>.md' < /dev/null
 ```
+
+**At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
+overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
+fallback model (`latest-sol`, resolved the same way); then run the plan in this session with
+`superpowers:executing-plans`. Say each step in one line.
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for

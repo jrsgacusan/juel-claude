@@ -13,7 +13,7 @@ H=$(sh "$ROOT/skills/star/star-home.sh" --cwd "$TMP/app" init)
 owner() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["terminal"]=(sys.argv[2] or None); json.dump(d,open(p,"w"),indent=2)' "$H/star.json" "$1"; }
 # run <cwd> <handle>
 run() { printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"compact"}' "$1" | ORCA_TERMINAL_HANDLE="$2" sh "$HOOK"; }
-valid() { python3 -c 'import json,sys; d=json.load(sys.stdin)["hookSpecificOutput"]; assert d["hookEventName"]=="SessionStart"; t=d["additionalContext"]; assert "/juel:star" in t and "never merge" in t.lower() and sys.argv[1] in t, t' "$1" 2>/dev/null; }
+valid() { python3 -c 'import json,sys; d=json.load(sys.stdin)["hookSpecificOutput"]; assert d["hookEventName"]=="SessionStart"; t=d["additionalContext"]; assert "/juel:star" in t and "merge.sh" in t and sys.argv[1] in t, t' "$1" 2>/dev/null; }
 
 owner term_A
 run "$TMP/app" term_A | valid "$H" && pass "speaks to the owning terminal, valid JSON, names the folder" || fail "owning terminal"

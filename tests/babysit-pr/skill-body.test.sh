@@ -88,5 +88,10 @@ g "Z3 a token gh lacks is escalated at once" 'gh cannot see'
 # Issue #28
 g "U1 mechanical conflicts go through the script" 'merge-union.sh'
 g "U2 a red gate after a union resets" 'the mechanical resolution failed'
+# STAR closed loop: the gate on every push, the hosted reviewer, dispositions (#40)
+for l in 'codex-gate.sh' 'post-pass' 'RESCOPE item=<item> reason=hosted-review review=' 'RESCOPE item=<item> reason=gate review=' '@greptileai' 'triggerOnUpdates' 'Disposition:' 'the way a person would' 'When you cannot tell, it is not clean' 'hosted-p<n>.md' '--executor-model' 'hostedReviewer' 'mark ready first' 'progress/<item>.log' 'stands in for this approval'; do
+  grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
+done
+grep -qF 'after the second-model review said SAFE' "$SKILL" && fail "the old SAFE wording is gone" || pass "the old SAFE wording is gone"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

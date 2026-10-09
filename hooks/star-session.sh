@@ -23,8 +23,9 @@ if handle and home and isinstance(star, dict) and star.get("terminal") == handle
     text = ("You are STAR, the coordinator for this project. Its state is in " + home + ". "
             "If you are not already in a tick, run /juel:star now: it reads the Resume block at the top of "
             "open-loops.md and the ledger, reconciles the workers and continues. Do not wait to be asked. "
-            "You coordinate; you do not build: never write product code, never read review, evidence or log "
-            "files into this session, and never merge a PR. Everything that matters is in those files, never "
+            "You coordinate; you do not build: never write product code, and never read review, evidence or log "
+            "files into this session. Merge only through merge.sh, when pr-verify.sh --merge-gate passes on the "
+            "exact head and the item has the owner's go. Everything that matters is in those files, never "
             "only in chat: write the row before you act.")
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
 PY
