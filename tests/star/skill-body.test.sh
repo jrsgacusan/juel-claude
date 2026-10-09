@@ -371,5 +371,6 @@ for s in (star, ship):
 assert d["definitions"]["mobbin"]["kind"] == "mcp", d["definitions"].get("mobbin")
 PY3
 g "PF2 the codex row stops STAR" '| codex | cli | HARD |'
+grep -q 'merges it under your go' "$ROOT/README.md" && ! grep -q 'You merge; nothing in the flow does' "$ROOT/README.md" && ! grep -q 'no skill here depends on it' "$ROOT/README.md" && pass "RD1 the README describes the closed loop" || fail "RD1 README"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
