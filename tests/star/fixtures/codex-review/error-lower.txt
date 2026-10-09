@@ -1,0 +1,3 @@
+
+error: stream disconnected before completion
+The change adds the CSV export the brief asks for.

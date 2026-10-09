@@ -23,6 +23,8 @@
 # review thread someone else opened (a hosted reviewer's included); and, without --hosted, an
 # APPROVED review on the head by someone other than the PR's author whose authorAssociation is
 # OWNER, MEMBER or COLLABORATOR (write access), which an explicit zero rule does not waive.
+# The review threads are never guessed: a gh call that exits non-zero, or an answer whose threads
+# are not a list, is "PENDING gh: review threads unreadable", not "no findings".
 # --hosted says the project has a hosted reviewer (Greptile): it stands in for that
 # approval, and its review text is never read here: the babysit worker judges it from guidelines
 # and reports READY only on a head it judged clean. Logins are compared without a "[bot]" suffix.
@@ -113,14 +115,17 @@ def threads(d):
     if len(repo) != 2 or not number:
         return None
     try:
-        proc = subprocess.run(["gh", "api", "graphql", "-f", f"query={THREADS_QUERY}", "-F", f"owner={repo[0]}",
-                               "-F", f"name={repo[1]}", "-F", f"number={number.group(1)}"],
+        # -f sends a string as it is; -F would turn an owner or a name such as 123 or true into a number or a boolean
+        proc = subprocess.run(["gh", "api", "graphql", "-f", f"query={THREADS_QUERY}", "-f", f"owner={repo[0]}",
+                               "-f", f"name={repo[1]}", "-F", f"number={number.group(1)}"],
                               capture_output=True, text=True, timeout=LIMIT)
         nodes = json.loads(proc.stdout)["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
     except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
         return None
+    if proc.returncode != 0 or not isinstance(nodes, list):  # a partial answer (errors beside the data) is no answer
+        return None
     found = []
-    for t in nodes if isinstance(nodes, list) else []:
+    for t in nodes:
         if isinstance(t, dict) and not t.get("isResolved"):
             comments = ((t.get("comments") or {}).get("nodes")) or []
             found.append([(bare((c.get("author") or {}).get("login")), str(c.get("body") or ""))

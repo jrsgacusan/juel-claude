@@ -12,7 +12,7 @@ pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$SCRIPT" ] || { echo "FAIL codex-gate.sh missing"; exit 1; }
 
-APP="$TMP/app"; mkdir -p "$APP"
+APP="$TMP/app"; mkdir -p "$APP" "$TMP/fix"
 (cd "$APP" && git init -q -b main . && printf 'a\n' > f && git add f && git -c user.email=t@t -c user.name=t commit -qm init && git checkout -qb feat/item-1 && printf 'b\n' > f && git -c user.email=t@t -c user.name=t commit -qam change)
 H="$TMP/home"; mkdir -p "$H/memory" "$H/gates/app"
 printf '{"project": {"name": "app"}, "gate": {"model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol"}}\n' > "$H/star.json"
@@ -63,6 +63,8 @@ chmod +x "$TMP/bin/codex" "$TMP/bin/gh"
 reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
+# GF reads the fixtures a test writes into $TMP/fix instead of the shared ones
+GF() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
 HEAD=$(git -C "$APP" rev-parse HEAD)
 R1="$H/reviews/app/ITEM-1-r1.md"
 
@@ -119,6 +121,60 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 reset; mkdir -p "$TMP/fix"; printf 'The change has a problem.\n\nReview comment:\n\nadd() now subtracts.\n' > "$TMP/fix/header-only.txt"; plan "0 header-only"
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" --brief "$BRIEF" --item ITEM-1 --round 1 --base main) ); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR unreadable review: findings without [P0]-[P3] tags" ] && pass "a findings header with no tagged finding under it is ERROR" || fail "header only ($rc $out)"
+
+# A-1: a finding in another bullet shape is still a finding, and a tag the gate cannot read is never SAFE
+for shape in p1-star p1-numbered p1-bold; do
+  reset; plan "0 $shape"
+  out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+  [ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && grep -q '^1\. \[P1\] Return the sum instead of the difference — /repo/calc.py:2-2$' "$R1" && pass "a [P1] in the $shape bullet shape is NOT-SAFE, never SAFE" || fail "$shape ($rc $out)"
+done
+for shape in untagged-hyphen untagged-paren untagged-star; do
+  reset; plan "0 $shape"
+  out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+  [ "$rc" -eq 69 ] && [ "$out" = "ERROR unreadable review: findings without [P0]-[P3] tags" ] && pass "an untagged finding in the $shape shape is ERROR, never SAFE" || fail "$shape ($rc $out)"
+done
+while IFS='|' read -r label body; do
+  reset; printf 'The change has a problem.\n\n%s\n' "$body" > "$TMP/fix/var.txt"; plan "0 var"
+  out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$?
+  [ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && pass "a [P1] is NOT-SAFE with $label" || fail "tagged variant ($label): $rc $out"
+done <<'EOF'
+a plus bullet|+ [P1] Return the sum instead of the difference — /repo/calc.py:2-2
+a numbered bullet closed by a parenthesis|1) [P1] Return the sum instead of the difference — /repo/calc.py:2-2
+an indented bullet|  - [P1] Return the sum instead of the difference — /repo/calc.py:2-2
+EOF
+while IFS='|' read -r label body; do
+  reset; printf 'The change has a problem.\n\n%s\n' "$body" > "$TMP/fix/var.txt"; plan "0 var"
+  out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$?
+  [ "$rc" -eq 69 ] && [ "$out" = "ERROR unreadable review: findings without [P0]-[P3] tags" ] && pass "an untagged finding is ERROR with $label" || fail "untagged variant ($label): $rc $out"
+done <<'EOF'
+an en dash before the place|- Return the sum from add() – /repo/calc.py:2
+a numbered bullet|1. Return the sum from add() — /repo/calc.py:2-2
+a plus bullet|+ Return the sum from add() - /repo/calc.py:2
+a line range in parentheses|- Return the sum from add() (/repo/calc.py:2-4)
+EOF
+while IFS='|' read -r label body; do
+  reset; printf 'The change has a problem.\n\n%b\n' "$body" > "$TMP/fix/odd.txt"; plan "0 odd"
+  out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$?
+  [ "$rc" -eq 69 ] && [ "$out" = "ERROR unreadable review: a finding in a shape the gate cannot read" ] && [ ! -f "$R1" ] && pass "a tag the gate cannot read is ERROR ($label)" || fail "unreadable tag ($label): $rc $out"
+done <<'EOF'
+no bullet|[P1] Return the sum instead of the difference — /repo/calc.py:2-2
+a colon after the tag|- [P1]: Return the sum instead of the difference — /repo/calc.py:2-2
+a bold tag with no bullet|**[P1]** Return the sum instead of the difference — /repo/calc.py:2-2
+a tag with no title|- [P3]
+a P0 with a colon after the tag|- [P0]: Delete the table — /repo/db.py:9
+the tag inside the title|- Return the sum [P2] — /repo/calc.py:2
+a readable P1 beside one that cannot be read|- [P1] Return the sum — /repo/calc.py:2\n- [P2]: Rename it — /repo/calc.py:9
+EOF
+
+# A-4: a failure that codex prints on stdout while it exits 0 is not a review
+for fx in error-line error-lower warning-line; do
+  reset; plan "0 $fx"
+  out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+  [ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review failed: $(grep -m 1 . "$FIX/$fx.txt")" ] && [ "$(cat "$TMP/n")" = 1 ] && [ ! -f "$R1" ] && pass "exit 0 with $fx as the first line is ERROR, not SAFE, and not retried" || fail "$fx ($rc $out)"
+done
+reset; printf 'The change is fine.\nError handling in the export is covered by a test.\n' > "$TMP/fix/error-later.txt"; plan "0 error-later"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "the word error on a later line is only text" || fail "error later ($rc $out)"
 
 # an empty review is an error at once
 reset; plan "0 -"
@@ -179,6 +235,40 @@ out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD"
 rm -f "$TMP/gh-calls"
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD" --review "$RV" --model gpt-6-luna --effort low)
 grep -q "PASS (head $NEWHEAD, round 2, gpt-6-luna low)" "$TMP/gh-calls" && pass "post-pass: --model and --effort win over the review file" || fail "post-pass flags ($out / $(cat "$TMP/gh-calls"))"
+# A-2: with --review, post-pass posts only a SAFE verdict of this round and this head, with no newer round beside it
+review_file() { # review_file <path> <first line>
+  printf '%s\n\n## Findings\nnone\n\n## Notes\n-\n\nGate: gpt-6.1-sol xhigh · base main · raw r · log l\n' "$2" > "$1"
+}
+refused() { # refused <label> <review file> <the start of the ERROR line>
+  rm -f "$TMP/gh-calls"
+  out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD" --review "$2"); rc=$?
+  case "$out" in "$3"*) [ "$rc" -eq 69 ] && ! grep -q 'pr comment' "$TMP/gh-calls" 2>/dev/null && pass "post-pass refuses $1 and posts nothing" || fail "$1 (rc=$rc, $out, calls: $(cat "$TMP/gh-calls" 2>/dev/null))" ;; *) fail "$1 ($rc $out)" ;; esac
+}
+RV2="$H/reviews/app/ITEM-1-r2.md"; S7=$(printf '%.7s' "$NEWHEAD")
+review_file "$RV2" "VERDICT item=ITEM-1 round=2 NOT-SAFE findings=1 head=$NEWHEAD"
+refused "a NOT-SAFE review" "$RV2" "ERROR the review says NOT-SAFE, not SAFE"
+review_file "$RV2" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=0000000000000000000000000000000000000000"
+refused "a SAFE review of another head" "$RV2" "ERROR the review is of 0000000, not $S7"
+review_file "$RV2" "VERDICT item=ITEM-1 round=1 SAFE findings=0 head=$NEWHEAD"
+refused "a SAFE review of another round" "$RV2" "ERROR the review is of round 1, not round 2"
+review_file "$RV2" "Looks good to me."
+refused "a file with no VERDICT line" "$RV2" "ERROR the review's first line is not a full VERDICT line"
+: > "$RV2"
+refused "an empty file" "$RV2" "ERROR the review's first line is not a full VERDICT line"
+review_file "$RV2" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$(printf '%.6s' "$NEWHEAD")"
+refused "a head of fewer than 7 characters" "$RV2" "ERROR the review's first line is not a full VERDICT line"
+review_file "$RV2" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$NEWHEAD and then some"
+refused "a VERDICT line with words after it" "$RV2" "ERROR the review's first line is not a full VERDICT line"
+review_file "$RV2" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$NEWHEAD"; : > "$H/reviews/app/ITEM-1-r3.md"
+refused "a review with a newer round beside it" "$RV2" "ERROR round 3 has its own review at $H/reviews/app/ITEM-1-r3.md"
+rm -f "$H/reviews/app/ITEM-1-r3.md"; : > "$H/reviews/app/OTHER-1-r3.md"
+rm -f "$TMP/gh-calls"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD" --review "$RV2")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && grep -q "PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh)" "$TMP/gh-calls" && pass "post-pass posts a SAFE review of this round and head; another item's newer round does not matter" || fail "valid review ($out / $(cat "$TMP/gh-calls"))"
+review_file "$RV2" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$S7"; rm -f "$TMP/gh-calls"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD" --review "$RV2")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && pass "post-pass accepts a review whose head is the start of --head" || fail "head prefix ($out)"
+rm -f "$H/reviews/app/OTHER-1-r3.md"
 rm -f "$TMP/gh-calls"; mkdir -p "$TMP/phome"; printf '{"gate": {"model": "gpt-6-sol", "effort": "high"}}\n' > "$TMP/phome/star.json"
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" JUEL_STAR_HOME="$TMP/phome" sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD") )
 grep -q "PASS (head $NEWHEAD, round 2, gpt-6-sol high)" "$TMP/gh-calls" && pass "post-pass: with no flag and no review, star.json's gate block names the model" || fail "post-pass star.json ($out / $(cat "$TMP/gh-calls"))"
