@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. With --unattended and --brief it runs without pauses as an Orca worker under juel:star, escalating real decisions and stopping at a draft PR; --fix-review applies a second-model review's findings.
+description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. Codex runs the plan on the newest luna at xhigh. With --unattended and --brief it runs without pauses as an Orca worker under juel:star, escalating real decisions, and loops its draft PR through a headless codex review gate until no P0 or P1 finding is left.
 metadata:
   requires:
     mcp:
@@ -143,7 +143,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 4. Execute — run the executor from the worktree root, BACKGROUND (watched, waited-on)
 5. Review + remediation — juel:review-and-execute
 6. End-to-end verification — exhaustive per-item checklist on an isolated local stack, Claude drives the real flow, evidence saved, full regression gate before PR
-7. Open PR — with QA instructions, update the work-item status
+7. Open PR — with QA instructions, update the work-item status; under `--unattended`, the codex gate loop
 8. Babysit PR — juel:babysit-pr: wait for reviews, remediate, sync and push until approved
 
 ## Arguments
@@ -154,14 +154,18 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `[base-branch]` | auto-detected — see "Base branch & repo conventions" below | Branch to diff/PR against |
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
-| `--fix-review <file>` | off | Fix mode for a NOT-SAFE second-model review; requires `--unattended --brief`. See "Unattended mode" |
-| `--screen-checks <file>` | off | Screen-check mode for a `juel:star` worker: run only the checks an earlier run left blocked, with the user at the screen; requires `--unattended --brief`. See "Unattended mode" |
-| `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
+| `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` on the model `executor-model.sh` resolves (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
+| `--executor-model <id|latest-<family>>` | `star.json`'s `executor.model` under a `star:` brief, else `latest-luna` | The model `codex exec` runs the plan on. `executor-model.sh`, next to this file, resolves it from `codex debug models` |
+| `--executor-effort <level>` | `star.json`'s `executor.effort` under a `star:` brief, else `xhigh` | Its reasoning effort; a level the model lacks steps down to the highest it has |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. `quiet-hours.sh` decides inside or outside. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
 `/juel:ship-ticket --unattended --brief <project>/docs/superpowers/context/star/briefs/lstn/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
-(add `--fix-review <project>/docs/superpowers/context/star/reviews/lstn/SAVI-1162-r1.md` for a fix stage)
+
+`--fix-review` and `--screen-checks` were removed in v2, when STAR moved the codex gate loop into
+the build: a run given either stops at once. Under `--unattended` it prints
+`ESCALATION item=<item> phase=0 reason=preflight needs=<flag> was removed in v2: STAR runs the gate loop inside the build`;
+otherwise it says the same in one line.
 
 ## Base branch & repo conventions
 
@@ -293,7 +297,7 @@ log entry. Without that flag, every rule in this section applies unchanged.
 ## Unattended mode
 
 `--unattended` is how `juel:star` runs this skill as an Orca worker, where no human answers
-checkpoints. The human already approved the scope as a brief, and keeps the merge. `--unattended`
+checkpoints. The human already approved the scope as a brief (the batch go), and STAR merges under that go once every gate holds. `--unattended`
 without `--brief` is refused: print `ESCALATION item=unknown phase=0 reason=no-brief needs=an
 approved brief` and stop.
 
@@ -309,33 +313,32 @@ line:
 | start of each phase | `PHASE <n> <item>` |
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
-| an existing PR updated (`existingPr`) | `PR item=<item> url=<url> existing` |
+| an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished, draft PR open | `DONE item=<item> pr=<url>`, followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
-| review findings fixed and pushed (`--fix-review`) | `FIXED item=<item> head=<sha>` |
-| checks left for the user at the screen (after `DONE`) | `SCREEN path=<pending-checks file> pending=<n>` |
+| build finished: the draft PR passed the codex gate and its PASS is posted | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
+| the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
-| screen checks run (`--screen-checks`) | `VERIFIED item=<item> passed=<n> failing=<m> head=<sha>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
 
 **Reporting.** You are an Orca worker. The `worker_done` body is at most 12 lines: the run's final
-line (`DONE`, `FIXED`, `REPORTED`, `VERIFIED` or `ESCALATION`) is the
-first line of the `worker_done` body, then `GATES <path>` and, when checks are pending,
-`SCREEN path=<file> pending=<n>` after a `DONE`, each `HELD` line from the run, at most one
-`STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` —
+line (`DONE`, `RESCOPE`, `REPORTED` or `ESCALATION`) is the
+first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `HELD` line
+from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` —
 a fact the next worker in this project should know (a required env var, a flaky test, a naming
 rule), never a status update. With more than two `HELD` lines, write them all to a file beside the
 gate manifest and report one line instead: `HELD item=<item> action=<n> held actions, listed in
 <path>`. `PHASE` and `PR` lines are for the terminal only and never go in the body. Anything longer
 goes into a file whose path you report; the
 coordinator reads the report, not your output. Print the same lines to the terminal as well.
-Report `--outcome failed` for an `ESCALATION`, `succeeded` otherwise.
+Report `--outcome failed` for an `ESCALATION`, `succeeded` otherwise (a `RESCOPE` is `succeeded`).
 
 **Notes first.** When the brief has a `star:` block, read every file listed under `star.notes`
 before Phase 1: notes left by earlier workers in this project and by the human.
 
-**Decisions are binding.** A brief may end with a `## Decisions` section: the human's answers to
-earlier escalations on this item, dated. Read it before anything else in the brief. A decision
+**Decisions are binding.** A brief may end with a `## Decisions` section: decision records
+(`### D<n> <title>` blocks with Context, Decision, Consequences and Source) taken by the brief
+worker or STAR, and the human's dated answers to earlier escalations on this item. Read it before
+anything else in the brief. A decision
 overrides the Approach where they differ and settles the question it answers: apply it, and do not
 escalate the same question again. Where two decisions disagree, the later one wins.
 
@@ -363,7 +366,7 @@ invokes, that says to ask, confirm with or wait for the user means this under `-
 | ask which remote or base branch | the brief's `baseBranch`; one remote → it, `origin` → it, otherwise `ESCALATION … phase=0 reason=preflight needs=which remote to push to: <names>` |
 | stop and ask the user to commit, stash, or create a worktree | `ESCALATION … phase=<n> reason=preflight needs=<what is wrong>` |
 | A gate inside an invoked skill: `superpowers:brainstorming`'s design approval, `superpowers:writing-plans`' plan review and its choice of execution method, a confirmation in `juel:review-and-execute`, `juel:verify` or `run` | the approved brief is the approval. Tell the skill so when invoking it ("unattended: the brief is approved, take your default path, ask nothing"), treat every such gate as answered yes, take the default or recommended option, and never wait on it. What only a person can supply is the `needs-human-input` escalation |
-| any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; "No answer from the user: escalate this." → `unanswered-question` A question that needs the user's hands at the Mac (sign in, drag a DMG, a keychain or Gatekeeper prompt) ends with ` deadline=60`, names the item and the window, and is asked under the screen lock (see "The screen"). |
+| any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; "No answer from the user: escalate this." → `unanswered-question` A step that needs a person's hands at the Mac (sign in, drag a DMG, a keychain or Gatekeeper prompt) is never asked mid-run: the owner did the brief's person-only steps before go, and a step the brief missed is the `needs-human-input` escalation. |
 
 `AskUserQuestion` is never called.
 
@@ -376,37 +379,41 @@ like a Decision. Do not ask what the brief already answers, and do not ask leave
 brief already allows. When a message from the coordinator appears in your terminal (a check-in),
 answer it in one line and carry on with what you were doing.
 
-**Fix mode (`--fix-review <file>`).** The coordinator starts a fresh worker in the item's worktree
-when a second-model review says NOT SAFE; the file holds that review's findings. Check the file
-before anything is written or pushed, with the script, never by eye:
+**Resume on an existing draft PR.** A build whose branch already carries the item's draft PR (a
+re-scope, a report STAR could not check, an item STAR moved from v1 in the middle of its review)
+works from the branch as it is. Read the brief's newest `## Decisions` records first: they say why
+the build runs again. Phases 2 and 3 write a new spec and plan version (`-vN`) for what the brief
+still needs; Phase 4 runs only that plan; Phase 7 updates the PR the way it updates an
+`existingPr` (push to its branch, never force, the `<!-- juel:update -->` section) and prints
+`PR item=<item> url=<url> existing`. Never reset the branch or rewrite its history.
 
-```sh
-sh <review-proof.sh> <file> --item <item> --head "$(git rev-parse HEAD)" --verdict NOT-SAFE
-```
+**Settings from STAR.** Under a brief with a `star:` block, read `<star.home>/star.json` once,
+before Phase 1: its `executor` (`model`, `effort`, `fallback`) and `gate` (`model`, `effort`,
+`fallback`, `maxRounds`) blocks. A flag on the command line wins over it.
 
-(`review-proof.sh` is in `juel:babysit-pr`: `../babysit-pr/review-proof.sh` from this file, or
-`${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/review-proof.sh`.) It prints `OK round=<k>` when the
-file's first line is a full `VERDICT` line for this item that says `NOT-SAFE`, its `round=` is the round in the file's name
-(`-r<k>.md`), and its `head=` is the commit this worktree is on. `NO head: …` (the review is of
-another commit) is
-`ESCALATION item=<item> phase=0 reason=stale-review needs=a review of <HEAD>` (the coordinator
-sends the item back to review); any other `NO …`, a file with no numbered finding, or a script that
-cannot run is
-`ESCALATION item=<item> phase=0 reason=preflight needs=a findings file for <item> at <file>`. Then
-stop: fixing against a missing, empty or stale review would push changes nobody asked for.
-Phases 1–3 are SKIPPED (the spec and plan already exist under `docsRoot`; reuse them). Validate each finding with
-`superpowers:receiving-code-review` against the brief; a finding outside the brief's scope is a
-`brief-violation` escalation, never silently built. Write a `-vN` review plan, and Phase 4 executes
-it (rule 4: `codex exec` backgrounded, watched and waited on). Phase 5 is SKIPPED (the findings are
-the review). Phase 6 runs in full, including cleanup and the regression gate. Commit, `git push`
-(never force), and Phases 7–8 are SKIPPED: the PR already exists. When every finding was rejected
-there is nothing to commit: do not commit or push, and still write the outcome file and report
-`FIXED item=<item> head=<the unchanged HEAD>` with `fixed=0 rejected=<n>`; the next review round
-reads why. Before the final line, write the
-outcome per finding (fixed, or rejected with the technical reason) to the file the coordinator named
-next to the findings (`<findings file without .md>-fix.md`), so the next reviewer sees why a finding
-was rejected. The final line is `FIXED item=<item> head=<sha>`; the line after it gives only the
-counts (`fixed=<n> rejected=<m>`), because the outcomes themselves are in that file.
+**Grounded decisions.** STAR decides product calls without asking the owner, so every decision
+this run takes (in brainstorming, the spec, the plan or a fix) names its source. Consult, in this
+order of fit: for a user-facing change, the Mobbin MCP (`search_screens`, `search_flows`,
+`search_sections`) for how real apps solve it, and the `frontend-design` skill for the visual and
+interaction choices; for a library, framework, SDK, API or CLI, context7 for the version the project
+uses; when neither fits, a web search, official docs first; for a project convention, the code
+already in the repo, cited as `file:line`. A decision with no source is not taken: research first,
+or ask the coordinator with sourced options. Record each one in the spec as a decision record
+(Context, Decision, Consequences, Source). Mobbin searches spend paid credits: use them for
+user-facing changes only. When the Mobbin or context7 tools are not in this session, search the web
+instead and say so in the record's Source.
+
+**Progress.** STAR judges this run by its progress, not its terminal. At the start of each phase
+and each gate round, and after each live check in Phase 6, append one line to
+`<star.home>/progress/<item>.log`:
+`printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<phase or round>" "<one line>" >> <that file>`.
+Thirty minutes with no progress line, no commit and no changed file gets a check-in from STAR.
+
+**Red-first tests.** For a bug-fix item (its brief's `branch` starts `fix/`, or the item says it
+fixes a defect), the plan's first task writes the regression test and commits it alone. Run that
+test on the base commit and record it failing in the evidence `report.md` as
+`red-first: <test> failed on <base sha>` before the fix lands. A test that passes on the base commit
+does not prove the bug: rewrite it until it fails there.
 
 **Report deliverable.** A brief with `deliverable: report` asks for evidence or a write-up, not a
 code change. Phases 2 to 5 are SKIPPED with "report deliverable: the acceptance criteria are the
@@ -418,17 +425,9 @@ section per criterion with its result and evidence paths, then any proposed bug 
 steps, evidence), and prints `REPORTED item=<item> path=<path>` as the final line. No commit, no
 push, no PR, no status write; Phase 8 is SKIPPED.
 
-**Screen-check mode (`--screen-checks <file>`).** The coordinator starts it once the user is back,
-for the checks an earlier run of this item left blocked; the file lists them. Phases 1 to 5 and 7
-to 8 are SKIPPED: the spec, the plan and the PR exist. Phase 6 runs only the listed checks, under
-the screen lock, asking the user at the screen as needed, and records them in the same evidence
-directory. A check that fails is reported, not fixed here. The final line is
-`VERIFIED item=<item> passed=<n> failing=<m> head=<sha>`.
-
-**The screen.** Before launching an app you will drive, before driving any GUI (computer use, an
-app window, a browser that is not Playwright's own), and before asking the user to act at the
-screen, take the machine-wide screen lock; release it as soon as that part ends, and before any
-escalation:
+**The screen.** Before launching an app you will drive, and before driving any GUI (computer use, an
+app window, a browser that is not Playwright's own), take the machine-wide screen lock; release it
+as soon as that part ends, and before any escalation:
 
 ```sh
 sh <screen-lock.sh> acquire --holder "<item>"    # held by <item> since <iso>, or exit 75: busy
@@ -438,23 +437,25 @@ sh <screen-lock.sh> release --holder "<item>"
 (`screen-lock.sh` is next to this file: `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/screen-lock.sh`
 when that is set.) Exit 75 means another item has the screen, which is normal: do any screen-free
 work in the plan, then try again; after 2 hours of tries escalate `screen-busy`. Where an app lets
-you set a window or profile title, include the item name, and every question that needs the user
-at the screen names the item and the window ("<item>'s app window: sign in"). A check that needs a
-person and cannot have one (the brief's `## Decisions` say `can't now` for it, or the answer came
-back "No answer from the user: escalate this.") is recorded as `blocked: needs you at the screen`:
-never PASS, and never the `unanswered-question` escalation. Finish everything else, write the
-blocked checks to `<directory of star.gates>/<item>-screen.md` (one numbered check per line, with
-what the user must do), open the draft PR with them listed under **Pending: needs a person at the
-screen**, and add `SCREEN path=<that file> pending=<n>` after `DONE`.
+you set a window or profile title, include the item name. While you hold the lock, renew it at
+least every 10 minutes:
+`sh <screen-lock.sh> renew --holder "<item>"`. A lock nobody renews for 30 minutes is taken over by
+the next worker. `renew` exiting 65: the lock was taken over; stop driving the screen and acquire it
+again. Take it only around the steps that drive the visible screen: a check the brief's
+`## Checks` marks `auto: playwright` runs headless and takes no lock, and `auto: hidden-window` (an
+Electron window that paints while hidden) takes none either; only `auto: computer-use`
+(`orca computer`) and a launched app's real window need it. Every check the brief marks `person:`
+was done by the owner before go. A check that turns out to need a person anyway is a brief miss:
+`ESCALATION item=<item> phase=6 reason=needs-human-input needs=<the check> needs a person and is not
+in the brief's person-only steps`. Never mark it PASS.
 
 **Status writes under STAR.** When the brief has a `star:` block, the coordinator owns the work
 item's status: Phase 7 step 4 prints `Status: skipped (STAR owns the status)` and writes nothing,
 and no other phase writes it either.
 
-**Decisions made while the user was away.** When the brief's `## Decisions` has lines that say
-"decided while you were away" or "default taken", the Phase 7 PR body gets a section
-**Decided while you were away** that lists them, so the person who merges sees every call that
-was made without them.
+**Decisions made without the owner.** When the brief's `## Decisions` has records decided by STAR
+or a worker, the Phase 7 PR body gets a section **Decisions made without you** that lists each
+record's title and source, so every reviewer sees every call that was made without a person.
 
 **Checkpoints.** Every "Proceed to phase N+1?" becomes the `PHASE` line for the next phase and the
 run continues. The task list and rule 3's one-line evidence still apply.
@@ -467,7 +468,7 @@ silently: after the preflight block, print
 Nothing else stops an unattended run, and nothing on this list is ever worked around:
 
 1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
-2. `codex-failed` — Codex fails in phase 4.
+2. `codex-failed`: Codex fails in phase 4 for a reason other than capacity (capacity retries, then the fallback model, then this session runs the plan; see Phase 4).
 3. `verification-failed` — a phase 6 item is still FAIL after one loop back through phase 5.
 4. `gate-red` — the regression gate is red twice.
 5. `merge-conflict` — a merge conflict with the base branch.
@@ -475,8 +476,7 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
 8. `unanswered-question` — a question you sent the coordinator with `orca orchestration ask` came
    back with "No answer from the user: escalate this." Clean up as below, then escalate with the
-   question in `needs=`. Never for a check that needs the user at the screen: that check is blocked
-   instead (see "The screen").
+   question in `needs=`. Never for a step that needs a person: that is `needs-human-input`.
 9. `gate-busy` — `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
    `needs=` quotes its "busy, held by …" line.
 10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
@@ -485,6 +485,8 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
     script's message.
 11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
     quotes its "busy, held by …" line.
+12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart. `needs=` quotes
+    its `ERROR` line.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -654,7 +656,7 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 
 Verify cwd is the worktree root (not `frontend/` or any subdirectory) — Codex sandbox requires this. If not at root, `cd` to it.
 
-**With `--executor session`** (how `juel:star` runs its build and fix stages by default): do not
+**With `--executor session`**: do not
 dispatch Codex. Execute the plan in this session with `Skill("superpowers:executing-plans")` on the
 plan file, the same path as when Codex is not installed, then continue with "Resolve toolchain
 commands" below. Pass the choice on: Phase 5 invokes `juel:review-and-execute` with
@@ -665,9 +667,21 @@ Dispatch Codex non-interactively. Always run this in the **background** (`run_in
 
 The harness pipes stdin and never closes it, so codex waits for an EOF that never arrives, and without `< /dev/null` here it hangs silently with the prompt unprocessed.
 
+Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-model> --effort <--executor-effort>`
+(`executor-model.sh` is next to this file). It prints `<model> <effort>`; `default <why>` means:
+drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in one line (under
+`--unattended`, a `NOTE`).
+
 ```bash
-codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
 ```
+
+**At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
+overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
+fallback model (`--executor-model` from `executor.fallback`, `latest-sol` by default, resolved the
+same way); then run the plan in this session with `superpowers:executing-plans`. Each step is one
+line to the user (under `--unattended`, a `NOTE`). Any other non-zero exit is the `codex-failed`
+escalation under `--unattended`.
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
@@ -700,7 +714,7 @@ Delegate the full review-validate-plan-execute cycle to `/juel:review-and-execut
 Skill("juel:review-and-execute", args: "<resolved-base-branch>")
 ```
 
-(With `--executor session`: `args: "<resolved-base-branch> --executor session"`.)
+(With `--executor session`: `args: "<resolved-base-branch> --executor session"`. Otherwise pass the resolved model on: `args: "<resolved-base-branch> --executor-model <model> --executor-effort <effort>"`.) Under `--brief`, also give it the brief's acceptance criteria in the invocation text, so its fresh reviewers check each one: Codex executes and Codex gates, so this Claude review is the independent one.
 
 Under `--unattended`, say so in the invocation: "Unattended run: the approved brief is the
 approval. Ask nothing and confirm nothing; take the default at every gate; a finding that needs a
@@ -809,6 +823,10 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
      row, log line) so one pass traces the full path: UI action → network → backend → DB/state →
      UI feedback. This is Claude's default for every UI-surfaced item, not a fallback offered only
      when the user is unavailable.
+   - **Under `--brief`,** run each check the way the brief's `## Checks` marks it: `auto: playwright`
+     (headless Playwright through `juel:verify`, no screen lock), `auto: hidden-window` (an Electron
+     window that paints while hidden, no screen lock), `auto: computer-use` (`orca computer`, under
+     the screen lock, renewed every 10 minutes), `auto: api` or `auto: cli` (call it and observe).
    - **Any item whose diff touches UI:** capture the rule 4 screenshots (light mode, desktop
      1440x900) of every changed screen or state into the evidence directory's `screenshots/`,
      taken during the recorded flow, and note the item's start time in the recording.
@@ -878,7 +896,7 @@ the evidence directory. Ask to proceed to PR.
      appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
      then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
      `PR item=<item> url=<url> existing`.
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line. It is marked ready once, in Phase 8, only after the second-model review says SAFE.
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. It is marked ready once, by the babysit stage, after the gate passed.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 
@@ -894,14 +912,47 @@ the evidence directory. Ask to proceed to PR.
 
 Trailers: apply the detected convention from "Base branch & repo conventions" above (zero `Co-Authored-By:` history → omit; do not impose a trailer the repo's own commit history doesn't use).
 
+**The codex gate loop (`--unattended` with a `star:` brief).** Skipped with one line otherwise. With
+no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
+
+1. Round: `k` is 1 plus the highest `k` among `<star.reviews>/<item>-r<k>.md`, or 1 when there is none.
+   Append a progress line.
+2. Run, from the worktree root, in the background like `codex exec` (`run_in_background: true`, wait
+   for the completion notification, never poll it):
+   `sh <codex-gate.sh> --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>`
+   (`codex-gate.sh` is in `juel:star`: `../star/codex-gate.sh` from this file, or
+   `${CLAUDE_PLUGIN_ROOT}/skills/star/codex-gate.sh`). It reads the gate settings from `star.json`.
+3. `SAFE …`: `sh <codex-gate.sh> post-pass --pr <url> --round <k> --head <the full head> --review <the review path the gate printed>`,
+   then end the run with `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
+   `post-pass` printing `ERROR …`: wait a minute and run it once more; a second `ERROR` is
+   `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`. On a PR that is
+   no longer a draft (a resumed build), inside quiet hours, the PASS comment is an outward action:
+   wait for the window to end (foreground waits of at most 540 s, a progress line before each), then
+   post it and report `DONE`.
+4. `NOT-SAFE …`: read that review file's findings. Validate each `[P0]` and `[P1]` finding with
+   `superpowers:receiving-code-review` against the brief; one outside the brief's scope is the
+   `brief-violation` escalation. Write a fix plan (`superpowers:writing-plans`, a new `-vN`), run it
+   with the executor (Phase 4's line and its capacity rule), run the tests for the files it changed
+   and then the regression gate through the gate lock, and Phase 6 again under its own
+   evidence-reuse rule (step 6), so a change the app loads at runtime gets its live checks again.
+   Commit, push (never force), and write `<star.reviews>/<item>-r<k>-fix.md`: one line per finding,
+   `Fixed in <sha>.` or `Disposition: <the technical reason>`. Then the next round from step 1.
+   `[P2]` and `[P3]` findings never block: fix them when cheap, otherwise leave them in the review.
+5. After `gate.maxRounds` (3) NOT-SAFE rounds in this run, end with
+   `RESCOPE item=<item> reason=gate review=<the last review's path>`: STAR narrows the item.
+6. `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more; a
+   second `ERROR` is `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`.
+
 ### Phase 8 — Babysit PR
 
 1. If Phase 7 had no `gh` (compare URL only), skip this phase with one line:
    `Phase 8 skipped: gh unavailable, no PR to watch`.
    Under `--unattended`, this phase is SKIPPED: `juel:star` starts babysitting as its own
-   stage after the second-model review says SAFE. End the run with the `DONE` line. With no `gh`,
-   print `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>)` before
-   `DONE item=<item> pr=<compare-url>`.
+   stage after it checks this run's `DONE` report. End the run with the `DONE` line. With no `gh`,
+   there is no PR to gate: skip the codex gate loop, print
+   `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>)`, then end with
+   `ESCALATION item=<item> phase=7 reason=needs-human-input needs=no gh on this machine: open a draft PR from <compare-url>, then answer with the PR's URL`
+   in place of the `DONE` line.
 2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
    number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
    order. Do not re-resolve the toolchain.
