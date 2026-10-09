@@ -1,0 +1,516 @@
+<!-- https://claude.ai/artifact/V2Qx9Cm469k1vuJvcjS2fC -->
+<title>How STAR Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+/* layout: one reading column; the flow figure runs full width and scrolls sideways on a phone. Color says who acts. */
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --fg: #161a1f;
+  --muted: #586170;
+  --line: #7f8998;
+  --rule: #dce0e6;
+  --you: #a4560a;   --you-bg: #fdf0e0;
+  --star: #1f4f8f;  --star-bg: #e7eef8;
+  --work: #6a3f9e;  --work-bg: #f1ebf9;  --work-wash: #faf8fd;
+  --codex: #1d6a45; --codex-bg: #e3f2e9;
+  --font-display: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216; --panel: #151a20; --fg: #e6e9ed; --muted: #9ba5b2; --line: #7c8696; --rule: #29303a;
+    --you: #f2a65a;   --you-bg: #33240f;
+    --star: #88b5ef;  --star-bg: #132238;
+    --work: #c6a7f0;  --work-bg: #251c36;  --work-wash: #17141f;
+    --codex: #74d4a0; --codex-bg: #11291b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1216; --panel: #151a20; --fg: #e6e9ed; --muted: #9ba5b2; --line: #7c8696; --rule: #29303a;
+  --you: #f2a65a;   --you-bg: #33240f;
+  --star: #88b5ef;  --star-bg: #132238;
+  --work: #c6a7f0;  --work-bg: #251c36;  --work-wash: #17141f;
+  --codex: #74d4a0; --codex-bg: #11291b;
+  color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--fg); font: 400 15.5px/1.6 var(--font-body); }
+.wrap { max-width: 1000px; margin: 0 auto; padding-inline: 20px; padding-block: 36px 72px; display: grid; gap: 44px; }
+.wrap > * { min-width: 0; }
+
+header { display: grid; gap: 14px; }
+.eyebrow { margin: 0; font: 500 12px/1.4 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 0; font: 700 clamp(30px, 5vw, 44px)/1.05 var(--font-display); letter-spacing: -.02em; text-wrap: balance; }
+.lede { margin: 0; max-width: 68ch; font-size: 17px; color: var(--fg); }
+.status { margin: 0; display: inline-flex; align-items: center; gap: 8px; width: fit-content; max-width: 100%; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); font: 500 12.5px/1.4 var(--font-mono); color: var(--muted); }
+.status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--you); flex: none; }
+h2 { margin: 0 0 14px; font: 650 22px/1.25 var(--font-display); letter-spacing: -.01em; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+code { font: 500 .86em var(--font-mono); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 0; margin: 0; list-style: none; font: 500 12.5px/1.4 var(--font-mono); color: var(--muted); }
+.legend li { display: flex; align-items: center; gap: 8px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid; flex: none; }
+.sw.you { background: var(--you-bg); border-color: var(--you); }
+.sw.star { background: var(--star-bg); border-color: var(--star); }
+.sw.work { background: var(--work-bg); border-color: var(--work); }
+.sw.codex { background: var(--codex-bg); border-color: var(--codex); }
+.sw.dash { background: transparent; border-style: dashed; border-color: var(--line); }
+
+figure { margin: 0; display: grid; gap: 12px; }
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+figcaption { max-width: 70ch; font-size: 14px; color: var(--muted); }
+
+/* SVG styling, all through tokens */
+svg.flow { display: block; width: 100%; height: auto; color: var(--line); min-width: 640px; }
+.you   { fill: var(--you-bg);   stroke: var(--you);   stroke-width: 1.5; }
+.star  { fill: var(--star-bg);  stroke: var(--star);  stroke-width: 1.5; }
+.work  { fill: var(--work-bg);  stroke: var(--work);  stroke-width: 1.5; }
+.codex { fill: var(--codex-bg); stroke: var(--codex); stroke-width: 1.5; }
+.note  { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.grp   { fill: var(--work-wash); stroke: var(--work); stroke-width: 1.2; stroke-dasharray: 7 5; }
+.edge  { stroke: var(--line); stroke-width: 1.5; fill: none; }
+.dot   { stroke-dasharray: 2 4; }
+.t     { fill: var(--fg); font: 600 14px var(--font-display); }
+.tsm   { fill: var(--fg); font: 600 13px var(--font-display); }
+.s     { fill: var(--muted); font: 400 11.5px var(--font-mono); }
+.lbl   { fill: var(--muted); font: 400 11px var(--font-mono); }
+.tag   { font: 600 9.5px var(--font-mono); letter-spacing: .08em; }
+.tg-you { fill: var(--you); } .tg-star { fill: var(--star); } .tg-work { fill: var(--work); } .tg-codex { fill: var(--codex); }
+.grp-t { fill: var(--work); font: 600 12.5px var(--font-display); }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 28px; }
+.cols > * { min-width: 0; }
+h3 { margin: 0 0 8px; font: 600 13px/1.3 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+ul, ol { margin: 0; padding-left: 1.25em; display: grid; gap: 6px; max-width: 70ch; }
+.aside { margin-top: 12px; color: var(--muted); font-size: 14.5px; }
+.lead-in { margin-bottom: 18px; color: var(--muted); }
+
+.tbl { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+th { text-align: left; font: 600 12px/1.3 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 14px 8px 0; border-bottom: 1.5px solid var(--rule); }
+td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td.k { font: 600 13px var(--font-mono); white-space: nowrap; }
+td.mono { font: 500 13px var(--font-mono); white-space: nowrap; }
+
+footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--muted); font-size: 14px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">juel:star · how it works</p>
+    <h1>How STAR Works</h1>
+    <p class="lede">You give STAR a brief, do the few steps only a person can, and say go once. STAR turns the brief into items, has each one explored, makes the product calls from cited sources, and logs them. A build worker per item plans, has gpt-6-luna execute, verifies, and loops through a headless codex gate until its draft PR passes. A babysit worker takes the PR through review, and STAR merges it when every gate holds.</p>
+    <p class="status">In step with skills/star/SKILL.md</p>
+    <ul class="legend" aria-label="Legend">
+      <li><span class="sw you"></span>You</li>
+      <li><span class="sw star"></span>STAR, the coordinator (Fable 5.1)</li>
+      <li><span class="sw work"></span>Orca worker (Opus 5.5)</li>
+      <li><span class="sw codex"></span>Headless codex (luna, astra)</li>
+      <li><span class="sw dash"></span>Dashed: a note, or a worker's boundary</li>
+    </ul>
+  </header>
+
+  <figure>
+    <div class="scroll">
+      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS; STAR checks the report; the babysit worker marks ready once, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 rounds or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
+        <defs>
+          <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <!-- brief -->
+        <rect class="you" x="40" y="20" width="380" height="56" rx="8"/>
+        <text class="tag tg-you" x="408" y="37" text-anchor="end">YOU</text>
+        <text class="t" x="56" y="44">Give STAR a brief</text>
+        <text class="s" x="56" y="63">free text, tickets, or both</text>
+        <line class="edge" x1="230" y1="76" x2="230" y2="118" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="102">/juel:star &lt;your brief&gt;</text>
+
+        <!-- ingest -->
+        <rect class="star" x="40" y="120" width="380" height="56" rx="8"/>
+        <text class="tag tg-star" x="408" y="137" text-anchor="end">STAR</text>
+        <text class="t" x="56" y="144">Ingest</text>
+        <text class="s" x="56" y="163">refs → items · free text → spec items</text>
+        <line class="edge" x1="230" y1="176" x2="230" y2="218" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="202">one brief worker per item</text>
+
+        <!-- explore -->
+        <rect class="work" x="40" y="220" width="380" height="88" rx="8"/>
+        <text class="tag tg-work" x="408" y="237" text-anchor="end">WORKER</text>
+        <text class="t" x="56" y="244">Explore and draft briefs</text>
+        <text class="s" x="56" y="263">Opus 5.5 · high · parallel, read-only</text>
+        <text class="s" x="56" y="281">criteria · approach · blockers · live ids</text>
+        <text class="s" x="56" y="299">each check: automated, or a person first</text>
+        <line class="edge dot" x1="420" y1="264" x2="470" y2="264"/>
+        <rect class="note" x="470" y="236" width="270" height="56" rx="8"/>
+        <text class="tsm" x="486" y="259">Product calls</text>
+        <text class="s" x="486" y="278">sourced, decided, logged</text>
+        <line class="edge" x1="230" y1="308" x2="230" y2="350" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="334">BRIEF reports</text>
+
+        <!-- batch summary -->
+        <rect class="star" x="40" y="352" width="380" height="56" rx="8"/>
+        <text class="tag tg-star" x="408" y="369" text-anchor="end">STAR</text>
+        <text class="t" x="56" y="376">One batch summary</text>
+        <text class="s" x="56" y="395">items · criteria · decisions · person steps</text>
+        <line class="edge" x1="230" y1="408" x2="230" y2="450" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="434">shown in chat</text>
+
+        <!-- go -->
+        <rect class="you" x="40" y="452" width="380" height="56" rx="8"/>
+        <text class="tag tg-you" x="408" y="469" text-anchor="end">YOU</text>
+        <text class="t" x="56" y="476">Do the person-only steps, say go</text>
+        <text class="s" x="56" y="495">2FA sign-ins · macOS prompts · secrets</text>
+        <line class="edge dot" x1="420" y1="480" x2="470" y2="480"/>
+        <rect class="note" x="470" y="452" width="270" height="56" rx="8"/>
+        <text class="tsm" x="486" y="475">Your go is the merge grant</text>
+        <text class="s" x="486" y="494">logged, quoted on each PR</text>
+        <line class="edge" x1="230" y1="508" x2="230" y2="550" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="534">go</text>
+
+        <!-- fill slots -->
+        <rect class="star" x="40" y="552" width="380" height="56" rx="8"/>
+        <text class="tag tg-star" x="408" y="569" text-anchor="end">STAR</text>
+        <text class="t" x="56" y="576">Fill build slots</text>
+        <text class="s" x="56" y="595">host gate passes · blockers merged</text>
+        <line class="edge dot" x1="420" y1="580" x2="470" y2="580"/>
+        <rect class="note" x="470" y="552" width="270" height="56" rx="8"/>
+        <text class="tsm" x="486" y="575">Host gate</text>
+        <text class="s" x="486" y="594">RAM · agents · swap · disk</text>
+        <line class="edge" x1="230" y1="608" x2="230" y2="650" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="634">Orca worker in the item's worktree</text>
+
+        <!-- build worker group -->
+        <rect class="grp" x="20" y="652" width="720" height="460" rx="12"/>
+        <text class="grp-t" x="36" y="674">Build worker · Opus 5.5 · xhigh · one closed loop</text>
+
+        <rect class="work" x="60" y="692" width="340" height="48" rx="8"/>
+        <text class="tag tg-work" x="388" y="708" text-anchor="end">OPUS</text>
+        <text class="t" x="76" y="713">Plan</text>
+        <text class="s" x="76" y="730">spec + plan · red-first test for bugs</text>
+        <line class="edge dot" x1="400" y1="716" x2="470" y2="716"/>
+        <rect class="note" x="470" y="692" width="250" height="48" rx="8"/>
+        <text class="tsm" x="486" y="712">Grounded</text>
+        <text class="s" x="486" y="730">Mobbin · context7 · web, cited</text>
+        <line class="edge" x1="230" y1="740" x2="230" y2="770" marker-end="url(#ah1)"/>
+
+        <rect class="codex" x="60" y="772" width="340" height="48" rx="8"/>
+        <text class="tag tg-codex" x="388" y="788" text-anchor="end">LUNA</text>
+        <text class="t" x="76" y="793">Execute</text>
+        <text class="s" x="76" y="810">codex exec · gpt-6-luna · xhigh</text>
+        <line class="edge dot" x1="400" y1="796" x2="470" y2="796"/>
+        <rect class="note" x="470" y="772" width="250" height="48" rx="8"/>
+        <text class="tsm" x="486" y="792">Capacity or 503</text>
+        <text class="s" x="486" y="810">retry → fallback model</text>
+        <line class="edge" x1="230" y1="820" x2="230" y2="850" marker-end="url(#ah1)"/>
+
+        <rect class="work" x="60" y="852" width="340" height="64" rx="8"/>
+        <text class="tag tg-work" x="388" y="868" text-anchor="end">OPUS</text>
+        <text class="t" x="76" y="873">Verify</text>
+        <text class="s" x="76" y="891">fresh Claude reviewer: diff + criteria</text>
+        <text class="s" x="76" y="908">Playwright or computer use · gates</text>
+        <line class="edge dot" x1="400" y1="884" x2="470" y2="884"/>
+        <rect class="note" x="470" y="852" width="250" height="64" rx="8"/>
+        <text class="tsm" x="486" y="874">Screen checks</text>
+        <text class="s" x="486" y="892">headless: no lock needed</text>
+        <text class="s" x="486" y="909">real screen: one at a time</text>
+        <line class="edge" x1="230" y1="916" x2="230" y2="946" marker-end="url(#ah1)"/>
+
+        <rect class="work" x="60" y="948" width="340" height="40" rx="8"/>
+        <text class="tag tg-work" x="388" y="964" text-anchor="end">OPUS</text>
+        <text class="t" x="76" y="973">Push, open draft PR</text>
+        <line class="edge" x1="230" y1="988" x2="230" y2="1018" marker-end="url(#ah1)"/>
+
+        <rect class="codex" x="60" y="1020" width="340" height="52" rx="8"/>
+        <text class="tag tg-codex" x="388" y="1036" text-anchor="end">ASTRA</text>
+        <text class="t" x="76" y="1042">Codex gate</text>
+        <text class="s" x="76" y="1061">codex review · gpt-6-astra · xhigh</text>
+
+        <rect class="work" x="470" y="1016" width="250" height="64" rx="8"/>
+        <text class="tag tg-work" x="708" y="1032" text-anchor="end">OPUS + LUNA</text>
+        <text class="t" x="486" y="1038">Fix round</text>
+        <text class="s" x="486" y="1056">Opus plans · luna fixes</text>
+        <text class="s" x="486" y="1073">gates · push · ≤ 3 rounds</text>
+        <line class="edge" x1="400" y1="1034" x2="468" y2="1034" marker-end="url(#ah1)"/>
+        <text class="lbl" x="434" y="1027" text-anchor="middle">P0/P1</text>
+        <line class="edge" x1="470" y1="1062" x2="402" y2="1062" marker-end="url(#ah1)"/>
+        <text class="lbl" x="434" y="1081" text-anchor="middle">re-gate</text>
+
+        <!-- exits from the build worker -->
+        <line class="edge" x1="230" y1="1072" x2="230" y2="1158" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="1136">PASS posted on the PR · DONE</text>
+        <line class="edge" x1="595" y1="1080" x2="595" y2="1158" marker-end="url(#ah1)"/>
+        <text class="lbl" x="605" y="1136">after 3 rounds</text>
+
+        <!-- check report -->
+        <rect class="star" x="40" y="1160" width="380" height="56" rx="8"/>
+        <text class="tag tg-star" x="408" y="1177" text-anchor="end">STAR</text>
+        <text class="t" x="56" y="1184">Check the report</text>
+        <text class="s" x="56" y="1203">review file · PASS comment · head = GitHub</text>
+
+        <!-- re-scope: STAR's own loop back into the build -->
+        <rect class="star" x="470" y="1160" width="250" height="72" rx="8"/>
+        <text class="tag tg-star" x="708" y="1177" text-anchor="end">STAR</text>
+        <text class="t" x="486" y="1184">Re-scope</text>
+        <text class="s" x="486" y="1203">narrow the PR, file the rest</text>
+        <text class="s" x="486" y="1221">then build again</text>
+        <path class="edge" d="M720,1196 H752 V706 H743" marker-end="url(#ah1)"/>
+
+        <line class="edge" x1="230" y1="1216" x2="230" y2="1258" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="1242">babysit slot</text>
+
+        <!-- babysit worker group -->
+        <rect class="grp" x="20" y="1260" width="720" height="272" rx="12"/>
+        <text class="grp-t" x="36" y="1282">Babysit worker · Opus 5.5 · xhigh · fixes run on luna</text>
+
+        <rect class="work" x="60" y="1300" width="340" height="44" rx="8"/>
+        <text class="tag tg-work" x="388" y="1315" text-anchor="end">OPUS</text>
+        <text class="t" x="76" y="1319">Mark ready once</text>
+        <text class="s" x="76" y="1336">after the PASS, outside quiet hours</text>
+        <line class="edge" x1="230" y1="1344" x2="230" y2="1370" marker-end="url(#ah1)"/>
+
+        <rect class="work" x="60" y="1372" width="340" height="62" rx="8"/>
+        <text class="tag tg-work" x="388" y="1387" text-anchor="end">OPUS</text>
+        <text class="t" x="76" y="1393">Review on the ready head</text>
+        <text class="s" x="76" y="1411">Greptile ≥ 4/5, at most 2 passes</text>
+        <text class="s" x="76" y="1427">no hosted reviewer: an approval</text>
+
+        <rect class="work" x="470" y="1370" width="250" height="66" rx="8"/>
+        <text class="tag tg-work" x="708" y="1386" text-anchor="end">OPUS + LUNA</text>
+        <text class="t" x="486" y="1392">Findings → fix</text>
+        <text class="s" x="486" y="1410">luna fixes · re-gate · push</text>
+        <text class="s" x="486" y="1427">pass 2 still bad → STAR</text>
+        <line class="edge" x1="400" y1="1388" x2="468" y2="1388" marker-end="url(#ah1)"/>
+        <text class="lbl" x="434" y="1381" text-anchor="middle">findings</text>
+        <line class="edge" x1="470" y1="1418" x2="402" y2="1418" marker-end="url(#ah1)"/>
+        <text class="lbl" x="434" y="1448" text-anchor="middle">pushed</text>
+        <line class="edge" x1="595" y1="1370" x2="595" y2="1234" marker-end="url(#ah1)"/>
+        <text class="lbl" x="605" y="1250">pass 2 still bad</text>
+        <line class="edge" x1="230" y1="1434" x2="230" y2="1462" marker-end="url(#ah1)"/>
+
+        <rect class="work" x="60" y="1464" width="340" height="44" rx="8"/>
+        <text class="tag tg-work" x="388" y="1479" text-anchor="end">OPUS</text>
+        <text class="t" x="76" y="1483">Clean and green on the head</text>
+        <text class="s" x="76" y="1500">base moved → merge it in first</text>
+
+        <line class="edge" x1="230" y1="1508" x2="230" y2="1578" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="1558">READY: head, cursor</text>
+
+        <!-- merge gate -->
+        <rect class="star" x="40" y="1580" width="380" height="72" rx="8"/>
+        <text class="tag tg-star" x="408" y="1597" text-anchor="end">STAR</text>
+        <text class="t" x="56" y="1604">Merge gate, on the exact head</text>
+        <text class="s" x="56" y="1623">PASS on PR · reviewer clean or approved</text>
+        <text class="s" x="56" y="1641">checks green · dispositions written</text>
+        <line class="edge dot" x1="420" y1="1616" x2="470" y2="1616"/>
+        <rect class="note" x="470" y="1588" width="270" height="56" rx="8"/>
+        <text class="tsm" x="486" y="1611">A gate fails</text>
+        <text class="s" x="486" y="1630">back to babysit; twice → you</text>
+        <line class="edge" x1="230" y1="1652" x2="230" y2="1694" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="1678">all hold</text>
+
+        <!-- merge -->
+        <rect class="star" x="40" y="1696" width="380" height="56" rx="8"/>
+        <text class="tag tg-star" x="408" y="1713" text-anchor="end">STAR</text>
+        <text class="t" x="56" y="1720">Merge</text>
+        <text class="s" x="56" y="1739">quotes your go · --match-head-commit</text>
+        <line class="edge dot" x1="420" y1="1724" x2="470" y2="1724"/>
+        <rect class="note" x="470" y="1696" width="270" height="56" rx="8"/>
+        <text class="tsm" x="486" y="1719">Quiet hours</text>
+        <text class="s" x="486" y="1738">the merge waits for them to end</text>
+        <line class="edge" x1="230" y1="1752" x2="230" y2="1794" marker-end="url(#ah1)"/>
+        <text class="lbl" x="242" y="1778">merged</text>
+
+        <!-- done -->
+        <rect class="star" x="40" y="1796" width="380" height="56" rx="8"/>
+        <text class="tag tg-star" x="408" y="1813" text-anchor="end">STAR</text>
+        <text class="t" x="56" y="1820">Done</text>
+        <text class="s" x="56" y="1839">release record · tracker Done · worktree cleaned</text>
+      </svg>
+    </div>
+    <figcaption>One item, from your brief to Done. Color and the corner tag say who acts. Every loop closes on a worker or on STAR: after go, nothing waits for you unless a merge-gate check fails twice, a project without a hosted reviewer needs an approval, or a call is on the risky list.</figcaption>
+  </figure>
+
+  <section>
+    <h2>Stages</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Stage</th><th>Who runs it</th><th>Where</th><th>Done when</th></tr></thead>
+        <tbody>
+          <tr><td class="k">ingest</td><td>STAR</td><td>its own session</td><td>each ref, and each piece of free text, is an item</td></tr>
+          <tr><td class="k">brief</td><td>brief worker, Opus 5.5 high</td><td>the main checkout, read-only</td><td>the brief has criteria, approach, scope, blockers, its checks sorted, and sourced decisions</td></tr>
+          <tr><td class="k">go</td><td>you</td><td>chat</td><td>the person-only steps are done and you said go</td></tr>
+          <tr><td class="k">build</td><td>build worker, Opus 5.5 xhigh; luna executes, astra gates</td><td>the item's own worktree</td><td>the draft PR passed the codex gate and the PASS is posted on it</td></tr>
+          <tr><td class="k">check</td><td>STAR</td><td>its own session</td><td>the review file, the PASS comment and the PR's head agree</td></tr>
+          <tr><td class="k">babysit</td><td>babysit worker, Opus 5.5 xhigh; luna fixes</td><td>the item's worktree</td><td>the PR is ready, reviewed clean or approved, and green on its head</td></tr>
+          <tr><td class="k">merge</td><td>STAR</td><td>its own session</td><td>every gate holds and the PR merged on that exact head</td></tr>
+          <tr><td class="k">re-scope</td><td>STAR</td><td>its own session</td><td>the PR is narrowed, the rest is a new item, and the build runs again</td></tr>
+          <tr><td class="k">post</td><td>post worker, Opus 5.5 xhigh</td><td>the main checkout</td><td>a report item's accepted report is on the work item</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Grounded decisions</h2>
+    <p class="lead-in">STAR makes product calls without asking you, so every decision a worker or STAR takes names its source.</p>
+    <div class="cols">
+      <div>
+        <h3>What a worker consults</h3>
+        <ul>
+          <li>A user-facing change: the Mobbin MCP for how real apps solve it (screens, flows, sections), and the frontend-design skill for the visual and interaction choices.</li>
+          <li>A library, framework, SDK, API or CLI: context7, for the version the project uses.</li>
+          <li>Neither fits: a web search, official docs first.</li>
+          <li>A project convention: the code already in the repo, cited as <code>file:line</code>.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>How it's logged</h3>
+        <ul>
+          <li>Each decision is a short record in the brief: context, decision, consequences, source.</li>
+          <li>A decision with no source is not taken. The worker researches first, or brings STAR sourced options.</li>
+          <li>STAR picks among the options a worker brings. It does no research in its own session.</li>
+          <li>Mobbin and context7 are prerequisites wherever STAR runs. Missing at the moment of use, the worker searches the web and says so in the record.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Checks at the screen</h2>
+    <p class="lead-in">Workers run every check they can. What needs a person happens before go, never after.</p>
+    <div class="cols">
+      <div>
+        <h3>Automated, by the build worker</h3>
+        <ul>
+          <li>Web flows: Playwright, headless, no screen lock.</li>
+          <li>Electron render checks: a hidden window, no screen lock.</li>
+          <li>Native apps and real browser windows: computer use through <code>orca computer</code>, one worker at a time under the screen lock.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Before go, by you</h3>
+        <ul>
+          <li>A sign-in with 2FA, SSO or a passkey.</li>
+          <li>A macOS security prompt: keychain, Gatekeeper, a privacy permission. macOS refuses synthetic clicks on these.</li>
+          <li>Touch ID, or a CAPTCHA.</li>
+          <li>A prompt only the new code triggers is planned around up front: a test account, a keychain entry approved ahead, or the check dropped with your OK.</li>
+          <li>A step you can't do now: that item waits, the rest go ahead.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="aside">Computer use needs Orca's Accessibility and Screen Recording permissions on each machine, granted once before go, as a person-only step.</p>
+  </section>
+
+  <section>
+    <h2>Merge gate</h2>
+    <p class="lead-in">STAR merges when every gate holds on the final head commit. Your batch go is the grant: STAR quotes it on the PR, then runs <code>gh pr merge --match-head-commit &lt;sha&gt;</code>, so GitHub refuses if the head moved.</p>
+    <div class="cols">
+      <div>
+        <h3>Always</h3>
+        <ul>
+          <li>Codex PASS posted on the PR for that head</li>
+          <li>Every check SUCCESS, NEUTRAL or SKIPPED</li>
+          <li>A written disposition for every unfixed finding</li>
+          <li>GitHub reports it mergeable, so branch rules still apply</li>
+          <li>Outside quiet hours</li>
+        </ul>
+      </div>
+      <div>
+        <h3>With a hosted reviewer</h3>
+        <ul>
+          <li>Before READY, the babysit worker judges Greptile's review from guidelines: it reviewed the head commit, scores 4/5 or better, and has no open P0/P1 and nothing advising against merging</li>
+          <li>The merge gate reads no review text: it trusts that READY came on a head the worker judged clean</li>
+          <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment)</li>
+          <li>Pass 2 still not clean: back to STAR to re-scope</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Without one</h3>
+        <ul>
+          <li>An approval on the head from a person with write access</li>
+          <li>Not from the PR's author: GitHub doesn't count it, and agent approvals never count</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="cols">
+    <div>
+      <h2>Where you are needed</h2>
+      <ol>
+        <li>Give the brief: free text, tickets, or both.</li>
+        <li>Read one batch summary, do the person-only steps, and say go.</li>
+        <li>Approve risky calls even in scope: data migrations, billing or pricing, production credentials or data, deleting data.</li>
+        <li>On a project with no hosted reviewer, have a teammate approve the PR.</li>
+        <li>Accept a report item's report before STAR posts it.</li>
+        <li>Answer an escalation: a merge-gate check failing twice, or NOT-SAFE again after a re-scope.</li>
+      </ol>
+      <p class="aside">Any time: read the decision records in each brief and overrule a call.</p>
+    </div>
+    <div>
+      <h2>Never stalls</h2>
+      <ul>
+        <li>Workers are judged by progress: their latest commit, a PROGRESS line, an evidence file. 30 minutes with none of those gets a check-in.</li>
+        <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself.</li>
+        <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
+        <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
+        <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Item states</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>State</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="k">inbox</td><td>ingested; waiting for a brief slot</td></tr>
+          <tr><td class="k">briefing</td><td>a brief worker is exploring the item and the code</td></tr>
+          <tr><td class="k">brief-ready</td><td>brief drafted; waiting for the batch go and any person-only step</td></tr>
+          <tr><td class="k">queued</td><td>go given; waiting for a build slot, the host gate and its blockers</td></tr>
+          <tr><td class="k">building</td><td>build worker running, codex gate rounds included</td></tr>
+          <tr><td class="k">babysit-queued</td><td>report checked; waiting for a babysit slot</td></tr>
+          <tr><td class="k">babysitting</td><td>babysit worker running: ready, hosted review or approval, fixes</td></tr>
+          <tr><td class="k">verifying</td><td>READY received; STAR runs the merge gate each tick until it holds</td></tr>
+          <tr><td class="k">done</td><td>merged; release record written</td></tr>
+          <tr><td class="k">reported</td><td>a report item's report is written; waiting for your accept</td></tr>
+          <tr><td class="k">post-queued, posting</td><td>accepted; a post worker puts it on the work item</td></tr>
+          <tr><td class="k">escalated</td><td>stopped on something only you can answer</td></tr>
+          <tr><td class="k">failed</td><td>a worker settled without its report, or could not start</td></tr>
+          <tr><td class="k">dropped</td><td>you dropped it</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Models</h2>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Role</th><th>Model</th><th>Effort</th></tr></thead>
+        <tbody>
+          <tr><td>STAR, the coordinator</td><td>Fable 5.1 (your session)</td><td class="mono">n/a</td></tr>
+          <tr><td>Brief workers</td><td>Opus 5.5</td><td class="mono">high</td></tr>
+          <tr><td>Build, babysit and post workers</td><td>Opus 5.5</td><td class="mono">xhigh</td></tr>
+          <tr><td>Fresh reviewer before the gate</td><td>Claude subagents (pr-review-toolkit)</td><td class="mono">n/a</td></tr>
+          <tr><td>Executor: runs plans and fixes</td><td>gpt-6-luna, the newest luna in <code>codex debug models</code></td><td class="mono">xhigh</td></tr>
+          <tr><td>Codex gate</td><td>gpt-6-astra through <code>codex review</code>, read-only, no MCP servers</td><td class="mono">xhigh</td></tr>
+          <tr><td>Hosted review</td><td>The project's own (Greptile)</td><td class="mono">n/a</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <p>This page lives in the juel-claude repo at <code>skills/star/how-it-works.html</code>. A change to the skill updates it in the same commit and republishes it to this link, and a test fails when a stage, state or model here no longer matches the skill.</p>
+  </footer>
+</div>
