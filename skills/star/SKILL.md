@@ -368,15 +368,19 @@ work gets the answer without waiting for the next tick.
 
 | When | Command |
 |---|---|
-| a brief is drafted | `loops.sh add --kind approve-brief --project <p> --item <i> --title "approve brief" --body "<brief path>\nOptions: approve / drop / or say what to change"` |
-| a brief lists a "Before you go" question | `loops.sh add --kind prep --project <p> --item <i> --title "<the question>" --body "brief: <brief path>\nask: <n>\nkind: <kind>\nOptions: <options>; recommended: <default, or none>"` |
-| a PR passed the exact-head check | `loops.sh add --kind merge-pr --project <p> --item <i> --title "merge PR #<n> — approved, green, head <sha7>" --body "<pr url>"` |
+| a batch's briefs are drafted (no row of the batch is `inbox` or `briefing` any more) | `loops.sh add --kind go-batch --project <p> --item <batch> --title "go for batch <batch>: <n> items" --body "<item names, one per line>\nOptions: go / go except <items> / drop <item> / or say what to change"` |
+| a brief lists a person-only step | `loops.sh add --kind person --project <p> --item <i> --title "<the step>" --body "brief: <brief path>\nstep: <n>\nkind: <secret, account, screen, confirm-id or risky>\nOptions: done / can't now"` (a `risky` step: `Options: approve / no`) |
+| a `verifying` row's brief has no grant (`grep -cE '^grant: [^ #]' <brief>` prints 0: a brief whose grant line was lost, since every go writes one) | `loops.sh add --kind go-merge --project <p> --item <i> --title "merge PR #<n> under a go?" --body "<pr url>\nOptions: go / not merging"` |
 | a report item's report is written | `loops.sh add --kind accept-report --project <p> --item <i> --title "accept report for <i>" --body "<report path>\nOptions: accept / drop / or say what to redo"` |
 | a worker escalated, or a row failed | `loops.sh add --kind escalation --project <p> --item <i> --title "<reason>" --body "<needs= text, or what failed>\nOptions: answer with your decision to run the stage again / drop"` |
 | a worker asked something the brief does not answer | `loops.sh add --kind question --project <p> --item <i> --title "<the question, one line>" --body "msg: <id>\ndeadline: <iso>"` (the `msg: <id>` line is the Orca message id the reply needs after a restart; the deadline is the `deadline=` that `messages.sh` printed for the message: the time the message was sent plus 30 minutes, or plus the minutes the worker asked for with `deadline=<minutes>`, at most 240, so a replay writes the same item) |
-| a build or fix was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "<stage> was interrupted" --body "worktree: <path> (it must be clean before a restart: commit or discard what the interrupted run left)\nOptions: restart / drop"` |
+| a build was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "build was interrupted" --body "worktree: <path> (it must be clean before a restart: commit or discard what the interrupted run left)\nOptions: restart / drop"` |
 | a draft is ready | `loops.sh add --kind draft --project <p> --item <i> --title "<what the draft is>" --body "<draft path>\nOptions: send / drop"` |
-| a worker held an outward action | `loops.sh add --kind held --project <p> --item <i> --title "<action>" --body "Options: done"` |
+| a worker held an outward action, or a merge waits for something only a person gives | `loops.sh add --kind held --project <p> --item <i> --title "<action, or what the merge waits for>" --body "Options: done"` |
+
+`<batch>` is `B-<the inbox file's name without .md>` for the items one inbox file brought in (the
+name is unique), or `B-<UTC YYYYMMDDTHHMMSSZ>-<4 hex>` for a start or a migrate; every row of the
+batch carries it as `counters.batch`.
 
 Open items are repeated in every status line STAR prints, by id and title, until they are answered:
 silence means missed, not no.
@@ -403,7 +407,7 @@ rows.
 |---|---|
 | `sh S/ledger.sh name <ref>` | the item name the ref gets, or `open <item>` when the ref already has an open row |
 | `sh S/ledger.sh add <item> ref=<raw ref> project=<p>` | a new `inbox` row; exit 65 when the item, or an open row for the ref, already exists |
-| `sh S/ledger.sh set <item> <col>=<value> … counters.<key>=<n>\|+1\|-` | changes only the named cells, in that order; `counters=keep:hold,last,start,screen,tracker` drops every other counter |
+| `sh S/ledger.sh set <item> <col>=<value> … counters.<key>=<n>\|+1\|-` | changes only the named cells, in that order; `counters=keep:hold,last,start,tracker,batch,rescoped,parent` drops every other counter |
 | `sh S/ledger.sh get <item> [<col>\|counters.<key>]` | one cell (`-` when absent), or the whole row as `col=value` lines |
 | `sh S/ledger.sh list [--state <s>,…]`, `counts` | one row per line (item, state, stage, round, worktree, dispatch, pr, updated), or `<state> <n>` |
 
@@ -415,21 +419,26 @@ as space-separated `key=n` pairs, `-` when there are none:
 
 | Key | Counts | Cleared when |
 |---|---|---|
-| `miss=1` | a reviewer report with no `VERDICT` line, this round | a verdict arrives |
 | `silent=<n>` | probes in a row that said `settled` with no report processed | a report is processed |
 | `unknown=<n>` | probes in a row that said `unknown` | any other probe result |
-| `hold=<n>` | ticks in a row this row could not start for lack of memory | it starts |
-| `moved=<n>` | exact-head checks that found the head moved | the row reaches `ready`, or the user answers its escalation |
-| `pending=<n>` | exact-head checks in a row that said `PENDING` | any other verdict |
+| `hold=<n>` | ticks in a row this row could not start because the host gate held it | it starts |
+| `moved=<n>` | merge-gate checks that found the head moved | a merge-gate `PASS`, or the user answers its escalation |
+| `pending=<n>` | merge-gate checks in a row that said `PENDING` | any other verdict |
 | `nudge=<n>` | check-ins sent to this row's worker with no report since | a report from it is processed, or a new worker starts |
 | `busy=<n>` | check-ins Orca refused with `agent_prompt_blocked` in this row's current silent stretch | the probe prints anything but `quiet`, a report from it is processed, or a new worker starts |
 | `reask=1` | the open question's deadline was extended once (Housekeeping) | the question is answered or closed |
-| `screen=<n>` | checks that wait for the user at the screen (a `SCREEN` line after `DONE`) | a `VERIFIED` report with `failing=0` |
 | `last=<message id>` | not a count: the id of the last message applied to this row | never; the next message overwrites it |
 | `tracker=<status>` | not a count: the last status STAR wrote to the work item, `!<status>` when that write failed | never; the next write overwrites it |
 | `synced=<sha7>` | not a count: the base head this row was last sent back to babysitting to sync with | never; the next sync overwrites it |
 | `start=<n>`, `live=<n>` | written by `stage-start.sh`: the attempt number, and an attempt still being started | `live=` when that start ends; never `start=` |
 | `kept=1` | the worktree of a finished row was kept (`worktree-clean.sh`): STAR does not try again by itself | its held item is answered `done` |
+| `capacity=<n>` | retry nudges sent to a worker stalled on a model at capacity (`stalled:`) in one silent stretch | the probe prints anything else, a report from it is processed, or a new worker starts |
+| `mismatch=<n>` | `DONE` reports `done-check.sh` could not check | the row reaches `babysit-queued` |
+| `mergefail=<n>` | merge-gate `FAIL`s sent back to babysitting | the row is `done`, or the user answers its escalation |
+| `rescoped=1` | the item was narrowed once by a re-scope | never: a second re-scope request escalates |
+| `rescope=<file>` | not a count: the review file whose findings the next brief stage narrows the item by (`--rescope`) | the re-scoping `BRIEF` arrives |
+| `batch=<id>` | not a count: the batch the item came in with | never |
+| `parent=<item>` | not a count: on a follow-up item, the item it was split off from by a re-scope | never |
 
 **An item has one name everywhere**, set once at ingest by `sh S/ledger.sh name <ref>` and used
 for its row, its brief, review and gate paths, its worktree and every report line: a tracker ref
@@ -448,41 +457,34 @@ answer can never land on the old row.
 
 | State | Pool | Meaning |
 |---|---|---|
-| `inbox` | — | ingested; waiting for a brief slot to draft its brief |
+| `inbox` | — | ingested; waiting for a brief slot (with `rescope=`: waiting to be narrowed) |
 | `briefing` | brief | a brief worker is reading the item and the code |
-| `brief-ready` | — | brief drafted; waiting for the user's approval |
-| `queued` | — | approved; waiting for a build slot |
-| `building` | build | build worker running |
-| `pr-draft` | — | draft PR open; waiting for a review slot |
-| `reviewing` | review | second-model reviewer running |
-| `fix-queued` | — | the review said NOT-SAFE; waiting for a build slot to fix |
-| `fixing` | build | fix worker running |
-| `screen-queued` | — | SAFE review; some checks wait for the user at the screen; waiting for the user and a build slot |
-| `screening` | build | a screen-check worker is running, with the user at the Mac |
-| `babysit-queued` | — | waiting for a review slot to start babysitting (after SAFE, or again after the head moved) |
-| `babysitting` | review | babysit worker running |
-| `verifying` | review | `READY` received; exact-head check pending |
-| `ready` | — | approved, green, verified; waiting for the user's merge |
+| `brief-ready` | — | brief drafted; waiting for its batch's go and its person-only steps |
+| `queued` | — | go given; waiting for a build slot, the host gate and its blockers |
+| `building` | build | build worker running: plan, executor, checks, draft PR, the codex gate loop |
+| `babysit-queued` | — | its `DONE` checked out, or the merge gate sent it back; waiting for a babysit slot |
+| `babysitting` | babysit | babysit worker running: ready, the hosted review or an approval, gated fixes |
+| `verifying` | — | `READY` received; STAR runs the merge gate each tick until it holds, then merges |
 | `reported` | — | report written (`deliverable: report`); waiting for the user's accept |
 | `post-queued` | — | accepted; waiting for a build slot to post it |
 | `posting` | build | a post worker is posting the report to the work item |
-| `done` | — | merged; release record written |
+| `done` | — | merged and its release record written, or its report posted |
 | `escalated` | — | stopped on an escalation; in the queue |
 | `failed` | — | a worker settled without its report or could not start; in the queue |
-| `dropped` | — | the user dropped it |
+| `dropped` | — | the user dropped it, or it was split into new items |
 
 Brief pool (at most `maxBriefs`; 4 when `star.json` has no such key): `inbox` rows, the oldest
 `updated` first. Briefs never take a build slot: they only read, and run no gate. Build pool (at
-most `maxParallel`): `fix-queued` rows first, then `screen-queued` rows (only while the user is
-not away and it is not quiet hours), then `post-queued` rows (the same: posting is outward), then
-`queued` rows; within each, the oldest `updated` first. Review pool (at most `maxInReview`):
-`babysit-queued` rows first, then the oldest `pr-draft`. A row counts against a pool exactly
-while its state is one the table marks `brief`, `build` or `review`.
+most `maxParallel`): `post-queued` rows (only outside quiet hours: posting is outward), then
+`queued` rows whose brief is stamped (`grep -cE '^approved: [0-9]' <brief>` prints 1) and whose
+`blockedBy` items are all `done` or `dropped` (#37); within each, the oldest `updated` first. A `queued` row still waiting on a blocker
+is named in the status line: `<item> waiting on <items>`. Babysit pool (at most `maxInReview`):
+`babysit-queued` rows, the oldest first. A row counts against a pool exactly while its state is one
+the table marks `brief`, `build` or `babysit`.
 
 Each stage has a waiting state, used whenever a stage is to run (again): brief → `inbox`, build →
-`queued`, review → `pr-draft`, fix → `fix-queued`, screen → `screen-queued`, babysit →
-`babysit-queued`, post → `post-queued`. Nothing starts a worker except "Fill slots", so a
-restarted stage waits for its pool like any other.
+`queued`, babysit → `babysit-queued`, post → `post-queued`. Nothing starts a worker except "Fill
+slots", so a restarted stage waits for its pool like any other.
 
 ## Start, resume, stop
 
@@ -508,13 +510,23 @@ session's own heartbeat job (find it with `CronList` by its prompt: the id in `s
 belongs to the other session), do nothing else (no slot, no ledger write, no ack), say "STAR now
 runs in <handle>", and end the turn.
 
-1. `orca orchestration run-use --id <run from star.json> --json`; when that run no longer exists,
+1. Migrate: `sh S/star-home.sh migrate`. `current` → nothing. `migrated rows=<n>` → say it in one
+   line. For each `stop <dispatch>` line (a v1 review, fix or screen worker whose row moved on):
+   append `<dispatch> stopped <iso>` to `processed.log`, then
+   `orca orchestration worker-stop --dispatch <id> --json` and `worker-release`. All before the
+   reconcile, so no v1 report lands on a row that moved. Then give each `brief-ready` row with no
+   `counters.batch` the batch `B-<this start's UTC time, YYYYMMDDTHHMMSSZ>-<4 hex>`, queue its
+   person-only steps (its brief's `## Person-only steps`, and for a row moved from a v1 screen
+   state the checks its decision record names, as `screen` steps), and print that batch's summary
+   and queue its `go-batch` item ("The batch summary and go"). When it printed `migrated rows=<n>`
+   and `star.json`'s `hostedReviewer` is null, run the hosted-reviewer lookup of "STAR's home" once.
+2. `orca orchestration run-use --id <run from star.json> --json`; when that run no longer exists,
    `orca orchestration run-create --objective "STAR" --json`. Record the run id and
    `$ORCA_TERMINAL_HANDLE` in `star.json`.
-2. `caffeinate`: when `star.json` has a pid and `ps -p <pid> -o comm=` prints `caffeinate`, kill it.
+3. `caffeinate`: when `star.json` has a pid and `ps -p <pid> -o comm=` prints `caffeinate`, kill it.
    Start a new one (`caffeinate -dimsu >/dev/null 2>&1 &`) and record its pid. It deliberately
    outlives a closed session, so the workers' Mac stays awake.
-3. Heartbeat: load the scheduler (`ToolSearch("select:CronCreate,CronDelete")`), delete the job id in
+4. Heartbeat: load the scheduler (`ToolSearch("select:CronCreate,CronDelete")`), delete the job id in
    `star.json` if any, and create a recurring job `7,37 * * * *` with the prompt
    `STAR heartbeat: if you are not already in a tick, run one.` Record its id and, as `heartbeatAt`,
    the time. Jobs fire only while the session is idle and die with the session, which is why every
@@ -522,14 +534,14 @@ runs in <handle>", and end the turn.
    finds `heartbeatAt` 6 or more days old deletes the job and registers a new one, the same way.
    No scheduler tool → skip it and say so: an idle STAR then wakes only on a hand-over nudge or the user, so
    away summaries and answers typed into the queue file wait for one of those.
-4. **Reconcile** every row in a worker stage with `sh S/worker-probe.sh <dispatch>`:
-   `ok` or `quiet …` → keep it. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
-   catches it if it is not (a reviewer's review file and `agent_prompt_stalled` included). `gone` → Orca has no such worker (an Orca restart):
-   a `briefing`, `reviewing`, `screening`, `posting` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
+5. **Reconcile** every row in a worker stage with `sh S/worker-probe.sh <dispatch> --item <item> --home HOME_DIR --worktree <worktree> --deadline <progressDeadlineMin>` (no `--worktree` for a `briefing` or `posting` row):
+   `ok`, `quiet …` or `stale …` (with or without ` holds-screen <m>`) → keep it. `stalled: …` → housekeeping's capacity rule. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
+   catches it if it is not (`agent_prompt_stalled` included). `gone` → Orca has no such worker (an Orca restart):
+   a `briefing`, `posting` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
    put the row in its stage's waiting state; `restarts` goes back to 0 whenever the row moves on to a new stage; babysit resumes with `--since <cursor>`), because
-   those stages can pick up safely (a screen-check worker only runs checks, and a post worker first
-   looks for the comment it may already have posted); a row whose `restarts` is already 1 → `failed`, queue
-   `--kind escalation` "<stage> worker lost twice". For a lost `building` or `fixing` row,
+   those stages can pick up safely (a post worker first looks for the comment it may already have
+   posted); a row whose `restarts` is already 1 → `failed`, queue
+   `--kind escalation` "<stage> worker lost twice". For a lost `building` row,
    queue `--kind restart-or-drop` and set the row to `failed` (restarting a half-finished build
    blindly would build on a dirty worktree, and a dead row must not keep holding a build slot or
    keep STAR ticking all night). `stuck: <what>` → as in housekeeping. `unknown <why>` (which includes empty or unreadable Orca
@@ -542,7 +554,7 @@ runs in <handle>", and end the turn.
    counted, and leave its `counters` as they are. Its `live=` tells the next `stage-start.sh`
    that this is the same start, so it sends the same `--retry-request` ids and Orca hands back
    the task or dispatch it already made instead of a second one.
-5. `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · review <n>/<max>" --next "<one line>"`, then tick.
+6. `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · babysit <n>/<max>" --next "<one line>"`, then tick.
 
 A stop or an "I'm leaving" said in chat is written down at once, before the tick goes on: a file
 `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` with the line `control: stop` (or

@@ -14,13 +14,13 @@ for id in orca-terminal git-repo; do grep -q "id: $id" "$SKILL" && pass "require
 for m in '`/juel:star SPH-11 and SPH-12`' '`/juel:star status`' '`/juel:star stop`' 'draft-brief <ref> --project <name> --out <path>'; do
   grep -qF -- "$m" "$SKILL" && pass "mode $m" || fail "mode $m"
 done
-for s in inbox briefing brief-ready queued building pr-draft reviewing fixing babysit-queued babysitting verifying ready done escalated failed dropped; do
+for s in inbox briefing brief-ready queued building babysit-queued babysitting verifying reported post-queued posting done escalated failed dropped; do
   grep -q "\`$s\`" "$SKILL" && pass "state $s" || fail "state $s"
 done
 for c in 'loops.sh' 'pr-verify.sh' 'worker-probe.sh' 'release-record.sh'; do
   grep -q "$c" "$SKILL" && pass "uses $c" || fail "uses $c"
 done
-for k in approve-brief merge-pr escalation question restart-or-drop draft held; do
+for k in go-batch person go-merge accept-report escalation question restart-or-drop draft held; do
   grep -q -- "--kind $k" "$SKILL" && pass "queue kind $k" || fail "queue kind $k"
 done
 grep -q 'briefs/<project>/<item>.md' "$SKILL" && grep -q 'reviews/<project>/<item>-r<k>.md' "$SKILL" && pass "paths keyed by project" || fail "paths keyed by project"
@@ -67,9 +67,9 @@ grep -q 'control: away' "$SKILL" && pass "away works from any session" || fail "
 grep -q 'one place to answer' "$SKILL" && pass "handoff never collects answers" || fail "single answer place"
 # Stress test pass fixes
 T="$ROOT/skills/star/template"
-grep -q '`fix-queued`' "$SKILL" && ! grep -q 'findings waiting' "$SKILL" && pass "S12 a waiting fix is its own state" || fail "S12 fix-queued state"
 grep -q '| verify | counters | updated |' "$SKILL" && grep -q '| verify | counters | updated |' "$T/ledger.md" && pass "S12 counters have a ledger cell" || fail "S12 counters column"
-grep -q 'miss=1' "$SKILL" && grep -q 'unknown=' "$SKILL" && grep -q 'silent=' "$SKILL" && grep -q 'hold=' "$SKILL" && grep -q 'moved=' "$SKILL" && grep -q 'pending=' "$SKILL" && pass "S12 every counter is named" || fail "S12 counter names"
+left=""; for c in 'unknown=' 'silent=' 'hold=' 'moved=' 'pending=' 'capacity=' 'mismatch=' 'mergefail=' 'rescoped=1' 'rescope=<file>' 'batch=<id>' 'parent=<item>'; do grep -qF -- "$c" "$SKILL" || left="$left [$c]"; done
+[ -z "$left" ] && pass "S12 every counter is named" || fail "S12 counters not named:$left"
 grep -q '## Feedback' "$SKILL" && pass "S12 brief feedback is kept in the brief" || fail "S12 feedback storage"
 grep -q 'One STAR per home' "$SKILL" && grep -q 'orca terminal list --limit 500 --json' "$SKILL" && pass "S2 one STAR per home" || fail "S2 second STAR not refused"
 grep -q 'Match by dispatch' "$SKILL" && grep -q 'superseded' "$SKILL" && pass "S2 messages matched by dispatch id" || fail "S2 message matching"
@@ -128,7 +128,7 @@ g "V11 an answer waits for the report that raised it" 'leave its answers for the
 g "V12 a draft is posted once" 'posted draft N-'
 g "V13 a worker STAR stopped is on record" 'stopped <iso>'
 g "V14 a re-added item gets its own branch" 'the same suffix'
-g "V15 a quiet worker is still a running worker" '`ok` or `quiet'
+g "V15 a quiet or stale worker is still a running worker" '`ok`, `quiet …` or `stale …`'
 g "V16 a second answer cannot revive a dropped row" 're-read the row'
 g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
 g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
@@ -204,7 +204,6 @@ g "Q2 a new ask supersedes the open one" 'Superseded by your newer question.'
 g "Q3 one reminder before No answer" 'still waiting on you'
 g "Q3 the reminder is counted" '`reask=1`'
 g "B1 the intake section" '## Before you go'
-g "B2 the brief's questions are queued" '--kind prep'
 g "B3 the intake asks between ticks only" 'Between ticks, never inside one'
 g "B4 a skipped decision takes its default" 'default taken'
 g "B5 screen checks wait for the user" '`screen-queued`'
@@ -228,8 +227,8 @@ g "N2 through star-issue.sh" 'sh S/star-issue.sh file --fingerprint'
 g "N3 workers can report friction" 'STAR-ISSUE:'
 g "N4 project details never go out" '`<project>`, `ITEM-1`, `<repo>` and `<app>`'
 # Final review fixes
-g "FR1 a retry keeps the attempt number, screen checks and status" '`counters=keep:hold,last,start,screen,tracker`'
-g "FR2 lost screen-check and post workers restart once" 'a `briefing`, `reviewing`, `screening`, `posting` or `babysitting` row restarts once'
+g "FR1 a retry keeps the attempt number, status, batch and lineage" '`counters=keep:hold,last,start,tracker,batch,rescoped,parent`'
+g "FR2 lost brief, babysit and post workers restart once" 'a `briefing`, `posting` or `babysitting` row restarts once'
 g "FR2 a restarted post worker does not post twice" 'already starts with the report'
 g "FR6 stage-start runs in the background" 'like `gate-lock.sh` in a worker'
 g "FR6 a start that printed nothing is replayed" '| no line, or a non-zero exit |'
@@ -317,5 +316,9 @@ g "CW3 draft-brief and post-report match as the first word" 'A first word of `dr
 g "CW4 filler is dropped, a remark about the refs goes to the note" '(`and`, `add`, `please`), which is dropped, or only say something about the refs'
 g "HO1 a hand-over carries free text too" 'Write them, and any free text, as an inbox file'
 g "HO2 the hand-over line names the refs or the text" "I handed it <refs, or the text's first words>"
+g "MG1 the start migrates a v1 folder first" 'sh S/star-home.sh migrate'
+g "MG2 the workers of removed stages are stopped" 'stop <dispatch>'
+g "BT1 every row knows its batch" 'counters.batch'
+g "BL1 a blocked item waits for its blockers (#37)" 'blockedBy'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
