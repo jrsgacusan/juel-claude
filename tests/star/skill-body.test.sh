@@ -38,7 +38,7 @@ grep -q '"maxParallel": 3' "$SKILL" && grep -q '"maxInReview": 3' "$SKILL" && pa
 grep -q 'free + inactive' "$SKILL" && pass "memory check" || fail "memory check"
 grep -q 'processed.log' "$SKILL" && grep -q 'Write the whole ledger right after each message' "$SKILL" && pass "persist before act" || fail "persist before act"
 grep -q 'Never call AskUserQuestion' "$SKILL" && pass "never blocks on a question" || fail "non-blocking"
-grep -qi 'Never merge' "$SKILL" && pass "never merge" || fail "never merge"
+grep -qF '**Merge only through `merge.sh`**' "$SKILL" && pass "STAR merges only through merge.sh" || fail "merge rule"
 grep -q '`star`' "$ROOT/README.md" && pass "README row" || fail "README row"
 grep -qE '(^|[^-])ship-tickets' "$ROOT/README.md" "$ROOT/skills/ship-ticket/SKILL.md" "$ROOT/skills/babysit-pr/SKILL.md" "$ROOT/skills/receive-review-and-execute/SKILL.md" && fail "no ship-tickets references left" || pass "no ship-tickets references left"
 
@@ -60,7 +60,7 @@ grep -q 'moved=' "$SKILL" && grep -q 'mergefail=' "$SKILL" && pass "F18 moved an
 # Handoff: away, night summaries, back
 grep -qF '`/juel:star away`' "$SKILL" && grep -qF '`/juel:star back`' "$SKILL" && pass "away and back commands" || fail "away/back commands"
 for c in start due summary end; do grep -q "handoff.sh --home HOME_DIR $c" "$SKILL" && pass "uses handoff.sh $c" || fail "uses handoff.sh $c"; done
-grep -q -- '--quiet-hours always' "$SKILL" && pass "away holds reviewer-facing actions" || fail "away quiet mode"
+! grep -q -- '--quiet-hours always' "$SKILL" && grep -q 'Away holds no work' "$SKILL" && pass "away holds no work; quiet hours hold what goes out" || fail "away rule"
 grep -q 'sent.log' "$SKILL" && grep -q 'SENT ' "$SKILL" && pass "messages sent are logged" || fail "sent log"
 grep -q 'in the same turn' "$SKILL" && pass "chat answers are relayed in the same turn" || fail "same-turn relay"
 grep -q 'control: away' "$SKILL" && pass "away works from any session" || fail "away from anywhere"
@@ -134,7 +134,6 @@ g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
 g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
 g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 0'
 g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
-g "V22 an approval of an earlier commit is said so" 'approved on an earlier commit'
 g "V23 the feedback cursor is passed back as it is" 'opaque'
 g "V26 a lost queue item is noticed" '`missing`'
 g "V29 inbox files are read in order" 'in file-name order'
@@ -201,12 +200,8 @@ g "Q1 a worker sets its own deadline" 'deadline=<minutes>'
 g "Q2 a new ask supersedes the open one" 'Superseded by your newer question.'
 g "Q3 one reminder before No answer" 'still waiting on you'
 g "Q3 the reminder is counted" '`reask=1`'
-g "B1 the intake section" '## Before you go'
 g "B3 the intake asks between ticks only" 'Between ticks, never inside one'
-g "B4 a skipped decision takes its default" 'default taken'
-g "B6 STAR decides an in-scope product call while you are away" 'decided while you were away'
 g "B7 the brief report counts its asks" 'asks=<n>'
-g "B8 later ends the walk-through" '"later" as any answer'
 # Report items, the tracker status, improvement issues
 g "R1 report items" 'deliverable: report'
 g "R2 the report is accepted in the queue" '--kind accept-report'
@@ -237,7 +232,6 @@ g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
 g "K2 busy has its own count" '`busy=<n>`'
 g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
 # Issue #27
-g "Z4 the exact-head check knows an explicit zero" 'PASS no approval required'
 g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
 # Issue #28
 g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
@@ -259,7 +253,6 @@ g "Q4 the picker only before any worker" 'AskUserQuestion only for the first-run
 grep -qF 'AskUserQuestion only in the intake' "$SKILL" && fail "Q5 the old hard rule is gone" || pass "Q5 the old hard rule is gone"
 # Faster briefs
 g "F1 the pool default is documented" '"maxBriefs": 4'
-g "F2 rest takes the recommended options" 'you said rest'
 g "F3 STAR edits a brief itself" '(applied by STAR)'
 g "F4 changed lines are marked" '(changed)'
 grep -qF 'briefs may take every build slot' "$SKILL" && fail "F5 briefs no longer take build slots" || pass "F5 briefs no longer take build slots"
@@ -267,14 +260,12 @@ g "F6 STAR's own edit keeps the criteria markers right" 'carries no ` (proposed)
 g "Q6 the heartbeat and STAR's own commands are never an answer" 'a message that starts with `STAR heartbeat:`, or one'
 # Faster briefs: review fixes
 grep -qF 'STAR writes itself, as below; otherwise the brief worker writes them from it' "$SKILL" && ! grep -qF 'is feedback, and the brief worker writes the criteria from it' "$SKILL" && pass "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write" || fail "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write"
-g "B10 rest is never feedback on an open approve question" 'STAR records nothing for it and prints it again'
 g "B11 an edit that leaves no criterion writes NEEDS CRITERIA" 'leaves the brief with no acceptance criterion'
 g "B12 the changed mark is only in chat" 'only in the question STAR asks in chat, never in the brief file'
 g "B13 an existing PR fixes branch and baseBranch" 'On a brief with `existingPr`, `branch` and `baseBranch` are not small edits'
 # Final fix wave (Z4 and Z5 are issue #27's)
 g "Z1 the base sync clears pending=" 'write `counters.synced=<sha7>` and `counters.pending=-`'
 g "Z2 a bare number is refused only where options are numbered" 'On a question with numbered options, a bare number that names no option is not an answer'
-grep -qF 'on any open question that is not a `decision`: STAR records nothing for it and prints it again' "$SKILL" && ! grep -qF 'feedback on one of them: when the open question is one' "$SKILL" && pass "Z3 rest on any open question but a decision is printed again" || fail "Z3 rest on any open question but a decision is printed again"
 grep -qF 'so a change to either is answered in chat' "$SKILL" && grep -qF 'A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR' "$SKILL" && ! grep -qF 'a change to either is feedback for the brief worker' "$SKILL" && pass "Z6 an existing PR's branches are changed on GitHub, not by a re-draft" || fail "Z6 an existing PR's branches are changed on GitHub, not by a re-draft"
 grep -qF 'it makes sure the brief has `- [ ] NEEDS CRITERIA`' "$SKILL" && ! grep -qF 'it writes `- [ ] NEEDS CRITERIA`' "$SKILL" && pass "Z7 an edit that leaves no criterion never adds a second marker" || fail "Z7 an edit that leaves no criterion never adds a second marker"
 grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL" && ! grep -qF '`PROPOSED-CRITERIA` (case 3)' "$SKILL" && pass "Z8 PROPOSED-CRITERIA whenever a criterion is proposed" || fail "Z8 PROPOSED-CRITERIA whenever a criterion is proposed"
@@ -348,5 +339,27 @@ g "DB11 grounding: context7 for libraries" 'context7'
 g "DB12 the re-scope report" 'BRIEF item=<name> path=<--out> rescoped=1 followup=<path>'
 g "DB13 the split report" 'SPLIT item=<name> into=<path>,<path>'
 g "DB14 criteria are derived when the item has none" 'derive them from the item'
+# STAR closed loop: the merge gate, the batch summary, the rules
+left=""; for gone in '`pr-draft`' '`reviewing`' '`fix-queued`' '`fixing`' '`screen-queued`' '`screening`' '`ready`' '--kind approve-brief' '--kind prep' '--kind merge-pr' 'Exact-head verification' 'exact-head check' 'Before you go' 'decided while you were away' 'default taken' 'you said rest' 'Never merge'; do
+  grep -qF -- "$gone" "$SKILL" && left="$left [$gone]"
+done
+[ -z "$left" ] && pass "nothing of the v1 flow is left" || fail "v1 flow still named:$left"
+g "MG3 the merge gate" 'sh S/pr-verify.sh <pr url> --head <head> --merge-gate'
+g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted` when'
+g "MG5 STAR merges through merge.sh" 'sh S/merge.sh <pr url> --head <head> --grant <grant path>'
+g "MG6 a merge-gate failure goes back to babysitting once" 'mergefail=1'
+g "MG7 without a hosted reviewer, someone else approves" 'waits for an approval from someone other than you'
+g "MG8 a merge in quiet hours waits" 'HELD quiet hours'
+g "MG9 merges are announced" 'merged <item>: PR #<n>'
+g "BS1 the batch summary" '## The batch summary and go'
+g "BS2 one message for the whole batch" 'Reply go, go except <items>, drop <item>, or tell me what to change.'
+g "BS3 person-only steps one per message" 'one person-only step per message'
+g "HG1 the host gate" '## The host gate'
+g "HG2 every limit is named" '`minFreeGB`, `maxAgents`, `maxSwapGB` and `minDiskGB`'
+g "LW1 product calls are STAR's, from sourced options" 'Bring sourced options'
+g "LW2 a stale worker gets a check-in" 'stale <minutes> <terminal>'
+g "HR2 the go is never inferred" 'A go is never inferred'
+g "EC1 a re-scope edge case" 'NOT-SAFE after 3 rounds'
+g "RC1 a v1 folder is migrated on start" 'A v1 STAR folder'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

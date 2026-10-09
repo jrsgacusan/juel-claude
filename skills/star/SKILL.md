@@ -174,7 +174,7 @@ Typed in the project (its main checkout, a linked worktree or any subfolder):
 | `/juel:star add a CSV export to the reports page, and SPH-12` | Free text and refs together: the text becomes a spec item and the ref an item, in one batch. Starts STAR, or hands both to the one running, like the row above |
 | `/juel:star` | Start STAR for this project, or resume it: the two are the same command |
 | `/juel:star status` | Print the Needs-you block and counts per state. Read-only |
-| `/juel:star away` (or tell STAR "I'm leaving") | Walk through everything still open ("Before you go"), then write the handoff file and switch to away mode (below) |
+| `/juel:star away` (or tell STAR "I'm leaving") | Ask once more what the batch summary left open, then write the handoff file and switch to away mode (below). Away holds no work |
 | `/juel:star back` (or tell STAR "I'm back") | Print the latest summary and the queue; leave away mode |
 | `/juel:star stop` | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
 | `/juel:star draft-brief <ref> --project <name> --out <path> [--rescope <file>]` | Worker mode, below: a brief worker's command, never the user's |
@@ -547,7 +547,7 @@ runs in <handle>", and end the turn.
    keep STAR ticking all night). `stuck: <what>` → as in housekeeping. `unknown <why>` (which includes empty or unreadable Orca
    output) says nothing about the worker: keep the row and let housekeeping probe it again; it
    never justifies a restart. A `verifying` row has no worker: never restart it, and run the
-   exact-head check for it only when its `verify` is `-` or its `retry=` time has passed (a resume
+   merge gate for it only when its `verify` is `-` or its `retry=` time has passed (a resume
    inside the two-minute wait must not count as the second `PENDING`). A row in a worker stage with no task never started
    (STAR stopped between writing the row and `task-create`), and a row with a task but no
    dispatch never got its worker: put either back in its stage's waiting state, no restart
@@ -1133,29 +1133,45 @@ Report, as the `worker_done` body: `POSTED item=<name> url=<comment url, or the 
 `SENT report posted to <ref>`. A post that fails: `ESCALATION item=<name> phase=0
 reason=post-failed needs=<what the tracker said>`.
 
-## Exact-head verification
+## The merge gate
 
-`sh S/pr-verify.sh <pr url> --head <head from the ledger>` prints one line. How it judges: where the
-base branch's rules explicitly require 0 approving reviews, no approval is needed (`PASS no
-approval required`), though changes requested still fail; without any review rule on the repo,
-an approval counts only when it was given on the current head commit; with a rule, GitHub's own
-decision stands. Green means every check that reported is green and GitHub's merge state is not
-blocked or behind, so a required check that has not started is `PENDING`, not a pass. A repo with
-no review rule at all never passes without an approval: someone has to approve.
+Each tick, every `verifying` row (past the `retry=` time in its `verify` when one is set) runs the
+merge gate on the head its `READY` reported: `sh S/pr-verify.sh <pr url> --head <head> --merge-gate`,
+adding `--hosted` when `star.json`'s `hostedReviewer` is set.
+It prints one line. `PASS` needs all of: the PR is open, not a draft, and its head is the head given;
+a comment by the PR's author that starts `Codex gate: PASS (head <that head>`; every check that
+reported is green, and GitHub's merge state is not blocked, behind or dirty; a reply from the PR's
+author on every unresolved review thread someone else opened (the fix, or a `Disposition:` with the
+reason); and, without a hosted reviewer, an approving review on this head by someone other than
+the PR's author, with nobody's latest review asking for changes. With a hosted reviewer the gate
+reads none of its review: the babysit worker judged it clean on this exact head, from guidelines,
+before it reported `READY` (`juel:babysit-pr`), and the head check holds the gate to that head.
 
-| Verdict | Row in `verifying` | Row in `ready` |
-|---|---|---|
-| `PASS` | → `ready`; free the review slot; queue `--kind merge-pr`; notify. `PASS approval is on an earlier commit` is the same, with the queue title "merge PR #<n> — approved on an earlier commit, green, head <sha7>": the repo's rule is satisfied, but nobody approved the newest commits, and the person who merges should know. `PASS no approval required` is the same, with the queue title "merge PR #<n> — green, no approval required, head <sha7>". When `grep -cE 'decided while you were away|default taken' <brief>` prints k > 0, the title ends "— k decisions made while you were away" and the body adds the brief's path, so the user sees them before merging. | nothing |
-| no line, or an exit that is not 0 | as `PENDING script gave no verdict` | nothing |
-| `PENDING <what>` | `PENDING merge state: behind the base branch`: the sync rule below. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" | `PENDING merge state: behind the base branch`: the sync rule below; otherwise nothing |
-| `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" | the same, and close its `merge-pr` item |
-| `MERGED <sha>` | as for `ready` (there is no `merge-pr` item to close yet) | close its `merge-pr` item, then `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
-| `FAIL <what>` | `FAIL conflicts`: the sync rule below. Otherwise: → `escalated`; queue `--kind escalation` "<what>" | `FAIL conflicts`: the sync rule below. Otherwise: → `escalated`; close its `merge-pr` item; queue `--kind escalation` "<what>" |
+| Verdict | Then |
+|---|---|
+| `PASS …` | First close the row's open `held` item "PR #<n> waits for an approval from someone other than you" when it has one. The brief has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1): `sh S/merge.sh <pr url> --head <head> --grant <grant path> [--quiet-hours <window>]` (the window as `stage-start.sh` renders it; none when `quietHours` is null), run in the background like `stage-start.sh`; its line is the next table. No grant (a brief whose grant line was lost, since every go writes one): queue `--kind go-merge` and leave the row |
+| no line, or an exit that is not 0 | as `PENDING script gave no verdict` |
+| `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
+| `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" |
+| `MERGED <sha>` | the PR is merged (by STAR's own earlier call, or by someone else): `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
+| `FAIL <what>` | `FAIL closed`: as the PR check's `FAIL closed` ("Fill slots"): row → `escalated`, queue `--kind escalation` "PR was closed without a merge". `FAIL conflicts`: the sync rule below. Otherwise: `counters` has no `mergefail=1`: write it, append "- <date> the merge gate said: <what>. Fix it on the PR." to the brief's `## Decisions`, row → `babysit-queued` (babysit resumes with `--since <cursor>`). It has: → `escalated`, queue `--kind escalation` "the merge gate failed twice: <what>" |
 
-Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. "Close its
-`merge-pr` item" means `loops.sh close` on the open item of that kind for the row; none open (exit
-4, or nothing to find) is fine. STAR never merges, and never marks a PR ready: babysit does that
-once, and the merge is the user's.
+`merge.sh` prints one line:
+
+| Line | Then |
+|---|---|
+| `MERGED <sha>` | as the verdict `MERGED`, then print it and push one notification, "merged <item>: PR #<n>" |
+| `HELD quiet hours` | put `retry=<now + 10 min>` in `verify`: the gate runs again after that, and merges at the first run outside quiet hours |
+| `FAIL head moved` | as the verdict `MOVED` |
+| `FAIL <anything else>` | as a merge-gate `FAIL <what>` that is not `conflicts` (the `mergefail=` budget) |
+| exit 64 | `merge.sh` refused its arguments (a head that is not all 40 characters, or no grant file): queue `--kind held` "merge.sh refused its arguments for PR #<n>" and file an improvement issue; the row stays as it is |
+| no line, or another exit that is not 0 | the merge may or may not have happened: change nothing; the next tick's gate prints `MERGED` when it did |
+
+Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. STAR merges only
+here: through `merge.sh`, on the exact head the gate passed, under the item's grant, never inside
+quiet hours. `merge.sh` posts the owner's go on the PR first (`Merging head <sha> under your go of
+<date>: "<their words>"`) and merges with `--match-head-commit`, so a head that moved after the gate
+is GitHub's refusal, never a merge. STAR never marks a PR ready: babysit does that once.
 
 **`gh` that cannot see the repository.** `PENDING gh cannot see <repo>: export GH_TOKEN for this
 repository` is not retried blind and does not count as a `pending=`: queue `--kind held`
@@ -1164,11 +1180,10 @@ and leave the row as it is. The next check runs after that item is answered. A w
 that says so goes through the `ESCALATION` row of the report table as usual.
 
 **Sync after the base moved.** `FAIL conflicts` or `PENDING merge state: behind the base branch`
-for a row in `verifying` or `ready` means the base branch moved since babysit last merged it in,
-most often because the user merged a sibling PR. Read the base's head:
+for a `verifying` row means the base branch moved since babysit last merged it in,
+most often because STAR merged a sibling PR. Read the base's head:
 `git -C <project.repo> ls-remote <project.remote> refs/heads/<the brief's baseBranch>`, its first
-7 characters. When the row's `counters.synced` is not that sha: close its `merge-pr` item if it
-has one, write `counters.synced=<sha7>` and `counters.pending=-`, and the row → `babysit-queued`
+7 characters. When the row's `counters.synced` is not that sha: write `counters.synced=<sha7>` and `counters.pending=-`, and the row → `babysit-queued`
 (babysit resumes with `--since <cursor>`; its Phase 4 merges the base in and resolves mechanical
 conflicts itself). When it is: syncing did not help: → `escalated`, queue `--kind escalation`
 "<what> again after syncing with <base> at <sha7>". `ls-remote` failing: the Otherwise branch of the cell that sent it here.
@@ -1190,42 +1205,46 @@ STAR writes for the user only what shipping needs, and sends none of it by itsel
 to it only through a `NOTE:` line in their report, which STAR appends to it. The user edits or deletes notes freely. When a project file passes 80 lines,
 queue `--kind held` "trim memory/<project>.md" instead of trimming it yourself.
 
-## Pools and the memory check
+## The host gate
 
-`stage-start.sh` checks memory before every start: free + inactive from `vm_stat` (on Linux the
-`available` column of `free -g`) under 3 GB prints `hold memory <gb>` and starts nothing ("Fill
-slots" says what follows: `hold=` counts the ticks, and at `hold=3` the queue gets one "memory
-below 3 GB: nothing can start" item until a start succeeds).
-Heavy test and build gates inside workers take turns through
-`juel:ship-ticket`'s `gate-lock.sh`, which uses one lock per user for the whole machine
-(`/tmp/juel.gate.<uid>.lock`), so workers in different projects wait for each other too, and no
-worker needs to be told where STAR's home is. `vm_stat` and `caffeinate` are macOS
-tools; on Linux read the `available` column of `free -g` and skip `caffeinate`.
+`stage-start.sh` checks the machine before every start, against `star.json`'s `hostGate`:
+`minFreeGB`, `maxAgents`, `maxSwapGB` and `minDiskGB`. Memory is free + inactive from `vm_stat` (on
+Linux the `available` column of `free -g`); agents are the running `claude` and `codex` processes,
+every project's; swap is the `used` figure of `sysctl -n vm.swapusage` (on Linux, `free -g`); disk
+is the free space on the volume that holds STAR's folder. The first limit that fails prints
+`hold <what> <value>` and starts nothing ("Fill slots" says what follows: `hold=` counts the ticks,
+and at `hold=3` the queue gets one held item until a start succeeds). Heavy test and build gates
+inside workers take turns through `juel:ship-ticket`'s `gate-lock.sh`, which uses one lock per user
+for the whole machine (`/tmp/juel.gate.<uid>.lock`), so workers in different projects wait for each
+other too, and no worker needs to be told where STAR's home is. `caffeinate` is a macOS tool; on
+Linux skip it.
 
 ## Looking after the workers
 
 STAR is the most capable session in the run and the only one that sees every item. A worker that
-is unsure asks STAR; a worker that goes quiet hears from STAR. Workers are told both in their own
-skills.
+is unsure asks STAR; a worker that makes no progress hears from STAR. Workers are told both in their
+own skills.
 
 **STAR answers first.** A worker's question (`orca orchestration ask`) is STAR's to answer when
-the answer is in the brief, its `## Decisions` or `## Feedback`, the memory notes or the ledger,
-or when it is an engineering call inside the brief's Scope: which of two approaches, what to name
+the answer is in the brief, its `## Decisions` or `## Feedback`, the memory notes or the ledger;
+when it is an engineering call inside the brief's Scope: which of two approaches, what to name
 something, whether to retry, how to get past a tool that fails, what this project's convention
-is. Answer in a few lines, say what to do next, and where it helps say what to read and what to
-decide by: STAR still opens no code, review or log file itself.
+is; and when it is a product call inside the brief's Scope. Answer in a few lines, say what to do
+next, and where it helps say what to read and what to decide by: STAR still opens no code, review
+or log file itself, and does no research in its own session.
+
+**Product calls are STAR's.** A product call inside the brief's Scope is decided by STAR whether
+the user is there or not, from the sourced options the worker brings: pick the one that best fits
+the brief's intent and its decision records, reply, and append a decision record to the brief's
+`## Decisions`: `### D<n> <title> (<date>, decided by STAR)`, with the worker's source in `Source:`
+and the message id in `Context:`. A question that brings no sourced options gets the reply
+"Bring sourced options: <what to look up>, each with its source." and no decision.
 
 A question is the user's, and goes to the queue, when it would change or stretch the Scope or an
-acceptance criterion; needs a secret, an account or a paid service; is about anything that goes
-out to other people (a reply, a status, marking ready); would delete or overwrite work; settles
-product behaviour the brief leaves open; or when STAR is not confident. When in doubt whose it
-is, it is the user's.
-
-**While the user is away**, or inside quiet hours, a product call inside the brief's Scope is
-STAR's to make too: pick the option that best fits the brief's intent, reply, and record
-`- <date> STAR decided while you were away (<message id>): <question> → <answer>` in the brief's
-`## Decisions`. Out of scope, a secret, an account, a paid service, anything outward and deleting
-work stay the user's, and are answered "No answer from the user: escalate this." at once.
+acceptance criterion; needs a secret, an account or a paid service; is about anything that goes out
+to other people beyond the PR itself; or would delete or overwrite work. Inside quiet hours or while
+the user is away, such a question is answered "No answer from the user: escalate this." at once (the
+Messages table).
 
 **One open question per row.** A worker that asks again while its earlier question is still in
 the queue has moved on: close the old item and reply to its message "Superseded by your newer
@@ -1237,10 +1256,12 @@ Every answer STAR gives is on record: append `- <date> STAR answered (<message i
 the brief's `## Decisions` (later workers read it as binding, and the user can overrule it there
 or in chat), and name it in the next status line.
 
-**Checking in.** `worker-probe.sh` printing `quiet <minutes> <terminal>` means the worker runs but
-its terminal has printed nothing for 15 minutes: it may have ended its turn without reporting, or
-be waiting on a long command. Unless the row has an open `question` item (then it is waiting for
-an answer, which is expected), send it one message and add one to `nudge=` in `counters`:
+**Checking in.** `worker-probe.sh` printing `stale <minutes> <terminal>` means the worker runs but
+has made no progress for `progressDeadlineMin` minutes: no progress line, no commit and no changed
+file. `quiet <minutes> <terminal>`, for a worker with no progress source, means its terminal has
+printed nothing for 15 minutes. Either way it may have ended its turn without reporting, or be
+waiting on a long command. Unless the row has an open `question` item (then it is waiting for an
+answer, which is expected), send it one message and add one to `nudge=` in `counters`:
 
 ```sh
 orca terminal send --terminal <terminal> --text "STAR checking in on <item>: say in one line where you are. Waiting on a background command: keep waiting. Blocked or unsure: ask me with orca orchestration ask. Finished: send your worker_done report now." --enter --json
@@ -1249,23 +1270,25 @@ orca terminal send --terminal <terminal> --text "STAR checking in on <item>: say
 **A refused check-in.** `orca terminal send` answering with the error code `agent_prompt_blocked`
 means the worker's agent is mid-turn: busy, not idle, often inside a long command such as a wait
 for the gate lock. It is not a nudge: add one to `busy=` in `counters` and leave `nudge=` alone.
-While `busy=<n>` is set, send the next check-in only when this tick's probe prints `quiet <m>`
-with `m` at least 15 × (n + 1) (30 minutes of silence after one refusal, 45 after two), so one
-silent stretch gets one try per quiet window. At `busy=8` (a little over two hours of one silent
-stretch) queue `--kind held` "<stage> worker for <item> silent and busy for 2 h: look at terminal
-<terminal>", notify, and send it no more check-ins; the worker is not stopped. Any probe result
-other than `quiet` clears `busy=`: the terminal printed something, so that silent stretch is over.
+While `busy=<n>` is set, send the next check-in only when this tick's probe prints `quiet <m>` or
+`stale <m>` with `m` at least the probe's own threshold × (n + 1) (15 for `quiet`,
+`progressDeadlineMin` for `stale`), so one silent stretch gets one try per window. When `busy=` is
+set and the probe's minutes reach 120, queue `--kind held`
+"<stage> worker for <item> silent and busy for 2 h: look at terminal <terminal>", notify, and send it
+no more check-ins; the worker is not stopped. Any probe result other than `quiet` or `stale` clears `busy=`: the worker moved, so that
+silent stretch is over.
 
-The probe never says `quiet` while a question with numbered options is on the worker's screen
-(that is `stuck: confirmation dialog`), because the check-in ends with Enter and Enter would
-answer the prompt. Send a check-in only on a `quiet` result from this tick's probe, never from
-memory of an earlier one.
+The probe never says `quiet` or `stale` while a question with numbered options is on the worker's
+screen (that is `stuck: confirmation dialog`), because the check-in ends with Enter and Enter would
+answer the prompt. Send a check-in only on a `quiet` or `stale` result from this tick's probe,
+never from memory of an earlier one.
 
 At `nudge=3` with still no report, queue `--kind held` "<stage> worker for <item> has been quiet
 through 3 check-ins: look at terminal <terminal>", notify, and send no more check-ins to it. The
 worker is not stopped: it may be inside an hour-long gate. A blocking screen is a different thing
-(`stuck:`): that worker is stopped and the row goes to the user, and STAR never answers a
-worker's screen for it.
+(`stuck:`): that worker is stopped and the row goes to the user, and STAR never answers a worker's
+screen for it. A model at capacity is a third thing (`stalled:`): STAR nudges it to retry, three
+times at most, then restarts it (the capacity rule in Housekeeping).
 
 ## Notifications and quiet hours
 
@@ -1281,9 +1304,13 @@ the worker asked for more), extended once by the Housekeeping reminder; one that
 quiet hours or while the user is away is decided by STAR or answered "No answer" at once (the
 Messages table).
 
+A merge is announced as it happens: STAR prints it and sends one push notification,
+"merged <item>: PR #<n>".
+
 Workers get the quiet window (`--quiet-hours`) and decide at each outward action: they keep
-building, reviewing, fixing and pushing, while marking ready, replying to reviewers, re-requesting
-review and status writes wait for the window to end or come back as `HELD` lines.
+building, gating and pushing, while marking ready, replying to reviewers, re-requesting review,
+`@greptileai` comments and status writes wait for the window to end or come back as `HELD` lines.
+STAR's own merge waits the same way: `merge.sh` prints `HELD quiet hours`.
 
 ## Report items
 
@@ -1296,7 +1323,7 @@ or PR. Then:
 1. `REPORTED` → `reported`, and the queue asks "accept report for <item>" with the report's path.
    STAR never opens the report; the user reads it.
 2. `accept` → `post-queued`. Posting is outward, so it waits for the first tick outside quiet
-   hours and outside away. A post worker posts the report as one comment on the work item and
+   hours. A post worker posts the report as one comment on the work item and
    reports `POSTED`; the row → `done`, and the tracker status moves to Done.
 3. Anything else the user answers is a decision: it goes into the brief's `## Decisions`, and the
    build stage runs again.
@@ -1314,11 +1341,11 @@ follows the row's state:
 |---|---|
 | `queued` | Todo |
 | `building`, `reported`, `post-queued`, `posting` | In Progress |
-| `pr-draft`, `reviewing`, `fix-queued`, `fixing`, `screen-queued`, `screening`, `babysit-queued`, `babysitting`, `verifying`, `ready` | In Review |
+| `babysit-queued`, `babysitting`, `verifying` | In Review |
 | `done` | Done |
 | `inbox`, `briefing`, `brief-ready`, `escalated`, `failed`, `dropped` | not written |
 
-At the end of every tick outside quiet hours and outside away, compare each row's status with its
+At the end of every tick outside quiet hours, compare each row's status with its
 `counters.tracker=` and write only where they differ, through the source in the item's brief
 (`item.source`, `item.ref`):
 
@@ -1364,123 +1391,105 @@ these:
 Filing is not held by quiet hours or away: it goes to the plugin's own repository and pings nobody
 else. It never delays a tick's real work: it runs in Housekeeping, after the slots are filled.
 
-## Before you go
+## The batch summary and go
 
-The goal needs every answer a person can give collected while the user is still there. The
-intake runs in STAR's own session when it ingests new refs (a start with refs, refs said in chat,
-or an inbox file that adds rows), and again on `away`.
+A batch is the items one request brought in: a start with refs or text, refs said in chat, or one
+inbox file (`counters.batch`). The owner is asked once per batch, while they are there, and the
+batch then runs without them.
 
-1. Say "drafting <n> briefs; I'll walk you through each as it lands". While the intake runs, the
-   Messages wait is `--timeout-ms 60000`.
-2. Between ticks, never inside one: ask every open item that blocks work (`approve-brief`,
-   `prep`, `question`, `escalation`, `restart-or-drop`) in plain chat, **one question per
-   message**, then end the turn. Never with AskUserQuestion: workers are running, and an Orca
-   nudge that lands on an open picker answers it with its first option.
+1. When no row of the batch is `inbox` or `briefing` any more, print the summary in one chat
+   message, for the rows of the batch that are `brief-ready`, `escalated` or `failed`. STAR reads
+   only these lines of each brief, with `sed -n`, never the whole file: the frontmatter's
+   `item.title`, `blockedBy` and `deliverable`, and the lines under `## Acceptance criteria`,
+   `## Approach` and `## Person-only steps`, with the `### D<n>` headings under `## Decisions`.
 
    ```
-   Q3 of 7 · ITEM-1 · decision
-   Should the export include archived rows?
-   1. No, active rows only (Recommended)
-   2. Yes, all rows
+   Batch B-20261009T081200Z-a3f9 · 3 items
+
+   ITEM-1 · Export reports as CSV
+     Criteria (4): one line each
+     Approach: one line
+     Decisions STAR took (2): D1 CSV over XLSX · D2 a 10,000-row cap
+     Blocked by: none
+   ITEM-2 · ...
+     Person-only: sign in to <app> as <account> (2FA)
+   ITEM-3 · stopped: <the escalation or failure, one line>
+
+   Reply go, go except <items>, drop <item>, or tell me what to change.
    ```
 
-   `Q<k> of <n>` counts the open questions known now; `n` grows as briefs land. A question with a
-   default lists it first, labelled `(Recommended)`: every `decision` (its `default:`), and any
-   other item whose body names one. `approve-brief`, `criteria`, `secret`, `account`, `screen` and
-   `restart-or-drop` questions have none. An `approve-brief` question shows the brief inline, not
-   only its path: each acceptance criterion, the approach in one line, Scope In and Out in one
-   line each, `deliverable`, then the path; its options are `1. approve` and `2. drop`, followed
-   by the line "Or tell me what to change." A `restart-or-drop` question's options are
-   `1. restart` and `2. drop`; a `screen` item's are `1. done` and `2. can't now` (step 3); an
-   `escalation`'s is `1. drop`, followed by "Or tell me your decision."; a `decision`'s, or a
-   worker `question`'s, are its own answers. A queue option that asks for words ("say what to
-   change", "answer with your decision") is never numbered: it becomes that closing "Or tell
-   me" line. Each brief's questions come as that brief lands: its `## Before you go` questions
-   first, its approval last, because a decision can change the brief.
+   The `go-batch` item carries the same choice. The decision records are where the owner
+   overrules STAR: an answer that names one is feedback for that brief.
+2. Between ticks, never inside one: ask each open `person` item of the batch in plain chat,
+   one person-only step per message, then end the turn; the go is the last question. Never with
+   AskUserQuestion: workers are running, and an Orca nudge that lands on an open picker answers it
+   with its first option.
+
+   ```
+   Q2 of 3 · ITEM-2 · screen
+   Sign in to <app> as <account> on this Mac (2FA).
+   1. done
+   2. can't now
+   ```
+
+   A `risky` step's options are `1. approve` and `2. no`. A worker's `question` that reaches the
+   owner lists the options the worker brought, STAR's pick first, labelled `(Recommended)`. An
+   `escalation`'s option is `1. drop`, followed by "Or tell me your decision." A queue option that
+   asks for words is never numbered: it becomes that closing "Or tell me" line.
 
    The reply: a bare number, or the text of one option, is that option; any other words are the
-   answer in words. An option's text is the exact command word the Answers step acts on
-   (`approve`, `drop`, `restart`) or, for a `prep` item or a `question`, the exact answer it
-   records (`done`, `can't now`, a decision's choice), so a numbered reply always reaches the
-   right row. On a question with numbered options, a bare number that names no option is not an answer:
-   print the question again.
-   Record the answer with `loops.sh set-answer <id> "<the option's text, or the words>"` and run
-   the Answers step for it at once, so STAR stays the only writer of briefs and rows, then ask
-   the next question. A message that is Orca's nudge (it starts with "You have" and names
-   orchestration messages), exactly `inbox`, a message that starts with `STAR heartbeat:`, or one
-   whose whole text is one of STAR's own control phrases (`stop`, `away` or "I'm leaving", `back`
-   or "I'm back", `take over`) is never an answer: handle the nudge, `inbox` and the heartbeat as
-   usual, and run a control phrase as the command it is, then print the open question again as
-   `Still open: Q3 · ITEM-1 · <question>` with its options. While a question is open, each wake
+   answer in words.
+   On a question with numbered options, a bare number that names no option is not an answer:
+   print the question again. Record the answer with
+   `loops.sh set-answer <id> "<the option's text, or the words>"` and run the Answers step for it at
+   once, so STAR stays the only writer of briefs and rows, then ask the next question. A message
+   that is Orca's nudge (it starts with "You have" and names orchestration messages), exactly
+   `inbox`, a message that starts with `STAR heartbeat:`, or one whose whole text is one of STAR's
+   own control phrases (`stop`, `away` or "I'm leaving", `back` or "I'm back", `take over`)
+   is never an answer: handle the nudge, `inbox` and the heartbeat as usual, and run a control
+   phrase as the command it is, then print the open question again as
+   `Still open: Q2 · ITEM-2 · <question>` with its options. While a question is open, each wake
    (the reply, a nudge, the heartbeat) runs one tick, then STAR prints the open question (or the
    next one) and ends the turn.
+3. A go given before every step is answered starts the items whose steps are done; the others stay
+   `brief-ready` and come back in the next summary, with what each waits for.
 
-   A reply of `rest` answers every remaining `decision` question of the current brief with its
-   Recommended option, each recorded as
-   `loops.sh set-answer <id> "<option> (recommended; you said rest)"` and applied like any
-   answer. It never answers an approve, `criteria`, `secret`, `account` or `screen` question:
-   those are still asked one by one. Nor is `rest` ever an answer in words or feedback
-   on any open question that is not a `decision`: STAR records nothing for it and prints it again.
-3. `screen` items are things to do now: "sign in to <app> as <account>", "approve the keychain
-   prompt once". Options: `done` / `can't now`.
-4. When nothing is left to ask and no brief is still drafting: "All set: <n> approved, <m>
-   decisions recorded. Leaving now?" Yes → Away (Handoff). No → STAR keeps ticking as usual.
-5. "later" as any answer ends the walk-through at once and goes to Away with what is known.
-   A question in chat does not hold the loop: every wake while it is open still runs a tick, so
-   reports are applied and slots filled between answers.
+Refs handed over from another session: STAR's own session prints the summary, and the handing
+session says "answer STAR's batch summary in <terminal>".
 
-Refs handed over from another session: STAR's own session runs the walk-through, the handing
-session says "answer STAR's intake in <terminal>", and STAR notifies when the first item is ready.
-
-**What was not answered before the user left** is settled by Away (Handoff, step 1):
-
-- a `decision` takes its recommended default: `loops.sh set-answer <id> "default taken: <default>
-  (you left before answering)"`, applied like any answer;
-- a `screen` item left open counts as `can't now`;
-- a `criteria`, `secret` or `account` item has no safe default: it stays open, the item still
-  builds until it needs the answer, then escalates (`needs-human-input`) as before.
-
-**Screen checks after the user left.** A build worker that cannot do a check without a person
-(the brief's Decisions say `can't now`, or its ask came back "No answer") records the check as
-blocked, finishes everything else and opens the draft PR with those checks listed as pending; its
-report adds `SCREEN path=<file> pending=<n>` after `DONE`. Review and fix run as usual, and after
-a SAFE review the row goes to `screen-queued`. When the user is back and it is not quiet hours,
-the `screen` stage runs only those checks with the user at the Mac; `VERIFIED … failing=0` sends
-the row on to babysitting. Nothing is marked ready with a check unverified.
+A step the owner could not do (`can't now`) holds only its own item. Nothing else waits for the
+owner: STAR takes the product calls, and the build checks what it can by itself.
 
 ## Handoff
 
 The handoff is how the user leaves and comes back without losing anything. `handoff.md` only lists:
 the queue stays the one place to answer, so an answer can never exist in two files.
 
+**Away holds no work.** Every stage keeps starting while the user is away, babysitting included,
+and STAR keeps merging under the owner's go. Quiet hours, not away, hold what goes out: marking
+ready, replies, reviewer pings, status writes and merges, in workers and in STAR's own merge.
+
 **Away** (`/juel:star away`, "I'm leaving", or a `control: away` inbox file). Away while already
 away changes nothing: `handoff.sh start` keeps the file and its summaries and says so.
 
-1. Finish the current tick, then run the walk-through ("Before you go"): wait for briefs still
-   drafting and ask everything open. Then settle what is still unanswered: the default for each
-   open `decision` item, `can't now` for each open `screen` item.
+1. Finish the current tick. When a batch summary still has open questions, ask them once more
+   ("The batch summary and go"); a person-only step left unanswered holds only its own item, which
+   stays `brief-ready`.
 2. `sh S/handoff.sh --home HOME_DIR start` writes `handoff.md` and marks `away` in `star.json`. Its
-   three parts come straight from the files: **A. Needs you now** (queue items that block work:
-   briefs to approve, questions, escalations, restarts), **B. Waits for you** (merges, drafts, held
-   actions), **C. What runs while you're away** (each open item and where it will stop).
-3. Print part A: what is still open after the walk-through, and that those items stop where they
-   need the answer. Answers that arrive later are handled like any other.
+   three parts come straight from the files: **A. Needs you now** (queue items that block work: a
+   batch's go, person-only steps, merge questions, worker questions, escalations, restarts),
+   **B. Waits for you** (drafts, held actions, an approval a PR waits for), **C. What runs while
+   you're away** (each open item and where it will stop).
+3. Print part A: what is still open, and that those items stop where they need the answer.
+   Answers that arrive later are handled like any other.
 
 **While away:**
 
-- Build, second-model review and fix stages keep running, started with `--quiet-hours always`, so
-  their outward actions come back as `HELD`.
-- No babysit stage is started: a row that reaches `babysit-queued` waits there, so no new PR is
-  marked ready and no human reviewer is pinged until the user is back. Such a row does not keep
-  STAR active: when nothing else is running or waiting for a slot, STAR goes idle and the
-  heartbeat wakes it. Babysit workers that were already running are left alone and keep their own
-  quiet window. No `screen` stage is started either: a row in `screen-queued` waits for the user.
-- A worker's question that STAR cannot answer, and that is not an in-scope product call (STAR
-  decides those, "Looking after the workers"), is answered "No answer from the user: escalate
-  this." at once.
+- A worker's question that is not STAR's to answer ("Looking after the workers") is answered "No
+  answer from the user: escalate this." at once.
 - Only `escalation` items notify, as inside quiet hours.
 - About every 4 hours (housekeeping's `handoff.sh due`), `handoff.sh summary` adds a dated summary
-  to the top of `handoff.md`: items per state, PRs ready for the merge, what merged, what stopped,
+  to the top of `handoff.md`: items per state, PRs waiting to merge, what merged, what stopped,
   everything in `sent.log` since the last summary, free memory and running workers, and the full
   Needs-you list again. The heartbeat keeps this going while STAR is idle. It needs STAR's session
   to be open: with the session closed, workers continue but no summary is written.
@@ -1489,8 +1498,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 
 1. `sh S/handoff.sh --home HOME_DIR end` clears `away` and prints the latest summary. Print it, then
    the open queue (`loops.sh list`). When it prints `not away`, say so and print only the queue.
-2. Send the notifications that were held, then run a tick, so the rows waiting in
-   `babysit-queued` start babysitting now and not at the next heartbeat.
+2. Send the notifications that were held, then run a tick.
 3. As the user answers, in the file or in chat, record each answer and act on it in the same turn.
 
 ## Recovery
@@ -1502,20 +1510,28 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - **A closed session:** workers keep running and their reports wait in the Orca run. The user
   runs `/juel:star` in the project again, from any Orca terminal: the old terminal is no longer
   listed, so the new session takes over.
-- **An Orca restart:** every worker is gone. The reconcile step restarts review, babysit, brief,
-  screen and post stages once and queues lost builds and fixes for the user.
+- **An Orca restart:** every worker is gone. The reconcile step restarts brief, babysit and post
+  stages once and queues lost builds for the user.
 - **A stop in the middle of a tick:** nothing is lost and nothing runs twice. A message not yet in
   `processed.log` is replayed into the same end state (the order of effects above); a row written
   before its `task-create` goes back to its waiting state; an inbox file read twice adds no row.
+- **A v1 STAR folder:** the start's first step, `star-home.sh migrate`, brings it to schema 2. It
+  keeps `star.json.v1.bak` and `ledger.md.v1.bak`, moves each row out of a removed state with a
+  decision record in its brief, and prints the workers of the removed stages, which STAR stops and
+  releases before it reconciles.
 
 ## Hard rules
 
-- **Never merge a PR**, and never start a worker that would.
+- **Merge only through `merge.sh`**, on the exact head `pr-verify.sh --merge-gate` passed, under
+  the item's grant, outside quiet hours. No worker merges.
 - Never read review, evidence, log or diff content into this session. One line per fact, from a
   script or a report.
-- A brief is never built before the user approves it in the queue. Approval is never inferred.
+- An item is never built before the owner's go for its batch, or, for a re-scope's follow-up, its
+  parent's grant. A go is never inferred.
+- Product calls are STAR's, decided from sourced options and kept as decision records the owner
+  can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
-  automatic restart of a review, babysit or brief stage lost to a restart.
+  automatic restart of a brief, babysit or post stage whose worker was lost or stalled at capacity.
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
 - The work item's status is written only by STAR, from the row's state ("The tracker status").
@@ -1531,12 +1547,14 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 
 | Mistake | Fix |
 |---|---|
-| Opening a review file "to summarize it" | The queue item carries the path; the user reads it. STAR reads the verdict line |
+| Opening a review file "to summarize it" | `done-check.sh` and the merge gate read it and print one line |
 | A worker moving the tracker status | Workers never write it; STAR follows the row's state |
 | Pasting ticket text or a project name into an improvement issue | Placeholders only; `star-issue.sh` refuses project details |
 | Opening a report "to check it" before asking for the accept | The queue item carries the path; the user reads it |
 | Editing `open-loops.md` with Edit or sed | `loops.sh` only: it keeps what the user typed |
-| Treating a `merge-pr` answer as a merge | Only `pr-verify.sh` printing `MERGED` moves the row |
+| Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go, waits out quiet hours and passes `--match-head-commit` |
+| Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
+| Starting a build before its batch's go | Only a `go-batch` answer, or a parent's grant, stamps `approved:` |
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
 | Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
@@ -1558,12 +1576,12 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 |---|---|
 | Refs given while STAR is stopped | The invoking session becomes the coordinator and ingests them |
 | The same ref given twice | One row. The second time changes nothing |
-| The user merges or closes a PR before STAR reached `ready` | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
+| The user merges or closes a PR before STAR merged it | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
 | The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
 | A second `/juel:star` in another terminal of the same project | It hands its refs to the running STAR and ends; it never becomes a second coordinator |
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
 | The project is not registered with Orca | `--kind held` "register this repo with Orca: orca repo add"; inbox files stay until it is |
-| `codex` missing | The reviewer runs on claude with a different model; say so |
+| `codex` missing | STAR does not start: the executor and the gate need it (Preflight) |
 | A stage's model is refused at launch (no access, no credits) | The stage falls back to `worker` once and the queue says which model ran |
 | `/juel:star` typed in a linked worktree or a subfolder | The same folder as the main checkout: one STAR per project |
 | `/juel:star` typed outside a git repository | One line: STAR needs a project repository. Nothing is created |
@@ -1572,15 +1590,18 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A finding that is already an open issue | `star-issue.sh comment` adds the new evidence to it |
 | A finished item's worktree still holds uncommitted or unpushed work | It stays; the queue says why, and `done` there makes STAR try again |
 | The STAR folder was deleted | That project's state is gone; the next `/juel:star` starts fresh. Stop STAR first: workers still running would report to nobody |
-| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock and the memory check are shared by the machine |
+| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock and the host gate are shared by the machine |
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
-| The user leaves with "Before you go" items unanswered | Decisions take their defaults, screen items count as "can't now", the rest stop the item where it needs them |
-| A check needs the user at the screen while they are away | The check is blocked, the PR opens with it pending, and the row waits in `screen-queued` after its SAFE review |
+| The user leaves with person-only steps unanswered | Those items stay `brief-ready`; the rest of the batch builds and merges |
+| A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
-| A reviewer settles without a `worker_done` | Its review file's first line is the report |
+| The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |
 | A worktree Orca created inside the repository | `.git/info/exclude` gets a line for its top folder |
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
 | A check-in Orca refuses with `agent_prompt_blocked` | The worker is busy, not idle: `busy=` counts it, not `nudge=`, and the next try waits a full quiet window |
 | Two items that each add a decision to the same register | Each worker reserves its ids through `ids.sh`, so siblings never take the same number |
 | An Orca nudge, the heartbeat or one of STAR's control phrases arrives while a question is open in chat | It is handled as what it is (a control phrase runs as its command), never as the answer; the question is printed again |
+| A build still NOT-SAFE after 3 rounds | `RESCOPE`: the brief is narrowed once and the rest becomes a follow-up item under the same go; a second re-scope escalates |
+| A project with no hosted reviewer | The merge gate waits for an approval from someone other than the PR's author; the queue says so once |
+| A v1 STAR folder | The first start migrates it and stops the workers of the removed review, fix and screen stages |
