@@ -1,0 +1,6 @@
+The change replaces addition with subtraction, so add() no longer returns the sum.
+
+Review comment:
+
+- [P1] Return the sum instead of the difference — /repo/calc.py:2-2
+  For any inputs where the sum differs from the difference, add(a, b) now returns a - b.

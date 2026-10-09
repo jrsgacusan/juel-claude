@@ -12,6 +12,7 @@ cat > "$TMP/bin/gh" <<'EOF'
 [ "${STUB_FAIL:-}" = 1 ] && { echo "${STUB_ERR:-HTTP 502}" >&2; exit 1; }
 if [ "$1" = api ]; then
   case "$2" in
+    graphql) if [ -n "${STUB_THREADS:-}" ]; then cat "$STUB_THREADS"; else echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'; fi ;;
     *"/rules/branches/"*)
       [ -n "${STUB_RULES_ERR:-}" ] && { echo "$STUB_RULES_ERR" >&2; exit 1; }
       if [ -n "${STUB_RULES:-}" ]; then cat "$STUB_RULES"; else echo '[]'; fi ;;
@@ -124,6 +125,89 @@ unset RULES
 # a repository gh cannot see (#27)
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_FAIL=1 STUB_ERR="GraphQL: Could not resolve to a Repository with the name 'o/r'. (repository)" STUB_JSON=/dev/null sh "$SCRIPT" https://github.com/o/r/pull/5 --head abc1234)
 [ "$out" = "PENDING gh cannot see o/r: export GH_TOKEN for this repository" ] && echo "ok   a repository gh cannot see says how to fix it" || { echo "FAIL cannot see ($out)"; fails=$((fails + 1)); }
+
+# --merge-gate: STAR's merge gate. A hosted reviewer's review text is never read here.
+AUTHOR='"author":{"login":"me"}'
+PASSC='{"author":{"login":"me"},"body":"Codex gate: PASS (head abc1234def, round 2, gpt-6-astra xhigh)"}'
+NOAPP='"reviewDecision":"","reviews":[]'
+mg() { # mg <name> <expected> <json body> [extra args]
+  printf '{%s}\n' "$3" > "$TMP/pr.json"
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_THREADS="${THREADS:-}" sh "$SCRIPT" 5 --head abc1234 --merge-gate ${4:-})
+  if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
+}
+# with a hosted reviewer: the babysit worker judged its review; the script asks for no approval
+mg "hosted, PASS posted, green: PASS" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+mg "no codex PASS: FAIL" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[]" "--hosted"
+mg "a PASS by someone else does not count" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[{\"author\":{\"login\":\"x\"},\"body\":\"Codex gate: PASS (head abc1234def, round 1, m e)\"}]" "--hosted"
+printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"author":{"login":"greptile-apps"},"body":"The export ignores the filter."}]}}]}}}}}\n' > "$TMP/t1.json"
+THREADS="$TMP/t1.json"
+mg "a hosted reviewer's comment with no reply: FAIL" "FAIL 1 finding without a reply from the author" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+unset THREADS
+printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"author":{"login":"greptile-apps"},"body":"Rename this."},{"author":{"login":"me"},"body":"Disposition: the name matches the API it wraps."}]}}]}}}}}\n' > "$TMP/t3.json"
+THREADS="$TMP/t3.json"
+mg "a hosted reviewer's comment the author answered: PASS" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+unset THREADS
+printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"author":{"login":"ezra"},"body":"Please rename this."}]}}]}}}}}\n' > "$TMP/t2.json"
+THREADS="$TMP/t2.json"
+mg "an unanswered reviewer thread: FAIL" "FAIL 1 finding without a reply from the author" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+unset THREADS
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --hosted 2>/dev/null; echo "exit=$?")
+[ "$out" = "exit=64" ] && echo "ok   --hosted alone exits 64" || { echo "FAIL --hosted alone ($out)"; fails=$((fails + 1)); }
+# without a hosted reviewer: an approval on the head by someone other than the author, with write access
+MEMBER_OK='"reviewDecision":"","reviews":[{"author":{"login":"ezra"},"authorAssociation":"MEMBER","state":"APPROVED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"}}]'
+mg "no hosted reviewer, approved on the head: PASS" "PASS approved" "$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]"
+mg "an approval from someone without write access does not count" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"drive-by\"},\"authorAssociation\":\"CONTRIBUTOR\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"abc1234def\"}}],$GREEN,\"comments\":[$PASSC]"
+mg "no hosted reviewer, no approval: PENDING" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]"
+printf '{%s}\n' "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="$ZERO" sh "$SCRIPT" 5 --head abc1234 --merge-gate)
+[ "$out" = "PENDING approval: none on the current head from someone other than me" ] && echo "ok   an explicit zero rule does not waive STAR's approval" || { echo "FAIL zero rule in merge-gate mode ($out)"; fails=$((fails + 1)); }
+mg "the author's own approval does not count" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"me\"},\"authorAssociation\":\"OWNER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"abc1234def\"}}],$GREEN,\"comments\":[$PASSC]"
+mg "changes requested still FAIL in merge-gate mode" "FAIL approval: changes requested by ezra" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN,\"comments\":[$PASSC]" "--hosted"
+mg "a blocked merge state is PENDING in merge-gate mode" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"mergeStateStatus\":\"BLOCKED\",\"comments\":[$PASSC]" "--hosted"
+# --hosted needs --merge-gate, and the script says so itself (not argparse's "unrecognized arguments")
+err=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --hosted 2>&1 >/dev/null)
+case "$err" in *"--hosted needs --merge-gate"*) echo "ok   --hosted alone says it needs --merge-gate" ;; *) echo "FAIL --hosted alone message (got: $err)"; fails=$((fails + 1)) ;; esac
+# a hosted reviewer's review text is never read: whatever its markup says, the verdict is the same
+HOSTED_TEXT='"reviewDecision":"","reviews":[{"author":{"login":"greptile-apps"},"authorAssociation":"NONE","state":"COMMENTED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"},"body":"<h3>Confidence Score: 1/5</h3> Do not merge. A markup nobody planned for."}]'
+mg "a hosted reviewer's review text is never read" "PASS hosted" "$OK,$BASE,$AUTHOR,$HOSTED_TEXT,$GREEN,\"comments\":[$PASSC]" "--hosted"
+# the gate is the head: a codex PASS or an approval for an earlier commit does not count
+OLDPASS='{"author":{"login":"me"},"body":"Codex gate: PASS (head 0ld0000aaa, round 1, gpt-6-astra xhigh)"}'
+mg "a codex PASS for an earlier head does not count" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$OLDPASS]" "--hosted"
+mg "an approval of an earlier commit does not count" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"0ld0000aaa\"}}],$GREEN,\"comments\":[$PASSC]"
+mg "logins are compared without a [bot] suffix" "PASS hosted" "$OK,$BASE,\"author\":{\"login\":\"ci[bot]\"},$NOAPP,$GREEN,\"comments\":[{\"author\":{\"login\":\"ci\"},\"body\":\"Codex gate: PASS (head abc1234def, round 1, m e)\"}]" "--hosted"
+# review threads: only an unresolved one someone else opened counts, and only the author's own reply answers it
+printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":true,"comments":{"nodes":[{"author":{"login":"ezra"},"body":"Old finding."}]}},{"isResolved":false,"comments":{"nodes":[{"author":{"login":"me"},"body":"A note to myself."}]}},{"isResolved":false,"comments":{"nodes":[{"author":{"login":"ezra"},"body":"Please rename this."}]}},{"isResolved":false,"comments":{"nodes":[{"author":{"login":"greptile-apps"},"body":"Handle the empty list."},{"author":{"login":"ezra"},"body":"Agreed."}]}}]}}}}}\n' > "$TMP/t5.json"
+THREADS="$TMP/t5.json"
+mg "resolved and own threads are skipped, a reply from someone else is no answer" "FAIL 2 findings without a reply from the author" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+unset THREADS
+unreadable() { # unreadable <label> <what gh graphql printed>: a thread list that cannot be read is never "no findings"
+  printf '%s\n' "$2" > "$TMP/t4.json"; THREADS="$TMP/t4.json"
+  mg "review threads gh cannot read are pending ($1)" "PENDING gh: review threads unreadable" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+  unset THREADS
+}
+unreadable "not json" 'not json at all'
+unreadable "no pull request" '{"data":{"repository":{"pullRequest":null}}}'
+unreadable "errors only" '{"errors":[{"message":"boom"}]}'
+# what the script asks gh for: a wrapper logs every call and hands it to the stub above
+mkdir -p "$TMP/bin2"
+cat > "$TMP/bin2/gh" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$GH_LOG"
+exec "$GH_REAL" "$@"
+EOF
+chmod +x "$TMP/bin2/gh"
+logged() { # logged <script args>: prints the verdict; every gh call lands in $TMP/gh.log
+  rm -f "$TMP/gh.log"
+  PATH="$TMP/bin2:$TMP/bin:/usr/bin:/bin" GH_LOG="$TMP/gh.log" GH_REAL="$TMP/bin/gh" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" "$@"
+}
+printf '{%s}\n' "$OK,\"url\":\"https://github.com/o/r/pull/7\",\"baseRefName\":\"main\",$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
+out=$(logged https://github.com/o/r/pull/7 --head abc1234 --merge-gate --hosted)
+[ "$out" = "PASS hosted" ] && echo "ok   merge-gate mode takes the PR as a URL" || { echo "FAIL merge-gate with a URL (got: $out)"; fails=$((fails + 1)); }
+grep '^pr view ' "$TMP/gh.log" | grep -q ',author,comments$' && echo "ok   merge-gate mode asks gh for the author and the comments" || { echo "FAIL merge-gate fields ($(grep '^pr view ' "$TMP/gh.log"))"; fails=$((fails + 1)); }
+grep '^api graphql ' "$TMP/gh.log" | grep -q ' owner=o .*name=r .*number=7$' && echo "ok   the thread query gets the owner, the name and the number" || { echo "FAIL thread query args ($(grep '^api graphql ' "$TMP/gh.log" | cut -c1-30))"; fails=$((fails + 1)); }
+printf '{%s}\n' "$OK,$BASE,$APPROVED,$GREEN" > "$TMP/pr.json"
+out=$(logged 5 --head abc1234)
+[ "$out" = "PASS" ] && ! grep -q -E 'author|comments|^api graphql ' "$TMP/gh.log" && echo "ok   without --merge-gate it asks gh for no author, no comments and no threads" || { echo "FAIL a plain run asks for more than v1 (got: $out)"; fails=$((fails + 1)); }
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
