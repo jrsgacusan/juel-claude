@@ -204,8 +204,6 @@ g "Q3 the reminder is counted" '`reask=1`'
 g "B1 the intake section" '## Before you go'
 g "B3 the intake asks between ticks only" 'Between ticks, never inside one'
 g "B4 a skipped decision takes its default" 'default taken'
-g "B5 screen checks wait for the user" '`screen-queued`'
-g "B5 the screen stage" '--screen-checks'
 g "B6 STAR decides an in-scope product call while you are away" 'decided while you were away'
 g "B7 the brief report counts its asks" 'asks=<n>'
 g "B8 later ends the walk-through" '"later" as any answer'
@@ -326,5 +324,29 @@ g "TK9 the screen holder is named (#39)" 'holds-screen'
 g "TK10 a follow-up rides its parent's go" "covered by <parent>'s go"
 g "TK11 the probe gets the progress options" '--deadline <progressDeadlineMin>'
 g "TK12 a grant is written on go" 'grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md'
+# STAR closed loop: stages, the codex gate, the brief
+left=""; for gone in '| review | the item' '| fix | the item' '| screen | the item' '--executor session' 'stages.review' 'reviewer-prompt.md' '`## Before you go` lists everything'; do
+  grep -qF -- "$gone" "$SKILL" && left="$left [$gone]"
+done
+[ -z "$left" ] && pass "the v1 stages and the reviewer prompt are gone" || fail "still there:$left"
+g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`'
+g "ST2 the brief stage can re-scope" '[--rescope HOME_DIR/reviews/<project>/<file>]'
+g "ST3 the gate is a script, not a stage" 'sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>'
+g "ST4 the gate's files" "\`<item>-r<k>.raw.md\`, Codex's own text"
+g "ST5 the PASS comment" 'Codex gate: PASS (head <sha>, round <k>, <model> <effort>)'
+g "DB1 the copied item's headings are demoted (#36)" 'demoted one level'
+g "DB2 a brief names its blockers (#37)" 'blockedBy: ['
+g "DB3 decision records" '### D<n> <title> (<date>, decided by'
+g "DB4 every check says how it runs" 'auto: playwright'
+g "DB5 a check that needs a person first" '| person: <what>'
+g "DB6 person-only steps" '## Person-only steps'
+g "DB7 external ids are checked live (#42)" '(verified <date> via <how>)'
+g "DB8 an unverified id is confirmed before go" '`confirm-id`'
+g "DB9 a hosted review comes after ready (#40)" 'skips draft PRs'
+g "DB10 grounding: Mobbin for user-facing changes" 'search_screens'
+g "DB11 grounding: context7 for libraries" 'context7'
+g "DB12 the re-scope report" 'BRIEF item=<name> path=<--out> rescoped=1 followup=<path>'
+g "DB13 the split report" 'SPLIT item=<name> into=<path>,<path>'
+g "DB14 criteria are derived when the item has none" 'derive them from the item'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

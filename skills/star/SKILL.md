@@ -839,12 +839,9 @@ Every stage is its own Orca task and a fresh worker.
 
 | Stage | Worktree | Agent | Prompt |
 |---|---|---|---|
-| brief | the project's main checkout (`path:<repo path>`), read-only | `stages.brief` | `/juel:star draft-brief <ref> --project <name> --item <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback]` (the row's raw `ref`, then its item name) |
-| build | a new Orca worktree in that project, set up as below | `stages.build` | `/juel:ship-ticket --unattended --brief HOME_DIR/briefs/<project>/<item>.md [--executor session] [--quiet-hours <window>]` |
-| review | the item's worktree | `stages.review` | the reviewer prompt below, written by `stage-start.sh` to `HOME_DIR/specs/<project>/<item>-review-r<k>.md`; the task spec is one line pointing at it |
-| fix | the item's worktree | `stages.fix` | `/juel:ship-ticket --unattended --brief <brief> --fix-review HOME_DIR/reviews/<project>/<item>-r<k>.md [--executor session] [--quiet-hours <window>]` |
-| screen | the item's worktree | `stages.screen` | `/juel:ship-ticket --unattended --brief <brief> --screen-checks HOME_DIR/gates/<project>/<item>-screen.md [--executor session] [--quiet-hours <window>]` |
-| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed HOME_DIR/reviews/<project>/<item>-r<k>.md --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--executor session] [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the review file of the round that said SAFE: the worker's proof before it marks the PR ready) |
+| brief | the project's main checkout (`path:<repo path>`), read-only | `stages.brief` | `/juel:star draft-brief <ref> --project <name> --item <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback] [--rescope HOME_DIR/reviews/<project>/<file>]` (the row's raw `ref`, then its item name; `--rescope` when the row's `counters.rescope` names a review file) |
+| build | a new Orca worktree in that project, set up as below | `stages.build` | `/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`: the plan, the executor, the fresh Claude review, the live checks, the draft PR and the codex gate loop, in one worker |
+| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed <the item's newest review> --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the newest `<item>-r<k>.md`, the gate's SAFE review of the head: the worker's proof before it marks the PR ready) |
 | post | the project's main checkout (`path:<repo path>`), read-only | `stages.post` | `/juel:star post-report <ref> --item <name> --report HOME_DIR/reports/<project>/<item>.md` |
 
 **Build worktree.** `stage-start.sh build` sets it up before any agent starts, because Orca picks
@@ -871,42 +868,51 @@ branch:
 5. **A worktree inside the repository** (`<repo>/.worktrees/…`) gets one line in
    `.git/info/exclude` for its top folder, so the main checkout's `git status` stays clean.
 
-**Starting a stage** is `stage-start.sh` ("Fill slots"). Agent, model and effort come from
-`stages.<stage>` (else `worker`, or `reviewer` for review); `--executor session` is added to the
-prompt when that entry says `"executor": "session"`. A failed `worker-start` is retried once: with
-`--retry-of` and the same placement, one effort level lower when the effort was refused, or, when
-the launch refuses the model (the agent is not installed, no access, no credits), it falls back to
-`worker` (review: `reviewer`) once and says so in a `fallback` suffix. `task-create` and
-`worker-start` carry `--retry-request` ids, so a replay never makes a second task.
+**Starting a stage** is `stage-start.sh` ("Fill slots"). It runs the host gate first ("The host
+gate"). Agent, model and effort come from `stages.<stage>` (else `worker`). A failed
+`worker-start` is retried once: with `--retry-of` and the same placement, one effort level lower
+when the effort was refused, or, when the launch refuses the model (the agent is not installed, no
+access, no credits), it falls back to `worker` once and says so in a `fallback` suffix.
+`task-create` and `worker-start` carry `--retry-request` ids, so a replay never makes a second task.
 Every spec is one line: Orca echoes the spec inside its JSON, and a line break there once made the
 output unreadable and left an orphan task. A worker that starts and then sits on a usage-limit
 screen is the probe's `stuck: usage limit`.
 
 `--quiet-hours <window>` is `star.json`'s `quietHours` rendered as `HH:MM-HH:MM@tz` (for example
-`22:00-07:00@Asia/Manila`), omitted when it is null, and `always` while the user is away
-(`stage-start.sh` reads `away` from `star.json`). A window is never judged by hand:
+`22:00-07:00@Asia/Manila`), omitted when it is null. Being away
+does not change it: away holds no work, and only quiet hours hold what goes out. A window is never judged by hand:
 `sh S/../ship-ticket/quiet-hours.sh "<window>"` prints `inside` or `outside`;
 anything but exit 0 with exactly `inside` or `outside` (exit 64 for a window it cannot read, a
 missing script, no `python3`, an empty line) is treated as inside: hold what would go out, notify only escalations,
 and queue `--kind held` "fix quietHours in star.json: <what the script said>". A window that
 cannot be judged never lets something out.
 
-**Reviewer prompt.** `S/template/reviewer-prompt.md`, filled in by `stage-start.sh review` with
-the brief, the project's notes, the previous round's review and `-fix.md` (rounds 2 and up), the
-remote and base branch, and the review file to write. The reviewer reads only, writes the full
-review to `HOME_DIR/reviews/<project>/<item>-r<k>.md` (first line the verdict, then numbered
-findings, then Notes), and its `worker_done` body starts with exactly one line:
-`VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>` or
-`VERDICT item=<item> round=<k> NOT-SAFE findings=<n> head=<sha>`.
-
-The reviewer is `stages.review` from `star.json` (default: `codex` on GPT-6-Astra); without the
-codex CLI it is `claude` on a model other than the builder's, and STAR says so.
+**The codex gate.** Not a stage and not a worker: the build worker runs it on its own draft PR
+(`juel:ship-ticket`'s gate loop), and the babysit worker runs it again after every push it makes.
+`sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>` runs
+one headless `codex review` of the branch against its base, read-only and with no MCP server, on
+`star.json`'s `gate` model (GPT-6-Astra at xhigh; at capacity it waits and retries, then falls back
+to the newest sol). Its prompt, `S/template/gate-prompt.md`, kept as
+`HOME_DIR/specs/<project>/<item>-gate-r<k>.md`, carries the brief's criteria and `## Decisions`, the
+project's notes, the previous round's review and `-fix.md` from round 2, and the review rules from
+the base branch, so a PR cannot change its own rules. Only a `[P0]` or `[P1]` finding makes the round
+NOT SAFE. It writes three files in `HOME_DIR/reviews/<project>/`: `<item>-r<k>.md`, whose first line
+is the verdict, `VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>` or
+`VERDICT item=<item> round=<k> NOT-SAFE findings=<n> head=<sha>`, then the numbered findings, then
+Notes; `<item>-r<k>.raw.md`, Codex's own text; and `<item>-r<k>.log`, its transcript. After a SAFE
+round the worker posts `Codex gate: PASS (head <sha>, round <k>, <model> <effort>)` on the PR with
+`codex-gate.sh post-pass`, once per head. A build still NOT SAFE after `gate.maxRounds` (3) rounds
+reports `RESCOPE`. STAR opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
+read them and print one line. Luna writes the code and astra gates it, so the independent review is
+the build's fresh Claude review, before the gate.
 
 ## Brief worker mode: `draft-brief`
 
-`/juel:star draft-brief <ref> --project <name> --item <name> --out <path> [--feedback]`
-runs in the project's main checkout as an Orca worker. It never edits the repo; the brief at `--out`
-is the only file it writes. It is unattended: nobody is at its terminal, so it never asks there.
+`/juel:star draft-brief <ref> --project <name> --item <name> --out <path> [--feedback] [--rescope <file>]`
+runs in the project's main checkout as an Orca worker. It never edits the repo: it writes only the
+brief at `--out` and, when it splits or re-scopes an item, spec items under
+`<HOME_DIR>/items/<project>/`. It is unattended: nobody is at its terminal, so it never asks there.
+With `--rescope <file>` it runs in re-scope mode ("Re-scope mode" below).
 Where a step below says ask, it sends `orca orchestration ask --question "<question>" --json` and
 waits for the reply; a reply of "No answer … escalate this." ends the run with
 `ESCALATION item=<name> phase=0 reason=unanswered-question needs=<the question>`.
@@ -946,10 +952,12 @@ GitHub ref `#412` renders as `issue-412`; type is `fix` for bug/fix/error, `refa
 again after its first item was dropped or finished), the branch gets the same suffix
 (`feat/savi-1162-add-auth-2`), so the new item never builds in the old item's worktree or on its
 old PR.
-6. Read enough of the code to propose an approach, then write the brief to `--out`. When a brief
-   already exists at `--out`, read it first: revise it to answer every entry under
-   its `## Feedback` section (the user's dated answers to earlier drafts, kept there by STAR), and
-   keep the `## Feedback` and `## Decisions` sections as they are at the end of the new brief.
+6. Read enough of the code to choose an approach and to take the item's open decisions (grounded,
+   as below), then write the brief to `--out`. When a brief already exists at `--out`, read it
+   first: revise it to answer every entry under its `## Feedback` section (the user's dated answers
+   to earlier drafts, kept there by STAR), keep the `## Feedback` section as it is, and keep every
+   entry under `## Decisions` (records and dated lines), adding new records after them with the
+   next free `D<n>`.
 
    ```markdown
    ---
@@ -966,8 +974,10 @@ old PR.
    branch: <branch>
    baseBranch: <base>
    existingPr: <url>       # only for an item that brings an open PR to mergeable: see below
-   deliverable: pr          # or report: see step 6
-   approved:               # stamped by STAR when the user approves
+   deliverable: pr          # or report: see below
+   blockedBy: [<item>, <item>]
+   approved:               # stamped by STAR on the owner's go
+   grant:                  # stamped by STAR with the go: the grant file's path
    star:
      home: <HOME_DIR>
      project: <project>
@@ -977,34 +987,92 @@ old PR.
      reports: <HOME_DIR>/reports/<project>
    ---
    ## Work item
-   <description, verbatim>
+   <description, word for word, with every Markdown heading in it demoted one level>
    ## Acceptance criteria
-   - [ ] <one per criterion from the item>
+   - [ ] <one per criterion>
    ## Approach
    <2-6 sentences: the chosen approach, the components touched>
    ## Scope
    In: <what this item changes>
    Out: <what it deliberately does not touch>
-   ## Before you go
-   1. [<kind>] <question> | options: <a> / <b> | default: <recommended option, or none>
+   ## Checks
+   - <what is checked> | auto: <playwright, hidden-window, computer-use, api or cli>
+   ## Person-only steps
+   1. [<kind>] <what to do>
+   ## Decisions
+   ### D1 <title> (<date>, decided by the brief worker)
+   Context: <the question the item leaves open>
+   Decision: <the choice>
+   Consequences: <what it changes or rules out>
+   Source: <a URL, a Mobbin screen or flow URL, a context7 library id and topic, or file:line>
    ```
 
    Acceptance criteria, by case. (1) The item's own and (2) any the user states in a `## Feedback`
-   entry go in together, with no suffix. (3) When neither gives any and a memory note or a
-   `## Feedback` entry asks for proposed criteria, propose them from the item's body, each line
-   ending in ` (proposed)`; on every re-draft, keep the earlier draft's proposed criteria with
+   entry go in together, with no suffix. (3) When neither gives any, derive them from the item's
+   text (its description, what it links to, and what the code does now), each line ending in
+   ` (proposed)`; on every re-draft, keep the earlier draft's proposed criteria with
    their ` (proposed)` suffix, except those a `## Feedback` entry replaces or removes, next to any
-   from cases 1 and 2. (4) When none of these gives any, write the single line
-   `- [ ] NEEDS CRITERIA`. Never invent criteria outside case 3.
+   from cases 1 and 2. (4) Only when there is nothing to derive them from, write the single line
+   `- [ ] NEEDS CRITERIA`. Never invent criteria the item's text does not support.
 
-   `## Before you go` lists everything a builder would predictably need from a person, so the
-   user can answer it before leaving: one numbered line each, `<n>. [<kind>] <question> |
-   options: <a> / <b> | default: <recommended option, or none>`. Kinds: `criteria` (missing or
-   vague acceptance criteria), `decision` (a product call the item leaves open), `secret` (a key
-   or an env var), `account` (a login or a paid service), `screen` (something a person must do
-   at the Mac: sign in to an app, approve a keychain or Gatekeeper prompt). A `decision` always
-   has a default; the other kinds never do. Nothing the brief, its `## Decisions` or the memory
-   notes already answer goes here. Write `none` under the heading when there is nothing.
+   `## Checks` holds one line per acceptance check, each marked with how the build runs it:
+   `auto: playwright` (a web page, headless), `auto: hidden-window` (an Electron window that paints
+   while hidden), `auto: computer-use` (a native window, through `orca computer`, under the screen
+   lock), `auto: api` or `auto: cli` (call it and read the answer). A check that needs a person
+   first (sign in with 2FA, grant a macOS permission once, approve a keychain prompt) adds
+   `| person: <what>`, and the same step goes under `## Person-only steps`: the owner does it before
+   go, and the build runs the rest of the check itself. A check no tool can run is not left for
+   later: find an automated check that proves the same criterion (a decision record says why it is
+   enough), or list it as a `risky` person-only step, "ship without a live check of <criterion>?".
+   Write `none` when the item has nothing to check live.
+
+   `## Person-only steps` lists what only a person can do, so it is all done before go and nothing
+   stops the build later: one numbered line each, `<n>. [<kind>] <what to do>`. Kinds: `secret` (a
+   key or an env var, and where it goes), `account` (a login or a paid service), `screen`
+   (something a person must do at the Mac: sign in to an app, grant a permission, approve a
+   keychain or Gatekeeper prompt once), `confirm-id` (an external id that could not be checked
+   live, below) and `risky` (a call the owner must approve: deleting data, a migration that cannot
+   be undone, spending money, anything outward beyond the PR). A product call is never a
+   person-only step: take it as a decision record. Nothing the brief, its `## Decisions` or the
+   memory notes already answer goes here. Write `none` under the heading when there is nothing.
+
+   **Decisions are taken, not asked.** Every question the item leaves open that a builder would
+   otherwise ask (a product call, a library, a name, a format, how an edge case behaves) is decided
+   here and written under `## Decisions` as a decision record:
+   `### D<n> <title> (<date>, decided by the brief worker)`, then `Context:`, `Decision:`,
+   `Consequences:` and `Source:` lines. The owner reads them in the batch summary and can overrule
+   any of them in the reply; workers read them as binding. Ground each one in a source, in this
+   order of fit: for a user-facing change, the Mobbin MCP (`search_screens`, `search_flows`,
+   `search_sections`) for how real apps solve it, and the `frontend-design` skill for the visual and
+   interaction choices; for a library, framework, SDK, API or CLI, context7 at the version the
+   project uses; when neither fits, a web search, official docs first; for a project convention,
+   the repository, cited as `file:line`. Mobbin searches spend paid credits: use them for
+   user-facing changes only. When the Mobbin or context7 tools are not in this session, search the
+   web instead and say so in `Source:`. A decision no source can settle, and that only the owner
+   can make (money, a policy, a legal question), is a `risky` person-only step instead.
+
+   **External ids are checked live** (#42). Every service slug, project id, DSN, hostname or
+   account name the brief carries is checked where a CLI or API can reach it (`gh api`, the
+   service's own CLI, a DNS lookup) and marked `(verified <date> via <how>)`, or
+   `(unverified: <why>)`. An unverified id becomes a `confirm-id` person-only step: "confirm <id>
+   is the right <what>".
+
+   **A hosted review comes after ready** (#40). When the item, a memory note or a `## Feedback`
+   entry asks for the hosted reviewer's review before the PR is marked ready, take a decision
+   record that the order is ready first, then the review: Greptile skips draft PRs by default and
+   starts its review when the PR is marked ready (cite its docs in `Source:`).
+
+   **The copied item's headings** (#36). The description goes under `## Work item` word for word,
+   except that every Markdown heading in it is demoted one level (`## Scope` becomes `### Scope`),
+   so the item's own sections never collide with the brief's. STAR and the workers read only the
+   brief's own top-level sections.
+
+   **Blocked by** (#37). `blockedBy` lists the items this one needs merged first, `[]` when none:
+   from the item's own links (a Linear "blocked by" relation, a GitHub "depends on #n" or "blocked
+   by #n") and from items of the same batch whose changes this one builds on (the open rows of
+   `<HOME_DIR>/ledger.md`). Use each item's ledger name. A blocker STAR does not track goes under
+   `## Approach` instead, with what the build does until it lands. Never a cycle: when two items
+   would block each other, keep the link the code needs and take a decision record.
 
    `deliverable` is `report` when every acceptance criterion asks only for evidence, a
    disposition or a write-up (exercise flows and record what passed, map an impact, assess a PR,
@@ -1014,17 +1082,35 @@ old PR.
    `existingPr` is set only when the item's outcome is to bring an open PR to mergeable (the item
    links an open PR and asks to finish, update or merge it, rather than to build something new):
    `gh pr view <url> --json url,headRefName,baseRefName,isCrossRepository,state`, and
-   only when `state` is `OPEN`; otherwise leave `existingPr` out and note it under
-   `## Before you go` as a `decision`. Then `branch` is its `headRefName` and `baseBranch` its
+   only when `state` is `OPEN`; otherwise leave `existingPr` out and take a decision record that
+   the item is built as a new PR. Then `branch` is its `headRefName` and `baseBranch` its
    `baseRefName`, and step 5's naming rule does not apply. A PR whose `isCrossRepository` is
-   true comes from a fork, which cannot be pushed to: leave `existingPr` out and add a
-   `decision` line under `## Before you go`: `<url> comes from a fork: open a new PR from a copy
-   of its branch, or drop the item? | options: new PR / drop | default: new PR`.
+   true comes from a fork, which cannot be pushed to: leave `existingPr` out and take a decision
+   record that `<url> comes from a fork`, so the build opens a new PR from a copy of its branch.
 7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n>` (`<n>` is the
-   number of lines under `## Before you go`, 0 for `none`), then `NEEDS-CRITERIA` (case 4 of
+   number of lines under `## Person-only steps`, 0 for `none`), then `NEEDS-CRITERIA` (case 4 of
    step 6) when that applies, or `PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`,
    then at most one `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own
-   contract or tools got in the way (no project or ticket names).
+   contract or tools got in the way (no project or ticket names). An item that holds more than one
+   piece of work that could ship on its own is split instead: write each piece as a spec item,
+   `<HOME_DIR>/items/<project>/<name>-<k>.md` (frontmatter `status: todo` and `title:`, then the
+   words of the item that describe that piece), write no brief, and report
+   `SPLIT item=<name> into=<path>,<path>`.
+
+**Re-scope mode** (`--rescope <file>`). The build or babysit worker could not get the item past a
+reviewer (the codex gate after its rounds, or the hosted reviewer after its passes), and `<file>`
+holds the findings still open. Read the brief with its `## Decisions`, then `<file>`, then what the
+branch changed so far (`git fetch <remote>`, then
+`git diff --stat <remote>/<baseBranch>...<remote>/<branch>`). Narrow the brief to what the branch
+can ship safely: move each part the findings show cannot be done safely in this item to Scope
+`Out:`, drop or reword the criteria that belonged to it, and take a decision record that says what
+moved and why, with the findings file as its source. Keep `approved:`, `grant:`, `branch`,
+`baseBranch` and `existingPr` as they are: the narrowed item builds on the same branch and PR,
+under the same go. Write what moved as a follow-up spec item,
+`<HOME_DIR>/items/<project>/<name>-followup.md` (frontmatter `status: todo` and `title:`, then what
+is left to do and the findings that sent it there). Report
+`BRIEF item=<name> path=<--out> rescoped=1 followup=<path>`. When narrowing cannot leave anything
+safe to ship, report `ESCALATION item=<name> phase=0 reason=rescope-impossible needs=<why>`.
 
 ## Post worker mode: `post-report`
 
