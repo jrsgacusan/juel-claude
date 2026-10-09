@@ -1,6 +1,6 @@
 ---
 name: star
-description: Use to run STAR, a local coordinator that ships a project's work items to merged-ready PRs on its own. Type "/juel:star <refs>" in the project - the session becomes the coordinator, or hands the refs to the one already running, and its state lives inside the project, git-ignored, under docs/superpowers/context/star - a queue with Answer slots, a ledger, briefs, release records and memory notes. A worker drafts a brief per item; before you go STAR walks you through every brief and every question it can foresee, then Orca workers build, a second model reviews the draft PR, fixes land, and the PR is babysat until it is approved, green and verified on its exact head. STAR moves the tracker status, files its own improvement issues, never reads big output, recovers by itself after compaction, and never merges. Triggers "start STAR", "add this to STAR", "what does STAR need from me", "/juel:star".
+description: Use to run STAR, a local coordinator that ships a project's work to merged PRs on its own. Type "/juel:star <brief>" in the project, where the brief is free text, work-item refs, or both - the session becomes the coordinator, or hands the brief to the one running; its state lives in the project, git-ignored, under docs/superpowers/context/star (queue, ledger, briefs, grants, notes). Brief workers explore each item and STAR decides product calls from cited sources; the owner reads one batch summary, does the steps only a person can, and says go. One Orca worker per item plans, has codex run the plan on the newest luna, verifies, and loops its draft PR through a headless codex review gate until it passes; a babysit worker takes it through the hosted review or a person's approval; STAR merges under the owner's go when every gate holds on the exact head. STAR never reads big output and recovers by itself after compaction. Triggers "start STAR", "add this to STAR", "what does STAR need from me", "/juel:star".
 metadata:
   requires:
     mcp:
@@ -66,22 +66,27 @@ metadata:
 # STAR
 
 STAR is one long-running coordinator session for shipping one project's work. You start it by
-typing `/juel:star` in the project; that session plans, hands out work, checks results and keeps
-the queue. It never writes code and never reads big output. Real work goes to Orca workers: a
-fresh agent per stage, in the item's own worktree, that reports in at most 12 lines and is
-released. Everything that matters lives in files inside the project, in a git-ignored folder,
-never only in chat, so a compacted or restarted STAR reads them and carries on. It follows the
-artifact "My 24/7 Agent Setup". **You merge; nothing here does.**
+typing `/juel:star` in the project with a brief: free text, work-item refs, or both. That session
+plans, hands out work, checks results, keeps the queue and merges. It never writes code and never
+reads big output. Real work goes to Orca workers: a fresh agent per stage, in the item's own
+worktree, that reports in at most 12 lines and is released. Everything that matters lives in files
+inside the project, in a git-ignored folder, never only in chat, so a compacted or restarted STAR
+reads them and carries on. `skills/star/how-it-works.html` draws the flow (published at
+https://claude.ai/artifact/V2Qx9Cm469k1vuJvcjS2fC). **STAR merges only through `merge.sh`, under the
+owner's go, when every gate holds on the exact head.**
 
 ## Goal
 
 STAR exists to build and ship a project's work independently and autonomously, at the quality
-bar of a second-model review, the regression gates and an exact-head check. It asks everything
-it can foresee before the user goes ("Before you go"), then runs without them. When the rules
-leave a choice, take the one that keeps work moving without the user: answer from the brief,
-retry, recover by itself, file its own improvement issue. Stop for the user only for what a
-person must do: approve a brief, supply a secret or an account, act at the screen, accept a
-report, merge.
+bar of a fresh Claude review, a second-model codex gate, the regression gates, the hosted review or
+a person's approval, and an exact-head merge gate before its own merge. It asks only what a person
+must supply, all at once, before the work starts (the batch summary), then runs without the owner.
+Product calls are STAR's: decided from sourced options and logged as decision records the owner can
+overrule. When the rules leave a choice, take the one that keeps work moving without the owner:
+decide from sources, retry, recover by itself, re-scope, file its own improvement issue. Stop for
+the owner only for what a person must do: say go, supply a secret or an account, act at the screen
+before go, approve a risky call, approve a PR on a project with no hosted reviewer, or answer an
+escalation.
 
 **Announce:** "Using juel:star." (in hand-over, `status` and `draft-brief` modes: say which mode.)
 
@@ -150,7 +155,7 @@ the user to trust the path once (`hold trust <path>`).
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
 1. Preflight — binaries, the Orca runtime and terminal, the project's repository
-2. Create the project's STAR folder with `star-home.sh init`, or load the existing one
+2. Create the project's STAR folder with `star-home.sh init`, or load the existing one and bring it up to date with `star-home.sh migrate`
 3. Bind the Orca run, start caffeinate, register the heartbeat
 4. Reconcile every row in a worker stage
 5. Tick until idle or stopped
@@ -166,12 +171,13 @@ Typed in the project (its main checkout, a linked worktree or any subfolder):
 | Command | Effect |
 |---|---|
 | `/juel:star SPH-11 and SPH-12` | STAR is not running for this project: this session becomes the coordinator, adds both refs and starts. STAR is running in another live terminal: this session hands the refs to it and stays free |
+| `/juel:star add a CSV export to the reports page, and SPH-12` | Free text and refs together: the text becomes a spec item and the ref an item, in one batch. Starts STAR, or hands both to the one running, like the row above |
 | `/juel:star` | Start STAR for this project, or resume it: the two are the same command |
 | `/juel:star status` | Print the Needs-you block and counts per state. Read-only |
 | `/juel:star away` (or tell STAR "I'm leaving") | Walk through everything still open ("Before you go"), then write the handoff file and switch to away mode (below) |
 | `/juel:star back` (or tell STAR "I'm back") | Print the latest summary and the queue; leave away mode |
 | `/juel:star stop` | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
-| `/juel:star draft-brief <ref> --project <name> --out <path>` | Worker mode, below: a brief worker's command, never the user's |
+| `/juel:star draft-brief <ref> --project <name> --out <path> [--rescope <file>]` | Worker mode, below: a brief worker's command, never the user's |
 | `/juel:star post-report <ref> --item <name> --report <path>` | Worker mode, below: a post worker's command, never the user's |
 
 `S` is this skill's directory (`${CLAUDE_PLUGIN_ROOT}/skills/star` when that is set, else the
@@ -192,8 +198,10 @@ Everything after `/juel:star` is read as words. A first word of `status`, `away`
 over" ("Start, resume, stop"): this session becomes the coordinator even though another terminal
 is listed. Otherwise every word that is a work-item ref (`SPH-11`, `#412`) or a path to a spec
 file is a ref: `SPH-11 and SPH-12`, `SPH-11, SPH-12` and `add SPH-11 SPH-12` are the same request.
-Of the other words, filler (`and`, `add`, `please`) is dropped, and anything that says something
-about the items ("the second one is urgent") goes into the inbox file's `note:` line.
+The rest of the words are the free-text brief, unless they are only filler (`and`, `add`,
+`please`) or only say something about the refs ("the second one is urgent"), which go into the
+inbox file's `note:` line. A free-text brief goes into the inbox file's `text:` block, word for
+word; the Inbox step turns it into spec items.
 
 ### Coordinator, or hand-over
 
@@ -203,13 +211,14 @@ about the items ("the second one is urgent") goes into the inbox file's `note:` 
    session's `$ORCA_TERMINAL_HANDLE` and that `orca terminal list --limit 500 --json` still lists
    (and the user did not say "take over") → **hand-over**: STAR is running there, and this session hands the refs to it. Write them as an
    inbox file (below), nudge it with `orca terminal send --terminal <handle> --text "inbox" --enter`,
-   say "STAR for <project> runs in <handle>; I handed it <refs>", and end. With no refs, say where
-   it runs and print `status`. Hand-over needs no Orca terminal. The list cannot be read → write
+   say "STAR for <project> runs in <handle>; I handed it <refs>", and end. With no refs and no free text,
+   say where it runs and print `status`. Hand-over needs no Orca terminal. The list cannot be read → write
    the inbox file, say that it could not be checked whether STAR is running, and end: never become
    a second coordinator on a guess.
 3. Otherwise **this session becomes the coordinator**: run the Preflight table (a STOP there leaves
-   the project untouched: nothing was created yet), then `sh S/star-home.sh init`, write any refs as
-   an inbox file, then the start sequence ("Start, resume, stop"). The first tick ingests them.
+   the project untouched: nothing was created yet), then `sh S/star-home.sh init`, write any refs and
+   free text as an inbox file (free text in its `text:` block), then the start sequence ("Start,
+   resume, stop"). The first tick ingests them.
 
 An inbox file is `HOME_DIR/inbox/<UTC YYYYMMDDTHHMMSSZ>-<4 random hex>.md` (never overwrite an existing inbox file;
 pick another suffix):
@@ -218,7 +227,9 @@ pick another suffix):
 repo: <project.repo from HOME_DIR/star.json>
 refs:
 - <ref or absolute spec path>
-note: <anything the user said about these items, one line; omit when nothing>
+text: |
+  <the free-text brief, word for word, every line indented two spaces; omit when there is none>
+note: <anything the user said about the refs, one line; omit when nothing>
 ```
 
 A message to STAR that says only `inbox` means "run a tick now".
@@ -246,7 +257,12 @@ read-only repository is fine). It records the project in `star.json` as
 (`run` in `star.json` is still null, which is true exactly once) STAR looks the repo path up in
 `orca repo list --json` and adds the id to that block as `orcaRepo` (the Inbox step does the same
 later when the repo was not registered yet), and adds the remote as `remote`: the only one
-`git -C <project.repo> remote` prints, else `origin`. The work source and base branch are not
+`git -C <project.repo> remote` prints, else `origin`.
+It also looks for a hosted reviewer: when `greptile-apps[bot]` commented on one of the
+repository's last 20 merged PRs (`gh pr list --state merged --limit 20 --json number`, then
+`gh pr view <n> --json comments,reviews`), it sets `hostedReviewer` to
+`{"login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2}` and says so in one line; the owner
+can change it. The work source and base branch are not
 kept here: each item's brief carries them. Then, before any worker starts, it asks once, with
 AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking or status changes while
 you're away?"), writes it to `star.json`, and tells the user where the queue is:
@@ -258,17 +274,23 @@ plugin's session hook ("Recovery").
 
 ```
 star.json               settings (below) plus "project", run id, STAR's terminal handle, caffeinate pid, heartbeat id, "notified", "away"
+star.json.v1.bak        the copy star-home.sh migrate kept of a v1 star.json (ledger.md.v1.bak the same)
 open-loops.md           Resume block, then Needs you, then Waiting on others   (written only through loops.sh)
 open-loops-archive.md   closed items
 open-loops.md.seq       the highest queue id ever used (so an id is never handed out twice)
-handoff.md              the "before you go" lists and the summaries written while the user is away (handoff.sh)
+handoff.md              the summaries written while the user is away (handoff.sh)
 sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
 ledger.md               one row per item
 processed.log           <message id> <dispatch> <iso time>
 inbox/                  one file per hand-over; deleted once ingested
+items/<project>/<name>.md            a spec item from a free-text brief, a split, or a re-scope's follow-up
 briefs/<project>/<item>.md
-reviews/<project>/<item>-r<k>.md   and   <item>-r<k>-fix.md
-specs/<project>/<item>-review-r<k>.md   the reviewer's instructions (stage-start.sh writes them)
+grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, the time, the items
+reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log
+reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed
+reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
+specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
+progress/<item>.log                  one line per milestone, appended by the item's workers
 reports/<project>/<item>.md   a report item's report (deliverable: report)
 issues.log              <iso>\t<fingerprint>\t<url>: every improvement issue STAR filed (star-issue.sh)
 ids.json                ids reserved from sequences that branches share (ids.sh; workers write it, under a lock)
@@ -285,42 +307,45 @@ Settings in `star.json`:
 
 ```jsonc
 {
+  "schema": 2,                                           // star-home.sh migrate brings a v1 folder here
   "maxParallel": 3,                                      // build pool
-  "maxInReview": 3,                                      // review pool
+  "maxInReview": 3,                                      // babysit pool
   "maxBriefs": 4,                                        // brief pool
   "stages": {                                            // the best model for each stage's kind of work
-    "brief":   { "agent": "claude", "model": "opus",        "effort": "high" },
-    "build":   { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
-    "fix":     { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
-    "review":  { "agent": "codex",  "model": "gpt-6-astra", "effort": "xhigh" },
-    "babysit": { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
-    "screen":  { "agent": "claude", "model": "opus",        "effort": "xhigh", "executor": "session" },
-    "post":    { "agent": "claude", "model": "opus",        "effort": "xhigh" }
+    "brief":   { "agent": "claude", "model": "opus", "effort": "high" },
+    "build":   { "agent": "claude", "model": "opus", "effort": "xhigh" },
+    "babysit": { "agent": "claude", "model": "opus", "effort": "xhigh" },
+    "post":    { "agent": "claude", "model": "opus", "effort": "xhigh" }
   },
-  "worker":   { "agent": "claude", "model": "opus",        "effort": "xhigh" },   // a stage with no entry, and the fallback
-  "reviewer": { "agent": "codex",  "model": "gpt-6-astra", "effort": "xhigh" },   // the same, for review
+  "worker":   { "agent": "claude", "model": "opus", "effort": "xhigh" },   // a stage with no entry, and the fallback
+  "executor": { "model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol" },   // runs every written plan
+  "gate":     { "model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 3 },   // the codex review gate
+  "hostedReviewer": null,                                // or { "login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2 }
+  "hostGate": { "minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25 },
+  "progressDeadlineMin": 30,                             // no progress for this long: a check-in
   "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // null = off
 }
 ```
 
 Each stage runs on `stages.<stage>`; a stage with no entry there (or a home with no `stages`
-block) runs on `worker`, and review on `reviewer`. The defaults are the owner's choice of the best
-model for each kind of work, by benchmark, among the models the two installed agents can run:
+block) runs on `worker`. The executor and the gate are not stages: every worker reads `executor`,
+`gate` and `hostedReviewer` from this file through its brief's `star.home`. `latest-<family>` is the
+newest model of that family `codex debug models` lists, resolved at each run by `juel:ship-ticket`'s
+`executor-model.sh`. The defaults are the owner's choice for each kind of work:
 
-| Stage | Default | Why this one |
+| Role | Default | Why this one |
 |---|---|---|
 | STAR itself | Fable 5.1 (the model the STAR session is started on; not a setting here) | the strongest rule-following of the Claude models, with top-level reasoning |
-| brief | Opus 5.5, high | a brief reads the item and enough code to propose an approach, and the user approves every brief: `high` lands briefs sooner |
-| build, fix, screen, babysit, post | Opus 5.5, xhigh | the best agentic coding and plain coding available, and it acts on an Orca dispatch. Fable 5.1 scores higher on rule-following but, started as an Orca worker, it treated the dispatch as pasted text and did nothing until told to go ahead (tried 2026-10-07): do not put it on a worker stage without trying that again |
-| review | GPT-6-Astra, xhigh | the highest reasoning score, and a different model family from the builder |
+| brief | Opus 5.5, high | a brief reads the item and enough code to propose an approach and take its product calls: `high` lands briefs sooner |
+| build, babysit, post | Opus 5.5, xhigh | plans, verifies and answers reviewers, and acts on an Orca dispatch. Fable 5.1 scores higher on rule-following but, started as an Orca worker, it treated the dispatch as pasted text and did nothing until told to go ahead (tried 2026-10-07): do not put it on a worker stage without trying that again |
+| executor | the newest luna (`gpt-6-luna` on 2026-10-09), xhigh | the owner's choice: a fast, affordable model types the plan Opus wrote. At capacity it falls back to the newest sol, then to the worker's own session |
+| gate | GPT-6-Astra, xhigh, through `codex review` | the highest reasoning score. Luna writes the code and astra gates it, so the build's own fresh Claude review is the independent one |
+| hosted review | the project's own (Greptile), 4/5 or better | the owner's convention for a hosted reviewer's 0 to 5 confidence score |
 
-`executor` says who runs a written plan inside a stage: `session` (the worker's own model, the
-default here, because the Claude models lead agentic coding) or `codex` (dispatch `codex exec`).
-The reviewer must stay a different model family from the builder: a review by the builder's own
-family is a weaker second opinion. Effort is `xhigh` on every stage but brief (`high`). These are the most capable models and
-they use more of the Claude and Codex usage limits than a mid-tier setup; `max` effort costs
-about three times `xhigh` for a gain the benchmark cannot show reliably, so it is not the
-default.
+`maxAgents` is 40, not the usual 20: this Mac ran 29 `claude` and `codex` processes on 2026-10-09.
+These are the most capable models and they use more of the Claude and Codex usage limits than a
+mid-tier setup; `max` effort costs about three times `xhigh` for a gain the benchmark cannot show
+reliably, so it is not the default.
 
 A model of `default` means: pass neither `--model` nor `--effort`. Model ids come from the CLIs,
 never from memory.

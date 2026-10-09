@@ -145,18 +145,22 @@ g "M1 each stage has its own model setting" '"stages"'
 g "M1 a stage reads its own entry" 'stages.<stage>'
 g "M2 the coordinator runs on Fable 5.1" 'Fable 5.1'
 g "M3 a stage whose model cannot start falls back" 'falls back to `worker`'
-g "M4 build, fix and babysit run the plan in their own session" '--executor session'
-python3 - "$T/star.json" <<'PY2' && pass "M5 template: the best model per stage" || fail "M5 template stages"
+g "M4 every plan runs on the newest luna" '"latest-luna"'
+g "M4b the executor is resolved from Codex's catalog" 'executor-model.sh'
+python3 - "$T/star.json" <<'PY2' && pass "M5 template: schema 2" || fail "M5 template schema 2"
 import json, sys
 d = json.load(open(sys.argv[1])); s = d["stages"]
-assert set(s) == {"brief", "build", "fix", "review", "babysit", "screen", "post"}, sorted(s)
+assert d["schema"] == 2, d.get("schema")
+assert set(s) == {"brief", "build", "babysit", "post"}, sorted(s)
 assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "high"}, s["brief"]
-assert d["maxBriefs"] == 4, d.get("maxBriefs")
-for k in ("build", "fix", "babysit", "screen"):
-    assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"}, (k, s[k])
-assert s["post"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["post"]
-assert s["review"] == {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}, s["review"]
-assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and d["reviewer"] == s["review"]
+for k in ("build", "babysit", "post"):
+    assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, (k, s[k])
+assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and "reviewer" not in d
+assert d["executor"] == {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"}, d["executor"]
+assert d["gate"] == {"model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 3}, d["gate"]
+assert d["hostedReviewer"] is None, d["hostedReviewer"]
+assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
+assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
 PY2
 # STAR lives in the project
 ! grep -q 'juel-star' "$SKILL" && ! grep -q 'JUEL_STAR_HOME' "$SKILL" && pass "P1 no separate home to set up" || fail "P1 old home instructions left"
@@ -188,7 +192,7 @@ g "I7 a stalled prompt names the trust dialog" 'agent_prompt_stalled'
 g "I7 dialogs that cannot be cleared reach the user" 'hold trust <path>'
 g "I9 a worktree inside the repo is excluded" '.git/info/exclude'
 g "I18 briefs have a pool of their own" '`maxBriefs`'
-grep -q 'reviewer-prompt.md' "$SKILL" && [ -f "$T/reviewer-prompt.md" ] && pass "the reviewer prompt is a template" || fail "reviewer template"
+[ ! -e "$T/reviewer-prompt.md" ] && pass "the v1 reviewer prompt is gone" || fail "reviewer-prompt.md still there"
 ! grep -q 'payload.dispatchId' "$SKILL" && ! grep -q "orca orchestration task-create --spec" "$SKILL" && pass "no hand-rolled message reading or task creation left" || fail "hand-rolled steps left"
 # Questions and the intake
 g "Q1 a worker sets its own deadline" 'deadline=<minutes>'
@@ -226,14 +230,12 @@ g "FR2 a restarted post worker does not post twice" 'already starts with the rep
 g "FR6 stage-start runs in the background" 'like `gate-lock.sh` in a worker'
 g "FR6 a start that printed nothing is replayed" '| no line, or a non-zero exit |'
 g "FR12 failed screen checks can reach a fix" 'reads the failed checks as missed acceptance criteria'
-grep -q 'a screen check recorded there as failed' "$T/reviewer-prompt.md" && pass "FR12 the reviewer reads failed screen checks" || fail "FR12 reviewer prompt"
 # Finished worktrees (#19)
 g "W1 finished worktrees are removed" 'sh S/worktree-clean.sh <item>'
 g "W2 a kept worktree waits for the user" '`kept=1`'
 g "W3 never with work in it" 'never with work in it'
 # Issue #22
 g "L1 head= is its leading hex run" 'leading run of hex characters'
-grep -qF 'Never type \n inside a quoted --body' "$T/reviewer-prompt.md" && pass "L2 the reviewer sends real line breaks" || fail "L2 reviewer prompt"
 # Issue #25
 g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
 g "K2 busy has its own count" '`busy=<n>`'
@@ -284,5 +286,20 @@ grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL"
 grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
 grep -qF '`ls-remote` failing: the Otherwise branch of the cell that sent it here.' "$SKILL" && ! grep -qF "the table's own rule for that verdict" "$SKILL" && pass "Z13 an ls-remote failure goes to the Otherwise branch of its own cell" || fail "Z13 an ls-remote failure goes to the Otherwise branch of its own cell"
 grep -qF 'Nothing is recorded (no `## Feedback` entry), and STAR adds the `approve-brief` item again, with that explanation in its title' "$SKILL" && grep -qF 'except a `branch` or `baseBranch` change on a brief with `existingPr` (below)' "$SKILL" && ! grep -qF 'Nothing is recorded, and the approve question is printed again' "$SKILL" && pass "Z14 an existingPr branch answer re-asks the approve question" || fail "Z14 an existingPr branch answer re-asks the approve question"
+# STAR closed loop: intake and home
+g "FT1 a brief can be free text" 'free-text brief'
+g "FT2 free text becomes spec items" 'items/<project>/<name>.md'
+g "FT3 the inbox file carries free text" 'text: |'
+g "FT4 grants are kept" 'grants/<UTC>-<4 hex>.md'
+g "FT5 workers write progress" 'progress/<item>.log'
+g "H1 the first start looks for a hosted reviewer" 'greptile-apps[bot]'
+g "LD1 the flow page is named" 'how-it-works.html'
+g "SC1 schema 2" '"schema": 2'
+g "SC2 the gate settings" '"gate":'
+g "SC3 the host gate settings" '"hostGate":'
+g "SC4 the progress deadline" '"progressDeadlineMin": 30'
+g "SC5 migrate on start" 'star-home.sh migrate'
+g "SC6 the gate's command" 'codex review'
+g "S1b free text is handed over" 'no refs and no free text'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
