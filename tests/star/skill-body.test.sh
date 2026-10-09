@@ -161,6 +161,10 @@ assert d["gate"] == {"model": "gpt-6-astra", "effort": "xhigh", "fallback": "lat
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
+assert list(d) == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert d["notified"] == [], d["notified"]
+for k in ("quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
+    assert d[k] is None, (k, d[k])
 PY2
 # STAR lives in the project
 ! grep -q 'juel-star' "$SKILL" && ! grep -q 'JUEL_STAR_HOME' "$SKILL" && pass "P1 no separate home to set up" || fail "P1 old home instructions left"
@@ -301,5 +305,17 @@ g "SC4 the progress deadline" '"progressDeadlineMin": 30'
 g "SC5 migrate on start" 'star-home.sh migrate'
 g "SC6 the gate's command" 'codex review'
 g "S1b free text is handed over" 'no refs and no free text'
+# Fix round 1: the hosted-reviewer lookup, command words, hand-over of free text, filler
+g "H2 the lookup lists the PR numbers through --jq" "gh pr list --state merged --limit 20 --json number --jq '.[].number'"
+g "H3 it reads each PR's review logins from the REST API" "gh api \"repos/{owner}/{repo}/pulls/<n>/reviews\" --jq '.[].user.login'"
+g "H4 and each PR's comment logins" "gh api \"repos/{owner}/{repo}/issues/<n>/comments\" --jq '.[].user.login'"
+g "H5 it stops at the exact REST login" 'stopping at the first line that is exactly `greptile-apps[bot]`'
+grep -qF 'gh pr view <n> --json comments,reviews' "$SKILL" && fail "H6 the GraphQL lookup is gone" || pass "H6 the GraphQL lookup is gone"
+g "CW1 status, away, back and stop are commands only as the whole text" '`status`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "CW2 a free-text brief may start with a command word" '`/juel:star stop the digest from sending twice` is a free-text brief'
+g "CW3 draft-brief and post-report match as the first word" 'A first word of `draft-brief` or `post-report` is'
+g "CW4 filler is dropped, a remark about the refs goes to the note" '(`and`, `add`, `please`), which is dropped, or only say something about the refs'
+g "HO1 a hand-over carries free text too" 'Write them, and any free text, as an inbox file'
+g "HO2 the hand-over line names the refs or the text" "I handed it <refs, or the text's first words>"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

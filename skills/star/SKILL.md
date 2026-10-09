@@ -193,15 +193,18 @@ not check the session's model.
 
 ### Reading the command
 
-Everything after `/juel:star` is read as words. A first word of `status`, `away`, `back`, `stop`,
-`draft-brief` or `post-report` is that command. When the whole text is `take over`, it is the user's "take
-over" ("Start, resume, stop"): this session becomes the coordinator even though another terminal
-is listed. Otherwise every word that is a work-item ref (`SPH-11`, `#412`) or a path to a spec
-file is a ref: `SPH-11 and SPH-12`, `SPH-11, SPH-12` and `add SPH-11 SPH-12` are the same request.
-The rest of the words are the free-text brief, unless they are only filler (`and`, `add`,
-`please`) or only say something about the refs ("the second one is urgent"), which go into the
-inbox file's `note:` line. A free-text brief goes into the inbox file's `text:` block, word for
-word; the Inbox step turns it into spec items.
+Everything after `/juel:star` is read as words. A first word of `draft-brief` or `post-report` is
+that command: they take arguments.
+`status`, `away`, `back` and `stop` are commands only when they are the whole text, as `take over`
+is, so `/juel:star stop the digest from sending twice` is a free-text brief, not a stop, and
+`/juel:star status badge on the dashboard` prints no status. When the whole text is `take over`, it
+is the user's "take over" ("Start, resume, stop"): this session becomes the coordinator even though
+another terminal is listed. Otherwise every word that is a work-item ref (`SPH-11`, `#412`) or a path
+to a spec file is a ref: `SPH-11 and SPH-12`, `SPH-11, SPH-12` and `add SPH-11 SPH-12` are the same
+request. The rest of the words are the free-text brief, unless they are only filler
+(`and`, `add`, `please`), which is dropped, or only say something about the refs
+("the second one is urgent"), which goes into the inbox file's `note:` line. A free-text brief goes
+into the inbox file's `text:` block, word for word; the Inbox step turns it into spec items.
 
 ### Coordinator, or hand-over
 
@@ -209,12 +212,13 @@ word; the Inbox step turns it into spec items.
    line and stop. `path` creates nothing.
 2. When `HOME_DIR/star.json` exists, read its `terminal`. It names a terminal that is not this
    session's `$ORCA_TERMINAL_HANDLE` and that `orca terminal list --limit 500 --json` still lists
-   (and the user did not say "take over") → **hand-over**: STAR is running there, and this session hands the refs to it. Write them as an
-   inbox file (below), nudge it with `orca terminal send --terminal <handle> --text "inbox" --enter`,
-   say "STAR for <project> runs in <handle>; I handed it <refs>", and end. With no refs and no free text,
-   say where it runs and print `status`. Hand-over needs no Orca terminal. The list cannot be read → write
-   the inbox file, say that it could not be checked whether STAR is running, and end: never become
-   a second coordinator on a guess.
+   (and the user did not say "take over") → **hand-over**: STAR is running there, and this session hands the refs to it.
+   Write them, and any free text, as an inbox file (below), nudge it with
+   `orca terminal send --terminal <handle> --text "inbox" --enter`, say
+   "STAR for <project> runs in <handle>; I handed it <refs, or the text's first words>", and end.
+   With no refs and no free text, say where it runs and print `status`. Hand-over needs no Orca terminal.
+   The list cannot be read → write the inbox file, say that it could not be checked whether STAR is
+   running, and end: never become a second coordinator on a guess.
 3. Otherwise **this session becomes the coordinator**: run the Preflight table (a STOP there leaves
    the project untouched: nothing was created yet), then `sh S/star-home.sh init`, write any refs and
    free text as an inbox file (free text in its `text:` block), then the start sequence ("Start,
@@ -259,10 +263,14 @@ read-only repository is fine). It records the project in `star.json` as
 later when the repo was not registered yet), and adds the remote as `remote`: the only one
 `git -C <project.repo> remote` prints, else `origin`.
 It also looks for a hosted reviewer: when `greptile-apps[bot]` commented on one of the
-repository's last 20 merged PRs (`gh pr list --state merged --limit 20 --json number`, then
-`gh pr view <n> --json comments,reviews`), it sets `hostedReviewer` to
+repository's last 20 merged PRs, it sets `hostedReviewer` to
 `{"login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2}` and says so in one line; the owner
-can change it. The work source and base branch are not
+can change it. The lookup is `gh pr list --state merged --limit 20 --json number --jq '.[].number'`,
+then for each `<n>`:
+`gh api "repos/{owner}/{repo}/pulls/<n>/reviews" --jq '.[].user.login'` and
+`gh api "repos/{owner}/{repo}/issues/<n>/comments" --jq '.[].user.login'`,
+stopping at the first line that is exactly `greptile-apps[bot]` (REST logins carry the `[bot]`
+suffix). The work source and base branch are not
 kept here: each item's brief carries them. Then, before any worker starts, it asks once, with
 AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking or status changes while
 you're away?"), writes it to `star.json`, and tells the user where the queue is:
