@@ -1,32 +1,38 @@
 #!/bin/sh
 # Starts one STAR stage for one ledger row: everything "Fill slots" does, in one place, so no
 # session hand-rolls it.
-#   stage-start.sh [--home H] [--round <k>] brief|build|review|fix|screen|babysit|post <item>
+#   stage-start.sh [--home H] brief|build|babysit|post <item>
 # Prints one line:
 #   started task=<id> dispatch=<id>[ fallback <model>: <why>]
-#   hold memory <gb>          under 3 GB free + inactive: nothing was started
+#   hold memory <gb>          free + inactive memory under hostGate.minFreeGB (default 3)
+#   hold agents <n>           more claude and codex processes than hostGate.maxAgents (default 40)
+#   hold swap <gb>            more swap in use than hostGate.maxSwapGB (default 11)
+#   hold disk <gb>            less free disk under STAR's home than hostGate.minDiskGB (default 25)
 #   hold trust <path>         Claude Code's first-run dialogs for <path> could not be cleared
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
-# In order: the memory check; for build, the worktree (reuse one already on the brief's branch,
-# else orca worktree create, then put it on the brief's branch, copy the main checkout's
-# git-ignored environment files, and add a .git/info/exclude line when the worktree sits inside
-# the repository); for a claude worker whose path Claude Code's config does not list as trusted,
-# the first-run dialogs, cleared in a throwaway terminal the way orca-ship-tickets does (only
-# while "No, exit" is on screen, Down then Enter, at most 3 rounds); the prompt; then task-create
-# and worker-start. Both carry a --retry-request id, so a STAR that died between a call and
-# recording its result gets the same task or dispatch back from Orca, never a second one.
+# In order: the host gate (nothing starts while one of its four checks fails); for build, the
+# worktree (reuse one already on the brief's branch, else orca worktree create, then put it on the
+# brief's branch, copy the main checkout's git-ignored environment files, and add a
+# .git/info/exclude line when the worktree sits inside the repository); for babysit, a review a v1
+# reviewer left inside the worktree moves into the STAR folder (#35); for a claude worker whose
+# path Claude Code's config does not list as trusted, the first-run dialogs, cleared in a
+# throwaway terminal the way orca-ship-tickets does (only while "No, exit" is on screen, Down then
+# Enter, at most 3 rounds); the prompt; then task-create and worker-start. Both carry a
+# --retry-request id, so a STAR that died between a call and recording its result gets the same
+# task or dispatch back from Orca, never a second one.
 # The row is written through ledger.sh before task-create (state, stage, round, counters.start
 # and counters.live), after it (task) and after worker-start (dispatch, live cleared). A row whose
 # counters still hold live= for this stage is a start that died: it is replayed with the same ids.
-# --round defaults to the row's round, plus one for a review that is not a replay.
 # A brief with existingPr: <url> and no local branch yet gets its branch fetched from the
 # project's remote and checked out tracking it (an open PR's head), instead of a renamed branch.
-# For fix and babysit, a review the reviewer wrote at the same relative path inside the worktree
-# instead of the STAR folder is moved into the STAR folder first (never over one already there).
-# Every spec sent is one line: the reviewer's instructions go to specs/<project>/ and the spec
-# points at them. A failed worker-start is retried once: with --retry-of, one effort level lower
-# when the effort was refused, or on "worker" ("reviewer" for review) when the model was refused.
-# Test seams: ORCA_CLI_COMMAND, STAR_FREE_GB, STAR_TRUST_POLL (seconds), CLAUDE_CONFIG_DIR.
+# The brief stage gets --rescope <reviews>/<file> when the row's counters hold rescope=<file>; the
+# babysit stage gets --reviewed <the item's newest review>. The executor, gate and hosted-reviewer
+# settings are not in any prompt: workers read them from star.json through their brief.
+# --quiet-hours is star.json's quietHours, or nothing; being away does not change it.
+# Every spec sent is one line. A failed worker-start is retried once: with --retry-of, one effort
+# level lower when the effort was refused, or on "worker" when the model was refused.
+# Test seams: ORCA_CLI_COMMAND, STAR_FREE_GB, STAR_AGENTS, STAR_SWAP_GB, STAR_DISK_GB,
+# STAR_TRUST_POLL (seconds), CLAUDE_CONFIG_DIR.
 # Exit: 0 with one of the lines above; 2 the STAR folder or star.json cannot be read; 4 no row for
 # the item; 64 usage.
 STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
@@ -42,10 +48,8 @@ import sys
 import time
 
 S = os.environ["STAR_SKILL_DIR"]
-RUNNING = {"brief": "briefing", "build": "building", "review": "reviewing", "fix": "fixing",
-           "screen": "screening", "babysit": "babysitting", "post": "posting"}
-WAITING = {"brief": "inbox", "build": "queued", "review": "pr-draft", "fix": "fix-queued",
-           "screen": "screen-queued", "babysit": "babysit-queued", "post": "post-queued"}
+RUNNING = {"brief": "briefing", "build": "building", "babysit": "babysitting", "post": "posting"}
+WAITING = {"brief": "inbox", "build": "queued", "babysit": "babysit-queued", "post": "post-queued"}
 EFFORTS = ["max", "xhigh", "high", "medium", "low"]
 REFUSED = ("not installed", "unknown agent", "model", "access", "credit", "quota", "not available")
 ENV_NAMES = (".env", ".envrc", ".npmrc", ".tool-versions")
@@ -116,25 +120,19 @@ def ids(text, prefix):
     return found[0] if found else None
 
 
-home, round_arg, args, positional = os.environ.get("STAR_HOME_DEFAULT") or "", None, sys.argv[1:], []
+home, args, positional = os.environ.get("STAR_HOME_DEFAULT") or "", sys.argv[1:], []
 while args:
     arg = args.pop(0)
-    if arg in ("--home", "--round"):
+    if arg == "--home":
         if not args:
-            die(64, f"{arg} needs a value")
-        value = args.pop(0)
-        if arg == "--home":
-            home = value
-        elif not value.isdigit():
-            die(64, "--round takes a number")
-        else:
-            round_arg = int(value)
+            die(64, "--home needs a value")
+        home = args.pop(0)
     elif arg.startswith("-"):
         die(64, f"unknown argument: {arg}")
     else:
         positional.append(arg)
 if len(positional) != 2 or positional[0] not in RUNNING:
-    die(64, "usage: stage-start.sh [--home H] [--round <k>] brief|build|review|fix|screen|babysit|post <item>")
+    die(64, "usage: stage-start.sh [--home H] brief|build|babysit|post <item>")
 stage, item = positional
 if not home:
     die(2, "no STAR folder: pass --home, or run inside a project")
@@ -162,13 +160,7 @@ row = dict(l.split("=", 1) for l in ledger("get", item).splitlines() if "=" in l
 counters = {} if row["counters"] == "-" else dict(p.split("=", 1) for p in row["counters"].split() if "=" in p)
 live = counters.get("live")
 replay = live is not None and row["stage"] == stage
-if round_arg is not None:
-    round_ = round_arg
-elif stage == "review" and not replay:
-    round_ = int(row["round"]) + 1
-else:
-    round_ = int(row["round"])
-replay = replay and str(round_) == row["round"]
+round_ = int(row["round"]) if row["round"].isdigit() else 0
 brief = os.path.join(home, "briefs", name, f"{item}.md")
 reviews = os.path.join(home, "reviews", name)
 gates = os.path.join(home, "gates", name)
@@ -210,10 +202,63 @@ def free_gb():
         return None
 
 
+def measured(env, read):
+    if os.environ.get(env):
+        try:
+            return int(float(os.environ[env]))
+        except ValueError:
+            return None
+    try:
+        return read()
+    except Exception:  # a host that cannot be measured never holds a start
+        return None
+
+
+def agent_count():
+    return sum(1 for l in run(["ps", "-Ao", "comm"], 10).stdout.splitlines()
+               if os.path.basename(l.strip()) in ("claude", "codex"))
+
+
+def swap_gb():
+    if sys.platform == "darwin":
+        used = re.search(r"used = ([\d.]+)([MG])", run(["sysctl", "-n", "vm.swapusage"], 10).stdout)
+        return int(float(used.group(1)) / (1024 if used.group(2) == "M" else 1))
+    swap = next(l for l in run(["free", "-g"], 10).stdout.splitlines() if l.lower().startswith("swap"))
+    return int(swap.split()[2])
+
+
+def disk_gb():
+    return shutil.disk_usage(home).free // 1073741824
+
+
+def host_gate():
+    """The first check that fails, as "<what> <value>"; None when the host has room (the host gate)."""
+    hg = star.get("hostGate") if isinstance(star.get("hostGate"), dict) else {}
+
+    def limit(key, default):
+        try:
+            return float(hg.get(key, default))
+        except (TypeError, ValueError):
+            return float(default)
+
+    gb = free_gb()
+    if gb is not None and gb < limit("minFreeGB", 3):
+        return f"memory {gb}"
+    agents = measured("STAR_AGENTS", agent_count)
+    if agents is not None and agents > limit("maxAgents", 40):
+        return f"agents {agents}"
+    swap = measured("STAR_SWAP_GB", swap_gb)
+    if swap is not None and swap > limit("maxSwapGB", 11):
+        return f"swap {swap}"
+    disk = measured("STAR_DISK_GB", disk_gb)
+    if disk is not None and disk < limit("minDiskGB", 25):
+        return f"disk {disk}"
+    return None
+
+
 def setting():
     default = {"agent": "claude", "model": "default"}
-    fallback = star.get("reviewer" if stage == "review" else "worker")
-    fallback = fallback if isinstance(fallback, dict) else default
+    fallback = star.get("worker") if isinstance(star.get("worker"), dict) else default
     stages = star.get("stages") if isinstance(star.get("stages"), dict) else {}
     entry = stages.get(stage)
     return (entry if isinstance(entry, dict) else fallback), fallback
@@ -378,8 +423,6 @@ def clear_trust(path):
 
 
 def window():
-    if star.get("away"):
-        return "always"
     q = star.get("quietHours")
     if isinstance(q, dict) and q.get("start") and q.get("end") and q.get("tz"):
         return f"{q['start']}-{q['end']}@{q['tz']}"
@@ -393,53 +436,33 @@ def has_feedback(path):
         return False
 
 
-def reviewer_spec(fm):
-    template = open(os.path.join(S, "template", "reviewer-prompt.md"), encoding="utf-8").read()
-    review = os.path.join(reviews, f"{item}-r{round_}.md")
-    if round_ >= 2:
-        previous = (f"Previous round: {os.path.join(reviews, f'{item}-r{round_ - 1}.md')} and its -fix.md "
-                    "beside it. Judge each rejection on its merits; a prior rejection is evidence, not a verdict.")
-    else:
-        previous = "This is round 1: there is no previous review."
-    values = {"brief": brief, "notes": os.path.join(home, "memory", f"{name}.md"), "previous": previous,
-              "remote": project.get("remote") or "origin", "base": fm.get("baseBranch") or "main",
-              "review": review, "item": item, "round": str(round_)}
-    text = re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), template)
-    folder = os.path.join(home, "specs", name)
-    os.makedirs(folder, exist_ok=True)
-    target = os.path.join(folder, f"{item}-review-r{round_}.md")
-    tmp = f"{target}.tmp.{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(text)
-    os.replace(tmp, target)
-    return f"You are STAR's second-model reviewer for {item}. Read {target} and do exactly what it says."
+def newest_review():
+    names = os.listdir(reviews) if os.path.isdir(reviews) else []
+    rounds = [int(m.group(1)) for m in (re.fullmatch(re.escape(item) + r"-r(\d+)\.md", n) for n in names) if m]
+    return os.path.join(reviews, f"{item}-r{max(rounds)}.md") if rounds else None
 
 
-def prompt(entry, fm):
-    executor = " --executor session" if entry.get("executor") == "session" else ""
+def prompt():
     quiet_window = window()
     quiet = f" --quiet-hours {quiet_window}" if quiet_window else ""
     if stage == "brief":
         feedback = " --feedback" if has_feedback(brief) else ""
-        return f"/juel:star draft-brief {row['ref']} --project {name} --item {item} --out {brief}{feedback}"
+        rescope = counters.get("rescope")
+        rescope = f" --rescope {os.path.join(reviews, rescope)}" if rescope and rescope != "-" else ""
+        return f"/juel:star draft-brief {row['ref']} --project {name} --item {item} --out {brief}{feedback}{rescope}"
     if stage == "build":
-        return f"/juel:ship-ticket --unattended --brief {brief}{executor}{quiet}"
-    if stage == "fix":
-        return (f"/juel:ship-ticket --unattended --brief {brief} --fix-review "
-                f"{reviews}/{item}-r{round_}.md{executor}{quiet}")
-    if stage == "screen":
-        return (f"/juel:ship-ticket --unattended --brief {brief} --screen-checks "
-                f"{gates}/{item}-screen.md{executor}{quiet}")
+        return f"/juel:ship-ticket --unattended --brief {brief}{quiet}"
     if stage == "babysit":
         pr = re.search(r"/pull/(\d+)", row["pr"])
         if not pr:
             out("failed brief: the row has no PR to babysit")
+        review = newest_review()
+        if not review:
+            out(f"failed brief: {item} has no review to prove its PR was gated")
         since = f" --since {row['cursor']}" if row["cursor"] not in ("", "-") else ""
-        return (f"/juel:babysit-pr {pr.group(1)} --unattended --mark-ready --reviewed {reviews}/{item}-r{round_}.md "
-                f"--item {item} --brief {brief} --gates-file {gates}/{item}.json{executor}{since}{quiet}")
-    if stage == "post":
-        return f"/juel:star post-report {row['ref']} --item {item} --report {home}/reports/{name}/{item}.md"
-    return reviewer_spec(fm)
+        return (f"/juel:babysit-pr {pr.group(1)} --unattended --mark-ready --reviewed {review} --item {item} "
+                f"--brief {brief} --gates-file {gates}/{item}.json{since}{quiet}")
+    return f"/juel:star post-report {row['ref']} --item {item} --report {home}/reports/{name}/{item}.md"
 
 
 fm = {}
@@ -447,9 +470,9 @@ if stage != "brief":
     fm = frontmatter(brief)
     if fm is None:
         out(f"failed brief: no brief at {brief}")
-gb = free_gb()
-if gb is not None and gb < 3:
-    out(f"hold memory {gb}")
+held = host_gate()
+if held:
+    out(f"hold {held}")
 entry, fallback = setting()
 if stage in ("brief", "post"):
     place = repo
@@ -462,15 +485,16 @@ else:
     other = other_row_using(place)
     if other:
         out(f"failed in-use: {place} is already in use by {other}")
-    if stage in ("fix", "babysit"):
-        # a review written inside the worktree instead of the STAR folder (#35): see the header
-        review = os.path.join(reviews, f"{item}-r{round_}.md")
-        rel = os.path.relpath(review, repo)
-        stray = os.path.join(place, rel)
-        if not rel.startswith("..") and not os.path.exists(review) and os.path.isfile(stray):
-            os.makedirs(reviews, exist_ok=True)
-            shutil.move(stray, review)
-            print(f"stage-start.sh: moved {stray} to {review}", file=sys.stderr)
+    # a review a v1 reviewer wrote inside the worktree instead of the STAR folder (#35)
+    rel = os.path.relpath(reviews, repo)
+    stray_dir = os.path.join(place, rel)
+    if not rel.startswith("..") and os.path.isdir(stray_dir):
+        for n in sorted(os.listdir(stray_dir)):
+            target = os.path.join(reviews, n)
+            if re.fullmatch(re.escape(item) + r"-r\d+\.md", n) and not os.path.exists(target):
+                os.makedirs(reviews, exist_ok=True)
+                shutil.move(os.path.join(stray_dir, n), target)
+                print(f"stage-start.sh: moved {os.path.join(stray_dir, n)} to {target}", file=sys.stderr)
 
 
 def ensure_trust(setting_):
@@ -483,12 +507,12 @@ def ensure_trust(setting_):
 
 
 def same_launch(a, b):
-    """Two settings launch the same thing when agent, model and effort match; executor is not part of a launch."""
+    """Two settings launch the same thing when agent, model and effort match."""
     return all((a.get(k) or None) == (b.get(k) or None) for k in ("agent", "model", "effort"))
 
 
 ensure_trust(entry)
-spec = prompt(entry, fm)
+spec = prompt()
 n = int(live) if replay and str(live).isdigit() else int(counters.get("start", "0") or 0) + 1
 rid = f"star-{item}-{stage}-r{round_}-s{n}"
 task = dispatch = None

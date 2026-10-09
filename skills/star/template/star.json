@@ -1,58 +1,20 @@
 {
+  "schema": 2,
   "maxParallel": 3,
   "maxInReview": 3,
   "maxBriefs": 4,
   "stages": {
-    "brief": {
-      "agent": "claude",
-      "model": "opus",
-      "effort": "high"
-    },
-    "build": {
-      "agent": "claude",
-      "model": "opus",
-      "effort": "xhigh",
-      "executor": "session"
-    },
-    "fix": {
-      "agent": "claude",
-      "model": "opus",
-      "effort": "xhigh",
-      "executor": "session"
-    },
-    "review": {
-      "agent": "codex",
-      "model": "gpt-6-astra",
-      "effort": "xhigh"
-    },
-    "babysit": {
-      "agent": "claude",
-      "model": "opus",
-      "effort": "xhigh",
-      "executor": "session"
-    },
-    "screen": {
-      "agent": "claude",
-      "model": "opus",
-      "effort": "xhigh",
-      "executor": "session"
-    },
-    "post": {
-      "agent": "claude",
-      "model": "opus",
-      "effort": "xhigh"
-    }
+    "brief": {"agent": "claude", "model": "opus", "effort": "high"},
+    "build": {"agent": "claude", "model": "opus", "effort": "xhigh"},
+    "babysit": {"agent": "claude", "model": "opus", "effort": "xhigh"},
+    "post": {"agent": "claude", "model": "opus", "effort": "xhigh"}
   },
-  "worker": {
-    "agent": "claude",
-    "model": "opus",
-    "effort": "xhigh"
-  },
-  "reviewer": {
-    "agent": "codex",
-    "model": "gpt-6-astra",
-    "effort": "xhigh"
-  },
+  "worker": {"agent": "claude", "model": "opus", "effort": "xhigh"},
+  "executor": {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"},
+  "gate": {"model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 3},
+  "hostedReviewer": null,
+  "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
+  "progressDeadlineMin": 30,
   "quietHours": null,
   "run": null,
   "terminal": null,

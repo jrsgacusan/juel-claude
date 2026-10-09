@@ -35,5 +35,21 @@ out=$(sh "$SCRIPT" acquire --holder B --pid $W2 --wait-max 2); case "$out" in "h
 sh "$SCRIPT" acquire --pid $W2 >/dev/null 2>&1; [ $? -eq 64 ] && pass "acquire without --holder is 64" || fail "usage"
 sh "$SCRIPT" acquire --holder C --pid 999999 >/dev/null 2>&1; [ $? -eq 64 ] && pass "a --pid that is not running is 64" || fail "dead pid"
 
+# renewed, shown, and taken over when nobody renews it (#39)
+sleep 300 & W3=$!
+sh "$SCRIPT" acquire --holder C --pid $W3 --wait-max 2 >/dev/null
+case "$(sh "$SCRIPT" status)" in "held by C since "*" renewed "*) pass "status says when the holder last renewed" ;; *) fail "status renewed ($(sh "$SCRIPT" status))" ;; esac
+out=$(sh "$SCRIPT" renew --holder C); case "$out" in "renewed "*) pass "the holder renews it" ;; *) fail "renew ($out)" ;; esac
+sh "$SCRIPT" renew --holder D >/dev/null 2>&1; [ $? -eq 65 ] && pass "another holder cannot renew it" || fail "foreign renew"
+sleep 1
+out=$(JUEL_SCREEN_LOCK_STALE=0.005 sh "$SCRIPT" acquire --holder D --pid $W2 --wait-max 5 2> "$TMP/take.err")
+case "$out" in "held by D since "*) pass "a lock nobody renewed is taken over" ;; *) fail "takeover ($out)" ;; esac
+grep -q 'took over a stale lock from C' "$TMP/take.err" && pass "the takeover is said on stderr" || fail "takeover message ($(cat "$TMP/take.err"))"
+out=$(sh "$SCRIPT" acquire --holder E --pid $W3 --wait-max 1); rc=$?
+[ $rc -eq 75 ] && pass "a renewed lock is not taken over" || fail "fresh lock taken ($rc $out)"
+sh "$SCRIPT" release --holder D >/dev/null
+kill $W3 2>/dev/null; wait $W3 2>/dev/null
+[ "$(sh "$SCRIPT" renew --holder D)" = "free" ] && pass "renewing a free lock says free" || fail "renew free"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

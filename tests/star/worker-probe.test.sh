@@ -164,5 +164,91 @@ printf '{"result":{"worker":{"stage":"settled","state":"succeeded"},"dispatch":{
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
 [ "$out" = "settled succeeded" ] && echo "ok   a success carries no failure reason" || { echo "FAIL success with old reason ($out)"; fails=$((fails + 1)); }
 
+# every case below uses a lock of its own, never this machine's real screen lock
+export JUEL_SCREEN_LOCK="$TMP/screen.lock"
+# capacity and rate limits are recoverable: stalled, not stuck, not ok (#41)
+cat > "$TMP/bin/orca" <<'EOF5'
+#!/bin/sh
+case "$*" in
+  *"terminal list"*) [ -f "$STUB_DIR/list5.json" ] || exit 1; cat "$STUB_DIR/list5.json" ;;
+  *worker-show*) cat "$STUB_DIR/show.json" ;;
+  *worker-read*) cat "$STUB_DIR/read.json" ;;
+esac
+EOF5
+s "codex at capacity" "stalled: model at capacity" "Selected model is at capacity. Please try a different model."
+s "an overloaded API" "stalled: model at capacity" "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}"
+s "a rate-limit error" "stalled: model at capacity" "API Error: 429 rate_limit_error"
+s "a worker adding a rate limiter is not stalled" "ok" "added a rate limiter to the upload route"
+s "a worker handling 429s is not stalled" "ok" "returns 429 Too Many Requests when the limit is hit"
+s "a usage limit is still stuck" "stuck: usage limit" "You've hit your usage limit. Upgrade to Pro"
+# B-3: the error type names are capacity only on a line that also carries an API error
+s "a mid-screen JSON line naming rate_limit_error (code being read) is not stalled" "ok" '    "type": "rate_limit_error",' '  }'
+s "code that checks for overloaded_error is not stalled" "ok" '    if (err.type === "overloaded_error") retry();' '  }'
+s "a worker's own sentence about overloaded_error is not stalled" "ok" "Next I add a retry with backoff for overloaded_error responses." "Then I run the tests."
+s "Claude Code's overloaded API error on the last line is stalled" "stalled: model at capacity" 'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
+s "an error type in a line that starts with Error: is stalled" "stalled: model at capacity" "Error: overloaded_error, retrying in 5 seconds"
+s "an error type next to a 5xx status is stalled" "stalled: model at capacity" "529 overloaded_error"
+s "an error type next to a 4xx status is stalled" "stalled: model at capacity" "HTTP 429: rate_limit_error"
+s "an error type in an API error line without a status is stalled" "stalled: model at capacity" "API error, retrying: rate_limit_error"
+
+# progress, not the terminal, says whether a worker is stale
+mkdir -p "$TMP/home/progress"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["working on it"]}}}))' > "$TMP/read.json"
+NOW=1791374400
+age() { python3 -c 'import os,sys; t=float(sys.argv[2]); os.utime(sys.argv[1], (t, t))' "$1" "$((NOW - $2 * 60))"; }
+pr() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$TMP/home" "$@"; }
+: > "$TMP/home/progress/ITEM-1.log"; age "$TMP/home/progress/ITEM-1.log" 10
+out=$(pr); [ "$out" = "ok" ] && pass_p=1 || pass_p=0
+[ "$pass_p" = 1 ] && echo "ok   a progress line 10 minutes old is ok" || { echo "FAIL fresh progress ($out)"; fails=$((fails + 1)); }
+age "$TMP/home/progress/ITEM-1.log" 45
+out=$(pr); [ "$out" = "stale 45 term_w1" ] && echo "ok   no progress for 45 minutes is stale" || { echo "FAIL stale ($out)"; fails=$((fails + 1)); }
+out=$(pr --deadline 60); [ "$out" = "ok" ] && echo "ok   the deadline can be raised" || { echo "FAIL deadline ($out)"; fails=$((fails + 1)); }
+WT="$TMP/wt"; mkdir -p "$WT"; (cd "$WT" && git init -q . && GIT_COMMITTER_DATE="2026-10-07T11:55:00Z" git -c user.email=t@t -c user.name=t commit -q --allow-empty -m work)
+# the worktree root and its files are backdated, so only the case's own commit or file sets the time
+age "$WT" 120
+out=$(pr --worktree "$WT"); [ "$out" = "ok" ] && echo "ok   a commit 5 minutes ago is progress" || { echo "FAIL commit progress ($out)"; fails=$((fails + 1)); }
+(cd "$WT" && GIT_COMMITTER_DATE="2026-10-07T11:00:00Z" git -c user.email=t@t -c user.name=t commit -q --amend --allow-empty -m work)
+printf 'x\n' > "$WT/edit.txt"; age "$WT/edit.txt" 2; age "$WT" 120
+out=$(pr --worktree "$WT"); [ "$out" = "ok" ] && echo "ok   a file the worker just changed is progress" || { echo "FAIL file progress ($out)"; fails=$((fails + 1)); }
+# no edit.txt: removing it leaves the root's time fresh, which a probe that read the root as a changed file would call progress
+rm -f "$WT/edit.txt"; (cd "$WT" && GIT_COMMITTER_DATE="2026-10-07T11:00:00Z" git -c user.email=t@t -c user.name=t commit -q --amend --allow-empty -m work)
+out=$(pr --worktree "$WT"); [ "$out" = "stale 45 term_w1" ] && echo "ok   an old commit and no changed file is stale" || { echo "FAIL old commit, no file ($out)"; fails=$((fails + 1)); }
+rm -rf "$TMP/home/progress"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((NOW * 1000 - 40 * 60000))" > "$TMP/list5.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-2 --home "$TMP/home")
+[ "$out" = "quiet 40 term_w1" ] && echo "ok   no progress source falls back to the terminal rule" || { echo "FAIL fallback ($out)"; fails=$((fails + 1)); }
+rm -f "$TMP/list5.json"
+
+# the item that holds the screen lock is named (#39)
+export JUEL_SCREEN_LOCK_POLL=0.2
+sleep 300 & WS=$!
+sh "$ROOT/skills/ship-ticket/screen-lock.sh" acquire --holder ITEM-1 --pid $WS --wait-max 2 >/dev/null
+mkdir -p "$TMP/home/progress"; : > "$TMP/home/progress/ITEM-1.log"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$TMP/home")
+[ "$out" = "ok holds-screen 0" ] && echo "ok   the screen holder's row says so" || { echo "FAIL holds-screen ($out)"; fails=$((fails + 1)); }
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 --item ITEM-9 --home "$TMP/home")
+[ "$out" = "ok" ] && echo "ok   another row says nothing about the screen" || { echo "FAIL other row ($out)"; fails=$((fails + 1)); }
+sh "$ROOT/skills/ship-ticket/screen-lock.sh" release --holder ITEM-1 >/dev/null; kill $WS 2>/dev/null; wait $WS 2>/dev/null
+unset JUEL_SCREEN_LOCK JUEL_SCREEN_LOCK_POLL
+sh "$SCRIPT" ctx_1 --item ITEM-1 >/dev/null 2>&1; [ $? -eq 64 ] && echo "ok   --item without --home is 64" || { echo "FAIL usage"; fails=$((fails + 1)); }
+
+# the idle-looking holder of #39 is a stale or quiet row: it still names the screen, and for how long
+export JUEL_SCREEN_LOCK="$TMP/screen.lock" JUEL_SCREEN_LOCK_POLL=0.2
+sleep 300 & WS=$!
+sh "$ROOT/skills/ship-ticket/screen-lock.sh" acquire --holder ITEM-1 --pid $WS --wait-max 2 >/dev/null
+# 25 and a half minutes after the lock was taken, for the case that counts the minutes
+LATER=$(python3 -c 'import time; from datetime import datetime, timezone; print(datetime.fromtimestamp(time.time() + 25 * 60 + 30, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+mkdir -p "$TMP/home/progress"; : > "$TMP/home/progress/ITEM-1.log"; age "$TMP/home/progress/ITEM-1.log" 45
+out=$(pr); [ "$out" = "stale 45 term_w1 holds-screen 0" ] && echo "ok   a stale holder still names the screen" || { echo "FAIL stale holder ($out)"; fails=$((fails + 1)); }
+rm -f "$TMP/home/progress/ITEM-1.log"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((NOW * 1000 - 40 * 60000))" > "$TMP/list5.json"
+out=$(pr); [ "$out" = "quiet 40 term_w1 holds-screen 0" ] && echo "ok   a quiet holder still names the screen" || { echo "FAIL quiet holder ($out)"; fails=$((fails + 1)); }
+rm -f "$TMP/list5.json"; : > "$TMP/home/progress/ITEM-1.log"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW="$LATER" sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$TMP/home")
+[ "$out" = "ok holds-screen 25" ] && echo "ok   the holder's row says how many minutes it has held the screen" || { echo "FAIL holds-screen minutes ($out)"; fails=$((fails + 1)); }
+sh "$ROOT/skills/ship-ticket/screen-lock.sh" release --holder ITEM-1 >/dev/null; kill $WS 2>/dev/null; wait $WS 2>/dev/null
+unset JUEL_SCREEN_LOCK JUEL_SCREEN_LOCK_POLL
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

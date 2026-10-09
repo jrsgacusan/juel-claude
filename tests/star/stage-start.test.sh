@@ -10,21 +10,38 @@ pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$SCRIPT" ] || { echo "FAIL stage-start.sh missing"; exit 1; }
 
-# the project: a repo with an ignored .env, its STAR folder, two rows and their briefs
+# the project: a repo with an ignored .env, its STAR folder with schema 2 settings, rows and briefs
 APP="$TMP/app"; mkdir -p "$APP"
 (cd "$APP" && git init -q -b main . && printf '.env\n' > .gitignore && git add .gitignore && git commit -q -m init)
 APP=$(cd "$APP" && pwd -P)
 printf 'TOKEN=1\n' > "$APP/.env"
 H=$(sh "$S/star-home.sh" --cwd "$APP" init)
-python3 - "$H/star.json" <<'PY'
+settings() { python3 - "$H/star.json" "$@" <<'PY'
 import json, sys
-p = sys.argv[1]; d = json.load(open(p)); d["project"]["orcaRepo"] = "repo_1"; json.dump(d, open(p, "w"), indent=2)
+p = sys.argv[1]; d = json.load(open(p))
+d["project"]["orcaRepo"] = "repo_1"
+d["stages"] = {k: {"agent": "claude", "model": "opus", "effort": "high" if k == "brief" else "xhigh"}
+               for k in ("brief", "build", "babysit", "post")}
+d["worker"] = {"agent": "claude", "model": "opus", "effort": "xhigh"}
+d.pop("reviewer", None)
+d["hostGate"] = {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}
+d["away"], d["quietHours"] = None, None
+for kv in sys.argv[2:]:
+    path, value = kv.split("=", 1)
+    node, keys = d, path.split(".")
+    for k in keys[:-1]:
+        node = node.setdefault(k, {})
+    node[keys[-1]] = json.loads(value)
+json.dump(d, open(p, "w"), indent=2)
 PY
+}
+settings
 L() { sh "$S/ledger.sh" --home "$H" "$@"; }
 brief() {
   mkdir -p "$H/briefs/app"
   printf -- '---\njuel_brief: 1\nbranch: feat/%s-x\nbaseBranch: main\ndeliverable: pr\n---\n## Work item\nx\n' "$(echo "$1" | tr 'A-Z' 'a-z')" > "$H/briefs/app/$1.md"
 }
+review() { mkdir -p "$H/reviews/app"; printf 'VERDICT item=%s round=%s SAFE findings=0 head=abc1234\n' "$1" "$2" > "$H/reviews/app/$1-r$2.md"; }
 L add SPH-11 ref=SPH-11 project=app >/dev/null; brief SPH-11
 mkdir -p "$TMP/cfg"
 trust() { python3 -c 'import json,sys; print(json.dumps({"projects": {p: {"hasTrustDialogAccepted": True} for p in sys.argv[1:]}}))' "$@" > "$TMP/cfg/.claude.json"; }
@@ -61,6 +78,7 @@ EOF
 chmod +x "$TMP/bin/orca"
 reset() { rm -f "$TMP/calls" "$TMP/ws" "$TMP"/ws-fail-* "$TMP/tr" "$TMP/dialog-always" "$TMP/dialog-reads" "$TMP/task-fail"; }
 ST() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca STAR_FREE_GB=${FREE:-16} \
+       STAR_AGENTS=${AGENTS:-3} STAR_SWAP_GB=${SWAP:-1} STAR_DISK_GB=${DISK:-500} \
        STAR_TRUST_POLL=0.01 CLAUDE_CONFIG_DIR="$TMP/cfg" sh "$SCRIPT" --home "$H" "$@"; }
 
 # brief: in the main checkout, ids recorded, one-line spec, request ids
@@ -73,8 +91,35 @@ grep -q "task-create --spec /juel:star draft-brief SPH-11 --project app --item S
 grep -q -- '--retry-request star-SPH-11-brief-r0-s1 ' "$TMP/calls" && grep -q -- "worker-start --task task_aa11 --worktree path:$APP .*--retry-request star-SPH-11-brief-r0-s1-w1" "$TMP/calls" && pass "request ids on both calls" || fail "request ids"
 grep -q 'terminal create' "$TMP/calls" && fail "a trusted path opened a trust terminal" || pass "a trusted path needs no trust terminal"
 
-# memory
-reset; out=$(FREE=1 ST brief SPH-11); [ "$out" = "hold memory 1" ] && [ ! -f "$TMP/calls" ] && pass "low memory holds and calls nothing" || fail "memory ($out)"
+# the host gate: each of its four checks holds, and nothing is called
+reset; out=$(FREE=1 ST brief SPH-11); [ "$out" = "hold memory 1" ] && [ ! -f "$TMP/calls" ] && pass "low memory holds" || fail "memory ($out)"
+reset; out=$(AGENTS=41 ST brief SPH-11); [ "$out" = "hold agents 41" ] && [ ! -f "$TMP/calls" ] && pass "too many agents hold" || fail "agents ($out)"
+reset; out=$(SWAP=12 ST brief SPH-11); [ "$out" = "hold swap 12" ] && [ ! -f "$TMP/calls" ] && pass "too much swap holds" || fail "swap ($out)"
+reset; out=$(DISK=10 ST brief SPH-11); [ "$out" = "hold disk 10" ] && [ ! -f "$TMP/calls" ] && pass "too little disk holds" || fail "disk ($out)"
+settings 'hostGate.maxAgents=50'
+reset; out=$(AGENTS=45 ST brief SPH-11); case "$out" in "started "*) pass "the host gate's limits come from star.json" ;; *) fail "custom limit ($out)" ;; esac
+settings
+
+# a re-scope brief names the review that sent it back
+reset; L set SPH-11 state=inbox counters.rescope=SPH-11-r3.md >/dev/null
+ST brief SPH-11 >/dev/null
+grep -q -- "draft-brief SPH-11 --project app --item SPH-11 --out $H/briefs/app/SPH-11.md --rescope $H/reviews/app/SPH-11-r3.md --task-title" "$TMP/calls" && pass "a re-scope brief gets --rescope" || fail "rescope prompt ($(grep task-create "$TMP/calls"))"
+L set SPH-11 counters.rescope=- >/dev/null
+
+# Review Focus 4 (v1): a start that died before recording its task replays the same ids
+reset; L set SPH-11 stage=brief counters.start=7 counters.live=7 task=- dispatch=- >/dev/null
+ST brief SPH-11 >/dev/null
+grep -q -- '--retry-request star-SPH-11-brief-r0-s7 ' "$TMP/calls" && pass "a replay reuses the request id" || fail "replay id ($(cat "$TMP/calls"))"
+reset; ST brief SPH-11 >/dev/null
+grep -q -- '--retry-request star-SPH-11-brief-r0-s8 ' "$TMP/calls" && pass "a new start gets a new one" || fail "new id"
+
+# worker-start: one retry with --retry-of; a refused effort steps down
+reset; printf '{"ok":false,"result":{"dispatch":{"id":"ctx_dead1"}},"error":{"message":"setup failed"}}\n' > "$TMP/ws-fail-1"
+out=$(ST brief SPH-11)
+case "$out" in "started task=task_aa11 dispatch=ctx_bb2") pass "a failed start is retried once" ;; *) fail "retry ($out)" ;; esac
+grep -q -- '--retry-of ctx_dead1 --retry-request star-SPH-11-brief-r0-s9-w2' "$TMP/calls" && pass "the retry links the failed dispatch" || fail "retry-of"
+reset; printf '{"ok":false,"error":{"message":"effort high is not supported by this model"}}\n' > "$TMP/ws-fail-1"
+ST brief SPH-11 >/dev/null; sed -n '$p' "$TMP/calls" | grep -q -- '--effort medium' && pass "a refused effort steps down one level" || fail "effort"
 
 # build: worktree created inside the repo, put on the brief's branch, env copied, excluded, trust cleared
 reset; L set SPH-11 state=queued >/dev/null
@@ -86,7 +131,7 @@ case "$out" in "started task=task_aa11 dispatch=ctx_bb1") pass "build starts" ;;
 [ -f "$WT/.env" ] && pass "the ignored .env is copied" || fail ".env"
 grep -qx '/.worktrees/' "$APP/.git/info/exclude" && [ -z "$(git -C "$APP" status --porcelain)" ] && pass "the main checkout stays clean (#9)" || fail "exclude ($(git -C "$APP" status --porcelain))"
 grep -q "terminal create --worktree path:$WT" "$TMP/calls" && grep -q 'terminal close --terminal term_tt1' "$TMP/calls" && pass "an untrusted worktree gets a trust terminal, then it closes" || fail "trust terminal"
-grep -q 'terminal send' "$TMP/calls" && fail "keys were sent with no dialog on screen" || pass "no keys without a dialog"
+grep -q "task-create --spec /juel:ship-ticket --unattended --brief $H/briefs/app/SPH-11.md --task-title" "$TMP/calls" && pass "the build prompt carries no executor flag" || fail "build prompt ($(grep task-create "$TMP/calls"))"
 
 # a dialog on screen is cleared with Down then Enter
 reset; L add SPH-12 ref=SPH-12 project=app state=queued >/dev/null; brief SPH-12; echo 1 > "$TMP/dialog-reads"
@@ -98,68 +143,54 @@ grep -q 'terminal send --terminal term_tt1 --enter' "$TMP/calls" && pass "Enter 
 reset; L add SPH-13 ref=SPH-13 project=app state=queued >/dev/null; brief SPH-13; touch "$TMP/dialog-always"
 out=$(ST build SPH-13)
 [ "$out" = "hold trust $APP/.worktrees/app/SPH-13" ] && ! grep -q task-create "$TMP/calls" && pass "a stuck dialog holds" || fail "stuck dialog ($out)"
-[ "$(grep -c 'terminal send --terminal term_tt1 --enter' "$TMP/calls")" -le 3 ] && pass "at most 3 rounds of keys" || fail "rounds"
 
-# review: codex, the prompt in a file, round 1
-reset; L set SPH-11 state=pr-draft >/dev/null
-out=$(ST review SPH-11)
-SPEC="$H/specs/app/SPH-11-review-r1.md"
-case "$out" in "started "*) pass "review starts" ;; *) fail "review ($out)" ;; esac
-[ -f "$SPEC" ] && grep -q 'VERDICT item=SPH-11 round=1 SAFE' "$SPEC" && grep -q "Brief (the approved contract): $H/briefs/app/SPH-11.md" "$SPEC" && pass "the reviewer prompt is filled in" || fail "spec file"
-grep -q "task-create --spec You are STAR's second-model reviewer for SPH-11. Read $SPEC and do exactly what it says. --task-title" "$TMP/calls" && pass "the review spec is one line" || fail "review spec line"
-grep -q 'worker-start .*--agent codex --model gpt-6-astra --effort xhigh' "$TMP/calls" && pass "review runs on stages.review" || fail "review agent"
-[ "$(L get SPH-11 round)" = "1" ] && pass "review round is row round + 1" || fail "round"
+# being away keeps the quiet window as it is: never "always"
+trust "$APP" "$WT"
+settings 'away="2026-10-09T08:00:00Z"' 'quietHours={"tz":"Asia/Manila","start":"22:00","end":"07:00"}'
+reset; L set SPH-11 state=queued >/dev/null
+ST build SPH-11 >/dev/null
+grep -q -- "--quiet-hours 22:00-07:00@Asia/Manila --task-title" "$TMP/calls" && ! grep -q -- '--quiet-hours always' "$TMP/calls" && pass "away does not turn the quiet window into always" || fail "away window ($(grep task-create "$TMP/calls"))"
+settings
 
-# Review Focus 4: a start that died before recording its task replays the same ids
-reset; L set SPH-11 counters.start=4 counters.live=4 task=- dispatch=- >/dev/null
-ST review SPH-11 >/dev/null
-grep -q -- '--retry-request star-SPH-11-review-r1-s4 ' "$TMP/calls" && pass "a replay reuses the request id" || fail "replay id ($(cat "$TMP/calls"))"
-reset; ST --round 1 review SPH-11 >/dev/null
-grep -q -- '--retry-request star-SPH-11-review-r1-s5 ' "$TMP/calls" && pass "a deliberate re-run gets a new one" || fail "rerun id"
-
-# worker-start: one retry with --retry-of; a refused effort steps down; a refused model falls back
-reset; printf '{"ok":false,"result":{"dispatch":{"id":"ctx_dead1"}},"error":{"message":"setup failed"}}\n' > "$TMP/ws-fail-1"
-out=$(ST --round 1 review SPH-11)
-case "$out" in "started task=task_aa11 dispatch=ctx_bb2") pass "a failed start is retried once" ;; *) fail "retry ($out)" ;; esac
-grep -q -- '--retry-of ctx_dead1 --retry-request star-SPH-11-review-r1-s6-w2' "$TMP/calls" && pass "the retry links the failed dispatch" || fail "retry-of"
-reset; printf '{"ok":false,"error":{"message":"effort xhigh is not supported by this model"}}\n' > "$TMP/ws-fail-1"
-ST --round 1 review SPH-11 >/dev/null; sed -n '$p' "$TMP/calls" | grep -q -- '--effort high' && pass "a refused effort steps down one level" || fail "effort"
-python3 - "$H/star.json" <<'PY'
-import json, sys
-p = sys.argv[1]; d = json.load(open(p)); d["stages"]["fix"]["model"] = "fable"; json.dump(d, open(p, "w"), indent=2)
-PY
-reset; L set SPH-11 state=fix-queued >/dev/null; trust "$APP" "$WT"
-printf '{"ok":false,"error":{"message":"model fable is not available to this account"}}\n' > "$TMP/ws-fail-1"
-out=$(ST fix SPH-11)
-case "$out" in "started task=task_aa11 dispatch=ctx_bb2 fallback opus: model fable is not available to this account") pass "a refused model falls back to worker" ;; *) fail "fallback ($out)" ;; esac
-grep -q -- "--fix-review $H/reviews/app/SPH-11-r1.md --executor session" "$TMP/calls" && pass "the fix prompt names the round's review" || fail "fix prompt"
-reset; printf '{"ok":false,"error":{"message":"no"}}\n' > "$TMP/ws-fail-1"; cp "$TMP/ws-fail-1" "$TMP/ws-fail-2"
-out=$(ST fix SPH-11); [ "$out" = "failed worker-start: no" ] && [ "$(L get SPH-11 counters.live)" = "-" ] && pass "a second failure is failed, live cleared" || fail "second failure ($out)"
-
-# task-create failing
-reset; touch "$TMP/task-fail"
-out=$(ST fix SPH-11); [ "$out" = "failed task-create: task store down" ] && pass "a failed task-create is named" || fail "task-create ($out)"
-
-# babysit: the PR number and the cursor
+# babysit: the PR number, the cursor, and the item's newest review as proof
+review SPH-11 1; review SPH-11 2
 reset; L set SPH-11 state=babysit-queued pr=https://github.com/o/r/pull/42 "cursor=2026-10-07T07:00:00Z#c1" >/dev/null
 ST babysit SPH-11 >/dev/null
-grep -q "/juel:babysit-pr 42 --unattended --mark-ready --reviewed $H/reviews/app/SPH-11-r1.md --item SPH-11 --brief $H/briefs/app/SPH-11.md --gates-file $H/gates/app/SPH-11.json --executor session --since 2026-10-07T07:00:00Z#c1" "$TMP/calls" && pass "the babysit prompt" || fail "babysit prompt ($(grep task-create "$TMP/calls"))"
+grep -q "/juel:babysit-pr 42 --unattended --mark-ready --reviewed $H/reviews/app/SPH-11-r2.md --item SPH-11 --brief $H/briefs/app/SPH-11.md --gates-file $H/gates/app/SPH-11.json --since 2026-10-07T07:00:00Z#c1 --task-title" "$TMP/calls" && pass "the babysit prompt proves with the newest review" || fail "babysit prompt ($(grep task-create "$TMP/calls"))"
 
-# a review the reviewer wrote inside its worktree (#35) moves into the STAR folder before babysit or fix reads it
-REL=${H#"$APP"/}; HR="$H/reviews/app/SPH-11-r1.md"; WR="$WT/$REL/reviews/app/SPH-11-r1.md"
-reset; rm -f "$HR"; mkdir -p "$(dirname "$WR")"; echo 'VERDICT item=SPH-11 round=1 SAFE findings=0 head=abc1234' > "$WR"
+# a review a v1 reviewer wrote inside the worktree (#35) moves into the STAR folder first
+REL=${H#"$APP"/}; WR="$WT/$REL/reviews/app/SPH-11-r3.md"
+reset; mkdir -p "$(dirname "$WR")"; echo 'VERDICT item=SPH-11 round=3 SAFE findings=0 head=abc1234' > "$WR"
 L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
-[ -f "$HR" ] && [ ! -e "$WR" ] && pass "a review left in the worktree moves to the STAR folder" || fail "review not moved"
-reset; echo 'stray' > "$WR"; L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
-grep -q VERDICT "$HR" && [ -f "$WR" ] && pass "a review already in the STAR folder is never overwritten" || fail "home review overwritten"
-rm -f "$WR"
+[ -f "$H/reviews/app/SPH-11-r3.md" ] && [ ! -e "$WR" ] && grep -q -- "--reviewed $H/reviews/app/SPH-11-r3.md" "$TMP/calls" && pass "a review left in the worktree moves to the STAR folder and becomes the newest" || fail "review not moved"
+reset; echo 'stray' > "$WT/$REL/reviews/app/SPH-11-r2.md"; L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
+grep -q VERDICT "$H/reviews/app/SPH-11-r2.md" && [ -f "$WT/$REL/reviews/app/SPH-11-r2.md" ] && pass "a review already in the STAR folder is never overwritten" || fail "home review overwritten"
+rm -rf "$WT/${REL%%/*}"
+
+# a babysit with no review to prove the gate is refused before anything is written
+WT14="$APP/.worktrees/app/SPH-14"; git -C "$APP" worktree add -q -b feat/sph-14-x "$WT14" >/dev/null 2>&1; trust "$APP" "$WT" "$WT14"
+L add SPH-14 ref=SPH-14 project=app state=babysit-queued pr=https://github.com/o/r/pull/43 "worktree=$WT14" >/dev/null; brief SPH-14
+reset; out=$(ST babysit SPH-14)
+[ "$out" = "failed brief: SPH-14 has no review to prove its PR was gated" ] && [ "$(L get SPH-14 state)" = "babysit-queued" ] && pass "no review: refused, row untouched" || fail "no review ($out)"
 
 # one row per worktree
-reset; L set SPH-12 "worktree=$WT" state=fix-queued >/dev/null
-out=$(ST fix SPH-12); case "$out" in "failed in-use: $WT is already in use by SPH-11") pass "a worktree in another open row is refused" ;; *) fail "in-use ($out)" ;; esac
+reset; L set SPH-12 "worktree=$WT" state=babysit-queued pr=https://github.com/o/r/pull/44 >/dev/null
+out=$(ST babysit SPH-12); case "$out" in "failed in-use: $WT is already in use by SPH-11") pass "a worktree in another open row is refused" ;; *) fail "in-use ($out)" ;; esac
 
-# a launch failure that names a model, on a stage whose setting only adds an executor, is an ordinary retry
-L set SPH-12 "worktree=$APP/.worktrees/app/SPH-12" >/dev/null
+# a refused model falls back to worker; a second failure is failed; task-create failing is named
+WT12="$APP/.worktrees/app/SPH-12"; trust "$APP" "$WT" "$WT12" "$WT14"; review SPH-12 1
+L set SPH-12 "worktree=$WT12" >/dev/null
+settings 'stages.babysit={"agent":"claude","model":"fable","effort":"xhigh"}'
+reset; printf '{"ok":false,"error":{"message":"model fable is not available to this account"}}\n' > "$TMP/ws-fail-1"
+out=$(ST babysit SPH-12)
+case "$out" in "started task=task_aa11 dispatch=ctx_bb2 fallback opus: model fable is not available to this account") pass "a refused model falls back to worker" ;; *) fail "fallback ($out)" ;; esac
+settings
+reset; printf '{"ok":false,"error":{"message":"no"}}\n' > "$TMP/ws-fail-1"; cp "$TMP/ws-fail-1" "$TMP/ws-fail-2"
+out=$(ST babysit SPH-12); [ "$out" = "failed worker-start: no" ] && [ "$(L get SPH-12 counters.live)" = "-" ] && pass "a second failure is failed, live cleared" || fail "second failure ($out)"
+reset; touch "$TMP/task-fail"
+out=$(ST babysit SPH-12); [ "$out" = "failed task-create: task store down" ] && pass "a failed task-create is named" || fail "task-create ($out)"
+
+# a launch failure that names a model, when the stage is the worker's own setting, is an ordinary retry
 reset; printf '{"ok":false,"result":{"dispatch":{"id":"ctx_dead2"}},"error":{"message":"model access check failed"}}\n' > "$TMP/ws-fail-1"
 out=$(ST babysit SPH-11)
 case "$out" in *fallback*) fail "the same model reported as a fallback ($out)" ;; "started "*) pass "no fallback when the fallback is the same model" ;; *) fail "babysit retry ($out)" ;; esac
@@ -175,19 +206,17 @@ git -C "$APP" switch -q main
 
 # a trust hold after the row is written puts the row back and keeps the start replayable
 WT21="$APP/.worktrees/app/SPH-21"; git -C "$APP" worktree add -q -b feat/sph-21-x "$WT21" >/dev/null 2>&1
-L add SPH-21 ref=SPH-21 project=app state=pr-draft "worktree=$WT21" >/dev/null; brief SPH-21
-python3 - "$H/star.json" <<'PY2'
-import json, sys
-p = sys.argv[1]; d = json.load(open(p)); d["reviewer"] = {"agent": "claude", "model": "opus", "effort": "xhigh"}; json.dump(d, open(p, "w"), indent=2)
-PY2
-reset; touch "$TMP/dialog-always"; printf '{"ok":false,"error":{"message":"model gpt-6-astra is not available to this account"}}\n' > "$TMP/ws-fail-1"
-out=$(ST review SPH-21)
-[ "$out" = "hold trust $WT21" ] && pass "a refused codex review falls back to claude and holds on trust" || fail "late hold ($out)"
-[ "$(L get SPH-21 state)" = "pr-draft" ] && pass "the row goes back to its waiting state" || fail "row left running ($(L get SPH-21 state))"
+L add SPH-21 ref=SPH-21 project=app state=babysit-queued "worktree=$WT21" pr=https://github.com/o/r/pull/21 >/dev/null; brief SPH-21; review SPH-21 1
+settings 'stages.babysit={"agent":"codex","model":"gpt-6.1-sol","effort":"xhigh"}'
+reset; touch "$TMP/dialog-always"; printf '{"ok":false,"error":{"message":"model gpt-6.1-sol is not available to this account"}}\n' > "$TMP/ws-fail-1"
+out=$(ST babysit SPH-21)
+[ "$out" = "hold trust $WT21" ] && pass "a refused codex stage falls back to claude and holds on trust" || fail "late hold ($out)"
+[ "$(L get SPH-21 state)" = "babysit-queued" ] && pass "the row goes back to its waiting state" || fail "row left running ($(L get SPH-21 state))"
 [ "$(L get SPH-21 task)" = "task_aa11" ] && [ "$(L get SPH-21 counters.live)" != "-" ] && pass "the task and live= are kept for the replay" || fail "replay state lost ($(L get SPH-21))"
-reset; trust "$APP" "$WT" "$WT21"
-out=$(ST review SPH-21)
+reset; trust "$APP" "$WT" "$WT12" "$WT14" "$WT21"
+out=$(ST babysit SPH-21)
 case "$out" in "started task=task_aa11 "*) ! grep -q task-create "$TMP/calls" && pass "the next start reuses the task instead of making a second" || fail "a second task was created" ;; *) fail "replay after hold ($out)" ;; esac
+settings
 
 # an existing PR's branch is fetched and tracked, never renamed from Orca's (#33)
 git init -q --bare "$TMP/remote.git"
@@ -210,8 +239,9 @@ case "$out" in "started "*) pass "an existing PR's item starts" ;; *) fail "exis
 [ "$(git -C "$WT30" rev-parse HEAD)" = "$PRHEAD" ] && pass "it starts at the PR's head" || fail "head"
 git -C "$APP" show-ref --verify --quiet refs/heads/orca/SPH-30 && fail "Orca's branch was left behind" || pass "Orca's own branch is deleted"
 
-# usage and unknown items
-ST nope SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "an unknown stage is 64" || fail "usage"
+# usage: the v1-only stages and --round are gone; unknown items
+for gone in review fix screen; do ST "$gone" SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] || fail "stage $gone still runs"; done; pass "review, fix and screen are not stages any more"
+ST --round 1 babysit SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--round is gone" || fail "--round"
 ST brief NOPE-1 >/dev/null 2>&1; [ $? -eq 4 ] && pass "an unknown item is 4" || fail "unknown item"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

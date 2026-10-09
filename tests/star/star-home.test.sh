@@ -27,7 +27,7 @@ HS=$(sh "$SCRIPT" --cwd "$SP" init) && [ "$HS" = "$SP/docs/superpowers/context/s
 # init: creates once, never overwrites, makes git ignore it without touching .gitignore
 H=$(sh "$SCRIPT" --cwd "$APP" init)
 [ "$H" = "$APP/docs/superpowers/context/star" ] && [ -f "$H/open-loops.md" ] && [ -f "$H/ledger.md" ] && [ -f "$H/star.json" ] && pass "init creates the folder from the template" || fail "init"
-for d in inbox briefs reviews gates releases drafts memory specs reports; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
+for d in inbox briefs reviews gates releases drafts memory specs reports items grants progress; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["project"]=={"name":"app","repo":sys.argv[2]}, d["project"]; assert d["maxParallel"]==3' "$H/star.json" "$APP" && pass "init records the project in star.json" || fail "project block"
 (cd "$APP" && git check-ignore -q "$H/open-loops.md") && pass "git ignores the folder" || fail "folder not ignored"
 [ ! -e "$APP/.gitignore" ] && [ -z "$(cd "$APP" && git status --porcelain)" ] && pass ".gitignore untouched, nothing shows as a change" || fail "repo shows changes: $(cd "$APP" && git status --porcelain)"
@@ -99,6 +99,116 @@ python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["project"]["orc
 T="$ROOT/skills/star/template"
 [ ! -e "$T/CLAUDE.md" ] && [ ! -e "$T/gitignore" ] && [ ! -e "$T/memory/global.md" ] && pass "the template has no CLAUDE.md, gitignore or global notes" || fail "template still ships repo files"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert "project" in d and d["project"] is None' "$T/star.json" && pass "template star.json has an empty project" || fail "template project key"
+
+# migrate: a v1 home to schema 2
+mkrepo "$TMP/mig"; MIG=$(real "$TMP/mig"); HM2=$(sh "$SCRIPT" --cwd "$MIG" init)
+python3 - "$HM2/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["maxParallel"] = 5
+d["stages"] = {"brief": {"agent": "claude", "model": "opus", "effort": "high"},
+               "build": {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"},
+               "fix": {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"},
+               "review": {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"},
+               "screen": {"agent": "claude", "model": "opus", "effort": "xhigh"},
+               "babysit": {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"},
+               "post": {"agent": "claude", "model": "opus", "effort": "xhigh"}}
+d["reviewer"] = {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}
+d.pop("schema", None)
+json.dump(d, open(p, "w"), indent=2)
+PY
+v1row() { printf '| %s | %s | mig | /w/%s | %s | %s | 1 | t1 | %s | 0 | https://x/pull/1 | abc1234 | - | - | - | 2026-10-08T12:00:00Z |\n' "$1" "$1" "$1" "$2" "$3" "$4" >> "$HM2/ledger.md"; }
+v1row A pr-draft review -; v1row B reviewing review ctx_r1; v1row C screen-queued screen -; v1row D ready babysit -; v1row E building build ctx_b1; v1row F done babysit -; v1row G verifying babysit -
+mkdir -p "$HM2/briefs/mig"
+printf -- '---\njuel_brief: 1\n---\n## Work item\nx\n## Decisions\n- 2026-10-08 an earlier answer\n## Feedback\n- 2026-10-08 a note\n' > "$HM2/briefs/mig/A.md"
+printf -- '---\njuel_brief: 1\n---\n## Work item\nx\n' > "$HM2/briefs/mig/C.md"
+printf -- '---\njuel_brief: 1\napproved: 2026-10-08T09:00:00Z\n---\n## Work item\nx\n' > "$HM2/briefs/mig/D.md"
+Q="$HM2/open-loops.md"; LS="$ROOT/skills/star/loops.sh"
+sh "$LS" --file "$Q" add --kind approve-brief --project mig --item A --title "approve brief" --body "x" >/dev/null
+sh "$LS" --file "$Q" add --kind prep --project mig --item C --title "a question" --body "x" >/dev/null
+sh "$LS" --file "$Q" add --kind escalation --project mig --item E --title "stuck" --body "x" >/dev/null
+out=$(sh "$SCRIPT" --cwd "$MIG" migrate)
+[ "$out" = "$(printf 'stop ctx_r1\nmigrated rows=5')" ] && [ ! -e "$HM2/migrate-stops.txt" ] && pass "migrate names the worker to stop, moves five rows, then forgets the stop list" || fail "migrate output ($out)"
+LG() { sh "$ROOT/skills/star/ledger.sh" --home "$HM2" get "$@"; }
+[ "$(LG A state)/$(LG A stage)" = "queued/build" ] && [ "$(LG B state)/$(LG B dispatch)" = "queued/-" ] && [ "$(LG C state)" = "brief-ready" ] && [ "$(LG D state)/$(LG D stage)" = "brief-ready/build" ] && [ "$(LG G state)/$(LG G stage)" = "brief-ready/build" ] && [ "$(LG E state)" = "building" ] && [ "$(LG F state)" = "done" ] && pass "each v1 state lands where the table says" || fail "rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM2" list))"
+grep -q '### D1 Merge under a go' "$HM2/briefs/mig/D.md" && grep -q 'once you say go, the build resumes the gate loop on its existing PR, and STAR merges it under that go' "$HM2/briefs/mig/D.md" && pass "a v1 PR that waited for its merge waits for a go in the next batch" || fail "ready record ($(cat "$HM2/briefs/mig/D.md"))"
+python3 - "$HM2/star.json" <<'PY' && pass "star.json is schema 2 and keeps the owner's own values" || fail "star.json after migrate"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["schema"] == 2 and d["maxParallel"] == 5, d
+assert set(d["stages"]) == {"brief", "build", "babysit", "post"}, d["stages"]
+assert all("executor" not in s for s in d["stages"].values()), d["stages"]
+assert "reviewer" not in d
+assert d["executor"] == {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"}, d["executor"]
+assert d["gate"]["model"] == "gpt-6-astra" and d["gate"]["maxRounds"] == 3, d["gate"]
+assert d["hostedReviewer"] is None and d["hostGate"]["maxAgents"] == 40 and d["progressDeadlineMin"] == 30
+PY
+[ -f "$HM2/star.json.v1.bak" ] && [ -f "$HM2/ledger.md.v1.bak" ] && grep -q '"reviewer"' "$HM2/star.json.v1.bak" && pass "v1 files are backed up first" || fail "backups"
+python3 - "$HM2/briefs/mig/A.md" <<'PY' && pass "the decision record lands inside ## Decisions, before ## Feedback" || fail "decision record placement ($(cat "$HM2/briefs/mig/A.md"))"
+import re, sys
+t = open(sys.argv[1]).read()
+d = t.index("## Decisions"); r = t.index("### D1 Resume under the closed loop"); f = t.index("## Feedback")
+assert d < r < f, (d, r, f)
+assert "Source: star-home.sh migrate" in t
+PY
+grep -q '^## Decisions$' "$HM2/briefs/mig/C.md" && grep -q '### D1 Screen checks become person-only steps' "$HM2/briefs/mig/C.md" && pass "a brief without ## Decisions gets one" || fail "decisions section added"
+open=$(sh "$LS" --file "$Q" list)
+printf '%s\n' "$open" | grep -q "$(printf '\tapprove-brief\t')" && fail "approve-brief left open" || pass "approve-brief items are closed"
+printf '%s\n' "$open" | grep -q "$(printf '\tprep\t')" && fail "prep left open" || pass "prep items are closed"
+printf '%s\n' "$open" | grep -q "$(printf '\tescalation\t')" && pass "other items stay open" || fail "escalation was closed"
+cp "$HM2/star.json" "$TMP/after.json"
+[ "$(sh "$SCRIPT" --cwd "$MIG" migrate)" = "current" ] && cmp -s "$HM2/star.json" "$TMP/after.json" && pass "a second migrate changes nothing" || fail "migrate twice"
+
+# migrate: a queue loops.sh cannot read stops it with exit 1, and the rerun still names the worker to stop
+mkrepo "$TMP/mig2"; MIG2=$(real "$TMP/mig2"); HM3=$(sh "$SCRIPT" --cwd "$MIG2" init)
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.pop("schema",None); json.dump(d,open(p,"w"))' "$HM3/star.json"
+printf '| R | R | mig2 | /w/R | reviewing | review | 1 | t1 | ctx_r2 | 0 | https://x/pull/2 | abc1234 | - | - | - | 2026-10-08T12:00:00Z |\n' >> "$HM3/ledger.md"
+printf '<<<<<<< HEAD\n' >> "$HM3/open-loops.md"
+sh "$SCRIPT" --cwd "$MIG2" migrate >/dev/null 2> "$TMP/mig2.err"; rc=$?
+[ "$rc" -eq 1 ] && grep -q 'loops.sh list' "$TMP/mig2.err" && grep -qx 'stop ctx_r2' "$HM3/migrate-stops.txt" && pass "a queue loops.sh cannot read stops migrate with exit 1, and the stop list is kept" || fail "broken queue (rc=$rc: $(cat "$TMP/mig2.err"))"
+grep -v '^<<<<<<< HEAD$' "$HM3/open-loops.md" > "$TMP/q2"; cat "$TMP/q2" > "$HM3/open-loops.md"
+out=$(sh "$SCRIPT" --cwd "$MIG2" migrate)
+[ "$out" = "$(printf 'stop ctx_r2\nmigrated rows=0')" ] && [ ! -e "$HM3/migrate-stops.txt" ] && pass "the rerun names the worker the stopped run had moved on" || fail "rerun ($out)"
+
+# B-1: the stop lines are printed before the first row moves, so a run that fails still names them
+unschema() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.pop("schema",None); json.dump(d,open(p,"w"))' "$1/star.json"; }
+v1at() { printf '| %s | %s | p | /w/%s | %s | %s | 1 | t1 | %s | 0 | https://x/pull/1 | abc1234 | - | - | - | 2026-10-08T12:00:00Z |\n' "$2" "$2" "$2" "$3" "$4" "$5" >> "$1/ledger.md"; }
+mkrepo "$TMP/mig3"; MIG3=$(real "$TMP/mig3"); HM4=$(sh "$SCRIPT" --cwd "$MIG3" init); unschema "$HM4"
+v1at "$HM4" F fixing fix ctx_f3
+printf '<<<<<<< HEAD\n' >> "$HM4/open-loops.md"
+out=$(sh "$SCRIPT" --cwd "$MIG3" migrate 2> "$TMP/mig3.err"); rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "stop ctx_f3" ] && grep -q 'loops.sh list' "$TMP/mig3.err" && grep -qx 'stop ctx_f3' "$HM4/migrate-stops.txt" && pass "a failing migrate prints the stop line of a live v1 fixing worker and keeps the stop list" || fail "failing migrate (rc=$rc, stdout: $out, stderr: $(cat "$TMP/mig3.err"))"
+out=$(sh "$SCRIPT" --cwd "$MIG3" migrate 2>/dev/null); rc=$?
+[ "$rc" -ne 0 ] && [ "$out" = "stop ctx_f3" ] && pass "a rerun that finds the stop list prints it again, even when it fails again" || fail "failing rerun (rc=$rc, stdout: $out)"
+printf 'not a ledger\n' > "$HM4/ledger.md"
+out=$(sh "$SCRIPT" --cwd "$MIG3" migrate 2> "$TMP/mig3b.err"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "stop ctx_f3" ] && grep -q 'ledger.sh list' "$TMP/mig3b.err" && pass "a rerun that fails before it moves anything still prints the stop list it found" || fail "rerun with a broken ledger (rc=$rc, stdout: $out)"
+
+# a failure while the rows are moving: the second row's move is refused by a stand-in ledger.sh
+mkrepo "$TMP/mig4"; MIG4=$(real "$TMP/mig4"); HM5=$(sh "$SCRIPT" --cwd "$MIG4" init); unschema "$HM5"
+v1at "$HM5" A reviewing review ctx_a4; v1at "$HM5" B fixing fix ctx_b4
+STUB="$TMP/stubskill"; mkdir -p "$STUB"; cp "$SCRIPT" "$STUB/star-home.sh"; ln -s "$ROOT/skills/star/loops.sh" "$STUB/loops.sh"
+printf '#!/bin/sh\ncase "$*" in *" set B "*) echo "refused" >&2; exit 2 ;; esac\nexec sh "%s" "$@"\n' "$ROOT/skills/star/ledger.sh" > "$STUB/ledger.sh"
+out=$(sh "$STUB/star-home.sh" --cwd "$MIG4" migrate 2> "$TMP/mig4.err"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "$(printf 'stop ctx_a4\nstop ctx_b4')" ] && grep -q 'ledger.sh set B' "$TMP/mig4.err" && pass "a migrate that fails while moving rows has already named every worker to stop" || fail "failing while moving (rc=$rc, stdout: $out, stderr: $(cat "$TMP/mig4.err"))"
+out=$(sh "$SCRIPT" --cwd "$MIG4" migrate)
+[ "$out" = "$(printf 'stop ctx_a4\nstop ctx_b4\nmigrated rows=1')" ] && [ ! -e "$HM5/migrate-stops.txt" ] && pass "the rerun prints each stop line once and deletes the stop list when it succeeds" || fail "rerun after a failed move ($out)"
+
+# a folder already at schema 2 that still has a stop list (the run stopped after writing star.json)
+mkrepo "$TMP/cur"; CUR=$(real "$TMP/cur"); HC=$(sh "$SCRIPT" --cwd "$CUR" init)
+printf 'stop ctx_x\n' > "$HC/migrate-stops.txt"
+out=$(sh "$SCRIPT" --cwd "$CUR" migrate)
+[ "$out" = "$(printf 'stop ctx_x\ncurrent')" ] && [ ! -e "$HC/migrate-stops.txt" ] && pass "a current folder with a leftover stop list prints it, then forgets it" || fail "current with a stop list ($out)"
+
+# B-2: an open row that is not in a v1 state but still sits at a removed stage cannot be started by v2
+mkrepo "$TMP/mig5"; MIG5=$(real "$TMP/mig5"); HM6=$(sh "$SCRIPT" --cwd "$MIG5" init); unschema "$HM6"
+v1at "$HM6" E escalated fix -; v1at "$HM6" X failed review -; v1at "$HM6" Z babysitting screen -
+v1at "$HM6" D done fix -; v1at "$HM6" P dropped review -; v1at "$HM6" K queued build -; v1at "$HM6" R reviewing review ctx_r6
+out=$(sh "$SCRIPT" --cwd "$MIG5" migrate)
+LG5() { sh "$ROOT/skills/star/ledger.sh" --home "$HM6" get "$@"; }
+[ "$(LG5 E state)/$(LG5 E stage)" = "escalated/build" ] && [ "$(LG5 X state)/$(LG5 X stage)" = "failed/build" ] && [ "$(LG5 Z state)/$(LG5 Z stage)" = "babysitting/build" ] && pass "an open row left at a removed stage reads stage build and keeps its state" || fail "restaged rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
+[ "$(LG5 D stage)" = "fix" ] && [ "$(LG5 P stage)" = "review" ] && [ "$(LG5 K stage)" = "build" ] && pass "done and dropped rows keep their stage, and a row already at build is left alone" || fail "closed rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
+[ "$out" = "$(printf 'stop ctx_r6\nmigrated rows=1')" ] && [ "$(LG5 R state)/$(LG5 R stage)" = "queued/build" ] && pass "only the row moved out of a v1 state is counted" || fail "restage count ($out)"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

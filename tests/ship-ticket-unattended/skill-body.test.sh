@@ -1,12 +1,12 @@
 #!/bin/sh
-# Guards on skills/ship-ticket/SKILL.md: unattended, brief and fix modes for juel:star workers.
+# Guards on skills/ship-ticket/SKILL.md: unattended and brief modes for juel:star workers.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SKILL="$ROOT/skills/ship-ticket/SKILL.md"
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
-for f in '--unattended' '--brief <path>' '--quiet-hours <HH:MM-HH:MM@tz>' '--fix-review <file>'; do
+for f in '--unattended' '--brief <path>' '--quiet-hours <HH:MM-HH:MM@tz>' '--executor-model <id|latest-<family>>' '--executor-effort <level>'; do
   grep -q -- "$f" "$SKILL" && pass "flag $f" || fail "flag $f"
 done
 grep -q '## Unattended mode' "$SKILL" && pass "section" || fail "section"
@@ -38,8 +38,6 @@ for gone in 'REVIEW-FINDINGS' 'CONTINUE item=' 'ACK <item>' 'fleet-ship-tickets'
   grep -q -- "$gone" "$SKILL" && fail "removed: $gone" || pass "removed: $gone"
 done
 grep -q 'first line of the `worker_done` body' "$SKILL" && pass "report rides worker_done" || fail "worker_done body"
-grep -q 'FIXED item=<item> head=<sha>' "$SKILL" && pass "fix mode line" || fail "FIXED line"
-grep -q 'Phases 1–3 are SKIPPED' "$SKILL" && pass "fix mode skips planning" || fail "fix mode phases"
 grep -q 'gate.lock' "$SKILL" && pass "gate lock" || fail "gate lock"
 grep -q 'kernel lock' "$SKILL" && ! grep -q 'reclaims a lock whose' "$SKILL" && pass "gate lock is a kernel lock, nothing to reclaim" || fail "gate lock description"
 grep -q 'Under `--unattended`, this phase is SKIPPED' "$SKILL" && pass "phase 8 left to the coordinator" || fail "phase 8 unattended"
@@ -49,7 +47,7 @@ grep -q 'Phase 5.s targeted tests' "$SKILL" && pass "S2 Phase 5 gates locked too
 grep -q 'unanswered-question' "$SKILL" && pass "S4 unanswered-question escalation" || fail "S4 unanswered-question"
 grep -q 'Tier C is never used' "$SKILL" && pass "S12 no interactive Tier C unattended" || fail "S12 Tier C"
 grep -q 'item.path' "$SKILL" && pass "S11 file status write targets item.path" || fail "S11 item.path"
-grep -q 'outcome per finding' "$SKILL" && pass "S16 fix report per finding" || fail "S16 fix outcomes"
+grep -q -- '-fix.md' "$SKILL" && grep -q 'Disposition:' "$SKILL" && pass "S16 every finding left unfixed has a disposition" || fail "S16 dispositions"
 grep -q 'older than 2 h' "$SKILL" && fail "S8 no age-only stale rule" || pass "S8 no age-only stale rule"
 grep -q 'run_in_background: true' "$SKILL" && grep -q 'gate-lock.sh' "$SKILL" && grep -q 'background, like `codex exec`' "$SKILL" && pass "T1 gate runs backgrounded" || fail "T1 backgrounded gate"
 grep -q 'heavy verification commands in the plan' "$SKILL" && pass "T9 executor heavy commands locked" || fail "T9 executor lock"
@@ -70,11 +68,9 @@ grep -q 'quiet-hours.sh' "$SKILL" && ! grep -q 'date +%H:%M' "$SKILL" && pass "S
 grep -q 'needs=a valid --quiet-hours window' "$SKILL" && pass "S6 an unreadable window stops the run at the start" || fail "S6 window validation"
 grep -q 'gate-busy' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-busy"
 grep -q 'the later one wins' "$SKILL" && pass "S12 contradictory decisions have an order" || fail "S12 decision precedence"
-grep -q 'needs=a findings file' "$SKILL" && pass "S12 fix mode checks its findings file first" || fail "S12 fix-review preflight"
 grep -q 'more than two `HELD` lines' "$SKILL" && pass "S11 held lines are aggregated" || fail "S11 HELD aggregate"
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && grep -q '/tmp/juel.gate.<uid>.lock' "$SKILL" && pass "T1 one gate lock per user, no path to pass" || fail "T1 gate lock path"
 grep -q 'A gate inside an invoked skill' "$SKILL" && pass "T8 gates inside invoked skills are covered" || fail "T8 nested gates"
-grep -q "its \`round=\` is the round in the file's name" "$SKILL" && grep -q 'its `head=` is the commit this worktree is on' "$SKILL" && pass "T5 fix mode refuses a stale review" || fail "T5 fix-review freshness"
 grep -q 'anything but `inside` or `outside`' "$SKILL" && pass "T6 a broken quiet-hours check holds, never sends" || fail "T6 quiet helper failure"
 grep -q 'ask the coordinator' "$SKILL" && grep -q 'three times' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
 grep -q 'anything else only a person can supply' "$SKILL" && pass "R9 needs-human-input covers what it is used for" || fail "R9 reason 6 definition"
@@ -82,8 +78,6 @@ grep -q 'anything else only a person can supply' "$SKILL" && pass "R9 needs-huma
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
 g "W1 gates run from the manifest, never from a hand-quoted string" 'run-gates.sh'
 ! grep -qF "sh -c '<test command> && <lint command>'" "$SKILL" && pass "W1 the hand-quoted gate line is gone" || fail "W1 hand-quoted gate line still there"
-g "W2 fix mode checks its review with the script" 'review-proof.sh'
-g "W3 a fix with nothing to change does not fail on an empty commit" 'nothing to commit'
 g "W4 the gate's own exit codes are not a red gate" 'gate-unavailable'
 g "W5 every invoked skill is told the run is unattended" 'Unattended run: the approved brief'
 g "W6 verification steps the user gave in a decision count" 'verification steps given under `## Decisions`'
@@ -93,8 +87,10 @@ g "X1 the plan executor is a choice" '| `--executor <session|codex>` |'
 g "X2 session means this session runs the plan" 'superpowers:executing-plans'
 grep -qF -- '--executor' "$ROOT/skills/review-and-execute/SKILL.md" && pass "X3 review-and-execute takes the same choice" || fail "X3 review-and-execute --executor"
 # STAR issues #7 to #18: reports, the screen, status
-grep -qF -- '--screen-checks <file>' "$SKILL" && pass "flag --screen-checks" || fail "flag --screen-checks"
-for l in 'REPORTED item=' 'VERIFIED item=' 'SCREEN path=' 'STAR-ISSUE:' 'screen-lock.sh' 'Status: skipped (STAR owns the status)' 'deliverable: report' 'deadline=60' 'screen-busy' 'Decided while you were away' 'blocked: needs you at the screen'; do
+for gone in '`--screen-checks <file>`' '`--fix-review <file>`' 'VERIFIED item=' 'SCREEN path=' 'FIXED item=' 'blocked: needs you at the screen' 'Screen-check mode' 'Fix mode ('; do
+  grep -qF -- "$gone" "$SKILL" && fail "removed: $gone" || pass "removed: $gone"
+done
+for l in 'REPORTED item=' 'RESCOPE item=<item> reason=gate review=' 'DONE item=<item> pr=<url> head=<sha> review=<path>' 'STAR-ISSUE:' 'screen-lock.sh' 'renew --holder' 'Status: skipped (STAR owns the status)' 'deliverable: report' 'screen-busy' 'Decisions made without you' 'executor-model.sh' 'codex-gate.sh' 'post-pass' 'review-unavailable' 'red-first' 'progress/<item>.log' 'Mobbin' 'context7' 'frontend-design' 'auto: playwright' 'auto: computer-use' 'gate.maxRounds' 'Resume on an existing draft PR' 'was removed in v2'; do
   grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
 done
 # Issue #26
@@ -125,5 +121,29 @@ grep -qF 'docs, `*.md` and `docs/`' "$SKILL" && fail "T21e every Markdown file n
 g "T21f the failure row defers to the reuse case" "re-run phase 6 in full (except step 6's evidence-reuse case)"
 g "T24e a PR template gets the handed-off section" 'the one section added to a template'
 g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry)'
+# Task C1 fix round 1
+g "F1a a Phase 4 status under --unattended is a progress line, never a NOTE" 'a progress line and a terminal line, never a `NOTE`'
+[ "$(grep -cF 'never a `NOTE`' "$SKILL")" -ge 2 ] && pass "F1b both Phase 4 places say never a NOTE" || fail "F1b both Phase 4 places say never a NOTE"
+grep -qF ', a `NOTE`)' "$SKILL" && fail "F1c no Phase 4 status is a NOTE any more" || pass "F1c no Phase 4 status is a NOTE any more"
+g "F2 a round with no accepted finding skips the fix and runs the next round" 'No finding accepted: skip the plan, the executor, the tests, Phase 6, the commit and the push'
+g "F3a the round cap comes before any fix" 'go straight to step 5, before any fix'
+g "F3b a fix round runs one regression gate" 'the one regression gate of the round'
+g "F3c its evidence is reused when only non-runtime files changed" 'is outside the runtime, as its step 6 defines it'
+grep -qF 'then the regression gate through the gate lock' "$SKILL" && fail "F3d the second regression run is gone" || pass "F3d the second regression run is gone"
+g "F4a codex-failed covers a gate-loop fix" 'or in a gate-loop fix'
+g "F4b review-unavailable covers post-pass" '`post-pass` printed `ERROR` twice, a minute apart'
+g "F5a quiet-hours always does not wait for a PASS" 'action=post the codex PASS'
+g "F5b and ends asking for the PASS to be posted" 'post the codex PASS on <url> when you are back'
+g "F6a the screen lock is for the visible screen" 'Before launching an app you will drive on the visible screen'
+g "F6b a lapsed lock is handled like exit 65" 'printing `free` (the lock lapsed)'
+g "F7a a failing executor-model.sh counts as default" 'counts as `default <why>`'
+g "F7b Phase 5 passes on what ran" 'or `--executor session` when this session ran the plan'
+g "F8 a person: check runs its automated part" 'citing the person-only step the owner did before go'
+g "F9 without a star block the run ends with a plain DONE" 'then ends with `DONE item=<item> pr=<url> head=<sha>`'
+g "F10 the progress folder is created first" 'mkdir -p <star.home>/progress'
+g "F11 the unanswered-question sentence ends with a period" '`unanswered-question`. A step that needs a person'
+# Final fixes C-3: only a run under a star: brief has a star.home, so only it creates the folder and keeps the log
+g "C3a the progress paragraph applies under a star: brief" '**Progress.** Under a `star:` brief, STAR judges this run by its progress'
+g "C3b a run without a star: brief keeps no progress log" 'A run without a `star:` brief has no `star.home` and keeps no progress log.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

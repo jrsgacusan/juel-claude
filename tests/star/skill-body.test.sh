@@ -14,13 +14,13 @@ for id in orca-terminal git-repo; do grep -q "id: $id" "$SKILL" && pass "require
 for m in '`/juel:star SPH-11 and SPH-12`' '`/juel:star status`' '`/juel:star stop`' 'draft-brief <ref> --project <name> --out <path>'; do
   grep -qF -- "$m" "$SKILL" && pass "mode $m" || fail "mode $m"
 done
-for s in inbox briefing brief-ready queued building pr-draft reviewing fixing babysit-queued babysitting verifying ready done escalated failed dropped; do
+for s in inbox briefing brief-ready queued building babysit-queued babysitting verifying reported post-queued posting done escalated failed dropped; do
   grep -q "\`$s\`" "$SKILL" && pass "state $s" || fail "state $s"
 done
 for c in 'loops.sh' 'pr-verify.sh' 'worker-probe.sh' 'release-record.sh'; do
   grep -q "$c" "$SKILL" && pass "uses $c" || fail "uses $c"
 done
-for k in approve-brief merge-pr escalation question restart-or-drop draft held; do
+for k in go-batch person go-merge accept-report escalation question restart-or-drop draft held; do
   grep -q -- "--kind $k" "$SKILL" && pass "queue kind $k" || fail "queue kind $k"
 done
 grep -q 'briefs/<project>/<item>.md' "$SKILL" && grep -q 'reviews/<project>/<item>-r<k>.md' "$SKILL" && pass "paths keyed by project" || fail "paths keyed by project"
@@ -38,7 +38,7 @@ grep -q '"maxParallel": 3' "$SKILL" && grep -q '"maxInReview": 3' "$SKILL" && pa
 grep -q 'free + inactive' "$SKILL" && pass "memory check" || fail "memory check"
 grep -q 'processed.log' "$SKILL" && grep -q 'Write the whole ledger right after each message' "$SKILL" && pass "persist before act" || fail "persist before act"
 grep -q 'Never call AskUserQuestion' "$SKILL" && pass "never blocks on a question" || fail "non-blocking"
-grep -qi 'Never merge' "$SKILL" && pass "never merge" || fail "never merge"
+grep -qF '**Merge only through `merge.sh`**' "$SKILL" && pass "STAR merges only through merge.sh" || fail "merge rule"
 grep -q '`star`' "$ROOT/README.md" && pass "README row" || fail "README row"
 grep -qE '(^|[^-])ship-tickets' "$ROOT/README.md" "$ROOT/skills/ship-ticket/SKILL.md" "$ROOT/skills/babysit-pr/SKILL.md" "$ROOT/skills/receive-review-and-execute/SKILL.md" && fail "no ship-tickets references left" || pass "no ship-tickets references left"
 
@@ -54,22 +54,22 @@ grep -q 'A `verifying` row has no worker' "$SKILL" && pass "F8 verifying rows ar
 grep -q 'orca orchestration ask' "$SKILL" && pass "F16 workers ask through Orca" || fail "F16 worker asks"
 grep -q 'msg: <id>' "$SKILL" && pass "F15 question keeps its message id" || fail "F15 msg id"
 grep -q 'never overwrite an existing inbox file' "$SKILL" && grep -q 'git worktree list --porcelain' "$SKILL" && pass "F11 unique inbox files, real main checkout" || fail "F11 inbox"
-grep -q 'exactly `approve`' "$SKILL" && pass "F18 approval is exact" || fail "F18 exact approval"
+grep -q 'exactly `go`' "$SKILL" && pass "F18 a go is exact" || fail "F18 exact go"
 grep -q 'HH:MM-HH:MM@tz' "$SKILL" && pass "F19 quiet-hours rendering" || fail "F19 quiet hours format"
-grep -q 'moved' "$SKILL" && grep -q 'round + 1' "$SKILL" && pass "F18 round and moved counters" || fail "F18 counters"
+grep -q 'moved=' "$SKILL" && grep -q 'mergefail=' "$SKILL" && pass "F18 moved and mergefail counters" || fail "F18 counters"
 # Handoff: away, night summaries, back
 grep -qF '`/juel:star away`' "$SKILL" && grep -qF '`/juel:star back`' "$SKILL" && pass "away and back commands" || fail "away/back commands"
 for c in start due summary end; do grep -q "handoff.sh --home HOME_DIR $c" "$SKILL" && pass "uses handoff.sh $c" || fail "uses handoff.sh $c"; done
-grep -q -- '--quiet-hours always' "$SKILL" && pass "away holds reviewer-facing actions" || fail "away quiet mode"
+! grep -q -- '--quiet-hours always' "$SKILL" && grep -q 'Away holds no work' "$SKILL" && pass "away holds no work; quiet hours hold what goes out" || fail "away rule"
 grep -q 'sent.log' "$SKILL" && grep -q 'SENT ' "$SKILL" && pass "messages sent are logged" || fail "sent log"
 grep -q 'in the same turn' "$SKILL" && pass "chat answers are relayed in the same turn" || fail "same-turn relay"
 grep -q 'control: away' "$SKILL" && pass "away works from any session" || fail "away from anywhere"
 grep -q 'one place to answer' "$SKILL" && pass "handoff never collects answers" || fail "single answer place"
 # Stress test pass fixes
 T="$ROOT/skills/star/template"
-grep -q '`fix-queued`' "$SKILL" && ! grep -q 'findings waiting' "$SKILL" && pass "S12 a waiting fix is its own state" || fail "S12 fix-queued state"
 grep -q '| verify | counters | updated |' "$SKILL" && grep -q '| verify | counters | updated |' "$T/ledger.md" && pass "S12 counters have a ledger cell" || fail "S12 counters column"
-grep -q 'miss=1' "$SKILL" && grep -q 'unknown=' "$SKILL" && grep -q 'silent=' "$SKILL" && grep -q 'hold=' "$SKILL" && grep -q 'moved=' "$SKILL" && grep -q 'pending=' "$SKILL" && pass "S12 every counter is named" || fail "S12 counter names"
+left=""; for c in 'unknown=' 'silent=' 'hold=' 'moved=' 'pending=' 'capacity=' 'mismatch=' 'mergefail=' 'rescoped=1' 'rescope=<file>' 'batch=<id>' 'parent=<item>'; do grep -qF -- "$c" "$SKILL" || left="$left [$c]"; done
+[ -z "$left" ] && pass "S12 every counter is named" || fail "S12 counters not named:$left"
 grep -q '## Feedback' "$SKILL" && pass "S12 brief feedback is kept in the brief" || fail "S12 feedback storage"
 grep -q 'One STAR per home' "$SKILL" && grep -q 'orca terminal list --limit 500 --json' "$SKILL" && pass "S2 one STAR per home" || fail "S2 second STAR not refused"
 grep -q 'Match by dispatch' "$SKILL" && grep -q 'superseded' "$SKILL" && pass "S2 messages matched by dispatch id" || fail "S2 message matching"
@@ -77,7 +77,7 @@ grep -q 'the same item: no new row' "$SKILL" && pass "S10 a repeated ref is not 
 grep -q 'named in another open row' "$SKILL" && pass "S10 a worktree is never shared by two rows" || fail "S10 shared worktree"
 grep -q 'queue items first' "$SKILL" && pass "S2 one order of effects per message" || fail "S2 effect order"
 grep -q 'worker-stop' "$SKILL" && grep -q 'never starts a second worker' "$SKILL" && pass "S18 answers never double a running worker" || fail "S18 answer on a running worker"
-grep -q 'add the same `merge-pr` item again' "$SKILL" && pass "S18 a merge reminder is not lost to a chat answer" || fail "S18 merge-pr reminder"
+grep -q 'add the same `go-merge` item again' "$SKILL" && pass "S18 a merge question is not lost to a chat answer" || fail "S18 go-merge reminder"
 grep -q 'PR was closed' "$SKILL" && grep -q '`babysit-queued`, `escalated` or `failed`' "$SKILL" && pass "S18 merged or closed PRs are noticed in every state, stopped rows included" || fail "S18 PR lifecycle"
 grep -q 'must be clean' "$SKILL" && pass "S18 a restarted build needs a clean worktree" || fail "S18 dirty restart"
 grep -q 'quiet-hours.sh' "$SKILL" && pass "S6 quiet hours are decided by the script" || fail "S6 quiet-hours.sh"
@@ -94,14 +94,14 @@ python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notified"]==[]
 # Review of the stress fixes
 grep -q 'A `question` is always answered with `reply`' "$SKILL" && grep -q 'An `escalation` answer for a row whose worker is still running' "$SKILL" && pass "R1 a waiting worker gets its reply, not a side message" || fail "R1 question vs running-worker rule"
 grep -q 'creating the file with only that section' "$SKILL" && grep -q 'before step 2' "$SKILL" && pass "R2 a brief-stage answer reaches the step that asked" || fail "R2 brief escalation answer"
-grep -q 'no-safe-verdict' "$SKILL" && grep -q 'a new review round' "$SKILL" && pass "R3 a head with no SAFE review goes back to review" || fail "R3 no-safe-verdict route"
+grep -q 'no-safe-verdict' "$SKILL" && grep -q 'resumes the gate loop' "$SKILL" && pass "R3 a head with no SAFE review goes back to the gate" || fail "R3 no-safe-verdict route"
 # Second stress pass
 grep -q 'last=<message id>' "$SKILL" && grep -q 'already applied' "$SKILL" && pass "T3 a replayed message is recognised by the row itself" || fail "T3 replay by message id"
 grep -q 'cannot be read, STOP' "$SKILL" && grep -q 'read it back' "$SKILL" && grep -q 'take over' "$SKILL" && pass "T2 one STAR per home fails closed, with a way to take over" || fail "T2 coordinator lock"
 grep -q 'a ref whose earlier row is `done` or `dropped`' "$SKILL" && pass "T4 a re-added ref gets its own name" || fail "T4 re-added ref"
 grep -q -- '--project - --item' "$SKILL" && pass "T7 a message with no row has a place in the queue" || fail "T7 unmatched message"
 grep -q 'strip punctuation' "$SKILL" && grep -q 'no letter or digit' "$SKILL" && pass "T16 answers are read without their punctuation" || fail "T16 answer punctuation"
-grep -q 'clears every counter except `hold=`, `last=`, `start=`, `screen=` and `tracker=`' "$SKILL" && pass "T16 a retry answer clears the old counts" || fail "T16 counters on answer"
+grep -q 'clears every counter except `hold=`, `last=`, `start=`, `tracker=`, `batch=`, `rescoped=` and `parent=`' "$SKILL" && pass "T16 a retry answer clears the old counts" || fail "T16 counters on answer"
 grep -q 'worker-stop' "$SKILL" && grep -q 'then `worker-release`' "$SKILL" && grep -q 'a dispatch STAR stopped itself' "$SKILL" && pass "T18 a stopped worker is released and its last report ignored" || fail "T18 stop then release"
 grep -q 'Before filling' "$SKILL" && pass "T18 the PR check runs before slots are filled" || fail "T18 PR check order"
 grep -q 'the time the message was sent plus 30 minutes' "$SKILL" && pass "T21 a replayed question is the same item" || fail "T21 question deadline"
@@ -128,14 +128,12 @@ g "V11 an answer waits for the report that raised it" 'leave its answers for the
 g "V12 a draft is posted once" 'posted draft N-'
 g "V13 a worker STAR stopped is on record" 'stopped <iso>'
 g "V14 a re-added item gets its own branch" 'the same suffix'
-g "V15 a quiet worker is still a running worker" '`ok` or `quiet'
+g "V15 a quiet or stale worker is still a running worker" '`ok`, `quiet …` or `stale …`'
 g "V16 a second answer cannot revive a dropped row" 're-read the row'
 g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
 g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
-g "V19 a SAFE verdict needs a real head" 'A run shorter than 7 is not a verdict babysit can use'
 g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 0'
 g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
-g "V22 an approval of an earlier commit is said so" 'approved on an earlier commit'
 g "V23 the feedback cursor is passed back as it is" 'opaque'
 g "V26 a lost queue item is noticed" '`missing`'
 g "V29 inbox files are read in order" 'in file-name order'
@@ -145,18 +143,26 @@ g "M1 each stage has its own model setting" '"stages"'
 g "M1 a stage reads its own entry" 'stages.<stage>'
 g "M2 the coordinator runs on Fable 5.1" 'Fable 5.1'
 g "M3 a stage whose model cannot start falls back" 'falls back to `worker`'
-g "M4 build, fix and babysit run the plan in their own session" '--executor session'
-python3 - "$T/star.json" <<'PY2' && pass "M5 template: the best model per stage" || fail "M5 template stages"
+g "M4 every plan runs on the newest luna" '"latest-luna"'
+g "M4b the executor is resolved from Codex's catalog" 'executor-model.sh'
+python3 - "$T/star.json" <<'PY2' && pass "M5 template: schema 2" || fail "M5 template schema 2"
 import json, sys
 d = json.load(open(sys.argv[1])); s = d["stages"]
-assert set(s) == {"brief", "build", "fix", "review", "babysit", "screen", "post"}, sorted(s)
+assert d["schema"] == 2, d.get("schema")
+assert set(s) == {"brief", "build", "babysit", "post"}, sorted(s)
 assert s["brief"] == {"agent": "claude", "model": "opus", "effort": "high"}, s["brief"]
-assert d["maxBriefs"] == 4, d.get("maxBriefs")
-for k in ("build", "fix", "babysit", "screen"):
-    assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh", "executor": "session"}, (k, s[k])
-assert s["post"] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, s["post"]
-assert s["review"] == {"agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}, s["review"]
-assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and d["reviewer"] == s["review"]
+for k in ("build", "babysit", "post"):
+    assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, (k, s[k])
+assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and "reviewer" not in d
+assert d["executor"] == {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"}, d["executor"]
+assert d["gate"] == {"model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 3}, d["gate"]
+assert d["hostedReviewer"] is None, d["hostedReviewer"]
+assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
+assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
+assert list(d) == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert d["notified"] == [], d["notified"]
+for k in ("quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
+    assert d[k] is None, (k, d[k])
 PY2
 # STAR lives in the project
 ! grep -q 'juel-star' "$SKILL" && ! grep -q 'JUEL_STAR_HOME' "$SKILL" && pass "P1 no separate home to set up" || fail "P1 old home instructions left"
@@ -183,28 +189,19 @@ g "I13 stages start through stage-start.sh" 'sh S/stage-start.sh <stage> <item>'
 g "I8 a heartbeat-only nudge is a no-op" 'holds only heartbeats is a no-op'
 g "I11 every spec is one line" 'Every spec is one line'
 g "I11 a replay reuses its request ids" 'same `--retry-request` ids'
-g "I12 a settled reviewer's verdict is read from its file" 'head -n 1'
 g "I7 a stalled prompt names the trust dialog" 'agent_prompt_stalled'
 g "I7 dialogs that cannot be cleared reach the user" 'hold trust <path>'
 g "I9 a worktree inside the repo is excluded" '.git/info/exclude'
 g "I18 briefs have a pool of their own" '`maxBriefs`'
-grep -q 'reviewer-prompt.md' "$SKILL" && [ -f "$T/reviewer-prompt.md" ] && pass "the reviewer prompt is a template" || fail "reviewer template"
+[ ! -e "$T/reviewer-prompt.md" ] && pass "the v1 reviewer prompt is gone" || fail "reviewer-prompt.md still there"
 ! grep -q 'payload.dispatchId' "$SKILL" && ! grep -q "orca orchestration task-create --spec" "$SKILL" && pass "no hand-rolled message reading or task creation left" || fail "hand-rolled steps left"
 # Questions and the intake
 g "Q1 a worker sets its own deadline" 'deadline=<minutes>'
 g "Q2 a new ask supersedes the open one" 'Superseded by your newer question.'
 g "Q3 one reminder before No answer" 'still waiting on you'
 g "Q3 the reminder is counted" '`reask=1`'
-g "B1 the intake section" '## Before you go'
-g "B2 the brief's questions are queued" '--kind prep'
 g "B3 the intake asks between ticks only" 'Between ticks, never inside one'
-g "B4 a skipped decision takes its default" 'default taken'
-g "B5 screen checks wait for the user" '`screen-queued`'
-g "B5 the screen stage" '--screen-checks'
-g "B5 the screen report" 'VERIFIED item='
-g "B6 STAR decides an in-scope product call while you are away" 'decided while you were away'
 g "B7 the brief report counts its asks" 'asks=<n>'
-g "B8 later ends the walk-through" '"later" as any answer'
 # Report items, the tracker status, improvement issues
 g "R1 report items" 'deliverable: report'
 g "R2 the report is accepted in the queue" '--kind accept-report'
@@ -220,26 +217,21 @@ g "N2 through star-issue.sh" 'sh S/star-issue.sh file --fingerprint'
 g "N3 workers can report friction" 'STAR-ISSUE:'
 g "N4 project details never go out" '`<project>`, `ITEM-1`, `<repo>` and `<app>`'
 # Final review fixes
-g "FR1 a retry keeps the attempt number, screen checks and status" '`counters=keep:hold,last,start,screen,tracker`'
-g "FR2 lost screen-check and post workers restart once" 'a `briefing`, `reviewing`, `screening`, `posting` or `babysitting` row restarts once'
+g "FR1 a retry keeps the attempt number, status, batch and lineage" '`counters=keep:hold,last,start,tracker,batch,rescoped,parent`'
+g "FR2 lost brief, babysit and post workers restart once" 'a `briefing`, `posting` or `babysitting` row restarts once'
 g "FR2 a restarted post worker does not post twice" 'already starts with the report'
 g "FR6 stage-start runs in the background" 'like `gate-lock.sh` in a worker'
 g "FR6 a start that printed nothing is replayed" '| no line, or a non-zero exit |'
-g "FR12 failed screen checks can reach a fix" 'reads the failed checks as missed acceptance criteria'
-grep -q 'a screen check recorded there as failed' "$T/reviewer-prompt.md" && pass "FR12 the reviewer reads failed screen checks" || fail "FR12 reviewer prompt"
 # Finished worktrees (#19)
 g "W1 finished worktrees are removed" 'sh S/worktree-clean.sh <item>'
 g "W2 a kept worktree waits for the user" '`kept=1`'
 g "W3 never with work in it" 'never with work in it'
 # Issue #22
-g "L1 head= is its leading hex run" 'leading run of hex characters'
-grep -qF 'Never type \n inside a quoted --body' "$T/reviewer-prompt.md" && pass "L2 the reviewer sends real line breaks" || fail "L2 reviewer prompt"
 # Issue #25
 g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
 g "K2 busy has its own count" '`busy=<n>`'
 g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
 # Issue #27
-g "Z4 the exact-head check knows an explicit zero" 'PASS no approval required'
 g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
 # Issue #28
 g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
@@ -251,7 +243,6 @@ g "E4 the brief names an existing PR" 'existingPr'
 g "E5 a fork's PR is asked about" 'comes from a fork'
 # Issue #20
 g "C1 proposed criteria are reported" 'PROPOSED-CRITERIA'
-g "C2 their own approve title" 'approve brief — criteria are proposed'
 g "C3 the marker is removed on approval" 'remove each ` (proposed)` suffix'
 g "C4 a re-draft keeps proposed criteria marked" 'on every re-draft, keep the earlier draft'
 # Issue #29
@@ -262,7 +253,6 @@ g "Q4 the picker only before any worker" 'AskUserQuestion only for the first-run
 grep -qF 'AskUserQuestion only in the intake' "$SKILL" && fail "Q5 the old hard rule is gone" || pass "Q5 the old hard rule is gone"
 # Faster briefs
 g "F1 the pool default is documented" '"maxBriefs": 4'
-g "F2 rest takes the recommended options" 'you said rest'
 g "F3 STAR edits a brief itself" '(applied by STAR)'
 g "F4 changed lines are marked" '(changed)'
 grep -qF 'briefs may take every build slot' "$SKILL" && fail "F5 briefs no longer take build slots" || pass "F5 briefs no longer take build slots"
@@ -270,19 +260,159 @@ g "F6 STAR's own edit keeps the criteria markers right" 'carries no ` (proposed)
 g "Q6 the heartbeat and STAR's own commands are never an answer" 'a message that starts with `STAR heartbeat:`, or one'
 # Faster briefs: review fixes
 grep -qF 'STAR writes itself, as below; otherwise the brief worker writes them from it' "$SKILL" && ! grep -qF 'is feedback, and the brief worker writes the criteria from it' "$SKILL" && pass "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write" || fail "B9 a NEEDS CRITERIA answer in the user's words is STAR's to write"
-g "B10 rest is never feedback on an open approve question" 'STAR records nothing for it and prints it again'
 g "B11 an edit that leaves no criterion writes NEEDS CRITERIA" 'leaves the brief with no acceptance criterion'
 g "B12 the changed mark is only in chat" 'only in the question STAR asks in chat, never in the brief file'
 g "B13 an existing PR fixes branch and baseBranch" 'On a brief with `existingPr`, `branch` and `baseBranch` are not small edits'
 # Final fix wave (Z4 and Z5 are issue #27's)
 g "Z1 the base sync clears pending=" 'write `counters.synced=<sha7>` and `counters.pending=-`'
 g "Z2 a bare number is refused only where options are numbered" 'On a question with numbered options, a bare number that names no option is not an answer'
-grep -qF 'on any open question that is not a `decision`: STAR records nothing for it and prints it again' "$SKILL" && ! grep -qF 'feedback on one of them: when the open question is one' "$SKILL" && pass "Z3 rest on any open question but a decision is printed again" || fail "Z3 rest on any open question but a decision is printed again"
 grep -qF 'so a change to either is answered in chat' "$SKILL" && grep -qF 'A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR' "$SKILL" && ! grep -qF 'a change to either is feedback for the brief worker' "$SKILL" && pass "Z6 an existing PR's branches are changed on GitHub, not by a re-draft" || fail "Z6 an existing PR's branches are changed on GitHub, not by a re-draft"
 grep -qF 'it makes sure the brief has `- [ ] NEEDS CRITERIA`' "$SKILL" && ! grep -qF 'it writes `- [ ] NEEDS CRITERIA`' "$SKILL" && pass "Z7 an edit that leaves no criterion never adds a second marker" || fail "Z7 an edit that leaves no criterion never adds a second marker"
 grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL" && ! grep -qF '`PROPOSED-CRITERIA` (case 3)' "$SKILL" && pass "Z8 PROPOSED-CRITERIA whenever a criterion is proposed" || fail "Z8 PROPOSED-CRITERIA whenever a criterion is proposed"
 grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
 grep -qF '`ls-remote` failing: the Otherwise branch of the cell that sent it here.' "$SKILL" && ! grep -qF "the table's own rule for that verdict" "$SKILL" && pass "Z13 an ls-remote failure goes to the Otherwise branch of its own cell" || fail "Z13 an ls-remote failure goes to the Otherwise branch of its own cell"
-grep -qF 'Nothing is recorded (no `## Feedback` entry), and STAR adds the `approve-brief` item again, with that explanation in its title' "$SKILL" && grep -qF 'except a `branch` or `baseBranch` change on a brief with `existingPr` (below)' "$SKILL" && ! grep -qF 'Nothing is recorded, and the approve question is printed again' "$SKILL" && pass "Z14 an existingPr branch answer re-asks the approve question" || fail "Z14 an existingPr branch answer re-asks the approve question"
+grep -qF 'Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title' "$SKILL" && grep -qF 'except a `branch` or `baseBranch` change on a brief with `existingPr` (below)' "$SKILL" && ! grep -qF 'Nothing is recorded, and the approve question is printed again' "$SKILL" && pass "Z14 an existingPr branch answer re-asks the approve question" || fail "Z14 an existingPr branch answer re-asks the approve question"
+# STAR closed loop: intake and home
+g "FT1 a brief can be free text" 'free-text brief'
+g "FT2 free text becomes spec items" 'items/<project>/<name>.md'
+g "FT3 the inbox file carries free text" 'text: |'
+g "FT4 grants are kept" 'grants/<UTC>-<4 hex>.md'
+g "FT5 workers write progress" 'progress/<item>.log'
+g "H1 the first start looks for a hosted reviewer" 'greptile-apps[bot]'
+g "LD1 the flow page is named" 'how-it-works.html'
+g "SC1 schema 2" '"schema": 2'
+g "SC2 the gate settings" '"gate":'
+g "SC3 the host gate settings" '"hostGate":'
+g "SC4 the progress deadline" '"progressDeadlineMin": 30'
+g "SC5 migrate on start" 'star-home.sh migrate'
+g "SC6 the gate's command" 'codex review'
+g "S1b free text is handed over" 'no refs and no free text'
+# Fix round 1: the hosted-reviewer lookup, command words, hand-over of free text, filler
+g "H2 the lookup lists the PR numbers through --jq" "gh pr list --state merged --limit 20 --json number --jq '.[].number'"
+g "H3 it reads each PR's review logins from the REST API" "gh api \"repos/{owner}/{repo}/pulls/<n>/reviews\" --jq '.[].user.login'"
+g "H4 and each PR's comment logins" "gh api \"repos/{owner}/{repo}/issues/<n>/comments\" --jq '.[].user.login'"
+g "H5 it stops at the exact REST login" 'stopping at the first line that is exactly `greptile-apps[bot]`'
+grep -qF 'gh pr view <n> --json comments,reviews' "$SKILL" && fail "H6 the GraphQL lookup is gone" || pass "H6 the GraphQL lookup is gone"
+g "CW1 status, away, back and stop are commands only as the whole text" '`status`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "CW2 a free-text brief may start with a command word" '`/juel:star stop the digest from sending twice` is a free-text brief'
+g "CW3 draft-brief and post-report match as the first word" 'A first word of `draft-brief` or `post-report` is'
+g "CW4 filler is dropped, a remark about the refs goes to the note" '(`and`, `add`, `please`), which is dropped, or only say something about the refs'
+g "HO1 a hand-over carries free text too" 'Write them, and any free text, as an inbox file'
+g "HO2 the hand-over line names the refs or the text" "I handed it <refs, or the text's first words>"
+g "MG1 the start migrates a v1 folder first" 'sh S/star-home.sh migrate'
+g "MG2 the workers of removed stages are stopped" 'stop <dispatch>'
+g "BT1 every row knows its batch" 'counters.batch'
+g "BL1 a blocked item waits for its blockers (#37)" 'blockedBy'
+g "TK1 a DONE is checked before babysitting" 'sh S/done-check.sh <item> --pr <url> --head <sha>'
+g "TK2 a report that does not check out resumes once" 'the report did not check out'
+g "TK3 a re-scope" 'RESCOPE item='
+g "TK4 one re-scope per item" 'NOT-SAFE again after a re-scope'
+g "TK5 a split" 'SPLIT item='
+g "TK6 a stale waiter is ended (#38)" 'waiter-exists'
+g "TK7 go except" 'go except <items>'
+g "TK8 capacity stalls are nudged, then restarted (#41)" 'stalled: model at capacity'
+g "TK9 the screen holder is named (#39)" 'holds-screen'
+g "TK10 a follow-up rides its parent's go" "covered by <parent>'s go"
+g "TK11 the probe gets the progress options" '--deadline <progressDeadlineMin>'
+g "TK12 a grant is written on go" 'grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md'
+# STAR closed loop: stages, the codex gate, the brief
+left=""; for gone in '| review | the item' '| fix | the item' '| screen | the item' '--executor session' 'stages.review' 'reviewer-prompt.md' '`## Before you go` lists everything'; do
+  grep -qF -- "$gone" "$SKILL" && left="$left [$gone]"
+done
+[ -z "$left" ] && pass "the v1 stages and the reviewer prompt are gone" || fail "still there:$left"
+g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`'
+g "ST2 the brief stage can re-scope" '[--rescope HOME_DIR/reviews/<project>/<file>]'
+g "ST3 the gate is a script, not a stage" 'sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>'
+g "ST4 the gate's files" "\`<item>-r<k>.raw.md\`, Codex's own text"
+g "ST5 the PASS comment" 'Codex gate: PASS (head <sha>, round <k>, <model> <effort>)'
+g "DB1 the copied item's headings are demoted (#36)" 'demoted one level'
+g "DB2 a brief names its blockers (#37)" 'blockedBy: ['
+g "DB3 decision records" '### D<n> <title> (<date>, decided by'
+g "DB4 every check says how it runs" 'auto: playwright'
+g "DB5 a check that needs a person first" '| person: <what>'
+g "DB6 person-only steps" '## Person-only steps'
+g "DB7 external ids are checked live (#42)" '(verified <date> via <how>)'
+g "DB8 an unverified id is confirmed before go" '`confirm-id`'
+g "DB9 a hosted review comes after ready (#40)" 'skips draft PRs'
+g "DB10 grounding: Mobbin for user-facing changes" 'search_screens'
+g "DB11 grounding: context7 for libraries" 'context7'
+g "DB12 the re-scope report" 'BRIEF item=<name> path=<--out> rescoped=1 followup=<path>'
+g "DB13 the split report" 'SPLIT item=<name> into=<path>,<path>'
+g "DB14 criteria are derived when the item has none" 'derive them from the item'
+# STAR closed loop: the merge gate, the batch summary, the rules
+left=""; for gone in '`pr-draft`' '`reviewing`' '`fix-queued`' '`fixing`' '`screen-queued`' '`screening`' '`ready`' '--kind approve-brief' '--kind prep' '--kind merge-pr' 'Exact-head verification' 'exact-head check' 'Before you go' 'decided while you were away' 'default taken' 'you said rest' 'Never merge'; do
+  grep -qF -- "$gone" "$SKILL" && left="$left [$gone]"
+done
+[ -z "$left" ] && pass "nothing of the v1 flow is left" || fail "v1 flow still named:$left"
+g "MG3 the merge gate" 'sh S/pr-verify.sh <pr url> --head <head> --merge-gate'
+g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted` when'
+g "MG5 STAR merges through merge.sh" 'sh S/merge.sh <pr url> --head <head> --grant <grant path>'
+g "MG6 a merge-gate failure goes back to babysitting once" 'mergefail=1'
+g "MG7 without a hosted reviewer, someone else approves" 'waits for an approval from someone other than you'
+g "MG8 a merge in quiet hours waits" 'HELD quiet hours'
+g "MG9 merges are announced" 'merged <item>: PR #<n>'
+g "BS1 the batch summary" '## The batch summary and go'
+g "BS2 one message for the whole batch" 'Reply go, go except <items>, drop <item>, or tell me what to change.'
+g "BS3 person-only steps one per message" 'one person-only step per message'
+g "HG1 the host gate" '## The host gate'
+g "HG2 every limit is named" '`minFreeGB`, `maxAgents`, `maxSwapGB` and `minDiskGB`'
+g "LW1 product calls are STAR's, from sourced options" 'Bring sourced options'
+g "LW2 a stale worker gets a check-in" 'stale <minutes> <terminal>'
+g "HR2 the go is never inferred" 'A go is never inferred'
+g "EC1 a re-scope edge case" 'NOT-SAFE after 3 rounds'
+g "RC1 a v1 folder is migrated on start" 'A v1 STAR folder'
+python3 - "$ROOT/.claude-plugin/requirements.json" <<'PY3' && pass "PF1 STAR needs codex, and briefs and builds use Mobbin and context7" || fail "PF1 requirements"
+import json, sys
+d = json.load(open(sys.argv[1]))
+star, ship = d["skills"]["star"], d["skills"]["ship-ticket"]
+assert "codex" in star["hard"], star
+for s in (star, ship):
+    assert "mobbin" in s["soft"] and "context7" in s["soft"], s
+assert d["definitions"]["mobbin"]["kind"] == "mcp", d["definitions"].get("mobbin")
+PY3
+g "PF2 the codex row stops STAR" '| codex | cli | HARD |'
+grep -q 'merges it under your go' "$ROOT/README.md" && ! grep -q 'You merge; nothing in the flow does' "$ROOT/README.md" && ! grep -q 'no skill here depends on it' "$ROOT/README.md" && pass "RD1 the README describes the closed loop" || fail "RD1 README"
+# Final fix pass, group S: the Answers, Messages, merge gate, merge.sh and start rules.
+# gin looks a phrase up in one part of the skill only, so a rule cannot pass on another rule's words.
+gin() { printf '%s\n' "$2" | grep -qF -- "$3" && pass "$1" || fail "$1"; }
+start1=$(sed -n '/^1\. Migrate:/,/^2\. `orca orchestration run-use/p' "$SKILL")
+reconcile=$(sed -n '/^5\. \*\*Reconcile\*\*/,/^6\. `loops\.sh resume/p' "$SKILL")
+gatefail=$(grep -F '| `FAIL <what>` |' "$SKILL")
+[ -n "$start1" ] && [ -n "$reconcile" ] && [ -n "$gatefail" ] && pass "FS0 the parts of the skill that the FS lines look in are found" || fail "FS0 the parts of the skill that the FS lines look in are found"
+# FS1: a person step answered can't now is asked again
+g "FS1 a go leaves a row that has an open person item" 'or that has an open `person` item: those stay'
+grep -qF 'a `person` item still open, answered' "$SKILL" && fail "FS1 the go row no longer reads an answered item as open" || pass "FS1 the go row no longer reads an answered item as open"
+g "FS1 can't now closes the answered item, then asks the step again" 'then close the answered item and add the same `person` item again'
+g "FS1 add returns an item that is still in the queue" 'returns an item that is still in the queue, answered or not, and adds nothing'
+g "FS1 a refused risky step is not asked again" 'and do not add the item again: the brief stage plans without it'
+g "FS1 an answer in words is feedback on the step" '   | `person` | anything else | record it under `## Decisions` as feedback on that step'
+answers=$(sed -n '/^   | Kind | Answer | Action |/,/^3\. \*\*Messages\*\*/p' "$SKILL")
+[ -n "$answers" ] && ! printf '%s\n' "$answers" | grep -q '^|' && pass "FS1 every row of the Answers table keeps the table's indent" || fail "FS1 every row of the Answers table keeps the table's indent"
+# FS2: the reconcile step does not probe a building row whose DONE is pending
+gin "FS2 reconcile names the building row whose DONE is pending" "$reconcile" 'whose `verify` holds `retry=` has already reported'
+gin "FS2 reconcile does not probe it" "$reconcile" 'skip the probe for it'
+gin "FS2 reconcile runs done-check.sh for it" "$reconcile" 'run `done-check.sh` for it'
+# FS3: a re-scope BRIEF on a brief with no grant line
+g "FS3 a re-scope brief always adds its follow-up and keeps the lineage" 'in every case: `counters.rescoped=1`, clear `counters.rescope`, and add the follow-up spec as a new `inbox` row'
+g "FS3 with no grant line the row goes to brief-ready for the batch go" 'A brief with no grant line (it prints 0): row → `brief-ready`'
+grep -qF 'else treat it as the next row' "$SKILL" && fail "FS3 a re-scope brief no longer falls through to the next row" || pass "FS3 a re-scope brief no longer falls through to the next row"
+# FS4: the merge gate's FAIL no codex PASS goes back to the gate loop
+gin "FS4 a missing codex PASS resumes the gate loop on the existing PR" "$gatefail" 'no codex PASS for <sha7>; resume the gate loop on the existing PR'
+gin "FS4 it goes to queued like no-safe-verdict and spends no mergefail" "$gatefail" 'row → `queued` (the build resumes the gate loop, as for `reason=no-safe-verdict`); it spends no `mergefail=`'
+# FS5: the start gives its batch to every open row, not only the brief-ready ones
+gin "FS5 the start gives its batch to every open row" "$start1" 'give every open row (not `done` or `dropped`) with no `counters.batch`'
+grep -qF 'give each `brief-ready` row with no' "$SKILL" && fail "FS5 the batch is no longer given to brief-ready rows only" || pass "FS5 the batch is no longer given to brief-ready rows only"
+gin "FS5 the summary waits until no row of the batch is still being briefed" "$start1" 'once no row of the batch is `inbox` or `briefing`'
+# FS6: merge.sh failures that are not the PR's
+g "FS6 grant, merge-method and comment failures are held at once" '| `FAIL grant: …`, `FAIL merge methods: …` or `FAIL comment: …` | nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held`'
+g "FS6 the merge failure itself keeps the mergefail budget" '| `FAIL merge: …` | as the Otherwise branch of a merge-gate `FAIL <what>` (the `mergefail=` budget)'
+g "FS6 exit 64 names what merge.sh refuses" 'a head that is not 40 hex characters, a URL that is not a PR, or missing arguments'
+grep -qF 'or no grant file' "$SKILL" && fail "FS6 exit 64 is no longer blamed on a missing grant file" || pass "FS6 exit 64 is no longer blamed on a missing grant file"
+# FS7: a migrate that exits non-zero stops the start
+gin "FS7 a failing migrate stops the start" "$start1" 'A non-zero exit stops the start'
+gin "FS7 the stop lines it printed are still stopped and released" "$start1" 'stop and release each `stop <dispatch>` line it printed'
+gin "FS7 the claim is released as stop does" "$start1" 'release the claim'
+gin "FS7 the owner is told that running /juel:star again retries" "$start1" 'running `/juel:star` again retries the migrate'
+gin "FS7 no reconcile and no tick follow" "$start1" 'no reconcile and no tick'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

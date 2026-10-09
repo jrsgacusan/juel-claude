@@ -88,6 +88,11 @@ const DEFINITIONS = {
     label: 'Context7 MCP',
     install: 'Ships as a plugin dependency',
   },
+  mobbin: {
+    kind: 'mcp',
+    label: 'Mobbin MCP',
+    install: "Bundled in this plugin's .mcp.json; needs a paid Mobbin plan and a one-time authorization (/mcp, mobbin, Authenticate)",
+  },
 
   // --- cli -----------------------------------------------------------------
   cmux: {

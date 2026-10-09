@@ -1,0 +1,8 @@
+The change works; two small notes.
+
+Review comments:
+
+- [P2] Name the export after the report — /repo/export.py:14-16
+  The file is always called export.csv.
+- [P3] Trim the trailing space — /repo/export.py:20-20
+  A cosmetic detail.
