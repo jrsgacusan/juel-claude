@@ -14,11 +14,19 @@
 #     <body line>            at most 12, each indented two spaces
 #   cut <n>                  the body had n more lines
 #   none                     nothing to act on before the timeout (a timed-out wait included)
+#   waiter-exists <pids>     Orca refused the wait: an earlier `orca orchestration check --wait`
+#                            still holds this run's waiter; <pids> are the orphaned waits (parent
+#                            pid 1: the messages.sh that started them died), comma-separated, or
+#                            "-". A wait with a live parent, such as another project's STAR, is
+#                            never listed (#38)
+#   unknown <code>: <msg>    Orca answered with an error code
 #   unknown <why>            Orca could not be read; it says nothing about the workers
 # A literal \n (backslash, n) in a body's first line is read as a line break.
 # A question's deadline is its sent time plus the minutes of a trailing "deadline=<minutes>"
 # (1 to 240; default 30; more than 240 is 240), so a replay computes the same deadline.
 # Orca's JSON is read leniently: a raw line break inside a string does not make it unreadable.
+# orca runs in its own process group: TERM, INT or HUP to this script ends it too, and a wait
+# whose parent session is gone ends itself, so no waiter outlives the STAR command that made it.
 # Exit: 0, or 64 on bad usage.
 STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
 export STAR_HOME_DEFAULT
@@ -26,6 +34,7 @@ exec python3 - "$@" <<'PY'
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -34,6 +43,7 @@ from datetime import datetime, timedelta, timezone
 KEEP = ("worker_done", "escalation", "question")
 ROUNDS = 50
 orca = os.environ.get("ORCA_CLI_COMMAND") or "orca"
+child = None
 
 
 def die(code, msg):
@@ -45,6 +55,19 @@ def out(line):
     print(line)
     sys.exit(0)
 
+
+def stop(signum, _frame):
+    """End the orca wait with this script, so it never holds the run's waiter on its own (#38)."""
+    if child is not None and child.poll() is None:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except OSError:
+            pass
+    sys.exit(128 + signum)
+
+
+for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(sig, stop)
 
 home, ack, wait, timeout, args = os.environ.get("STAR_HOME_DEFAULT") or "", None, False, None, sys.argv[1:]
 while args:
@@ -74,7 +97,17 @@ except OSError:
     pass
 
 
+def stale_waiters():
+    try:
+        found = subprocess.run(["pgrep", "-P", "1", "-f", "orchestration check.*--wait"], capture_output=True, text=True,
+                               timeout=10).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        return "-"
+    return ",".join(p for p in found if p.isdigit() and int(p) != os.getpid()) or "-"
+
+
 def check(ack_id, wait_ms):
+    global child
     cmd = [orca, "orchestration", "check"]
     if ack_id:
         cmd += ["--ack", ack_id]
@@ -84,20 +117,41 @@ def check(ack_id, wait_ms):
     if wait_ms is not None:
         cmd += ["--timeout-ms", str(wait_ms)]
     cmd += ["--json"]
+    deadline = time.monotonic() + (wait_ms or 0) / 1000 + 60
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=(wait_ms or 0) / 1000 + 60)
-    except (OSError, subprocess.TimeoutExpired) as e:
+        child = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                 start_new_session=True)
+    except OSError as e:
         out(f"unknown {type(e).__name__}")
+    while True:
+        try:
+            stdout, stderr = child.communicate(timeout=5)
+            break
+        except subprocess.TimeoutExpired:
+            orphaned = os.getppid() == 1
+            if orphaned or time.monotonic() > deadline:
+                try:
+                    os.killpg(child.pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                child.communicate()
+                out("unknown " + ("orphaned: the session that started this wait is gone" if orphaned else "TimeoutExpired"))
+    returncode, child = child.returncode, None
     try:
-        data = json.loads(proc.stdout, strict=False)
+        data = json.loads(stdout, strict=False)
     except ValueError:
         data = None
     error = data.get("error") if isinstance(data, dict) else None
     code = (error.get("code") if isinstance(error, dict) else error) or ""
     if isinstance(code, str) and "timeout" in code.lower():
         return {}
-    if proc.returncode != 0 or not isinstance(data, dict) or data.get("ok") is False:
-        first = ((proc.stderr or proc.stdout or "").strip().splitlines() or [""])[0][:100]
+    if returncode != 0 or not isinstance(data, dict) or data.get("ok") is False:
+        if isinstance(error, dict) and isinstance(code, str) and code:
+            if code.lower() == "waiter_exists":
+                out("waiter-exists " + stale_waiters())
+            message = (str(error.get("message") or "").strip().splitlines() or ["-"])[0][:100]
+            out(f"unknown {code}: {message}")
+        first = ((stderr or stdout or "").strip().splitlines() or [""])[0][:100]
         out("unknown " + (first or "unreadable orca output"))
     return data.get("result") if isinstance(data.get("result"), dict) else {}
 
