@@ -93,5 +93,27 @@ for l in 'codex-gate.sh' 'post-pass' 'RESCOPE item=<item> reason=hosted-review r
   grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
 done
 grep -qF 'after the second-model review said SAFE' "$SKILL" && fail "the old SAFE wording is gone" || pass "the old SAFE wording is gone"
+# Final fixes C-1: a NOT-SAFE gate is fixed from its review file with the recipe of ship-ticket's gate loop,
+# never through receive-review-and-execute, which reads PR comments only
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+[ "$(printf '%s\n' "$gate_row" | grep -c .)" -eq 1 ] && pass "C1 one table row holds the push gate" || fail "C1 one table row holds the push gate"
+grow() { printf '%s\n' "$gate_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+grow "C1a the gate's findings are read from its review file" '<star.reviews>/<item>-r<k>.md'
+grow "C1b each P0 and P1 finding is validated against the brief" 'superpowers:receiving-code-review'
+grow "C1c a finding outside the brief's scope is the brief-violation escalation" 'reason=brief-violation'
+grow "C1d the fix is planned as a new -vN plan" '(`superpowers:writing-plans`, a new `-vN`)'
+grow "C1e the plan runs on the executor and its model script" 'executor-model.sh'
+grow "C1f with the capacity rule" 'capacity rule'
+grow "C1g the regression gate goes through the gate lock" 'through the gate lock'
+grow "C1h the round's -fix.md sits in the reviews folder" '<star.reviews>/<item>-r<k>-fix.md'
+grow "C1i the push waits for a SAFE round and is never forced" 'the push waits for a SAFE round and is never forced'
+printf '%s\n' "$gate_row" | grep -qF 'through `receive-review-and-execute --unattended' && fail "C1j the gate's findings no longer go through receive-review-and-execute" || pass "C1j the gate's findings no longer go through receive-review-and-execute"
+g "C1k the hard rule allows the executor's fix plan for the gate" 'from a fix plan the executor runs'
+# Final fixes C-2: with a hosted reviewer, a Phase 4 push that only merges the base branch in has no review of its own
+# and gets no third pass, so it keeps the clean judgement and READY may follow it
+hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
+[ "$(printf '%s\n' "$hosted_row" | grep -c .)" -eq 1 ] && pass "C2 one table row holds the hosted reviewer" || fail "C2 one table row holds the hosted reviewer"
+printf '%s\n' "$hosted_row" | grep -qF "push that only merges the base branch in keeps the hosted review's clean judgement (the codex gate re-gates that push), so \`READY\` may follow it" && pass "C2 a base-only merge push keeps the clean judgement" || fail "C2 a base-only merge push keeps the clean judgement"
+printf '%s\n' "$hosted_row" | grep -qF 'Never ask it for a third pass' && pass "C2 the third pass is still never asked for" || fail "C2 the third pass is still never asked for"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

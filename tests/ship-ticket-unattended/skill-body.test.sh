@@ -142,5 +142,8 @@ g "F8 a person: check runs its automated part" 'citing the person-only step the 
 g "F9 without a star block the run ends with a plain DONE" 'then ends with `DONE item=<item> pr=<url> head=<sha>`'
 g "F10 the progress folder is created first" 'mkdir -p <star.home>/progress'
 g "F11 the unanswered-question sentence ends with a period" '`unanswered-question`. A step that needs a person'
+# Final fixes C-3: only a run under a star: brief has a star.home, so only it creates the folder and keeps the log
+g "C3a the progress paragraph applies under a star: brief" '**Progress.** Under a `star:` brief, STAR judges this run by its progress'
+g "C3b a run without a star: brief keeps no progress log" 'A run without a `star:` brief has no `star.home` and keeps no progress log.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

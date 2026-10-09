@@ -415,11 +415,13 @@ or ask the coordinator with sourced options. Record each one in the spec as a de
 user-facing changes only. When the Mobbin or context7 tools are not in this session, search the web
 instead and say so in the record's Source.
 
-**Progress.** STAR judges this run by its progress, not its terminal. Create the folder before the
-first line: `mkdir -p <star.home>/progress`. At the start of each phase and each gate round, and
-after each live check in Phase 6, append one line to `<star.home>/progress/<item>.log`:
+**Progress.** Under a `star:` brief, STAR judges this run by its progress, not its terminal.
+Create the folder before the first line: `mkdir -p <star.home>/progress`. At the start of each
+phase and each gate round, and after each live check in Phase 6, append one line to
+`<star.home>/progress/<item>.log`:
 `printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<phase or round>" "<one line>" >> <that file>`.
 Thirty minutes with no progress line, no commit and no changed file gets a check-in from STAR.
+A run without a `star:` brief has no `star.home` and keeps no progress log.
 
 **Red-first tests.** For a bug-fix item (its brief's `branch` starts `fix/`, or the item says it
 fixes a defect), the plan's first task writes the regression test and commits it alone. Run that
