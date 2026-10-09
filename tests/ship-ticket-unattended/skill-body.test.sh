@@ -1,5 +1,5 @@
 #!/bin/sh
-# Guards on skills/ship-ticket/SKILL.md: unattended, brief and fix modes for juel:star workers.
+# Guards on skills/ship-ticket/SKILL.md: unattended and brief modes for juel:star workers.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SKILL="$ROOT/skills/ship-ticket/SKILL.md"
 fails=0
@@ -121,5 +121,26 @@ grep -qF 'docs, `*.md` and `docs/`' "$SKILL" && fail "T21e every Markdown file n
 g "T21f the failure row defers to the reuse case" "re-run phase 6 in full (except step 6's evidence-reuse case)"
 g "T24e a PR template gets the handed-off section" 'the one section added to a template'
 g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry)'
+# Task C1 fix round 1
+g "F1a a Phase 4 status under --unattended is a progress line, never a NOTE" 'a progress line and a terminal line, never a `NOTE`'
+[ "$(grep -cF 'never a `NOTE`' "$SKILL")" -ge 2 ] && pass "F1b both Phase 4 places say never a NOTE" || fail "F1b both Phase 4 places say never a NOTE"
+grep -qF ', a `NOTE`)' "$SKILL" && fail "F1c no Phase 4 status is a NOTE any more" || pass "F1c no Phase 4 status is a NOTE any more"
+g "F2 a round with no accepted finding skips the fix and runs the next round" 'No finding accepted: skip the plan, the executor, the tests, Phase 6, the commit and the push'
+g "F3a the round cap comes before any fix" 'go straight to step 5, before any fix'
+g "F3b a fix round runs one regression gate" 'the one regression gate of the round'
+g "F3c its evidence is reused when only non-runtime files changed" 'is outside the runtime, as its step 6 defines it'
+grep -qF 'then the regression gate through the gate lock' "$SKILL" && fail "F3d the second regression run is gone" || pass "F3d the second regression run is gone"
+g "F4a codex-failed covers a gate-loop fix" 'or in a gate-loop fix'
+g "F4b review-unavailable covers post-pass" '`post-pass` printed `ERROR` twice, a minute apart'
+g "F5a quiet-hours always does not wait for a PASS" 'action=post the codex PASS'
+g "F5b and ends asking for the PASS to be posted" 'post the codex PASS on <url> when you are back'
+g "F6a the screen lock is for the visible screen" 'Before launching an app you will drive on the visible screen'
+g "F6b a lapsed lock is handled like exit 65" 'printing `free` (the lock lapsed)'
+g "F7a a failing executor-model.sh counts as default" 'counts as `default <why>`'
+g "F7b Phase 5 passes on what ran" 'or `--executor session` when this session ran the plan'
+g "F8 a person: check runs its automated part" 'citing the person-only step the owner did before go'
+g "F9 without a star block the run ends with a plain DONE" 'then ends with `DONE item=<item> pr=<url> head=<sha>`'
+g "F10 the progress folder is created first" 'mkdir -p <star.home>/progress'
+g "F11 the unanswered-question sentence ends with a period" '`unanswered-question`. A step that needs a person'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
