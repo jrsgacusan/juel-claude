@@ -12,7 +12,7 @@ cat > "$TMP/bin/gh" <<'EOF'
 [ "${STUB_FAIL:-}" = 1 ] && { echo "${STUB_ERR:-HTTP 502}" >&2; exit 1; }
 if [ "$1" = api ]; then
   case "$2" in
-    graphql) if [ -n "${STUB_THREADS:-}" ]; then cat "$STUB_THREADS"; else echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'; fi ;;
+    graphql) if [ -n "${STUB_THREADS:-}" ]; then cat "$STUB_THREADS"; else echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'; fi; exit "${STUB_THREADS_RC:-0}" ;;
     *"/rules/branches/"*)
       [ -n "${STUB_RULES_ERR:-}" ] && { echo "$STUB_RULES_ERR" >&2; exit 1; }
       if [ -n "${STUB_RULES:-}" ]; then cat "$STUB_RULES"; else echo '[]'; fi ;;
@@ -132,7 +132,7 @@ PASSC='{"author":{"login":"me"},"body":"Codex gate: PASS (head abc1234def, round
 NOAPP='"reviewDecision":"","reviews":[]'
 mg() { # mg <name> <expected> <json body> [extra args]
   printf '{%s}\n' "$3" > "$TMP/pr.json"
-  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_THREADS="${THREADS:-}" sh "$SCRIPT" 5 --head abc1234 --merge-gate ${4:-})
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_THREADS="${THREADS:-}" STUB_THREADS_RC="${THREADS_RC:-0}" sh "$SCRIPT" 5 --head abc1234 --merge-gate ${4:-})
   if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
 }
 # with a hosted reviewer: the babysit worker judged its review; the script asks for no approval
@@ -188,6 +188,14 @@ unreadable() { # unreadable <label> <what gh graphql printed>: a thread list tha
 unreadable "not json" 'not json at all'
 unreadable "no pull request" '{"data":{"repository":{"pullRequest":null}}}'
 unreadable "errors only" '{"errors":[{"message":"boom"}]}'
+# A-5: a partial answer is no answer: nodes that is not a list, or a gh that exits non-zero, never reads as "no findings"
+unreadable "nodes null beside errors" '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":null}}}},"errors":[{"message":"Something went wrong"}]}'
+unreadable "nodes an object" '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":{"x":1}}}}}}'
+unreadable "nodes a string" '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":"none"}}}}}'
+THREADS_RC=1
+unreadable "an empty list, but gh exited 1" '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'
+unreadable "a thread nobody answered, but gh exited 1" '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"author":{"login":"ezra"},"body":"Rename this."}]}}]}}}}}'
+unset THREADS_RC
 # what the script asks gh for: a wrapper logs every call and hands it to the stub above
 mkdir -p "$TMP/bin2"
 cat > "$TMP/bin2/gh" <<'EOF'
@@ -205,6 +213,7 @@ out=$(logged https://github.com/o/r/pull/7 --head abc1234 --merge-gate --hosted)
 [ "$out" = "PASS hosted" ] && echo "ok   merge-gate mode takes the PR as a URL" || { echo "FAIL merge-gate with a URL (got: $out)"; fails=$((fails + 1)); }
 grep '^pr view ' "$TMP/gh.log" | grep -q ',author,comments$' && echo "ok   merge-gate mode asks gh for the author and the comments" || { echo "FAIL merge-gate fields ($(grep '^pr view ' "$TMP/gh.log"))"; fails=$((fails + 1)); }
 grep '^api graphql ' "$TMP/gh.log" | grep -q ' owner=o .*name=r .*number=7$' && echo "ok   the thread query gets the owner, the name and the number" || { echo "FAIL thread query args ($(grep '^api graphql ' "$TMP/gh.log" | cut -c1-30))"; fails=$((fails + 1)); }
+grep '^api graphql ' "$TMP/gh.log" | grep -q -- ' -f owner=o -f name=r -F number=7$' && echo "ok   the owner and the name go as strings (-f), only the number as a number (-F)" || { echo "FAIL thread query field types ($(grep '^api graphql ' "$TMP/gh.log" | sed 's/.*query=[^ ]* //'))"; fails=$((fails + 1)); }
 printf '{%s}\n' "$OK,$BASE,$APPROVED,$GREEN" > "$TMP/pr.json"
 out=$(logged 5 --head abc1234)
 [ "$out" = "PASS" ] && ! grep -q -E 'author|comments|^api graphql ' "$TMP/gh.log" && echo "ok   without --merge-gate it asks gh for no author, no comments and no threads" || { echo "FAIL a plain run asks for more than v1 (got: $out)"; fails=$((fails + 1)); }

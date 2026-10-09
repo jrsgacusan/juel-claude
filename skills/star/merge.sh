@@ -11,7 +11,13 @@
 # "Merging head <sha> under your go of <date>: "<words>"" (the words on one line, cut at 500
 # characters, sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
 # so GitHub itself refuses when the head moved.
-# Exit 64 on bad usage.
+# After the merge call, whatever it said, it reads the PR's state once. MERGED when GitHub says
+# merged, even if the call errored (gh can fail after the merge went through). A call that errored
+# on a PR that is not merged is the FAIL it names. A call that worked, followed by a state that
+# cannot be read, prints nothing and exits 69: the merge may or may not have happened, and the
+# next run of the merge gate says which.
+# Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, or missing
+# arguments.
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
@@ -33,6 +39,12 @@ def out(line):
 def die(msg):
     print(f"merge.sh: {msg}", file=sys.stderr)
     sys.exit(64)
+
+
+def unknown(msg):
+    """No line on stdout: the merge may or may not have happened."""
+    print(f"merge.sh: {msg}", file=sys.stderr)
+    sys.exit(69)
 
 
 def run(cmd, timeout=120):
@@ -123,12 +135,16 @@ if not any(isinstance(c, dict) and (c.get("author") or {}).get("login") == autho
     if c.returncode != 0:
         out("FAIL comment: " + first(c))
 mg = run(["gh", "pr", "merge", pr, f"--{method}", "--match-head-commit", head], 300)
+# One read of the PR after the call, whatever the call said: gh can fail after GitHub has merged.
+s = as_json(run(["gh", "pr", "view", pr, "--json", "state,mergeCommit"], 60)) or {}
+state = str(s.get("state") or "").upper()
+if state == "MERGED":
+    out("MERGED " + ((s.get("mergeCommit") or {}).get("oid") or "unknown"))
 if mg.returncode != 0:
     if re.search(r"head (branch|commit|ref)|match-head-commit|was modified", (mg.stderr or "") + (mg.stdout or ""), re.I):
         out("FAIL head moved")
     out("FAIL merge: " + first(mg))
-s = as_json(run(["gh", "pr", "view", pr, "--json", "state,mergeCommit"], 60)) or {}
-if str(s.get("state") or "").upper() == "MERGED":
-    out("MERGED " + ((s.get("mergeCommit") or {}).get("oid") or "unknown"))
-out(f"FAIL merge: GitHub says {s.get('state') or 'unknown'} after the merge call")
+if not state:
+    unknown("the merge call worked but GitHub does not say what became of the PR")
+out(f"FAIL merge: GitHub says {state} after the merge call")
 PY

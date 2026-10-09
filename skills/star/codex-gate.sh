@@ -16,18 +16,24 @@
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
 # codex review runs read-only with no MCP servers; its stdout goes to <reviews>/<item>-r<k>.raw.md
 # and its stderr to <item>-r<k>.log. <item>-r<k>.md starts with the VERDICT line review-proof.sh
-# reads. Only a [P0] or [P1] finding makes it NOT-SAFE. A capacity, overload or rate-limit failure
+# reads. A finding is a bullet (-, *, +, 1. or 1)) that starts with its tag, [P0] to [P3], bold or
+# not. Only a [P0] or [P1] finding makes it NOT-SAFE. A capacity, overload or rate-limit failure
 # is retried after 60 and 180 seconds, then run once on the fallback model (a fallback that does
-# not resolve is ERROR, naming why); any other failure, an empty review, findings without [P<n>]
-# tags (a "Review comment(s):" header with no tagged finding, or a bullet that ends
-# " — <path>:<line>" or " — <path>:<line>-<line>" with no tag), or HEAD moving during the review
-# is ERROR.
+# not resolve is ERROR, naming why). Anything else is ERROR, so a review the gate cannot read is
+# never SAFE: any other failure, an empty review, an output whose first line starts with "error"
+# (any case) or "⚠" (codex printed a failure and still exited 0), HEAD moving during the review,
+# a line that holds a [P0]-[P3] tag outside that shape ("a finding in a shape the gate cannot
+# read"), a "Review comment(s):" header with no tagged finding under it, and a bullet that ends
+# with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
+# dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
 # post-pass posts "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)" on the PR, once per
 # head; --head must be the PR's current head, all 40 characters. The model and effort are
 # --model and --effort, else the "Gate: <model> <effort>" line of the --review file (the model
 # that ran, a fallback included), else the "gate" block of the project's star.json
 # ($JUEL_STAR_HOME, else the folder star-home.sh names), else gpt-6-astra and xhigh. A --review
-# file that cannot be read is ERROR.
+# file that cannot be read is ERROR, and so is one that is not this round's SAFE verdict: its first
+# line must be "VERDICT item=<item> round=<k> SAFE findings=<n> head=<7 to 40 hex characters>"
+# with the head the start of --head, and no <item>-r<k+1>.md may lie beside it. Nothing is posted.
 # Test seams: CODEX_GATE_SLEEP multiplies the waits (default 1); CODEX_GATE_TIMEOUT, seconds per
 # codex run (default 3600).
 # Exit: 0 with a verdict or a post-pass result, 69 with ERROR, 64 on bad usage.
@@ -44,10 +50,13 @@ import time
 S = os.environ["STAR_SKILL_DIR"]
 CAPACITY = re.compile(r"at capacity|overloaded|rate.?limit|too many requests|service unavailable"
                       r"|\b(429|503|529)\b", re.I)
-TAG = re.compile(r"^\s*-\s*\[P([0-3])\]\s+(.*\S)\s*$")
+BULLET = r"(?:[-*+]|\d+[.)])"
+TAG = re.compile(r"^\s*" + BULLET + r"\s*(?:\*\*)?\[P([0-3])\](?:\*\*)?\s+(.*\S)\s*$")
+ANY_TAG = re.compile(r"\[P[0-3]\]")
 FINDINGS_HEADER = re.compile(r"^\s*review comments?:\s*$", re.I)
-# The shape of a finding with its tag dropped: a bullet at the margin that ends " — <path>:<line>[-<line>]"
-PLACED = re.compile(r"^-\s+(?!\[P[0-3]\]).*\S\s+—\s+\S.*:\d+(?:-\d+)?\s*$")
+# The shape of a finding with its tag dropped: a bullet at the margin that ends with its place,
+# "<path>:<line>[-<line>]", set off by a hyphen, an en dash or an em dash, or put in parentheses
+PLACED = re.compile(r"^" + BULLET + r"\s+(?!(?:\*\*)?\[P[0-3]\]).*\S\s+(?:[-–—]\s+|\()\S.*:\d+(?:-\d+)?\)?\s*$")
 
 
 def out(line, code=0):
@@ -96,6 +105,24 @@ def project_gate():
     return gate if isinstance(gate, dict) else {}
 
 
+def check_review(text, path, k, head):
+    """ERROR unless the review is the SAFE verdict of round k on head, with no newer round beside it."""
+    first = (text.splitlines() or [""])[0]
+    m = re.fullmatch(r"VERDICT item=(\S+) round=(\d+) (SAFE|NOT-SAFE) findings=(\d+) head=([0-9a-fA-F]{7,40})", first)
+    if not m:
+        error(f"the review's first line is not a full VERDICT line: {first[:120]!r}")
+    item, rnd, verdict, _, reviewed = m.groups()
+    if verdict != "SAFE":
+        error(f"the review says {verdict}, not SAFE")
+    if int(rnd) != k:
+        error(f"the review is of round {rnd}, not round {k}")
+    if not head.startswith(reviewed.lower()):
+        error(f"the review is of {reviewed[:7].lower()}, not {head[:7]}")
+    later = os.path.join(os.path.dirname(os.path.abspath(path)), f"{item}-r{k + 1}.md")
+    if os.path.exists(later):
+        error(f"round {k + 1} has its own review at {later}")
+
+
 def post_pass(o):
     head = o["head"].lower()
     if not re.fullmatch(r"[0-9a-f]{40}", head):
@@ -103,9 +130,11 @@ def post_pass(o):
     ran = None
     if o.get("review"):
         try:
-            ran = re.search(r"^Gate: (\S+) (\S+)", open(o["review"], encoding="utf-8", errors="replace").read(), re.M)
+            review_text = open(o["review"], encoding="utf-8", errors="replace").read()
         except OSError as e:
             error(f"cannot read the review: {e.strerror}")
+        check_review(review_text, o["review"], int(o["round"]), head)
+        ran = re.search(r"^Gate: (\S+) (\S+)", review_text, re.M)
     model, effort = o.get("model") or (ran and ran.group(1)), o.get("effort") or (ran and ran.group(2))
     if not model or not effort:
         gate = project_gate()
@@ -276,6 +305,9 @@ for m_, e_, wait in ((model, effort, 0), (model, effort, 60), (model, effort, 18
         time.sleep(wait * PAUSE)
     rc, text, tail = review(m_, e_)
     if rc == 0 and text.strip():
+        first = next(l.strip() for l in text.splitlines() if l.strip())
+        if first.lower().startswith("error") or first.startswith("⚠"):
+            error("codex review failed: " + first[:160])
         used = (m_, e_)
         break
     if rc == 0:
@@ -288,7 +320,7 @@ after = head()
 if after != before:
     error(f"HEAD moved during the review ({before[:7]} to {after[:7] or '?'})")
 
-findings, overall, current, listing, untagged = [], [], None, False, False
+findings, overall, current, listing, untagged, odd_tag = [], [], None, False, False, False
 for line in text.splitlines():
     tag = TAG.match(line)
     if tag:
@@ -297,6 +329,8 @@ for line in text.splitlines():
                    "where": where.strip() if title else "", "body": []}
         findings.append(current)
         listing = True
+    elif ANY_TAG.search(line):
+        odd_tag = True
     elif PLACED.match(line):
         untagged = True
     elif current is not None and line[:1].isspace() and line.strip():
@@ -305,6 +339,8 @@ for line in text.splitlines():
         listing = True
     elif not listing and line.strip():
         overall.append(line.strip())
+if odd_tag:
+    error("unreadable review: a finding in a shape the gate cannot read")
 if untagged or (listing and not findings):
     error("unreadable review: findings without [P0]-[P3] tags")
 p0 = sum(1 for f in findings if f["p"] == 0)
