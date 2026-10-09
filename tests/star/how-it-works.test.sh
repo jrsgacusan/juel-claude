@@ -8,6 +8,11 @@ pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$PAGE" ] || { echo "FAIL how-it-works.html missing"; exit 1; }
 head -n 1 "$PAGE" | grep -qF '<!-- https://claude.ai/artifact/V2Qx9Cm469k1vuJvcjS2fC -->' && pass "the first line names the published page" || fail "artifact comment"
+# worker-probe.sh judges progress by <H>/progress/<item>.log, the worktree's last commit and its changed files.
+grep -qF 'Workers are judged by progress: their progress log, their latest commit and the files changed in their worktree.' "$PAGE" && pass "the progress sentence names the sources the probe reads" || fail "progress sentence"
+# A re-scope is a brief worker in --rescope mode (SKILL.md, Re-scope mode), never STAR's own session.
+grep -qF 'brief worker in re-scope mode' "$PAGE" && ! grep -qE '<td[^>]*>re-scope</td>' "$PAGE" && pass "the Stages table gives a re-scope to a brief worker" || fail "re-scope stage row"
+grep -qF 'a brief worker narrows the PR' "$PAGE" && pass "the Re-scope box says a brief worker narrows the PR" || fail "re-scope box"
 out=$(python3 - "$PAGE" "$ROOT/skills/star/SKILL.md" "$ROOT/skills/star/template/star.json" <<'PY'
 import html, json, re, sys
 page = open(sys.argv[1], encoding="utf-8").read()

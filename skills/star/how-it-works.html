@@ -259,7 +259,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <rect class="star" x="470" y="1160" width="250" height="72" rx="8"/>
         <text class="tag tg-star" x="708" y="1177" text-anchor="end">STAR</text>
         <text class="t" x="486" y="1184">Re-scope</text>
-        <text class="s" x="486" y="1203">narrow the PR, file the rest</text>
+        <text class="s" x="486" y="1203">a brief worker narrows the PR</text>
         <text class="s" x="486" y="1221">then build again</text>
         <path class="edge" d="M720,1196 H752 V706 H743" marker-end="url(#ah1)"/>
 
@@ -351,7 +351,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td class="k">check</td><td>STAR</td><td>its own session</td><td>the review file, the PASS comment and the PR's head agree</td></tr>
           <tr><td class="k">babysit</td><td>babysit worker, Opus 5.5 xhigh; luna fixes</td><td>the item's worktree</td><td>the PR is ready, reviewed clean or approved, and green on its head</td></tr>
           <tr><td class="k">merge</td><td>STAR</td><td>its own session</td><td>every gate holds and the PR merged on that exact head</td></tr>
-          <tr><td class="k">re-scope</td><td>STAR</td><td>its own session</td><td>the PR is narrowed, the rest is a new item, and the build runs again</td></tr>
+          <tr><td class="k">brief</td><td>brief worker in re-scope mode, Opus 5.5 high</td><td>the main checkout, read-only</td><td>after a RESCOPE: the brief is narrowed, the rest is a follow-up item, and the build runs again on the same PR</td></tr>
           <tr><td class="k">post</td><td>post worker, Opus 5.5 xhigh</td><td>the main checkout</td><td>a report item's accepted report is on the work item</td></tr>
         </tbody>
       </table>
@@ -458,7 +458,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
     <div>
       <h2>Never stalls</h2>
       <ul>
-        <li>Workers are judged by progress: their latest commit, a PROGRESS line, an evidence file. 30 minutes with none of those gets a check-in.</li>
+        <li>Workers are judged by progress: their progress log, their latest commit and the files changed in their worktree. 30 minutes with none of those gets a check-in.</li>
         <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself.</li>
         <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
