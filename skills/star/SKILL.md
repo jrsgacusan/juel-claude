@@ -9,6 +9,16 @@ metadata:
         why: brief workers fetch items from Linear when it is a project's work source
         check: none
         fallback: the project's other configured source is used; items can also be given as spec paths
+      - id: mobbin
+        hard: false
+        why: brief workers look up how real apps solve a user-facing change before they decide it
+        check: none
+        fallback: a web search, named in the decision record's Source
+      - id: context7
+        hard: false
+        why: brief workers check a library, framework, SDK, API or CLI at the project's version before they decide it
+        check: none
+        fallback: a web search, named in the decision record's Source
     cli:
       - id: orca
         hard: true
@@ -16,7 +26,7 @@ metadata:
         check: "resolve_bin orca against PATH, then the app-bundle candidate"
       - id: gh
         hard: true
-        why: workers open and babysit PRs; pr-verify.sh and release-record.sh read them; star-issue.sh files STAR's own improvement issues
+        why: workers open and babysit PRs; pr-verify.sh, done-check.sh and release-record.sh read them; merge.sh merges under the owner's go; star-issue.sh files STAR's own improvement issues
         check: "gh auth status"
       - id: git
         hard: true
@@ -24,17 +34,16 @@ metadata:
         check: "command -v git"
       - id: python3
         hard: true
-        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, worktree-clean.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh and the session hook run on it
+        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, worktree-clean.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh, done-check.sh, merge.sh, codex-gate.sh and the session hook run on it
         check: "command -v python3"
       - id: claude
         hard: true
-        why: brief, build, fix and babysit workers run the configured worker agent, claude by default
+        why: brief, build, babysit and post workers run the configured worker agent, claude by default
         check: "command -v claude"
       - id: codex
-        hard: false
-        why: the second-model reviewer runs as a codex worker
+        hard: true
+        why: the executor runs every plan on the newest luna, and codex-gate.sh reviews every draft PR with codex review
         check: "command -v codex"
-        fallback: the reviewer runs as a claude worker on a model other than the builders'
     context:
       - id: orca-runtime
         hard: true
@@ -54,7 +63,7 @@ metadata:
     skills:
       - id: juel:ship-ticket
         hard: true
-        why: build and fix stages run it with --unattended --brief (and --fix-review)
+        why: the build stage runs it with --unattended --brief
       - id: juel:babysit-pr
         hard: true
         why: the babysit stage runs it with --unattended --mark-ready
@@ -134,12 +143,14 @@ session is the Stop rule below, nothing more: it does not run the start sequence
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | Linear MCP | mcp | SOFT | **none — render as `?`** | the project's other configured source is used; items can also be given as spec paths |
+| Mobbin MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
+| Context7 MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
 | orca | cli | HARD | `resolve_bin orca` against PATH, then the app-bundle candidate | STOP → https://www.onorca.dev |
 | gh | cli | HARD | `gh auth status` | STOP → `gh auth login` |
 | git | cli | HARD | `command -v git` | STOP |
 | python3 | cli | HARD | `command -v python3` | STOP → install Python 3 |
 | claude | cli | HARD | `command -v claude` (or the configured `worker.agent`) | STOP → install the worker agent CLI |
-| codex | cli | SOFT | `command -v codex` | the reviewer runs as a claude worker on a model other than the builders' |
+| codex | cli | HARD | `command -v codex` | STOP → install the Codex CLI (`npm i -g @openai/codex`): the executor and the gate need it |
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
 | running in an Orca terminal | context | HARD | `[ -n "$ORCA_TERMINAL_HANDLE" ]` | STOP → start Claude Code from an Orca terminal and re-run there |
 | inside a git repository | context | HARD | `git rev-parse --show-toplevel` | STOP → run `/juel:star` from inside the project's repository |

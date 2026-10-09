@@ -38,6 +38,11 @@
       "label": "Codex CLI",
       "install": "npm i -g @openai/codex"
     },
+    "context7": {
+      "kind": "mcp",
+      "label": "Context7 MCP",
+      "install": "Ships as a plugin dependency"
+    },
     "coreutils": {
       "kind": "cli",
       "label": "coreutils",
@@ -112,6 +117,11 @@
       "kind": "mcp",
       "label": "Linear MCP",
       "install": "Ships as a plugin dependency; authorize the connector, then restart the session"
+    },
+    "mobbin": {
+      "kind": "mcp",
+      "label": "Mobbin MCP",
+      "install": "Bundled in this plugin's .mcp.json; needs a paid Mobbin plan and a one-time authorization (/mcp, mobbin, Authenticate)"
     },
     "open-pr": {
       "kind": "context",
@@ -402,9 +412,11 @@
       ],
       "soft": [
         "codex",
+        "context7",
         "gh",
         "juel:verify",
         "linear",
+        "mobbin",
         "orca",
         "playwright-video",
         "pr-review-toolkit",
@@ -422,6 +434,7 @@
     "star": {
       "hard": [
         "claude",
+        "codex",
         "gh",
         "git",
         "git-repo",
@@ -435,8 +448,9 @@
         "python3"
       ],
       "soft": [
-        "codex",
-        "linear"
+        "context7",
+        "linear",
+        "mobbin"
       ]
     },
     "start": {

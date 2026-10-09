@@ -14,6 +14,16 @@ metadata:
         why: phase 6 records the whole UI verification end to end with browser_start_video, which needs the Playwright devtools capability
         check: none
         fallback: phase 6 takes screenshots only and puts a Recording missing line at the top of the report and the checkpoint
+      - id: mobbin
+        hard: false
+        why: the grounding rule looks up how real apps solve a user-facing change before a decision is taken
+        check: none
+        fallback: a web search, named in the decision record's Source
+      - id: context7
+        hard: false
+        why: the grounding rule checks a library, framework, SDK, API or CLI at the project's version before a decision is taken
+        check: none
+        fallback: a web search, named in the decision record's Source
     cli:
       - id: codex
         hard: false
@@ -27,9 +37,9 @@ metadata:
         fallback: phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped
       - id: python3
         hard: false
-        why: gate-lock.sh, run-gates.sh, quiet-hours.sh and screen-lock.sh, used only under --unattended, run on it
+        why: executor-model.sh (every Phase 4) and, under --unattended, gate-lock.sh, run-gates.sh, quiet-hours.sh and screen-lock.sh run on it
         check: "command -v python3"
-        fallback: an interactive run does not need it; an unattended run stops with the preflight escalation
+        fallback: Phase 4 dispatches codex on its own default model and says so; an unattended run stops with the preflight escalation
       - id: orca
         hard: false
         why: an unattended worker asks its coordinator and reports through orca orchestration
@@ -128,10 +138,12 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
-| python3 | cli | SOFT | `command -v python3` | an interactive run does not need it; an unattended run stops with the preflight escalation |
+| python3 | cli | SOFT | `command -v python3` | Phase 4 dispatches codex on its own default model and says so; an unattended run stops with the preflight escalation |
 | orca | cli | SOFT | `command -v orca` | an interactive run does not need it; an unattended run stops with the preflight escalation |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | phase 1 relies on juel:start's own no-ref/no-list handling; phase 7's status update is skipped with a printed note and never blocks the PR |
 | Playwright video tools | mcp | SOFT | **none — render as `?`** | phase 6 takes screenshots only and puts a Recording missing line at the top of the report and the checkpoint |
+| Mobbin MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
+| Context7 MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
 
 ## Phases
 

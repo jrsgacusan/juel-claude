@@ -361,5 +361,15 @@ g "LW2 a stale worker gets a check-in" 'stale <minutes> <terminal>'
 g "HR2 the go is never inferred" 'A go is never inferred'
 g "EC1 a re-scope edge case" 'NOT-SAFE after 3 rounds'
 g "RC1 a v1 folder is migrated on start" 'A v1 STAR folder'
+python3 - "$ROOT/.claude-plugin/requirements.json" <<'PY3' && pass "PF1 STAR needs codex, and briefs and builds use Mobbin and context7" || fail "PF1 requirements"
+import json, sys
+d = json.load(open(sys.argv[1]))
+star, ship = d["skills"]["star"], d["skills"]["ship-ticket"]
+assert "codex" in star["hard"], star
+for s in (star, ship):
+    assert "mobbin" in s["soft"] and "context7" in s["soft"], s
+assert d["definitions"]["mobbin"]["kind"] == "mcp", d["definitions"].get("mobbin")
+PY3
+g "PF2 the codex row stops STAR" '| codex | cli | HARD |'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
