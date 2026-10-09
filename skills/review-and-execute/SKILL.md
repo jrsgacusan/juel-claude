@@ -92,6 +92,8 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 |----------|---------|-------------|
 | `[base-branch]` | auto-detected — see "Base branch detection" in Step 1 | Branch to diff against |
 | `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
+| `--executor-model <id|latest-<family>>` | `latest-luna` | The model `codex exec` runs the plan on, resolved by `executor-model.sh` |
+| `--executor-effort <level>` | `xhigh` | Its reasoning effort |
 
 Usage: `/review-and-execute` or `/review-and-execute main`
 
@@ -224,9 +226,20 @@ Run Codex CLI non-interactively to execute the plan written in Step 3 (use the e
 
 The harness pipes stdin and never closes it, so codex waits for an EOF that never arrives, and without `< /dev/null` here it hangs silently with the prompt unprocessed.
 
+Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-model> --effort <--executor-effort>`
+(`juel:ship-ticket`'s `executor-model.sh`: `../ship-ticket/executor-model.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/executor-model.sh`). It prints `<model> <effort>`;
+`default <why>` means: drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in
+one line.
+
 ```bash
-codex exec --sandbox workspace-write '$claude-plan-executor ${docsRoot}/plans/<plan-filename>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" '$claude-plan-executor ${docsRoot}/plans/<plan-filename>.md' < /dev/null
 ```
+
+**At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
+overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
+fallback model (`latest-sol`, resolved the same way); then run the plan in this session with
+`superpowers:executing-plans`. Say each step in one line.
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
