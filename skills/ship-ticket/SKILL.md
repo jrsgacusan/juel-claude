@@ -1013,6 +1013,9 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    `sh <codex-gate.sh> --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch> --evidence <the Phase 6 evidence directory>`
    (`codex-gate.sh` is in `juel:star`: `../star/codex-gate.sh` from this file, or
    `${CLAUDE_PLUGIN_ROOT}/skills/star/codex-gate.sh`). It reads the gate settings from `star.json`.
+   On a resumed run (STAR restarted the stage) the directory is the gate manifest's `"evidenceDir"`
+   (the file `star.gates` names). When that folder does not exist, leave `--evidence` out: a missing
+   folder is exit 64 with a message on stderr and no verdict line.
    The review streams on its stderr while it runs, so anyone watching the terminal sees it work.
    When it ends, read only the last line of its output: that is the verdict line (`SAFE …`,
    `NOT-SAFE …` or `ERROR …`). Never read the transcript back.

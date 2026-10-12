@@ -160,6 +160,7 @@ g "G66a only verdict files count toward the round" 'Only those verdict files cou
 g "G66b an ERROR keeps the round number" 'an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move'
 g "G63a the gate gets the evidence folder" '--evidence <the Phase 6 evidence directory>'
 g "G63b the manifest names the evidence folder" '"evidenceDir": "<the evidence directory>"'
+g "G63d a resumed run reads the folder from the manifest and drops a missing one" 'leave `--evidence` out: a missing'
 g "G71a the round streams and only the verdict line is read" 'read only the last line of its output'
 g "G64a a gate-down line is quoted whole" 'quoted whole: an `ERROR gate-down'
 # Issue #61: a criterion accepted with a residual
