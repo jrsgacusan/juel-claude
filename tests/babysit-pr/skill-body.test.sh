@@ -135,5 +135,23 @@ grow "G64b babysit quotes a gate-down line whole" 'quoted whole: an `ERROR gate-
 g "Y69f mark-ready does nothing on a ready PR" 'A PR the build already marked ready is left as it is'
 g "Y69g pass 1 is the review started on ready, by either stage" 'Pass 1 is the review it started when the PR was marked ready, by the build or by this skill.'
 grep -q 'Never mark it ready a second time' "$SKILL" && pass "Y69h still never marked ready twice" || fail "Y69h still never marked ready twice"
+# Issue #58: a PR that turns dirty while Phase 2 waits
+g "D58a a conflict wake runs the base sync" '| `conflict` |'
+g "D58b any snapshot with merge dirty does too" 'a snapshot whose `merge` is `dirty`'
+g "D58c behind is left to Phase 4 and the merge gate" '`behind` is not acted on here'
+g "D58d the sync is counted in the report" 'base-syncs=<s>'
+# Issue #59: a status refresh is not a pass
+hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
+hrow() { printf '%s\n' "$hosted_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+hrow "S59a a synced head with no hosted status gets a refresh" '**status refresh**'
+hrow "S59b it never counts toward maxPasses" 'never counts toward `maxPasses`'
+hrow "S59c it is waited for before READY" 'Wait for its review of that head before `READY`'
+hrow "S59d a refresh that is not clean is a failed last pass" 'as a last pass that is not clean'
+g "S59e Phase 1 refreshes a head STAR sent back" 'status refresh (the hosted-reviewer row in "Unattended mode") before the first wait'
+# Issue #72: a re-review that only edits the summary comment
+g "H72a a hosted-pass item is judged, not answered" 'A `hosted-pass` item gets no reply'
+g "H72b the wake routes it to the hosted-reviewer row" '`kind: hosted-pass`'
+g "H72c babysit names its hosted reviewer to pr-state" 'Pass `--hosted <login>` to `pr-state.sh`'
+g "H72d the Phase 2 wait passes it too" '[--review-bots <logins>] [--hosted <login>]'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

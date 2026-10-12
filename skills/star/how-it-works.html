@@ -430,6 +430,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <li>The merge gate reads no review text: it trusts that READY came on a head the worker judged clean</li>
           <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment)</li>
           <li>Pass 2 still not clean: back to STAR to re-scope</li>
+          <li>A base sync after a clean pass gets one status refresh (<code>@greptileai</code>) on the new head; it is not a pass</li>
         </ul>
       </div>
       <div>
@@ -463,6 +464,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
+        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed.</li>
       </ul>
     </div>
   </section>
