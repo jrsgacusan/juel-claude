@@ -155,13 +155,13 @@ for k in ("build", "babysit", "post"):
     assert s[k] == {"agent": "claude", "model": "opus", "effort": "xhigh"}, (k, s[k])
 assert d["worker"] == {"agent": "claude", "model": "opus", "effort": "xhigh"} and "reviewer" not in d
 assert d["executor"] == {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"}, d["executor"]
-assert d["gate"] == {"model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 3}, d["gate"]
+assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 3}, d["gate"]
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
-assert list(d) == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert list(d) == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
 assert d["notified"] == [], d["notified"]
-for k in ("quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
+for k in ("mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
     assert d[k] is None, (k, d[k])
 PY2
 # STAR lives in the project

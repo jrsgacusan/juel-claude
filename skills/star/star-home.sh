@@ -5,6 +5,7 @@
 #                                        print it. Safe to repeat; never overwrites a file.
 #   star-home.sh [--cwd <dir>] migrate   bring a v1 folder to star.json schema 2 (STAR's closed loop):
 #                                        prints one "stop <dispatch>" per worker of a removed stage,
+#                                        then "migrated gate" when it moved a v2.0.0 gate to Sol,
 #                                        then "current" or "migrated rows=<n>"
 # The folder is <main checkout>/<docsRoot>/context/star. The main checkout is the first worktree
 # git lists, so a linked worktree and a subfolder give the same answer. docsRoot follows the
@@ -27,6 +28,10 @@
 # stdout, even when the exit is 1). The file is deleted only when the run succeeds; a run that
 # finds it (an earlier migrate stopped half way) prints its lines again, before "current" or
 # "migrated rows=<n>".
+# migrate also moves a v2.0.0 gate to v2.1.0's: "model": "gpt-6-astra" becomes "latest-sol", and a
+# string "fallback" (v2.0.0's codex fallback) becomes {"agent": "claude", "model": "opus",
+# "effort": "xhigh"}. Any other gate value is the owner's and is left alone. init and migrate both
+# create every folder, evidence/ included (worktree-clean.sh copies a worktree's evidence there).
 # Exit: 0 ok, 1 not inside a usable git checkout, or a STAR folder migrate cannot read, or
 # ledger.sh or loops.sh failing during migrate (the message names it), 64 usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
@@ -40,11 +45,12 @@ import sys
 from datetime import datetime, timezone
 
 SUBDIRS = ("inbox", "briefs", "reviews", "gates", "releases", "drafts", "memory", "specs", "reports",
-           "items", "grants", "progress")
+           "items", "grants", "progress", "evidence")
 FILES = ("open-loops.md", "ledger.md", "star.json")
 V2_DEFAULTS = {
     "executor": {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"},
-    "gate": {"model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 3},
+    "gate": {"model": "latest-sol", "effort": "xhigh",
+             "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 3},
     "hostedReviewer": None,
     "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
     "progressDeadlineMin": 30,
@@ -188,6 +194,22 @@ def forget(path):
         pass
 
 
+def upgrade_gate(data):
+    """v2.0.0's gate defaults to v2.1.0's (astra to latest-sol, a string fallback to the Claude block).
+    True when something changed; any other value is the owner's and stays."""
+    gate = data.get("gate")
+    if not isinstance(gate, dict):
+        return False
+    changed = False
+    if gate.get("model") == "gpt-6-astra":
+        gate["model"] = "latest-sol"
+        changed = True
+    if isinstance(gate.get("fallback"), str):
+        gate["fallback"] = dict(V2_DEFAULTS["gate"]["fallback"])
+        changed = True
+    return changed
+
+
 def migrate():
     star_path = os.path.join(home, "star.json")
     stops_path = os.path.join(home, "migrate-stops.txt")
@@ -212,6 +234,9 @@ def migrate():
     if not isinstance(data, dict):
         die(1, f"{star_path} is not a JSON object")
     if data.get("schema") == 2:
+        if upgrade_gate(data):
+            write_json(star_path, data)
+            print("migrated gate")
         print("current")
         forget(stops_path)
         return
@@ -229,6 +254,8 @@ def migrate():
     data.pop("reviewer", None)
     for key, value in V2_DEFAULTS.items():
         data.setdefault(key, value)
+    if upgrade_gate(data):
+        print("migrated gate")
     project = (data.get("project") or {}).get("name") or ""
     skill = os.environ["STAR_SKILL_DIR"]
     rows = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "list"],
