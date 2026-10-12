@@ -15,7 +15,7 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 APP="$TMP/app"; mkdir -p "$APP" "$TMP/fix"
 (cd "$APP" && git init -q -b main . && printf 'a\n' > f && git add f && git -c user.email=t@t -c user.name=t commit -qm init && git checkout -qb feat/item-1 && printf 'b\n' > f && git -c user.email=t@t -c user.name=t commit -qam change)
 H="$TMP/home"; mkdir -p "$H/memory" "$H/gates/app"
-printf '{"project": {"name": "app"}, "gate": {"model": "latest-sol", "effort": "xhigh", "fallback": "latest-sol"}}\n' > "$H/star.json"
+printf '{"project": {"name": "app"}, "gate": {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}}}\n' > "$H/star.json"
 BRIEF="$H/briefs/app/ITEM-1.md"; mkdir -p "$(dirname "$BRIEF")"
 cat > "$BRIEF" <<EOF
 ---
@@ -60,8 +60,20 @@ case "$1 $2" in
 esac
 EOF
 chmod +x "$TMP/bin/codex" "$TMP/bin/gh"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan"; rm -rf "$H/reviews" "$H/specs"; }
+cat > "$TMP/bin/claude" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$STUB_DIR/claude-calls"
+line=$(sed -n 1p "$STUB_DIR/claude-plan" 2>/dev/null)
+[ -n "$line" ] || { echo "no claude plan" >&2; exit 9; }
+rc=${line%% *}; rest=${line#* }; fixture=${rest%% *}; err=${rest#"$fixture"}
+[ "$fixture" != "-" ] && cat "$STUB_FIX/$fixture.txt"
+[ -n "$err" ] && printf '%s\n' "$err" >&2
+exit "$rc"
+EOF
+chmod +x "$TMP/bin/claude"
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
+cplan() { printf '%s\n' "$1" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
 # GF reads the fixtures a test writes into $TMP/fix instead of the shared ones
 GF() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -96,7 +108,7 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 
 # model and effort: the flags, else star.json's gate block (the star.json above holds the defaults, so change it)
 cp "$H/star.json" "$TMP/star.json.orig"
-printf '{"gate": {"model": "gpt-6-sol", "effort": "high", "fallback": "latest-sol"}}\n' > "$H/star.json"
+printf '{"gate": {"model": "gpt-6-sol", "effort": "high"}}\n' > "$H/star.json"
 reset; plan "0 safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 grep -q 'model="gpt-6-sol"' "$TMP/calls" && grep -q 'model_reasoning_effort="high"' "$TMP/calls" && pass "star.json's gate block sets the model and effort" || fail "star.json gate ($(cat "$TMP/calls"))"
@@ -181,23 +193,53 @@ reset; plan "0 -"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR empty review" ] && [ "$(cat "$TMP/n")" = 1 ] && pass "an empty review is ERROR, not retried" || fail "empty ($rc $out)"
 
-# capacity: two retries, then the fallback resolved to the newest sol (#41)
-reset; plan "1 - Selected model is at capacity. Please try a different model." "1 - Selected model is at capacity." "1 - stream error: 503 Service Unavailable" "0 safe"
+# capacity: two retries on Sol, then the Claude fallback (#41, #64)
+reset; plan "1 - Selected model is at capacity. Please try a different model." "1 - Selected model is at capacity." "1 - stream error: 503 Service Unavailable"; cplan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 4 ] && pass "capacity is retried, then the fallback runs" || fail "capacity ($out, $(cat "$TMP/n") calls)"
-[ "$(grep -c 'model="gpt-6.1-sol"' "$TMP/calls")" = 4 ] && grep -q 'model="gpt-6.1-sol"' "$TMP/calls" && pass "the fallback is latest-sol, resolved from the catalog" || fail "fallback model"
-grep -q 'Gate: gpt-6.1-sol xhigh' "$R1" && pass "the review names the model that ran" || fail "gate line"
-reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity" "1 - at capacity"
+[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 3 ] && [ "$(grep -c 'model="gpt-6.1-sol"' "$TMP/calls")" = 3 ] && pass "capacity is retried twice on Sol, then Claude reviews" || fail "capacity ($out, $(cat "$TMP/n") calls)"
+c=$(cat "$TMP/claude-calls")
+case "$c" in "-p You are STAR"*) true ;; *) false ;; esac \
+  && printf '%s' "$c" | grep -qF -- '--model opus --effort xhigh' \
+  && printf '%s' "$c" | grep -qF -- '--append-system-prompt Write the review as plain text' \
+  && printf '%s' "$c" | grep -qF -- "--add-dir $H " \
+  && printf '%s' "$c" | grep -qF -- '--allowedTools Read Grep Glob Bash(git diff *) Bash(git show *) Bash(git log *)' \
+  && printf '%s' "$c" | grep -qF -- '--disallowedTools Edit Write NotebookEdit' \
+  && printf '%s' "$c" | grep -qF -- '--strict-mcp-config --no-session-persistence' \
+  && pass "the fallback runs claude -p read-only, with STAR's home, no MCP server and no saved session" || fail "claude flags ($c)"
+grep -q '^Gate: claude:opus xhigh (fallback: sol at capacity) · base main' "$R1" && pass "the review names the fallback and why it ran" || fail "fallback gate line ($(grep '^Gate:' "$R1"))"
+reset; plan "1 - You've hit your usage limit. Try again at Oct 18th, 2026 6:00 PM."; cplan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit goes to Claude at once, with no retry (#64)" || fail "usage limit ($out, $(cat "$TMP/n") calls)"
+reset; plan "1 - You've hit your usage limit."; cplan "0 p1"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && pass "the fallback's review is read by the same rules: a P1 is NOT-SAFE" || fail "fallback p1 ($out)"
+reset; plan "1 - You've hit your usage limit."; cplan "1 - API Error: 529 Overloaded"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 69 ] && case "$out" in "ERROR codex review at capacity after 3 tries and the fallback"*) true ;; *) false ;; esac && pass "capacity everywhere is ERROR" || fail "capacity everywhere ($rc $out)"
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: API Error: 529 Overloaded" ] && [ ! -f "$R1" ] && pass "Sol and Claude both down is ERROR gate-down" || fail "gate-down ($rc $out)"
+reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; cplan "0 -"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol at capacity: at capacity; claude: empty review" ] && pass "an empty fallback review is gate-down" || fail "empty fallback ($rc $out)"
+reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; mkdir -p "$TMP/fix"; printf 'API Error: 500 Internal server error\n' > "$TMP/fix/apierr.txt"; cplan "0 apierr"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol at capacity: at capacity; claude: API Error: 500 Internal server error" ] && pass "a fallback that prints its failure and exits 0 is gate-down, never SAFE" || fail "fallback api error ($rc $out)"
+reset; cplan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-terra)
+[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ ! -f "$TMP/n" ] && grep -q '^Gate: claude:opus xhigh (fallback: cannot resolve latest-terra)' "$R1" && pass "a Sol name that does not resolve goes straight to the fallback" || fail "unresolved goes to fallback ($out)"
+cp "$H/star.json" "$TMP/star.json.orig2"
+printf '{"gate": {"model": "latest-sol", "effort": "xhigh", "fallback": null}}\n' > "$H/star.json"
 reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"
-out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --fallback latest-terra); rc=$?
-[ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review at capacity after 3 tries; no fallback: no current terra model is listed" ] && [ "$(cat "$TMP/n")" = 3 ] && pass "a fallback that does not resolve is named, not claimed" || fail "no fallback ($rc $out)"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol at capacity: at capacity; no fallback is set" ] && [ ! -f "$TMP/claude-calls" ] && pass "fallback null: no Claude run, gate-down" || fail "fallback null ($rc $out)"
+printf '{"gate": {"model": "latest-sol", "effort": "xhigh", "fallback": "latest-sol"}}\n' > "$H/star.json"
+reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; cplan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+grep -qF -- '--model opus --effort xhigh' "$TMP/claude-calls" && pass "a v2.0.0 string fallback means the Claude default" || fail "string fallback ($(cat "$TMP/claude-calls" 2>/dev/null))"
+cp "$TMP/star.json.orig2" "$H/star.json"
 
 # another failure is not retried
 reset; plan "1 - error: 401 Unauthorized"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review failed: error: 401 Unauthorized" ] && [ "$(cat "$TMP/n")" = 1 ] && pass "a non-capacity failure is ERROR at once" || fail "auth ($rc $out)"
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review failed: error: 401 Unauthorized" ] && [ "$(cat "$TMP/n")" = 1 ] && [ ! -f "$TMP/claude-calls" ] && pass "a non-capacity failure is ERROR at once, with no fallback" || fail "auth ($rc $out)"
 
 # HEAD moving during the review is an error, never a verdict
 reset; plan "0 move-head"
@@ -269,6 +311,10 @@ review_file "$RV2" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$S7"; rm -f
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD" --review "$RV2")
 [ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && pass "post-pass accepts a review whose head is the start of --head" || fail "head prefix ($out)"
 rm -f "$H/reviews/app/OTHER-1-r3.md"
+review_file "$RV2" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$NEWHEAD"
+sed -i.bak 's/^Gate: .*/Gate: claude:opus xhigh (fallback: sol at capacity) · base main · raw r · log l/' "$RV2"; rm -f "$RV2.bak" "$TMP/gh-calls"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD" --review "$RV2")
+grep -q "PASS (head $NEWHEAD, round 2, claude:opus xhigh)" "$TMP/gh-calls" && pass "post-pass names the fallback that reviewed: claude:opus" || fail "post-pass fallback token ($out / $(cat "$TMP/gh-calls"))"
 rm -f "$TMP/gh-calls"; mkdir -p "$TMP/phome"; printf '{"gate": {"model": "gpt-6-sol", "effort": "high"}}\n' > "$TMP/phome/star.json"
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" JUEL_STAR_HOME="$TMP/phome" sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD") )
 grep -q "PASS (head $NEWHEAD, round 2, gpt-6-sol high)" "$TMP/gh-calls" && pass "post-pass: with no flag and no review, star.json's gate block names the model" || fail "post-pass star.json ($out / $(cat "$TMP/gh-calls"))"
@@ -277,9 +323,6 @@ grep -q "PASS (head $NEWHEAD, round 2, gpt-6-sol high)" "$TMP/gh-calls" && pass 
 reset; plan "0 safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-sol >/dev/null
 grep -q 'model="gpt-6.1-sol"' "$TMP/calls" && ! grep -q 'model="latest-sol"' "$TMP/calls" && pass "--model latest-sol is resolved before codex sees it (#65)" || fail "--model alias ($(cat "$TMP/calls"))"
-reset
-out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-terra); rc=$?
-[ "$rc" -eq 69 ] && [ "$out" = "ERROR cannot resolve latest-terra: no current terra model is listed" ] && [ ! -f "$TMP/n" ] && pass "an alias that does not resolve is ERROR, and codex review never runs" || fail "unresolved alias ($rc $out)"
 reset; mkdir -p "$TMP/phome2"; printf '{"gate": {"model": "latest-sol", "effort": "xhigh"}}\n' > "$TMP/phome2/star.json"
 printf '{"author":{"login":"me"},"headRefOid":"%s","url":"u","comments":[]}\n' "$NEWHEAD" > "$TMP/pr.json"
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_MODELS="$MODELS" JUEL_STAR_HOME="$TMP/phome2" sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD") )
@@ -289,5 +332,6 @@ grep -q "PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh)" "$TMP/gh-calls" && pa
 G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --brief is 64" || fail "usage brief"
 G --brief "$BRIEF" --item ITEM-1 --round 0 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "round 0 is 64" || fail "usage round"
 G post-pass --pr x --round 1 --head abc >/dev/null 2>&1; [ $? -eq 64 ] && pass "post-pass needs the full head" || fail "usage head"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --fallback latest-sol >/dev/null 2>&1; [ $? -eq 64 ] && pass "--fallback is gone: the fallback is star.json's gate.fallback" || fail "usage fallback"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

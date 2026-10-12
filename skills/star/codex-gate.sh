@@ -2,27 +2,35 @@
 # STAR's second-model gate: one headless `codex review` of a branch against its base, with the
 # brief as the contract, written to STAR's home and read back as one verdict line.
 #   codex-gate.sh --brief <brief> --item <item> --round <k> --base <ref>
-#                 [--model <id|latest-<family>>] [--effort <level>] [--fallback <id|latest-<family>>]
+#                 [--model <id|latest-<family>>] [--effort <level>]
 #   codex-gate.sh post-pass --pr <url> --round <k> --head <sha> [--review <path>]
 #                 [--model <id>] [--effort <level>]
 # The gate prints one line:
 #   SAFE round=<k> findings=<n> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> head=<sha> review=<path>
 #   ERROR <why>
+#   ERROR gate-down <why>    neither Sol nor the fallback could review: STAR holds new builds
 # post-pass prints: posted <url> | already <url> | ERROR <why>
 # Run the gate from the item's worktree. The brief's star: block gives home, project, notes,
-# reviews and gates. Model, effort and fallback come from the flags, else star.json's "gate"
-# block, else latest-sol, xhigh and latest-sol. A latest-<family> name, from a flag or from
-# star.json, is resolved by ../ship-ticket/executor-model.sh before codex sees it (#65); a plain id
-# is used as given. A model name that does not resolve is ERROR, naming why.
+# reviews and gates. Model and effort come from the flags, else star.json's "gate" block, else
+# latest-sol and xhigh. A latest-<family> name, from a flag or from star.json, is resolved by
+# ../ship-ticket/executor-model.sh before codex sees it (#65); a plain id is used as given.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
 # codex review runs read-only with no MCP servers; its stdout goes to <reviews>/<item>-r<k>.raw.md
 # and its stderr to <item>-r<k>.log. <item>-r<k>.md starts with the VERDICT line review-proof.sh
 # reads. A finding is a bullet (-, *, +, 1. or 1)) that starts with its tag, [P0] to [P3], bold or
 # not. Only a [P0] or [P1] finding makes it NOT-SAFE. A capacity, overload or rate-limit failure
-# is retried after 60 and 180 seconds, then run once on the fallback model (a fallback that does
-# not resolve is ERROR, naming why). Anything else is ERROR, so a review the gate cannot read is
-# never SAFE: any other failure, an empty review, an output whose first line starts with "error"
+# is retried after 60 and 180 seconds; a usage-limit failure is not retried (#64). After those
+# tries, at once on a usage limit, or when the model does not resolve, the same prompt runs
+# through star.json's gate.fallback, {"agent": "claude", "model": "opus", "effort": "xhigh"} by
+# default (a string there, v2.0.0's codex fallback, means that default; "agent" must be claude):
+# claude -p with read-only tools (Read, Grep, Glob, git diff, git show, git log), access to
+# <home>, an appended system prompt that fixes the finding format, no MCP server and no saved
+# session. Its output is read by the same rules, and the review's line is
+# "Gate: claude:<model> <effort> (fallback: <why>)". A fallback that fails to run (a non-zero exit,
+# no output, a first line that reports an error), or gate.fallback null, is
+# "ERROR gate-down <why>". Anything else is ERROR, so a review the gate cannot read is
+# never SAFE: any other codex failure, an empty review, an output whose first line starts with "error"
 # (any case) or "⚠" (codex printed a failure and still exited 0), HEAD moving during the review,
 # a line that holds a [P0]-[P3] tag outside that shape ("a finding in a shape the gate cannot
 # read"), a "Review comment(s):" header with no tagged finding under it, and a bullet that ends
@@ -60,6 +68,13 @@ FINDINGS_HEADER = re.compile(r"^\s*review comments?:\s*$", re.I)
 # The shape of a finding with its tag dropped: a bullet at the margin that ends with its place,
 # "<path>:<line>[-<line>]", set off by a hyphen, an en dash or an em dash, or put in parentheses
 PLACED = re.compile(r"^" + BULLET + r"\s+(?!(?:\*\*)?\[P[0-3]\]).*\S\s+(?:[-–—]\s+|\()\S.*:\d+(?:-\d+)?\)?\s*$")
+USAGE = re.compile(r"usage limit|hit your usage limit|try again at", re.I)
+DEFAULT_FALLBACK = {"agent": "claude", "model": "opus", "effort": "xhigh"}
+READ_ONLY = ["Read", "Grep", "Glob", "Bash(git diff *)", "Bash(git show *)", "Bash(git log *)"]
+# codex review has its own output shape; the fallback is told the shape the parser below reads
+FORMAT = ("Write the review as plain text: first one short paragraph with your overall verdict, then each "
+          "finding as one bullet line, \"- [P<n>] <title> — <path>:<line>\", with any detail indented on the "
+          "lines below it. Write nothing else, and change nothing.")
 
 
 def out(line, code=0):
@@ -101,6 +116,18 @@ def resolve(name, effort_):
     if r.returncode == 0 and words[:1] == ["default"]:
         return None, " ".join(words[1:]) or "executor-model.sh named no model"
     return None, last_line(r.stderr or r.stdout) or f"executor-model.sh exited {r.returncode}"
+
+
+def fallback_of(gate_):
+    """star.json's gate.fallback as a Claude block, or None when it is null or names another agent.
+    A missing key, or a string (v2.0.0's codex fallback), means the default block."""
+    fb = gate_.get("fallback", DEFAULT_FALLBACK)
+    if fb is None:
+        return None
+    if not isinstance(fb, dict):
+        return dict(DEFAULT_FALLBACK)
+    fb = {**DEFAULT_FALLBACK, **{key: v.strip() for key, v in fb.items() if isinstance(v, str) and v.strip()}}
+    return fb if fb["agent"] == "claude" else None
 
 
 def options(argv, names):
@@ -193,7 +220,7 @@ if argv[:1] == ["post-pass"]:
         die("--round takes a number")
     post_pass(o)
 
-o = options(argv, ("--brief", "--item", "--round", "--base", "--model", "--effort", "--fallback"))
+o = options(argv, ("--brief", "--item", "--round", "--base", "--model", "--effort"))
 for key in ("brief", "item", "round", "base"):
     if key not in o:
         die(f"the gate needs --{key}")
@@ -235,10 +262,9 @@ gate = gate if isinstance(gate, dict) else {}
 asked = o.get("model") or gate.get("model") or "latest-sol"
 effort = o.get("effort") or gate.get("effort") or "xhigh"
 model, resolved = resolve(asked, effort)
-if model is None:
-    error(f"cannot resolve {asked}: {resolved}")
-effort = resolved
-fallback = o.get("fallback") or gate.get("fallback") or "latest-sol"
+if model is not None:
+    effort = resolved
+fb = fallback_of(gate)
 try:
     LIMIT = float(os.environ.get("CODEX_GATE_TIMEOUT", "3600"))
 except ValueError:
@@ -287,46 +313,73 @@ if not re.fullmatch(r"[0-9a-f]{40}", before):
     error("not inside a git checkout")
 
 
-def review(model_, effort_):
-    cmd = ["codex", "review", prompt, "--strict-config", "-c", f'model="{model_}"',
-           "-c", f'model_reasoning_effort="{effort_}"', "-c", 'sandbox_mode="read-only"', "-c", "mcp_servers={}"]
+def codex_cmd(m, e):
+    return ["codex", "review", prompt, "--strict-config", "-c", f'model="{m}"', "-c", f'model_reasoning_effort="{e}"',
+            "-c", 'sandbox_mode="read-only"', "-c", "mcp_servers={}"]
+
+
+def claude_cmd(m, e):
+    return ["claude", "-p", prompt, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
+            "--add-dir", home, "--allowedTools", *READ_ONLY, "--disallowedTools", "Edit", "Write", "NotebookEdit",
+            "--strict-mcp-config", "--no-session-persistence"]
+
+
+def attempt(cmd, label):
+    """One review run, stdout to the raw file and stderr to the log: (rc, stdout, this run's stderr).
+    rc is 127 when the program is missing and 124 past CODEX_GATE_TIMEOUT."""
     start = os.path.getsize(log_path) if os.path.exists(log_path) else 0
-    try:
-        with open(raw_path, "w", encoding="utf-8") as so, open(log_path, "a", encoding="utf-8") as se:
-            se.write(f"--- codex review {model_} {effort_} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
-            se.flush()
+    with open(raw_path, "w", encoding="utf-8") as so, open(log_path, "a", encoding="utf-8") as se:
+        se.write(f"--- {label} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+        se.flush()
+        try:
             rc = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=so, stderr=se, timeout=LIMIT).returncode
-    except FileNotFoundError:
-        error("codex not found on PATH")
-    except subprocess.TimeoutExpired:
-        rc = 124
+        except FileNotFoundError:
+            se.write(f"{cmd[0]} not found on PATH\n")
+            rc = 127
+        except subprocess.TimeoutExpired:
+            rc = 124
     with open(log_path, encoding="utf-8", errors="replace") as f:
         f.seek(start)
-        tail = "\n".join(f.read().splitlines()[1:])  # this attempt's stderr, without the script's own header line
+        tail = "\n".join(f.read().splitlines()[1:])  # this run's stderr, without the script's own header line
     return rc, open(raw_path, encoding="utf-8", errors="replace").read(), tail
 
 
+def refusal(text):
+    """The first line, when it reports a failure although the run exited 0 ("error…", "API Error…", "⚠")."""
+    first = next((l.strip() for l in text.splitlines() if l.strip()), "")
+    return first if first.lower().startswith(("error", "api error")) or first.startswith("⚠") else ""
+
+
 used, text, tail = None, "", ""
-for m_, e_, wait in ((model, effort, 0), (model, effort, 60), (model, effort, 180), (None, None, 0)):
-    if m_ is None:
-        m_, e_ = resolve(fallback, effort)
-        if m_ is None:
-            error("codex review at capacity after 3 tries; no fallback: " + e_)
-    if wait:
-        time.sleep(wait * PAUSE)
-    rc, text, tail = review(m_, e_)
-    if rc == 0 and text.strip():
-        first = next(l.strip() for l in text.splitlines() if l.strip())
-        if first.lower().startswith("error") or first.startswith("⚠"):
-            error("codex review failed: " + first[:160])
-        used = (m_, e_)
-        break
-    if rc == 0:
-        error("empty review")
-    if not CAPACITY.search(tail):
-        error("codex review failed: " + (last_line(tail) or f"exit {rc}"))
+short, why = f"cannot resolve {asked}", resolved
+if model is not None:
+    for wait in (0, 60, 180):
+        if wait:
+            time.sleep(wait * PAUSE)
+        rc, text, tail = attempt(codex_cmd(model, effort), f"codex review {model} {effort}")
+        if rc == 0 and text.strip():
+            if refusal(text):
+                error("codex review failed: " + refusal(text)[:160])
+            used = (model, effort, "")
+            break
+        if rc == 0:
+            error("empty review")
+        if rc == 127:
+            error("codex not found on PATH")
+        if USAGE.search(tail) or USAGE.search(text):
+            short, why = "sol usage limit", last_line(tail or text)
+            break
+        if not CAPACITY.search(tail):
+            error("codex review failed: " + (last_line(tail) or f"exit {rc}"))
+        short, why = "sol at capacity", last_line(tail)
 if used is None:
-    error("codex review at capacity after 3 tries and the fallback: " + (last_line(tail) or "no output"))
+    if fb is None:
+        error(f"gate-down {short}: {why}; no fallback is set")
+    rc, text, tail = attempt(claude_cmd(fb["model"], fb["effort"]), f"claude {fb['model']} {fb['effort']}")
+    if rc != 0 or not text.strip() or refusal(text):
+        failed = refusal(text) or last_line(tail) or ("empty review" if rc == 0 else f"exit {rc}")
+        error(f"gate-down {short}: {why}; claude: {failed[:160]}")
+    used = (f"claude:{fb['model']}", fb["effort"], short)
 after = head()
 if after != before:
     error(f"HEAD moved during the review ({before[:7]} to {after[:7] or '?'})")
@@ -364,7 +417,8 @@ for i, f in enumerate(findings, 1):
 if not findings:
     lines.append("none")
 lines += ["", "## Notes", " ".join(overall) or "-", "",
-          f"Gate: {used[0]} {used[1]} · base {base} · raw {raw_path} · log {log_path}"]
+          f"Gate: {used[0]} {used[1]}" + (f" (fallback: {used[2]})" if used[2] else "")
+          + f" · base {base} · raw {raw_path} · log {log_path}"]
 tmp = f"{review_path}.tmp.{os.getpid()}"
 with open(tmp, "w", encoding="utf-8") as f:
     f.write("\n".join(lines) + "\n")
