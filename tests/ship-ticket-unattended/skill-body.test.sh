@@ -145,5 +145,12 @@ g "F11 the unanswered-question sentence ends with a period" '`unanswered-questio
 # Final fixes C-3: only a run under a star: brief has a star.home, so only it creates the folder and keeps the log
 g "C3a the progress paragraph applies under a star: brief" '**Progress.** Under a `star:` brief, STAR judges this run by its progress'
 g "C3b a run without a star: brief keeps no progress log" 'A run without a `star:` brief has no `star.home` and keeps no progress log.'
+# Progress step tokens (spec 5, feeds #70)
+g "P1a a progress line carries a step token" '"<step>" "<one line>"'
+for t in '| `phase<N>` |' '| `executor` |' '| `live-check` |' '| `regression-gate` |' '| `gate-r<k>` |' '| `post-pass` |' '| `sync` |' '| `report` |'; do
+  grep -qF -- "$t" "$SKILL" && pass "P1b token row $t" || fail "P1b token row $t"
+done
+grep -qF '"<phase or round>"' "$SKILL" && fail "P1c the free-form step field is gone" || pass "P1c the free-form step field is gone"
+g "P1d a gate round's progress line names its round" 'Append a progress line with the step `gate-r<k>`.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

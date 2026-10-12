@@ -115,5 +115,12 @@ hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
 [ "$(printf '%s\n' "$hosted_row" | grep -c .)" -eq 1 ] && pass "C2 one table row holds the hosted reviewer" || fail "C2 one table row holds the hosted reviewer"
 printf '%s\n' "$hosted_row" | grep -qF "push that only merges the base branch in keeps the hosted review's clean judgement (the codex gate re-gates that push), so \`READY\` may follow it" && pass "C2 a base-only merge push keeps the clean judgement" || fail "C2 a base-only merge push keeps the clean judgement"
 printf '%s\n' "$hosted_row" | grep -qF 'Never ask it for a third pass' && pass "C2 the third pass is still never asked for" || fail "C2 the third pass is still never asked for"
+# Progress step tokens (spec 5, feeds #70)
+progress_row=$(grep -F '| progress |' "$SKILL")
+prow() { printf '%s\n' "$progress_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+for t in '`phase<N>`' '`ready`' '`wait-hosted`' '`wait-ci`' '`executor`' '`regression-gate`' '`gate-r<k>`' '`post-pass`' '`sync`' '`report`'; do
+  prow "P2a babysit's progress row names $t" "$t"
+done
+grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is gone" || pass "P2b the free-form step field is gone"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

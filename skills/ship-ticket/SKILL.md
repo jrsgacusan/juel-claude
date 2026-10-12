@@ -416,10 +416,23 @@ user-facing changes only. When the Mobbin or context7 tools are not in this sess
 instead and say so in the record's Source.
 
 **Progress.** Under a `star:` brief, STAR judges this run by its progress, not its terminal.
-Create the folder before the first line: `mkdir -p <star.home>/progress`. At the start of each
-phase and each gate round, and after each live check in Phase 6, append one line to
-`<star.home>/progress/<item>.log`:
-`printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<phase or round>" "<one line>" >> <that file>`.
+Create the folder before the first line: `mkdir -p <star.home>/progress`. Append one line to
+`<star.home>/progress/<item>.log` at each step below:
+`printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<one line>" >> <that file>`.
+`<step>` is exactly one of these tokens, because STAR's `step-check.sh` reads it to know what you
+are waiting on; the free text goes in the third field:
+
+| Step | Write it |
+|---|---|
+| `phase<N>` | at the start of phase N (`phase1` to `phase8`) |
+| `executor` | right before each executor dispatch: Phase 4, and each fix plan of the gate loop |
+| `live-check` | after each live check in Phase 6, naming the check and its verdict |
+| `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix) |
+| `gate-r<k>` | right before gate round `k` starts (`gate-r1`, `gate-r2`, …) |
+| `post-pass` | right before `post-pass`, and before each quiet-hours wait for it |
+| `sync` | right before merging the base branch in (an `existingPr`) |
+| `report` | right before the final report line |
+
 Thirty minutes with no progress line, no commit and no changed file gets a check-in from STAR.
 A run without a `star:` brief has no `star.home` and keeps no progress log.
 
@@ -940,7 +953,7 @@ unattended run without a `star:` block then ends with `DONE item=<item> pr=<url>
 no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 
 1. Round: `k` is 1 plus the highest `k` among `<star.reviews>/<item>-r<k>.md`, or 1 when there is none.
-   Append a progress line.
+   Append a progress line with the step `gate-r<k>`.
 2. Run, from the worktree root, in the background like `codex exec` (`run_in_background: true`, wait
    for the completion notification, never poll it):
    `sh <codex-gate.sh> --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>`
