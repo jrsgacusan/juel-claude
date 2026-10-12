@@ -347,7 +347,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td class="k">ingest</td><td>STAR</td><td>its own session</td><td>each ref, and each piece of free text, is an item</td></tr>
           <tr><td class="k">brief</td><td>brief worker, Opus 5.5 high</td><td>the main checkout, read-only</td><td>the brief has criteria, approach, scope, blockers, its checks sorted, and sourced decisions</td></tr>
           <tr><td class="k">go</td><td>you</td><td>chat</td><td>the person-only steps are done and you said go</td></tr>
-          <tr><td class="k">build</td><td>build worker, Opus 5.5 xhigh; luna executes, astra gates</td><td>the item's own worktree</td><td>the PR passed the codex gate, the PASS is posted on it, and it is marked ready (outside quiet hours)</td></tr>
+          <tr><td class="k">build</td><td>build worker, Opus 5.5 xhigh; luna executes, Sol gates (Claude when Codex is down)</td><td>the item's own worktree</td><td>the PR passed the codex gate, the PASS is posted on it, and it is marked ready (outside quiet hours)</td></tr>
           <tr><td class="k">check</td><td>STAR</td><td>its own session</td><td>the review file, the PASS comment and the PR's head agree</td></tr>
           <tr><td class="k">babysit</td><td>babysit worker, Opus 5.5 xhigh; luna fixes</td><td>the item's worktree</td><td>the PR is ready, reviewed clean or approved, and green on its head</td></tr>
           <tr><td class="k">merge</td><td>STAR</td><td>its own session</td><td>every gate holds and the PR merged on that exact head</td></tr>
@@ -507,6 +507,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td>Fresh reviewer before the gate</td><td>Claude subagents (pr-review-toolkit)</td><td class="mono">n/a</td></tr>
           <tr><td>Executor: runs plans and fixes</td><td>gpt-6-luna, the newest luna in <code>codex debug models</code></td><td class="mono">xhigh</td></tr>
           <tr><td>Codex gate</td><td>gpt-6.1-sol, the newest sol in <code>codex debug models</code>, through <code>codex review</code>, read-only, no MCP servers</td><td class="mono">xhigh</td></tr>
+          <tr><td>Gate fallback, when Sol is at capacity or the Codex account is out</td><td>Opus 5.5 through <code>claude -p</code>, read-only tools, no MCP servers</td><td class="mono">xhigh</td></tr>
           <tr><td>Hosted review</td><td>The project's own (Greptile)</td><td class="mono">n/a</td></tr>
         </tbody>
       </table>
