@@ -96,6 +96,58 @@ t "a clean worktree with an old commit is no progress" \
 echo b > "$WT/b.txt"; age 2 "$WT/b.txt"
 t "an executor that changes files without progress lines is ok" "ok executor" --state building --worktree "$WT"
 
+# the PR beside the step (#69, #70): a stub pr-state.sh that logs its arguments
+cat > "$TMP/pr-state.sh" <<'EOF'
+printf '%s\n' "$*" >> "$STUB_DIR/pr-calls"
+cat "$STUB_DIR/pr.json"
+EOF
+HEADX=abc1234def5678abc1234def5678abc1234def56
+PR=https://github.com/o/r/pull/30
+# snap <draft> <checks> <hosted JSON> <merge>
+snap() { printf '{"head":"%s","draft":%s,"checks":"%s","hosted":%s,"merge":"%s"}\n' "$HEADX" "$1" "$2" "$3" "$4" > "$TMP/pr.json"; }
+SCP() { STAR_NOW=$NOW QUIET_NOW=$NOW STEP_CHECK_PR_STATE="$TMP/pr-state.sh" STUB_DIR="$TMP" sh "$SCRIPT" --item IT --home "$H" "$@"; }
+tp() { name=$1 exp=$2; shift 2; got=$(SCP "$@"); if [ "$got" = "$exp" ]; then pass "$name"; else fail "$name (got: $got)"; fi; }
+clean; rm -f "$TMP/pr-calls"; snap false green '"success"' clean; say 20 wait-hosted "wake: timeout"
+tp "a babysit still waiting on a hosted pass that landed is told to judge it" \
+  "act wait-hosted hosted review passed on abc1234 -- STAR: the hosted review passed on abc1234 and checks are green. Judge the review and report READY." \
+  --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
+grep -qx "$PR --hosted greptile-apps\[bot\]" "$TMP/pr-calls" && pass "one pr-state.sh snapshot with the hosted reviewer, never --wait" || fail "pr-state.sh call ($(cat "$TMP/pr-calls"))"
+tp "still waiting 15 min after the instruction is a restart" \
+  "restart wait-hosted hosted review passed on abc1234, worker still waiting after an instruction" \
+  --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]' --asked "$(ago 16)"
+say 20 phase2 "wake: timeout"
+tp "a babysit waiting in Phase 2 on a hosted pass that landed is told to judge it too" \
+  "act phase2 hosted review passed on abc1234 -- STAR: the hosted review passed on abc1234 and checks are green. Judge the review and report READY." \
+  --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
+say 20 wait-hosted "wake: timeout"
+snap false green '"pending"' clean
+tp "a hosted review still running is ok" "ok wait-hosted" --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
+snap false green '"success"' clean; say 10 wait-ci "wake: timeout"
+tp "a pass 10 min old gets the worker's next wake first" "ok wait-ci" --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
+snap false green '"none"' clean; say 5 ready "marked ready"
+tp "a ready green PR with no hosted run is named" "note ready checks green, no hosted run on abc1234" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
+printf '{"project": {"name": "app"}, "quietHours": {"tz": "Asia/Manila", "start": "19:00", "end": "07:00"}}\n' > "$H/star.json"
+tp "inside quiet hours nothing may be requested, so there is no note" "ok ready" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
+printf '{"project": {"name": "app"}, "quietHours": null}\n' > "$H/star.json"
+snap true green '"none"' clean
+tp "a draft gets no hosted run by design" "ok ready" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
+snap false green null clean
+tp "with no hosted reviewer there is nothing to request" "ok ready" --state building --pr "$PR"
+snap false pending '"none"' dirty; say 5 wait-hosted "wake: timeout"
+tp "a babysat PR that conflicts is named" "note wait-hosted PR conflicts with its base" --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
+say 40 wait-hosted "wake: timeout"
+tp "a stuck worker gets its instruction before the PR's note" \
+  "act wait-hosted no progress 40 min -- STAR: no wake for 40 min while you wait for the hosted review. Read the PR's hosted status on its head now; when it reviewed the head, judge it and go on." \
+  --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
+printf '{"error":"gh exited 1: boom"}\n' > "$TMP/pr.json"; say 5 wait-hosted "wake: timeout"
+tp "a PR that cannot be read says nothing about the worker" "ok wait-hosted" --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
+rm -f "$TMP/pr-calls"; say 5 phase6 "live check"
+tp "without --pr the PR is not read" "ok phase6" --state building
+[ ! -f "$TMP/pr-calls" ] && pass "no pr-state.sh call without --pr" || fail "pr-state.sh called without --pr"
+rm -f "$TMP/pr-calls"; say 40 gate-r2 "round 2"; runfile 2 "$LIVE_PID" 5
+tp "a running gate round is ok without reading the PR" "ok gate-r2" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
+[ ! -f "$TMP/pr-calls" ] && pass "no pr-state.sh call while a gate round runs" || fail "pr-state.sh called during a gate round"
+
 # usage
 SC >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --state is 64" || fail "no --state"
 SC --state reviewing >/dev/null 2>&1; [ $? -eq 64 ] && pass "a state with no worker is 64" || fail "bad state"
