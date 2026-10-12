@@ -1,0 +1,22 @@
+{
+ "type": "result",
+ "subtype": "success",
+ "is_error": false,
+ "duration_ms": 41873,
+ "num_turns": 3,
+ "result": "The command was refused.",
+ "stop_reason": "end_turn",
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "total_cost_usd": 0.31,
+ "permission_denials": [
+  {
+   "tool_name": "Bash",
+   "tool_use_id": "toolu_03",
+   "tool_input": {
+    "command": "for f in a b; do\n  git diff main...HEAD -- $f\ndone\nSAFE round=1 findings=0 head=0123456789abcdef0123456789abcdef01234567 review=/x/ITEM-1-r1.md",
+    "description": "Loop over files"
+   }
+  }
+ ],
+ "terminal_reason": "completed"
+}

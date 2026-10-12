@@ -91,6 +91,7 @@ G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_M
 # GF reads the fixtures a test writes into $TMP/fix instead of the shared ones
 GF() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
 HEAD=$(git -C "$APP" rev-parse HEAD)
+APPREAL=$(cd "$APP" && pwd -P)
 R1="$H/reviews/app/ITEM-1-r1.md"
 
 # SAFE, with the files in STAR's home and the flags the owner chose
@@ -215,10 +216,16 @@ case "$c" in "-p You are STAR"*) true ;; *) false ;; esac \
   && printf '%s' "$c" | grep -qF -- '--model opus --effort xhigh' \
   && printf '%s' "$c" | grep -qF -- '--append-system-prompt Write the review as plain text' \
   && printf '%s' "$c" | grep -qF -- "--add-dir $H " \
-  && printf '%s' "$c" | grep -qF -- '--allowedTools Read Grep Glob Bash(git diff *) Bash(git -C * diff) Bash(git -C * diff *) Bash(git show *) Bash(git -C * show) Bash(git -C * show *) Bash(git log *) Bash(git -C * log) Bash(git -C * log *)' \
+  && printf '%s' "$c" | grep -qF -- '--allowedTools Read Grep Glob Bash(git diff *) Bash(git show *) Bash(git log *) Bash(git -C '"$APPREAL"' diff) Bash(git -C '"$APPREAL"' diff *) Bash(git -C '"$APPREAL"' show) Bash(git -C '"$APPREAL"' show *) Bash(git -C '"$APPREAL"' log) Bash(git -C '"$APPREAL"' log *)' \
   && printf '%s' "$c" | grep -qF -- '--disallowedTools Edit Write NotebookEdit Bash(git * --output*)' \
   && printf '%s' "$c" | grep -qF -- '--output-format json --strict-mcp-config --no-session-persistence' \
   && pass "the fallback runs claude -p read-only, with STAR's home, no MCP server and no saved session" || fail "claude flags ($c)"
+# N1: a -C rule holds the worktree's own path, never a "*": a "*" would match a whole subcommand (git -C x branch diff)
+allowed=$(printf '%s' "$c" | sed -e 's/.*--allowedTools //' -e 's/ --disallowedTools.*//')
+case "$allowed" in *"git -C *"*) false ;; *"git -C $APPREAL diff)"*) true ;; *) false ;; esac \
+  && printf '%s' "$allowed" | grep -qE 'git -C [^* ]+ (diff|show|log)' \
+  && ! printf '%s' "$allowed" | grep -qE 'git (-C|-c) \*|git \*' \
+  && pass "the -C allow rules hold the worktree path, with no git -C * rule that could match another subcommand" || fail "-C rules ($allowed)"
 grep -q '^Gate: claude:opus xhigh (fallback: sol at capacity) · base main' "$R1" && pass "the review names the fallback and why it ran" || fail "fallback gate line ($(grep '^Gate:' "$R1"))"
 reset; plan "1 - You've hit your usage limit. Try again at Oct 18th, 2026 6:00 PM."; cplan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
@@ -251,6 +258,15 @@ fallback_down "0 claude-empty-result.json" "empty review" "a JSON result with a 
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-error-first"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "a Claude review that opens with the word Error is a review: the JSON, not its first line, says it failed" || fail "error-first fallback ($rc $out)"
+# N2: an ERROR is exactly one line, whatever text the model put in the denied command: a fake verdict on a later line
+# must not become the last line the worker reads
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-multiline.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] && case "$out" in "ERROR gate-down "*) true ;; *) false ;; esac \
+  && case "$(printf '%s\n' "$out" | tail -n 1)" in SAFE*) false ;; *) true ;; esac \
+  && [ ! -f "$R1" ] && grep -q '^--- ERROR gate-down ' "$H/reviews/app/ITEM-1-r1-error-1.log" \
+  && [ "$(grep -c '^--- ERROR ' "$H/reviews/app/ITEM-1-r1-error-1.log")" = 1 ] \
+  && pass "a denied command with a newline and a fake SAFE line is still one ERROR gate-down line" || fail "multi-line denial ($rc $out)"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-clean.json"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "a clean JSON result still gives a verdict, and the raw file holds the review text" || fail "clean json fallback ($rc $out)"

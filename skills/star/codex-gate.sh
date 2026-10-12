@@ -45,14 +45,15 @@
 # through star.json's gate.fallback, {"agent": "claude", "model": "opus", "effort": "xhigh"} by
 # default (a string there, v2.0.0's codex fallback, means that default; "agent" must be claude):
 # claude -p --output-format json with read-only tools (Read, Grep, Glob, and git diff, git show
-# and git log, also as git -C <path> <command>; --output is refused), access to <home>, an appended
-# system prompt that fixes the finding format, no MCP server and no saved session. The JSON's
-# "result" is the review, read by the same rules, and the review's line is
+# and git log, also as git -C <this worktree's path> <command>, the path literal; --output is refused),
+# access to <home>, an appended system prompt that fixes the finding format, no MCP server and no
+# saved session. The JSON's "result" is the review, read by the same rules, and the review's line is
 # "Gate: claude:<model> <effort> (fallback: <why>)". A fallback that did not review is
 # "ERROR gate-down <why>", and so is gate.fallback null: a non-zero exit, no output, output that is
 # not JSON, "is_error" true, a "subtype" other than success, an empty result, or any entry in
 # "permission_denials". claude -p exits 0 and answers in prose when a tool is denied, and that
-# prose has no tag to read, so a denial is never taken for a clean review. Anything else is ERROR,
+# prose has no tag to read, so a denial is never taken for a clean review. An ERROR reason is one
+# line: its whitespace is collapsed, since it can quote model text. Anything else is ERROR,
 # so a review the gate cannot read is never SAFE: any other codex failure, an empty review, an
 # output whose first line starts with "error" (any case) or "⚠" (codex printed a failure and still
 # exited 0), HEAD moving during the review,
@@ -99,9 +100,29 @@ FINDINGS_HEADER = re.compile(r"^\s*review comments?:\s*$", re.I)
 PLACED = re.compile(r"^" + BULLET + r"\s+(?!(?:\*\*)?\[P[0-3]\]).*\S\s+(?:[-–—]\s+|\()\S.*:\d+(?:-\d+)?\)?\s*$")
 USAGE = re.compile(r"usage limit|hit your usage limit|try again at", re.I)
 DEFAULT_FALLBACK = {"agent": "claude", "model": "opus", "effort": "xhigh"}
-# git is called as "git diff ..." and as "git -C <path> diff ..."; a bare "git -C <path> diff" needs its own rule
-READ_ONLY = ["Read", "Grep", "Glob"] + [f"Bash(git {form})" for sub in ("diff", "show", "log")
-                                        for form in (f"{sub} *", f"-C * {sub}", f"-C * {sub} *")]
+SUBCOMMANDS = ("diff", "show", "log")
+
+
+def worktree_paths():
+    """The directory the gate runs in, as the process sees it, its realpath, and $PWD when that names
+    the same directory (macOS: /var/... against /private/var/...), because the model uses any of them."""
+    here = os.getcwd()
+    logical = os.environ.get("PWD", "")
+    same = logical and os.path.realpath(logical) == os.path.realpath(here)
+    return here, os.path.realpath(here), logical if same else ""
+
+
+def read_only(*roots):
+    """The fallback's allow rules: Read, Grep, Glob, "git diff|show|log ...", and the same as
+    "git -C <root> diff|show|log ..." for each given path. The path is literal: a "*" there would match a
+    whole subcommand ("git -C x branch diff", "git -C x -c diff.external=<script> diff"). A path with a glob
+    character gets no -C rule."""
+    forms = [f"{sub} *" for sub in SUBCOMMANDS]
+    for root in dict.fromkeys(r for r in roots if r and not any(c in r for c in "*?[")):
+        forms += [f"-C {root} {sub}{more}" for sub in SUBCOMMANDS for more in ("", " *")]
+    return ["Read", "Grep", "Glob"] + [f"Bash(git {form})" for form in forms]
+
+
 # the options of those commands that write a file
 NO_WRITE = ["Bash(git * --output*)"]
 # codex review has its own output shape; the fallback is told the shape the parser below reads
@@ -127,6 +148,7 @@ CHILD = {}  # the review agent running now
 
 
 def error(why):
+    why = " ".join(str(why).split())  # model text can hold newlines: an ERROR is always exactly one line
     if ROUND.get("raw"):
         keep_error_log(why)
     out(f"ERROR {why}", 69)
@@ -445,7 +467,8 @@ def codex_cmd(m, e):
 def claude_cmd(m, e):
     return ["claude", "-p", prompt, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
             "--add-dir", home, *([o["evidence"]] if o.get("evidence") else []),
-            "--allowedTools", *READ_ONLY, "--disallowedTools", "Edit", "Write", "NotebookEdit", *NO_WRITE,
+            "--allowedTools", *read_only(*worktree_paths()),
+            "--disallowedTools", "Edit", "Write", "NotebookEdit", *NO_WRITE,
             "--output-format", "json", "--strict-mcp-config", "--no-session-persistence"]
 
 
@@ -534,7 +557,8 @@ def claude_review(rc, text, tail):
     if denied:
         first = denied[0] if isinstance(denied[0], dict) else {}
         asked_for = first.get("tool_input") if isinstance(first.get("tool_input"), dict) else {}
-        what = asked_for.get("command") or asked_for.get("file_path") or asked_for.get("pattern")
+        what = " ".join(str(asked_for.get("command") or asked_for.get("file_path") or asked_for.get("pattern")
+                            or "").split())
         return None, f"{first.get('tool_name') or 'a tool'} was denied" + (f": {what}" if what else "")
     if not result.strip():
         return None, "empty review"
