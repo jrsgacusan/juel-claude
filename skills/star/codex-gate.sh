@@ -5,12 +5,17 @@
 #                 [--model <id|latest-<family>>] [--effort <level>] [--evidence <dir>]
 #   codex-gate.sh post-pass --pr <url> --round <k> --head <sha> [--review <path>]
 #                 [--model <id>] [--effort <level>]
+#   codex-gate.sh check
 # The gate prints one line:
 #   SAFE round=<k> findings=<n> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> head=<sha> review=<path>
 #   ERROR <why>
 #   ERROR gate-down <why>    neither Sol nor the fallback could review: STAR holds new builds
 # post-pass prints: posted <url> | already <url> | ERROR <why>
+# check prints: up <agent:model> | down <why>. It sends "Reply with the single word ok." through the
+# gate's chain at effort low, 120 seconds each: codex exec on star.json's gate model, read-only
+# with no MCP servers, then the Claude fallback. An answer with the word ok is up. STAR runs it
+# while its gateDown flag is set, to learn when the gate is back (#64).
 # Run the gate from the item's worktree. The brief's star: block gives home, project, notes,
 # reviews and gates. Model and effort come from the flags, else star.json's "gate" block, else
 # latest-sol and xhigh. A latest-<family> name, from a flag or from star.json, is resolved by
@@ -64,7 +69,7 @@
 # with the head the start of --head, and no <item>-r<k+1>.md may lie beside it. Nothing is posted.
 # Test seams: CODEX_GATE_SLEEP multiplies the waits (default 1); CODEX_GATE_TIMEOUT, seconds per
 # codex run (default 3600).
-# Exit: 0 with a verdict or a post-pass result, 69 with ERROR, 64 on bad usage.
+# Exit: 0 with a verdict, a post-pass result or up; 69 with ERROR or down; 64 on bad usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd)
 export STAR_SKILL_DIR
 exec python3 - "$@" <<'PY'
@@ -280,7 +285,38 @@ def post_pass(o):
     out(f"posted {last_line(posted.stdout) or url}")
 
 
+PING = "Reply with the single word ok."
+
+
+def check():
+    """up <agent:model> when Sol or the fallback answers a one-line prompt, else down <why> (#64)."""
+    gate = project_gate()
+    asked = gate.get("model") or "latest-sol"
+    model_, why = resolve(asked, "low")
+    if model_ is None:
+        reasons = [f"sol: cannot resolve {asked}: {why}"]
+    else:
+        r = run(["codex", "exec", "--strict-config", "--skip-git-repo-check", "-c", f'model="{model_}"',
+                 "-c", 'model_reasoning_effort="low"', "-c", 'sandbox_mode="read-only"', "-c", "mcp_servers={}",
+                 PING], 120)
+        if r.returncode == 0 and re.search(r"\bok\b", r.stdout, re.I):
+            out(f"up codex:{model_}")
+        reasons = ["sol: " + (last_line(r.stderr or r.stdout) or f"exit {r.returncode}")]
+    fb = fallback_of(gate)
+    if fb is None:
+        out("down " + reasons[0] + "; no fallback is set", 69)
+    r = run(["claude", "-p", PING, "--model", fb["model"], "--effort", "low", "--strict-mcp-config",
+             "--no-session-persistence"], 120)
+    if r.returncode == 0 and re.search(r"\bok\b", r.stdout, re.I):
+        out(f"up claude:{fb['model']}")
+    out("down " + reasons[0] + "; claude: " + (last_line(r.stderr or r.stdout) or f"exit {r.returncode}"), 69)
+
+
 argv = sys.argv[1:]
+if argv[:1] == ["check"]:
+    if argv[1:]:
+        die("check takes no arguments")
+    check()
 if argv[:1] == ["post-pass"]:
     o = options(argv[1:], ("--pr", "--round", "--head", "--review", "--model", "--effort"))
     for key in ("pr", "round", "head"):

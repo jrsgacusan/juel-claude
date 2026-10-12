@@ -417,6 +417,28 @@ printf '{"author":{"login":"me"},"headRefOid":"%s","url":"https://github.com/o/r
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD")
 [ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && [ "$(cat "$TMP/pr-n")" = 3 ] && pass "post-pass waits out GitHub's head lag after a push (#62)" || fail "head lag ($out, $(cat "$TMP/pr-n") views)"
 
+# #64: check says whether the gate can review at all, for STAR's gateDown
+mkdir -p "$TMP/chome" "$TMP/fix"; printf 'ok\n' > "$TMP/fix/ok.txt"
+printf '{"gate": {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}}}\n' > "$TMP/chome/star.json"
+C() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" STUB_MODELS="$MODELS" JUEL_STAR_HOME="$TMP/chome" sh "$SCRIPT" check "$@"); }
+reset; plan "0 ok"
+out=$(C); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "up codex:gpt-6.1-sol" ] && grep -q '^exec ' "$TMP/calls" && grep -q 'model="gpt-6.1-sol"' "$TMP/calls" && grep -q 'model_reasoning_effort="low"' "$TMP/calls" && grep -q 'Reply with the single word ok.' "$TMP/calls" && [ ! -f "$TMP/claude-calls" ] && pass "check: Sol answers, so the gate is up" || fail "check up ($rc $out / $(cat "$TMP/calls"))"
+reset; plan "1 - You've hit your usage limit."; cplan "0 ok"
+out=$(C); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "up claude:opus" ] && grep -qF -- '--model opus --effort low' "$TMP/claude-calls" && pass "check: Sol down, Claude up, the gate is up" || fail "check claude ($rc $out)"
+reset; plan "1 - You've hit your usage limit."; cplan "1 - API Error: 529 Overloaded"
+out=$(C); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "down sol: You've hit your usage limit.; claude: API Error: 529 Overloaded" ] && pass "check: both down is down, naming both" || fail "check down ($rc $out)"
+reset; plan "0 safe"; cplan "0 ok"
+out=$(C)
+[ "$out" = "up claude:opus" ] && pass "check: an answer without ok is not up" || fail "check not ok ($out)"
+printf '{"gate": {"model": "latest-sol", "fallback": null}}\n' > "$TMP/chome/star.json"
+reset; plan "1 - at capacity"
+out=$(C); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "down sol: at capacity; no fallback is set" ] && [ ! -f "$TMP/claude-calls" ] && pass "check: fallback null, Sol down, down" || fail "check null ($rc $out)"
+C extra >/dev/null 2>&1; [ $? -eq 64 ] && pass "check takes no arguments" || fail "check usage"
+
 # usage
 G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --brief is 64" || fail "usage brief"
 G --brief "$BRIEF" --item ITEM-1 --round 0 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "round 0 is 64" || fail "usage round"
