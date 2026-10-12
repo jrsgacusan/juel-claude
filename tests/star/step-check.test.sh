@@ -6,7 +6,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPT="$ROOT/skills/star/step-check.sh"
 TMP=$(mktemp -d)
 LIVE_PID=
-trap '[ -n "$LIVE_PID" ] && kill "$LIVE_PID" 2>/dev/null; rm -rf "$TMP"' EXIT
+trap '[ -n "$LIVE_PID" ] && { kill "$LIVE_PID"; wait "$LIVE_PID"; } 2>/dev/null; rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
