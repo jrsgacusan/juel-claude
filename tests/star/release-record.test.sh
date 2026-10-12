@@ -94,5 +94,14 @@ printf '{"number":19,"url":"u","state":"MERGED","reviews":{},"statusCheckRollup"
 err=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/odd19.json" sh "$SCRIPT" --home "$H" --project lstn --item odd --pr 19 2>&1); rc=$?
 [ "$rc" -eq 1 ] && [ "$err" = "error: gh: unreadable output" ] && pass "reviews that are not a list are one error line" || fail "non-list reviews (rc=$rc: $err)"
 
+# the evidence folder (#73): named when the worktree holds evidence; worktree-clean.sh copies it there
+mkdir -p "$TMP/wt/docs/superpowers/evidence/run"; echo r > "$TMP/wt/docs/superpowers/evidence/run/report.md"
+printf '| ev | ev | lstn | %s | ready | - | 1 | t | d | 0 | https://github.com/o/lstn/pull/20 | abc1234 | - | - | - | now |\n' "$TMP/wt" >> "$H/ledger.md"
+sed -e 's/"number":12/"number":20/' -e 's#pull/12#pull/20#' "$TMP/merged.json" > "$TMP/merged20.json"
+out20=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged20.json" sh "$SCRIPT" --home "$H" --project lstn --item ev --pr 20)
+grep -qx -- "- Evidence: $H/evidence/ev/" "$out20" && pass "the record names where the item's evidence is kept" || fail "evidence line ($(grep Evidence "$out20"))"
+grep -q 'under its docs root' "$out20" && fail "the record still points into a folder that will be removed" || pass "the worktree line no longer points at the evidence"
+grep -qx -- '- Evidence: none found' "$out3" && pass "a worktree with no evidence says none found" || fail "no-evidence line ($(grep Evidence "$out3"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
