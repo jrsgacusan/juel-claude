@@ -370,6 +370,19 @@ waitfor
 kill -TERM -- "-$(cat "$TMP/stub-pid")" 2>/dev/null; wait
 [ "$(cat "$TMP/bg.out")" = "ERROR codex review stopped by signal 15" ] && [ ! -e "$STUB_RUN" ] && [ -f "$H/reviews/app/ITEM-1-r1-error-1.log" ] && pass "an agent stopped from outside is ERROR for this round, never gate-down (Review Focus)" || fail "agent killed ($(cat "$TMP/bg.out"))"
 
+# #71: the review streams to the terminal; the verdict is still the only stdout line, and the last line
+reset; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main 2> "$TMP/stream")
+[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q 'The change adds the CSV export' "$TMP/stream" && grep -q '^--- codex review gpt-6.1-sol xhigh ' "$TMP/stream" && grep -q 'The change adds the CSV export' "$H/reviews/app/ITEM-1-r1.raw.md" && pass "codex's output streams on stderr and still lands in the raw file (#71)" || fail "stream ($out / $(cat "$TMP/stream"))"
+reset; plan "1 - Selected model is at capacity." "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main > "$TMP/both" 2>&1
+[ "$(tail -n 1 "$TMP/both")" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q 'Selected model is at capacity.' "$TMP/both" && grep -q 'Selected model is at capacity.' "$H/reviews/app/ITEM-1-r1.log" && pass "stderr streams too and still reaches the log; the verdict is the last line" || fail "combined ($(tail -n 3 "$TMP/both"))"
+reset; plan "0 sleep"
+(cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" --brief "$BRIEF" --item ITEM-1 --round 1 --base main > "$TMP/bg.out" 2> "$TMP/bg.err") &
+i=0; while ! grep -q '^reviewing$' "$TMP/bg.err" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+[ -s "$STUB_RUN" ] && grep -q '^reviewing$' "$TMP/bg.err" && pass "a line reaches the terminal while the review still runs" || fail "not streamed live ($(cat "$TMP/bg.err"))"
+kill -TERM -- "-$(cat "$TMP/stub-pid")" 2>/dev/null; wait
+
 # usage
 G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --brief is 64" || fail "usage brief"
 G --brief "$BRIEF" --item ITEM-1 --round 0 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "round 0 is 64" || fail "usage round"

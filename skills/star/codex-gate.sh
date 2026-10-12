@@ -17,7 +17,9 @@
 # ../ship-ticket/executor-model.sh before codex sees it (#65); a plain id is used as given.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
 # codex review runs read-only with no MCP servers; its stdout goes to <reviews>/<item>-r<k>.raw.md
-# and its stderr to <item>-r<k>.log. <item>-r<k>.md starts with the VERDICT line review-proof.sh
+# and its stderr to <item>-r<k>.log, and every line of both is copied to this script's stderr as
+# it arrives, so the worker's terminal shows the review running (#71). The verdict line is the
+# only line on stdout and the last line printed. <item>-r<k>.md starts with the VERDICT line review-proof.sh
 # reads. A run that ends in ERROR keeps no round files (#66): the log, then "--- stdout" and the
 # review text, then "--- ERROR <why>", move to <item>-r<k>-error-<n>.log (n counts up from 1), and
 # <item>-r<k>.raw.md, .log and .md are left absent, so the caller runs the same round again. While
@@ -66,6 +68,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 S = os.environ["STAR_SKILL_DIR"]
@@ -88,7 +91,8 @@ FORMAT = ("Write the review as plain text: first one short paragraph with your o
 
 
 def out(line, code=0):
-    print(line)
+    sys.stderr.flush()  # the review streamed on stderr; the verdict is the last line anyone sees
+    print(line, flush=True)
     sys.exit(code)
 
 
@@ -370,16 +374,38 @@ def claude_cmd(m, e):
             "--strict-mcp-config", "--no-session-persistence"]
 
 
+LOCK = threading.Lock()
+
+
+def pump(stream, sink):
+    """Copies each line as it arrives to its file and to stderr, whole lines at a time (#71)."""
+    try:
+        for line in iter(stream.readline, ""):
+            with LOCK:
+                sink.write(line)
+                sink.flush()
+                sys.stderr.write(line)
+                sys.stderr.flush()
+    except (OSError, ValueError):
+        pass  # the file closed under a pipe that a grandchild still held open
+
+
 def attempt(cmd, label, agent, model_):
-    """One review run, stdout to the raw file and stderr to the log: (rc, stdout, this run's stderr).
-    rc is 127 when the program is missing, 124 past CODEX_GATE_TIMEOUT, negative when a signal ended it."""
+    """One review run, stdout to the raw file and stderr to the log, both streamed to stderr:
+    (rc, stdout, this run's stderr). rc is 127 when the program is missing, 124 past
+    CODEX_GATE_TIMEOUT, negative when a signal ended it."""
     ROUND["attempt"] = ROUND.get("attempt", 0) + 1
     start = os.path.getsize(log_path) if os.path.exists(log_path) else 0
+    header = f"--- {label} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
     with open(raw_path, "w", encoding="utf-8") as so, open(log_path, "a", encoding="utf-8") as se:
-        se.write(f"--- {label} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
+        se.write(header)
         se.flush()
+        sys.stderr.write(header)
+        sys.stderr.flush()
         try:
-            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=so, stderr=se, start_new_session=True)
+            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, encoding="utf-8", errors="replace", bufsize=1,
+                                    start_new_session=True)
         except FileNotFoundError:
             se.write(f"{cmd[0]} not found on PATH\n")
             proc = None
@@ -388,11 +414,17 @@ def attempt(cmd, label, agent, model_):
         else:
             CHILD["proc"] = proc
             write_run(proc.pid, agent, model_)
+            pumps = [threading.Thread(target=pump, args=(proc.stdout, so), daemon=True),
+                     threading.Thread(target=pump, args=(proc.stderr, se), daemon=True)]
+            for t in pumps:
+                t.start()
             try:
                 rc = proc.wait(timeout=LIMIT)
             except subprocess.TimeoutExpired:
                 stop_child(proc)
                 rc = 124
+            for t in pumps:
+                t.join(10)
             CHILD.clear()
     with open(log_path, encoding="utf-8", errors="replace") as f:
         f.seek(start)
