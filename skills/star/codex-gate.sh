@@ -2,7 +2,7 @@
 # STAR's second-model gate: one headless `codex review` of a branch against its base, with the
 # brief as the contract, written to STAR's home and read back as one verdict line.
 #   codex-gate.sh --brief <brief> --item <item> --round <k> --base <ref>
-#                 [--model <id|latest-<family>>] [--effort <level>]
+#                 [--model <id|latest-<family>>] [--effort <level>] [--evidence <dir>]
 #   codex-gate.sh post-pass --pr <url> --round <k> --head <sha> [--review <path>]
 #                 [--model <id>] [--effort <level>]
 # The gate prints one line:
@@ -16,6 +16,11 @@
 # latest-sol and xhigh. A latest-<family> name, from a flag or from star.json, is resolved by
 # ../ship-ticket/executor-model.sh before codex sees it (#65); a plain id is used as given.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
+# --evidence names the folder of the live checks' evidence (ship-ticket's Phase 6): the prompt
+# points the reviewer at its report.md and says a criterion with no change in the diff behind it
+# is judged on that evidence (#63); a folder that does not exist is a usage error. From round 2,
+# when the previous round has no -fix.md (a re-scope), the prompt names the brief's ## Decisions
+# records dated that review's day (UTC) or later as its dispositions (#67).
 # codex review runs read-only with no MCP servers; its stdout goes to <reviews>/<item>-r<k>.raw.md
 # and its stderr to <item>-r<k>.log, and every line of both is copied to this script's stderr as
 # it arrives, so the worker's terminal shows the review running (#71). The verdict line is the
@@ -269,10 +274,14 @@ if argv[:1] == ["post-pass"]:
         die("--round takes a number")
     post_pass(o)
 
-o = options(argv, ("--brief", "--item", "--round", "--base", "--model", "--effort"))
+o = options(argv, ("--brief", "--item", "--round", "--base", "--model", "--effort", "--evidence"))
 for key in ("brief", "item", "round", "base"):
     if key not in o:
         die(f"the gate needs --{key}")
+if "evidence" in o:
+    o["evidence"] = os.path.abspath(o["evidence"])
+    if not os.path.isdir(o["evidence"]):
+        die(f"--evidence is not a folder: {o['evidence']}")
 if not o["round"].isdigit() or int(o["round"]) < 1:
     die("--round takes a number from 1")
 item, k, base, brief = o["item"], int(o["round"]), o["base"], os.path.abspath(o["brief"])
@@ -327,11 +336,18 @@ except ValueError:
 def prompt_text():
     template = open(os.path.join(S, "template", "gate-prompt.md"), encoding="utf-8").read()
     if k >= 2:
-        previous = (f"Previous round: {os.path.join(reviews, f'{item}-r{k - 1}.md')}, and the dispositions "
-                    f"of the findings that were not fixed in {os.path.join(reviews, f'{item}-r{k - 1}-fix.md')} "
+        last, fix = os.path.join(reviews, f"{item}-r{k - 1}.md"), os.path.join(reviews, f"{item}-r{k - 1}-fix.md")
+        previous = (f"Previous round: {last}, and the dispositions of the findings that were not fixed in {fix} "
                     "when that file exists.")
+        if os.path.exists(last) and not os.path.exists(fix):  # a re-scope wrote no -fix.md (#67)
+            day = time.strftime("%Y-%m-%d", time.gmtime(os.path.getmtime(last)))
+            previous += (f" No `-fix.md` exists for round {k - 1}. Treat the records in the brief's `## Decisions` "
+                         f"dated {day} or later as the dispositions of its findings.")
     else:
         previous = "This is round 1: there is no previous review."
+    evidence = (f"Evidence of the live checks: {o['evidence']}; start at its report.md. A criterion with no change "
+                "in the diff behind it is judged on this evidence. Call it unproven only when the evidence does "
+                "not show it." if o.get("evidence") else "No evidence folder was given.")
     try:
         pending = [l.strip() for l in open(os.path.join(gates_dir, f"{item}-screen.md"), encoding="utf-8") if l.strip()]
     except OSError:
@@ -339,7 +355,7 @@ def prompt_text():
     pending_text = ("Pending at the screen, verified separately with a person and never a finding here: "
                     + "; ".join(pending)) if pending else "No check is pending at the screen."
     values = {"item": item, "round": str(k), "base": base, "brief": brief, "notes": ", ".join(notes) or "none",
-              "previous": previous, "pending": pending_text}
+              "previous": previous, "pending": pending_text, "evidence": evidence}
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), template)
 
 
@@ -370,7 +386,8 @@ def codex_cmd(m, e):
 
 def claude_cmd(m, e):
     return ["claude", "-p", prompt, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
-            "--add-dir", home, "--allowedTools", *READ_ONLY, "--disallowedTools", "Edit", "Write", "NotebookEdit",
+            "--add-dir", home, *([o["evidence"]] if o.get("evidence") else []),
+            "--allowedTools", *READ_ONLY, "--disallowedTools", "Edit", "Write", "NotebookEdit",
             "--strict-mcp-config", "--no-session-persistence"]
 
 

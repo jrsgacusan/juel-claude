@@ -383,6 +383,32 @@ i=0; while ! grep -q '^reviewing$' "$TMP/bg.err" 2>/dev/null && [ $i -lt 100 ]; 
 [ -s "$STUB_RUN" ] && grep -q '^reviewing$' "$TMP/bg.err" && pass "a line reaches the terminal while the review still runs" || fail "not streamed live ($(cat "$TMP/bg.err"))"
 kill -TERM -- "-$(cat "$TMP/stub-pid")" 2>/dev/null; wait
 
+# #63: the prompt points at the evidence of the live checks
+reset; plan "0 safe"; mkdir -p "$APP/ev"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --evidence "$APP/ev" >/dev/null
+P1="$H/specs/app/ITEM-1-gate-r1.md"
+grep -q "Evidence of the live checks: $APP/ev; start at its report.md" "$P1" && grep -q 'A criterion with no change in the diff behind it is judged on this evidence' "$P1" && pass "--evidence puts the evidence folder in the prompt (#63)" || fail "evidence line ($(grep -i evidence "$P1"))"
+reset; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+grep -q 'No evidence folder was given.' "$P1" && pass "without --evidence the prompt says so" || fail "no evidence line"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --evidence "$APP/no-such" >/dev/null 2>&1; [ $? -eq 64 ] && pass "an --evidence folder that does not exist is a usage error" || fail "missing evidence folder"
+rmdir "$APP/ev"
+# #61: an accepted residual in Decisions is not a missed criterion
+grep -q 'accepts with a documented residual and a named follow-up is met, not missed' "$P1" && pass "the prompt says an accepted residual is met (#61)" || fail "accepted residual line"
+# #67: a round with no -fix.md behind it takes the brief's later decisions as dispositions
+reset; mkdir -p "$H/reviews/app"; printf 'VERDICT item=ITEM-1 round=1 NOT-SAFE findings=1 head=%s\n' "$HEAD" > "$H/reviews/app/ITEM-1-r1.md"
+TZ=UTC touch -t 202610101200 "$H/reviews/app/ITEM-1-r1.md"; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+P2="$H/specs/app/ITEM-1-gate-r2.md"
+grep -q 'No `-fix.md` exists for round 1. Treat the records in the brief'"'"'s `## Decisions` dated 2026-10-10 or later as the dispositions of its findings.' "$P2" && pass "a re-scope with no -fix.md: the brief's later decisions are the dispositions (#67)" || fail "decisions as dispositions ($(grep -i previous "$P2"))"
+rm -f "$TMP/n" "$TMP/calls"; plan "0 safe"; printf '1. Disposition: moved to ITEM-1-followup.\n' > "$H/reviews/app/ITEM-1-r1-fix.md"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+! grep -q 'No `-fix.md` exists' "$P2" && pass "with a -fix.md the prompt adds no such sentence" || fail "fix.md present"
+# the fallback can read the evidence folder too
+reset; plan "1 - You've hit your usage limit."; cplan "0 safe"; mkdir -p "$TMP/ev2"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --evidence "$TMP/ev2" >/dev/null
+grep -qF -- "--add-dir $H $TMP/ev2 --allowedTools" "$TMP/claude-calls" && pass "the Claude fallback gets the evidence folder as a readable directory" || fail "fallback evidence dir ($(tail -n 1 "$TMP/claude-calls"))"
+
 # usage
 G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --brief is 64" || fail "usage brief"
 G --brief "$BRIEF" --item ITEM-1 --round 0 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "round 0 is 64" || fail "usage round"
