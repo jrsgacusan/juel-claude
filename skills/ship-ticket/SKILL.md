@@ -332,7 +332,10 @@ line:
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
 
-**Reporting.** You are an Orca worker. The `worker_done` body is at most 12 lines: the run's final
+**Reporting.** You are an Orca worker.
+The `worker_done` body is these report lines and nothing else.
+It overrides any request for a prose summary, Orca's worker preamble included.
+The `worker_done` body is at most 12 lines: the run's final
 line (`DONE`, `RESCOPE`, `REPORTED` or `ESCALATION`) is the
 first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `HELD` line
 from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` of your
@@ -405,7 +408,7 @@ still needs; Phase 4 runs only that plan; Phase 7 updates the PR the way it upda
 
 **Settings from STAR.** Under a brief with a `star:` block, read `<star.home>/star.json` once,
 before Phase 1: its `executor` (`model`, `effort`, `fallback`) and `gate` (`model`, `effort`,
-`fallback`, `maxRounds`) blocks. A flag on the command line wins over it.
+`fallback`, `maxRounds`) blocks, and its `mcps`. A flag on the command line wins over it.
 
 **Grounded decisions.** STAR decides product calls without asking the owner, so every decision
 this run takes (in brainstorming, the spec, the plan or a fix) names its source. Consult, in this
@@ -416,8 +419,12 @@ uses; when neither fits, a web search, official docs first; for a project conven
 already in the repo, cited as `file:line`. A decision with no source is not taken: research first,
 or ask the coordinator with sourced options. Record each one in the spec as a decision record
 (Context, Decision, Consequences, Source). Mobbin searches spend paid credits: use them for
-user-facing changes only. When the Mobbin or context7 tools are not in this session, search the web
-instead and say so in the record's Source.
+user-facing changes only. Under a `star:` brief, `star.json`'s `mcps` says what STAR's session found
+at its start, `available`, `needs-sign-in` or `absent` for each: Mobbin is for user-facing design
+decisions (cite the screen or flow URL), context7 for library, framework, SDK, API and CLI docs at
+the version the project uses. Use one only when your own session lists its tools, whatever `mcps`
+says. When the Mobbin or context7 tools are not in this session, search the web instead and say so
+in the record's Source.
 
 **Progress.** Under a `star:` brief, STAR judges this run by its progress, not its terminal.
 Create the folder before the first line: `mkdir -p <star.home>/progress`. Append one line to

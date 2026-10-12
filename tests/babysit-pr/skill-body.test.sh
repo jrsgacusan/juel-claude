@@ -153,5 +153,12 @@ g "H72a a hosted-pass item is judged, not answered" 'A `hosted-pass` item gets n
 g "H72b the wake routes it to the hosted-reviewer row" '`kind: hosted-pass`'
 g "H72c babysit names its hosted reviewer to pr-state" 'Pass `--hosted <login>` to `pr-state.sh`'
 g "H72d the Phase 2 wait passes it too" '[--review-bots <logins>] [--hosted <login>]'
+# Issue #56: one instruction for the report's shape
+g "W56c the worker_done body is the report lines only" 'The `worker_done` body is these report lines and nothing else.'
+g "W56d it overrides Orca's preamble" "It overrides any request for a prose summary, Orca's worker preamble included."
+# Issue #55: research MCPs
+settings_row=$(grep -F '| settings |' "$SKILL")
+printf '%s\n' "$settings_row" | grep -qF '`mcps`' && pass "M55e babysit reads mcps" || fail "M55e babysit reads mcps"
+printf '%s\n' "$settings_row" | grep -qF 'only when your own session lists its tools' && pass "M55f only tools its own session lists" || fail "M55f only tools its own session lists"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -176,5 +176,13 @@ g "Y69b not inside quiet hours, and no HELD line for it" 'leave the PR a draft a
 g "Y69c the progress table has ready" '| `ready` |'
 g "Y69d the DONE row says ready" 'and it is marked ready (outside quiet hours)'
 grep -qF 'It is marked ready once, by the babysit stage, after the gate passed.' "$SKILL" && fail "Y69e babysit no longer marks every PR ready" || pass "Y69e babysit no longer marks every PR ready"
+# Issue #56: one instruction for the report's shape
+g "W56a the worker_done body is the report lines only" 'The `worker_done` body is these report lines and nothing else.'
+g "W56b it overrides Orca's preamble" "It overrides any request for a prose summary, Orca's worker preamble included."
+# Issue #55: research MCPs
+g "M55a the settings include mcps" 'and its `mcps`'
+g "M55b mcps names what STAR found" '`needs-sign-in`'
+g "M55c Mobbin cites the screen or flow URL" 'cite the screen or flow URL'
+g "M55d only tools your own session lists" 'only when your own session lists its tools'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
