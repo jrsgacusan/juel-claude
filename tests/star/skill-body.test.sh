@@ -418,5 +418,11 @@ gin "FS7 no reconcile and no tick follow" "$start1" 'no reconcile and no tick'
 g "EL13 a hidden-window check follows juel:verify's Electron row" "as \`juel:verify\`'s Electron row says"
 g "EL14 a Checks line may name the project's launch helper" '[ | helper: <path>]'
 grep -q 'window that paints' "$SKILL" && fail "EL15 no 'window that paints' description left" || pass "EL15 no 'window that paints' description left"
+# README, v2.1.0
+grep -qF 'gate on the newest Sol' "$ROOT/README.md" && pass "RD2 the README names Sol for the gate" || fail "RD2 the README names Sol for the gate"
+grep -qi 'astra' "$ROOT/README.md" && fail "RD3 the README names no astra" || pass "RD3 the README names no astra"
+grep -qF 'restarts it once before asking you' "$ROOT/README.md" && pass "RD4 the README says STAR restarts a stuck worker" || fail "RD4 the README says STAR restarts a stuck worker"
+grep -qF "keeps each merged item's evidence" "$ROOT/README.md" && pass "RD5 the README says evidence outlives the worktree" || fail "RD5 the README says evidence outlives the worktree"
+grep -qF 'an Electron window over CDP' "$ROOT/README.md" && pass "RD6 the README's verify row names Electron" || fail "RD6 the README's verify row names Electron"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
