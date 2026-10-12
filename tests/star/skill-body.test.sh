@@ -464,5 +464,15 @@ g "STP11 an instruction still fresh is a note, not a second send" '`note <step> 
 g "STP12 the act line splits on its first separator" 'split the line on its first ` -- `'
 # Issue #69: the build marks the PR ready
 g "STP13 the build marks the PR ready" 'the build does after its final SAFE round'
+# Issue #64: the review gate is down
+g "GD1 a gate-down escalation parks the row" '| `ESCALATION item=… reason=review-unavailable needs=ERROR gate-down …` in a `worker_done` |'
+g "GD2 no build or babysit starts while the gate is down" 'While `gateDown` is set, start no build and no babysit'
+g "GD3 the gate is checked every 30 minutes" '`gateDown` set, and its `checked` 30 minutes or more ago: `sh S/codex-gate.sh check`'
+g "GD4 retry checks the gate now" '| `held` "the review gate is down…" | `retry` |'
+g "GD5 retry is a command word" '`accept`, `retry` or `not merging`'
+g "GD6 STAR stays active while the gate is down" 'or while `gateDown` is set'
+g "GD7 the status line says so" '`gate down since <since>`'
+g "GD8 the Gate down rule" '**Gate down.**'
+g "GD9 one held item, however many rows report it" 'When it is set already: nothing more'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

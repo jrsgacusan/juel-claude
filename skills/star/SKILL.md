@@ -672,7 +672,7 @@ message into the same end state.
    the whole answer: lower-case it, strip punctuation at its two ends only (an apostrophe or a
    hyphen inside it stays: `can't now`, `ITEM-2`), and compare all of it with `go`, `yes`, `ok`,
    `approve`, `no`, `drop`, `drop it`, `drop it please`, `restart`, `send`, `done`, `can't now`,
-   `accept` or `not merging`. For a `go-batch` item, `go except <items>` and `drop <item>` match
+   `accept`, `retry` or `not merging`. For a `go-batch` item, `go except <items>` and `drop <item>` match
    as prefixes, and the names after them compare case-insensitively with the batch's ledger names.
    So `Drop.` and `restart!` count, while `go, but rename the flag` and `Drop the retry wrapper
    and call the queue directly` do not: anything longer than the bare word is feedback or a
@@ -720,6 +720,7 @@ message into the same end state.
    | `draft` | send | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`; any other draft is the user's to send, say so. Before posting, append `<iso>\tSTAR\t<item>\tposted draft N-<id>` to `sent.log`; when that line is already there the draft was posted and only the close was lost: just close the item. Posting is an outward action: inside quiet hours, leave the item open (do not close it) and say "posts at the first tick outside the quiet window"; the Answers step sees it again every tick and posts it then |
    | `held` "could not move <item> to <status>…" | done | `counters.tracker=<status>` (the user moved it), then close it |
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
+   | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
    | `draft`, `held` | anything else | close it |
 3. **Messages**, only while some row is in a worker stage or waiting for a slot:
    `sh S/messages.sh --wait --timeout-ms 540000`. It prints `delivery <id> <n>`, then each message
@@ -753,6 +754,7 @@ message into the same end state.
    | `DONE item=… pr=<url> head=<sha> review=<path>` | first `sh S/done-check.sh <item> --pr <url> --head <sha>`. `OK` → record the PR and head, free the build slot, row → `babysit-queued`, clear `mismatch=`. `MISMATCH <what>` → record the PR and head; with no `mismatch=` yet: write `mismatch=1`, append to the brief's `## Decisions` "- <date> the report did not check out: <what>; resume the gate loop on the existing PR", row → `queued`. With `mismatch=1` already: → `escalated`, queue `--kind escalation` "the report did not check out twice: <what>" (`reason=mismatch`). `PENDING <why>`, no line, or a non-zero exit → process and ack the message as for any report, record the PR and head, and keep the row `building` with `verify` = `retry=<now + 2 min>`: it has reported, so neither the reconcile step nor Housekeeping's probe treats it as a lost worker, and Housekeeping runs `done-check.sh` again once that time has passed. Exit 64 (`done-check.sh` refused its arguments) also files an improvement issue |
    | `RESCOPE item=… reason=<gate or hosted-review> review=<path>` | free the slot. When the row has `counters.rescoped=1` or its brief has `rescopedFrom:` → `escalated`, queue `--kind escalation` "NOT-SAFE again after a re-scope" with the review's path. Otherwise row → `inbox` with `counters.rescope=<the review file's name>`: its next brief stage narrows the item (`--rescope`) |
    | `READY item=… pr=… head=<sha> cursor=<cursor>` | record head and cursor; row → `verifying`; run the merge gate now ("The merge gate"). The cursor is an opaque string from `pr-state.sh` (a time, then `#` and the ids already seen in that second): store it and pass it back as `--since` exactly as it came |
+   | `ESCALATION item=… reason=review-unavailable needs=ERROR gate-down …` in a `worker_done` | the review gate is down for every model, Sol and its Claude fallback ("Gate down", in "Stages"). Record `cursor` when given, free the slot, row → its stage's waiting state (`queued` for a build, `babysit-queued` for a babysit, which resumes with `--since <cursor>`), and append "- <date> the review gate is down: <why>; parked until it is back" to the brief's `## Decisions`. When `gateDown` in `star.json` is null or absent: set it to `{"since": "<now>", "why": "<why>", "checked": "<now>"}`, queue `--kind held` "the review gate is down since <since>: <why>. Answer retry to check it now", and notify. When it is set already: nothing more, so one held item stands for every parked row |
    | `ESCALATION item=… phase=… reason=… [cursor=<cursor>] needs=…` in a `worker_done` | record `cursor` when given; row → `escalated`; queue `--kind escalation` (and `--kind draft` with it when the report has a `DRAFT <path>` line); notify; free the slot |
    | `MERGED item=… pr=<url>` (a babysit worker saw the PR merged) | handle it as `pr-verify.sh` printing `MERGED`: release record, row → `done` |
    | `REPORTED item=… path=<path>` | row → `reported`; queue `--kind accept-report` with the path; free the build slot. STAR never opens the report |
@@ -787,6 +789,8 @@ message into the same end state.
    queue `--kind escalation` "PR was closed without a merge" (a row already `escalated` or
    `failed` only gets the queue item). Every other answer is ignored in these states. So no slot
    is ever given to an item whose PR is already merged or closed.
+   While `gateDown` is set, start no build and no babysit: those rows wait for the gate ("Gate
+   down"); brief and post stages need no gate and still start.
    Then, for each free slot, the row next in line: `sh S/stage-start.sh <stage> <item>`. Run it with the Bash
    tool's `run_in_background: true` and wait for its completion notification,
    like `gate-lock.sh` in a worker: creating a worktree with a setup hook, clearing the dialogs
@@ -849,6 +853,11 @@ message into the same end state.
      open `escalated` or `failed` row with no open item, a `brief-ready` row with no `go-batch`
      item, a `verifying` row whose brief has no grant (`grep -cE '^grant: [^ #]' <brief>` prints 0)
      and no `go-merge` item).
+   - `gateDown` set, and its `checked` 30 minutes or more ago: `sh S/codex-gate.sh check`.
+     `up <agent:model>` → set `gateDown` to null, close the held item "the review gate is down…",
+     and say "the review gate is back (<agent:model>)" in the status line: "Fill slots" starts the
+     parked rows. `down <why>`, no line or any other exit → write `checked=<now>` in `gateDown`
+     (and `why=<why>` when it printed one).
    - `verifying` rows (past the `retry=` time in `verify` when one is set): the merge gate (below). `building` rows past the `retry=` time in `verify` (a `DONE` that `done-check.sh` could not check yet): `done-check.sh` again with the row's PR and head, and its line acted on as the `DONE` row of the Messages table says.
    - Notifications (below).
    - The tracker status ("The tracker status").
@@ -863,13 +872,14 @@ message into the same end state.
 6. **Write.** `loops.sh resume …` with the current pools and the next step;
    `loops.sh waiting "<one line per PR in review, per blocked question>"`. Nothing is committed:
    the folder is plain files. Print one status line: counts per state, then every open queue item, `screen: <holder>, renewed <time>`
-   while `sh S/../ship-ticket/screen-lock.sh status` does not print `free`, each `note` line from
+   while `sh S/../ship-ticket/screen-lock.sh status` does not print `free`, `gate down since <since>`
+   while `gateDown` is set, each `note` line from
    this tick's `step-check.sh` (`<item>: <diagnosis>`), each restart (`restarted <item> at <step>`),
    and each issue filed this tick ("filed issue #19").
 
 **Active or idle.** While any row is in `inbox`, `briefing`, `building`, `babysit-queued`,
 `babysitting` or `posting`, in `verifying` while its `verify` holds no `retry=` in the future, or in
-`queued` or `post-queued` while it may start, stay in the turn and tick
+`queued` or `post-queued` while it may start, or while `gateDown` is set, stay in the turn and tick
 again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
 `state: idle` and STAR ends its turn. It is woken by a hand-over nudge, by the user, or by the
 heartbeat, and each wake runs one tick. While a question is open in chat, STAR does not
@@ -955,6 +965,14 @@ reports `RESCOPE`. STAR opens none of these files: `done-check.sh` and `pr-verif
 read them and print one line. Luna writes the code and Sol gates it, so the independent review is
 the build's fresh Claude review, before the gate. While the fallback runs, the gate is a second
 Claude review, not a second model.
+
+**Gate down.** `codex-gate.sh` prints `ERROR gate-down <why>` when Sol failed and its Claude
+fallback failed too. Each build and babysit would then escalate on its own, so STAR holds them
+instead: the Messages table parks each row that reports it, `gateDown` in `star.json` keeps
+`since`, `why` and `checked`, "Fill slots" starts no build and no babysit while it is set (brief
+and post stages need no gate and still start), and Housekeeping runs `sh S/codex-gate.sh check`
+every 30 minutes. `check` sends a one-line prompt through the same chain and prints
+`up <agent:model>` or `down <why>`. The owner can answer `retry` on the held item to check at once.
 
 ## Brief worker mode: `draft-brief`
 
@@ -1718,6 +1736,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
 | The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |
+| The review gate is down on every model (`ERROR gate-down`) | STAR parks each build and babysit that reports it, starts no new ones, asks the owner once, and checks the gate every 30 minutes until it is back |
 | A worktree Orca created inside the repository | `.git/info/exclude` gets a line for its top folder |
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
