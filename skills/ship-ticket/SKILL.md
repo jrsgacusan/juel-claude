@@ -134,7 +134,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
-| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
+| claude-plan-executor | skill | HARD | `test -f ~/.codex/skills/claude-plan-executor/SKILL.md` (follows the link) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
@@ -327,17 +327,24 @@ line:
 | PR opened | `PR item=<item> url=<url> draft` |
 | an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished: the draft PR passed the codex gate and its PASS is posted | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
+| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
 
-**Reporting.** You are an Orca worker. The `worker_done` body is at most 12 lines: the run's final
+**Reporting.** You are an Orca worker.
+The `worker_done` body is these report lines and nothing else.
+It overrides any request for a prose summary, Orca's worker preamble included.
+The `worker_done` body is at most 12 lines: the run's final
 line (`DONE`, `RESCOPE`, `REPORTED` or `ESCALATION`) is the
 first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `HELD` line
-from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` —
-a fact the next worker in this project should know (a required env var, a flaky test, a naming
-rule), never a status update. With more than two `HELD` lines, write them all to a file beside the
+from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` of your
+own, a fact the next worker in this project should know (a required env var, a flaky test, a
+naming rule), never a status update, plus the fixed `NOTE:` lines this file names
+(`NOTE: executor skill missing, the plan ran in this session`; after a `DONE`, one
+`NOTE: accepted residual <criterion>: <follow-up path>` per `ACCEPTED-RESIDUAL` item, and with
+more than two of them one `NOTE: accepted residuals: <n>, listed in <path>`, the file beside the
+gate manifest). With more than two `HELD` lines, write them all to a file beside the
 gate manifest and report one line instead: `HELD item=<item> action=<n> held actions, listed in
 <path>`. `PHASE` and `PR` lines are for the terminal only and never go in the body. Anything longer
 goes into a file whose path you report; the
@@ -401,7 +408,7 @@ still needs; Phase 4 runs only that plan; Phase 7 updates the PR the way it upda
 
 **Settings from STAR.** Under a brief with a `star:` block, read `<star.home>/star.json` once,
 before Phase 1: its `executor` (`model`, `effort`, `fallback`) and `gate` (`model`, `effort`,
-`fallback`, `maxRounds`) blocks. A flag on the command line wins over it.
+`fallback`, `maxRounds`) blocks, and its `mcps`. A flag on the command line wins over it.
 
 **Grounded decisions.** STAR decides product calls without asking the owner, so every decision
 this run takes (in brainstorming, the spec, the plan or a fix) names its source. Consult, in this
@@ -412,14 +419,32 @@ uses; when neither fits, a web search, official docs first; for a project conven
 already in the repo, cited as `file:line`. A decision with no source is not taken: research first,
 or ask the coordinator with sourced options. Record each one in the spec as a decision record
 (Context, Decision, Consequences, Source). Mobbin searches spend paid credits: use them for
-user-facing changes only. When the Mobbin or context7 tools are not in this session, search the web
-instead and say so in the record's Source.
+user-facing changes only. Under a `star:` brief, `star.json`'s `mcps` says what STAR's session found
+at its start, `available`, `needs-sign-in` or `absent` for each: Mobbin is for user-facing design
+decisions (cite the screen or flow URL), context7 for library, framework, SDK, API and CLI docs at
+the version the project uses. Use one only when your own session lists its tools, whatever `mcps`
+says. When the Mobbin or context7 tools are not in this session, search the web instead and say so
+in the record's Source.
 
 **Progress.** Under a `star:` brief, STAR judges this run by its progress, not its terminal.
-Create the folder before the first line: `mkdir -p <star.home>/progress`. At the start of each
-phase and each gate round, and after each live check in Phase 6, append one line to
-`<star.home>/progress/<item>.log`:
-`printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<phase or round>" "<one line>" >> <that file>`.
+Create the folder before the first line: `mkdir -p <star.home>/progress`. Append one line to
+`<star.home>/progress/<item>.log` at each step below:
+`printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<one line>" >> <that file>`.
+`<step>` is exactly one of these tokens, because STAR's `step-check.sh` reads it to know what you
+are waiting on; the free text goes in the third field:
+
+| Step | Write it |
+|---|---|
+| `phase<N>` | at the start of phase N (`phase1` to `phase8`) |
+| `executor` | right before each executor dispatch: Phase 4, and each fix plan of the gate loop |
+| `live-check` | after each live check in Phase 6, naming the check and its verdict |
+| `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix) |
+| `gate-r<k>` | right before gate round `k` starts (`gate-r1`, `gate-r2`, …) |
+| `post-pass` | right before `post-pass`, and before each quiet-hours wait for it |
+| `ready` | after the PR is marked ready (the codex gate loop, step 3) |
+| `sync` | right before merging the base branch in (an `existingPr`) |
+| `report` | right before the final report line |
+
 Thirty minutes with no progress line, no commit and no changed file gets a check-in from STAR.
 A run without a `star:` brief has no `star.home` and keeps no progress log.
 
@@ -484,7 +509,14 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
 2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity
    (capacity retries, then the fallback model, then this session runs the plan; see Phase 4).
-3. `verification-failed` — a phase 6 item is still FAIL after one loop back through phase 5.
+3. `verification-failed`: a phase 6 item is still FAIL after one loop back through phase 5.
+   Before raising it, when what still fails is a residual that no further change inside this item
+   can close (an open-ended input the fix keeps chasing, say), ask the coordinator with
+   `orca orchestration ask` whether it accepts the criterion with that residual, naming the
+   residual and a proposed follow-up. Then read the brief's `## Decisions` again: a record that
+   accepts the residual and names a follow-up spec item makes the item `ACCEPTED-RESIDUAL` (Phase
+   6 step 4) and the escalation is not raised. An answer that accepts it while the brief holds no
+   such record: ask once more, naming the missing record; still none, raise the escalation.
 4. `gate-red` — the regression gate is red twice.
 5. `merge-conflict` — a merge conflict with the base branch.
 6. `needs-human-input` — the run needs a secret, a paid service, a real account, or anything else only a person can supply: verification steps for an item with no acceptance criteria, a browser check when no browser tool is available. Check the brief first: verification steps given under `## Decisions` (the user's answer to an earlier escalation of this kind) are the checklist's source, and the escalation is not raised again.
@@ -501,7 +533,7 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
-    `post-pass` printed `ERROR` twice, a minute apart. `needs=` quotes its `ERROR` line.
+    `post-pass` printed `ERROR` twice, a minute apart. `needs=` quotes its `ERROR` line, whole.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -534,8 +566,10 @@ before Phase 1 as well: any such result there means the window cannot be judged,
 `ESCALATION item=<item> phase=0 reason=preflight needs=a valid --quiet-hours window (<its message>)`,
 because guessing could send something while the user is away. `always` is inside at every moment.
 
-Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready, replying to
-reviewers and re-requesting review happen later, in the babysit stage, which gets the same window.
+Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready waits too:
+outside the window the build marks it ready after its final SAFE round (the codex gate loop, step
+3), and inside it the babysit stage marks it ready once the window ends. Replying to reviewers and
+re-requesting review happen later, in the babysit stage, which gets the same window.
 Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
 
 **Gate lock.** Under `--unattended`, every heavy command — Phase 5's targeted tests after
@@ -688,8 +722,25 @@ drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in 
 `--unattended`, a progress line and a terminal line, never a `NOTE`). `executor-model.sh` failing
 (no line, a non-zero exit, no python3) counts as `default <why>`.
 
+**The executor skill.** Right before the line, check that the skill resolves:
+`test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
+a plugin version that is gone (a plugin update removes its old cache folder) fails it, even in the
+middle of a run. Missing under `--unattended`: relink once with
+`node <plugin root>/scripts/link-agent-skills.mjs` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or
+two levels above this file) and check again. Still missing: do not dispatch. Run the plan in this
+session with `superpowers:executing-plans`, and carry
+`NOTE: executor skill missing, the plan ran in this session` into the report. Codex saying during
+a run that `$claude-plan-executor` is unavailable gets the same `NOTE`. Interactively, missing is
+the Preflight STOP with its fix command.
+
+**A linked worktree.** Compare `git rev-parse --path-format=absolute --git-dir` with
+`git rev-parse --path-format=absolute --git-common-dir`. When they differ, the checkout is a linked
+worktree: its index lock lives under the main repository's `.git/worktrees/<name>/`, outside the
+paths the sandbox may write, so `<add-dirs>` below is `--add-dir <git-dir> --add-dir <common-dir>`
+with those two paths. Otherwise `<add-dirs>` is empty. Work it out again before every dispatch.
+
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
 ```
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
@@ -774,7 +825,10 @@ screenshots plus one end-to-end recording for UI changes, (5) evidence in `${doc
 **Create this phase's evidence directory now:** write it to
 `${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (same date, ref and slug as the spec
 from Phase 2). Never overwrite an existing one; on a collision use `-v2`, then `-v3`. Pass this
-path to every `juel:verify` invocation below so all evidence lands in one place.
+path to every `juel:verify` invocation below so all evidence lands in one place. Under
+`--unattended`, also add `"evidenceDir": "<the evidence directory>"` (its absolute path) to the
+gate manifest (`run-gates.sh` reads only the gate keys): the codex gate is given this folder, so a
+criterion met by a live check with no change in the diff is judged on its evidence.
 
 Verify the change actually works, exhaustively, before opening the PR. This phase is
 **human-in-the-loop only where Claude genuinely cannot self-serve**: do not open the PR on the
@@ -868,6 +922,13 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    method (`juel:verify` / `run` / user-confirmed), the evidence (request/response, log lines,
    screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
    items may be collapsed into one "looks good" line.
+
+   One more verdict exists, `ACCEPTED-RESIDUAL`, for an item whose live check still shows a small
+   residual after the loop back through phase 5. It is allowed only when a record in the brief's
+   `## Decisions` accepts the residual and names a follow-up spec item (the coordinator's or the
+   owner's answer to your ask, escalation 3). Record the residual as observed, the decision
+   record's title and the follow-up's path. It counts as met for the gate and for step 6, it is
+   never written as PASS, and an item with no such record stays FAIL.
 5. **Run the final regression gate** (under `--unattended`, inside the gate lock from "Unattended
    mode"). Re-run every toolchain command resolved in Phase 4 that is
    non-null — `test`, `lint`, `typecheck`, and `build` (reuse the resolved set; do not re-derive).
@@ -900,7 +961,8 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    `HELD item=<item> action=clean up <identifier> on <service>`. Interactively, ask the user at
    the checkpoint before handing one off.
 
-**Checkpoint:** show the full per-item checklist (all PASS), the regression-gate result, the
+**Checkpoint:** show the full per-item checklist (all PASS, or `ACCEPTED-RESIDUAL` where a decision
+record accepts the residual), the regression-gate result, the
 cleanup result (handed-off entries listed), the recording's path (or the `Recording missing` line), and the absolute path of
 the evidence directory. Ask to proceed to PR.
 
@@ -909,17 +971,18 @@ the evidence directory. Ask to proceed to PR.
 1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
 2. Resolve the PR title and body per "Base branch & repo conventions" above:
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
-   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections, except that when Phase 6 handed off a `cleanup.md` entry, a **Left for you to clean up** section listing each one is appended after the template's last section: the one section added to a template. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off.
+   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections, except that when Phase 6 handed off a `cleanup.md` entry, a **Left for you to clean up** section listing each one is appended after the template's last section, and when Phase 6 recorded an `ACCEPTED-RESIDUAL` item, an `## Accepted residual` section after that: the only sections added to a template. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off / `## Accepted residual`: each `ACCEPTED-RESIDUAL` item with its criterion, the residual as observed, and the follow-up spec item's path, included only when Phase 6 recorded one.
 3. Open the PR, or degrade if `gh` is unavailable:
    - **`existingPr` in the brief:** do not run `gh pr create`. Push to its branch (step 1). Leave
      the PR's title and the author's text as they are: write this run's summary, QA instructions
-     and test plan (plus **Left for you to clean up** when Phase 6 handed off an entry) into one
+     and test plan (plus **Left for you to clean up** when Phase 6 handed off an entry, and
+     `## Accepted residual` when Phase 6 recorded an `ACCEPTED-RESIDUAL` item) into one
      section of the body that starts with the line `<!-- juel:update -->` and ends with
      `<!-- juel:update end -->`, replacing that section when the body already has it and
      appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
      then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
      `PR item=<item> url=<url> existing`.
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. It is marked ready once, by the babysit stage, after the gate passed.
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. The build marks it ready after its final SAFE round (the codex gate loop, step 3), outside quiet hours; inside them the babysit stage marks it ready after the window.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 
@@ -940,14 +1003,24 @@ unattended run without a `star:` block then ends with `DONE item=<item> pr=<url>
 no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 
 1. Round: `k` is 1 plus the highest `k` among `<star.reviews>/<item>-r<k>.md`, or 1 when there is none.
-   Append a progress line.
+   Only those verdict files count: error logs (`<item>-r<k>-error-<n>.log`), raw files and run files
+   never do. Append a progress line with the step `gate-r<k>`.
 2. Run, from the worktree root, in the background like `codex exec` (`run_in_background: true`, wait
    for the completion notification, never poll it):
-   `sh <codex-gate.sh> --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>`
+   `sh <codex-gate.sh> --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch> --evidence <the Phase 6 evidence directory>`
    (`codex-gate.sh` is in `juel:star`: `../star/codex-gate.sh` from this file, or
    `${CLAUDE_PLUGIN_ROOT}/skills/star/codex-gate.sh`). It reads the gate settings from `star.json`.
+   The review streams on its stderr while it runs, so anyone watching the terminal sees it work.
+   When it ends, read only the last line of its output: that is the verdict line (`SAFE …`,
+   `NOT-SAFE …` or `ERROR …`). Never read the transcript back.
 3. `SAFE …`: `sh <codex-gate.sh> post-pass --pr <url> --round <k> --head <the full head> --review <the review path the gate printed>`,
-   then end the run with `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
+   then mark the PR ready: `gh pr ready <url>`, then a progress line with the step `ready`. The
+   head is final here and has passed the gate, and a hosted reviewer such as Greptile starts its
+   review on ready, so the review and CI overlap with STAR's hand-over instead of following it. A
+   PR that is already ready is left as it is. Inside quiet hours (`quiet-hours.sh` says `inside`,
+   or anything but `outside`), leave the PR a draft and print no `HELD` line for it: the babysit
+   stage marks it ready after the window. Then end the run with
+   `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
    `post-pass` printing `ERROR …`: wait a minute and run it once more; a second `ERROR` is
    `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`. On a PR that is
    no longer a draft (a resumed build), inside quiet hours, the PASS comment is an outward action:
@@ -973,8 +1046,11 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
    item.
-6. `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more; a
-   second `ERROR` is `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`.
+6. `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
+   (an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move); a second `ERROR` is
+   `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`, the line
+   quoted whole: an `ERROR gate-down …` line tells STAR that the gate itself is down (Sol and its
+   Claude fallback both failed), and STAR parks the item instead of handing it to the owner.
 
 ### Phase 8 — Babysit PR
 

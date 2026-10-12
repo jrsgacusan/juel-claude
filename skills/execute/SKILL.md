@@ -68,7 +68,7 @@ Takes an existing implementation plan and dispatches Codex (sandboxed `workspace
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
-| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
+| claude-plan-executor | skill | HARD | `test -f ~/.codex/skills/claude-plan-executor/SKILL.md` (follows the link) | STOP → `node scripts/link-agent-skills.mjs` |
 | plan file | context | HARD | newest `${docsRoot}/plans/*.md` | STOP → no plan to execute |
 | writable workspace | context | HARD | `test -w .` | STOP |
 
@@ -172,8 +172,20 @@ Resolve the model and effort first: `sh <executor-model.sh> --model latest-luna 
 `default <why>` means: drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in
 one line.
 
+**The executor skill.** Right before the line, check that the skill resolves:
+`test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
+a plugin version that is gone fails it. Missing: stop and tell the user to run
+`node <plugin root>/scripts/link-agent-skills.mjs` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or
+two levels above this file), then run this skill again. Never dispatch without it: Codex would
+execute something else.
+
+**A linked worktree.** Compare `git rev-parse --path-format=absolute --git-dir` with
+`git rev-parse --path-format=absolute --git-common-dir`. When they differ, the checkout is a linked
+worktree whose index lock lives outside the paths the sandbox may write, so `<add-dirs>` below is
+`--add-dir <git-dir> --add-dir <common-dir>` with those two paths. Otherwise `<add-dirs>` is empty.
+
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" '$claude-plan-executor <plan-path>' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor <plan-path>' < /dev/null
 ```
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
