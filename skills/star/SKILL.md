@@ -317,6 +317,7 @@ issues.log              <iso>\t<fingerprint>\t<url>: every improvement issue STA
 ids.json                ids reserved from sequences that branches share (ids.sh; workers write it, under a lock)
 gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
+evidence/<item>/                     the item's evidence folder, copied from its worktree before worktree-clean.sh removes it
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
 memory/<project>.md
 ```
@@ -865,6 +866,10 @@ message into the same end state.
    - Finished worktrees: each `done` or `dropped` row that still has a worktree and no `kept=` gets
      `sh S/worktree-clean.sh <item>`. It removes the worktree only when nothing in it would be lost
      (clean, and its work on the remote or merged), never with work in it that exists nowhere else.
+     Before it removes one, it copies every evidence folder it finds there (`evidence/` under the
+     docs root STAR's home implies, `docs/superpowers` and `docs/.superpowers`) to
+     `HOME_DIR/evidence/<item>/` and prints `kept-evidence <path>` first: name it in the status line
+     too. A copy that fails keeps the worktree (`kept <path>: evidence copy failed: <why>`, below).
      `removed <path>` → name it in the status line. `kept <path>: <why>` → `--kind held` "<item>'s
      worktree <path> was kept: <why>", and `counters.kept=1`. `none` → nothing. `failed` and
      `escalated` rows keep their worktrees until the user answers.
@@ -1221,7 +1226,7 @@ nothing else: it overrides any request for a prose summary, Orca's worker preamb
 
 Each tick, every `verifying` row (past the `retry=` time in its `verify` when one is set) runs the
 merge gate on the head its `READY` reported: `sh S/pr-verify.sh <pr url> --head <head> --merge-gate`,
-adding `--hosted` when `star.json`'s `hostedReviewer` is set.
+adding `--hosted <hostedReviewer.login>` when `star.json`'s `hostedReviewer` is set.
 It prints one line. `PASS` needs all of: the PR is open, not a draft, and its head is the head given;
 a comment by the PR's author that starts `Codex gate: PASS (head <that head>`; every check that
 reported is green, and GitHub's merge state is not blocked, behind or dirty; a reply from the PR's
@@ -1235,7 +1240,7 @@ before it reported `READY` (`juel:babysit-pr`), and the head check holds the gat
 |---|---|
 | `PASS …` | First close the row's open `held` item "PR #<n> waits for an approval from someone other than you" when it has one. The brief has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1): `sh S/merge.sh <pr url> --head <head> --grant <grant path> [--quiet-hours <window>]` (the window as `stage-start.sh` renders it; none when `quietHours` is null), run in the background like `stage-start.sh`; its line is the next table. No grant (a brief whose grant line was lost, since every go writes one): queue `--kind go-merge` and leave the row |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` |
-| `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
+| `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. `PENDING hosted-status <check> missing on <sha>`: the hosted reviewer has no status on this head, most often after a base sync that came after its last pass. When the brief's `## Decisions` has no line "the merge gate said: no <check> status on <sha7>" yet: append "- <date> the merge gate said: no <check> status on <sha7>; refresh the hosted status on <sha7>", row → `babysit-queued` (babysit resumes with `--since <cursor>`; its Phase 1 asks the hosted reviewer for a status refresh, which is not a pass); it is not a `pending=`. When that line is there already, the refresh did not help: the Otherwise branch. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" |
 | `MERGED <sha>` | the PR is merged (by STAR's own earlier call, or by someone else): `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
 | `FAIL <what>` | `FAIL closed`: as the PR check's `FAIL closed` ("Fill slots"): row → `escalated`, queue `--kind escalation` "PR was closed without a merge". `FAIL conflicts`: the sync rule below. `FAIL no codex PASS for <sha7>`: append "- <date> the merge gate said: no codex PASS for <sha7>; resume the gate loop on the existing PR" to the brief's `## Decisions`, row → `queued` (the build resumes the gate loop, as for `reason=no-safe-verdict`); it spends no `mergefail=`. Otherwise: `counters` has no `mergefail=1`: write it, append "- <date> the merge gate said: <what>. Fix it on the PR." to the brief's `## Decisions`, row → `babysit-queued` (babysit resumes with `--since <cursor>`). It has: → `escalated`, queue `--kind escalation` "the merge gate failed twice: <what>" |
@@ -1678,8 +1683,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   refuses the rest.
 - AskUserQuestion only for the first-run setup question, before any worker exists. Every other
   question is asked in plain chat, one question per message.
-- A worktree is removed only by `worktree-clean.sh`, and never with work in it that exists nowhere
-  else.
+- A worktree is removed only by `worktree-clean.sh`, never with work in it that exists nowhere
+  else, and only after its evidence is copied into `HOME_DIR/evidence/<item>/`.
 - `open-loops.md` is written only through `loops.sh`, and `ledger.md` only through `ledger.sh`.
 
 ## Common mistakes

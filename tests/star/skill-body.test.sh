@@ -345,7 +345,7 @@ left=""; for gone in '`pr-draft`' '`reviewing`' '`fix-queued`' '`fixing`' '`scre
 done
 [ -z "$left" ] && pass "nothing of the v1 flow is left" || fail "v1 flow still named:$left"
 g "MG3 the merge gate" 'sh S/pr-verify.sh <pr url> --head <head> --merge-gate'
-g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted` when'
+g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted <hostedReviewer.login>` when'
 g "MG5 STAR merges through merge.sh" 'sh S/merge.sh <pr url> --head <head> --grant <grant path>'
 g "MG6 a merge-gate failure goes back to babysitting once" 'mergefail=1'
 g "MG7 without a hosted reviewer, someone else approves" 'waits for an approval from someone other than you'
@@ -474,5 +474,14 @@ g "GD6 STAR stays active while the gate is down" 'or while `gateDown` is set'
 g "GD7 the status line says so" '`gate down since <since>`'
 g "GD8 the Gate down rule" '**Gate down.**'
 g "GD9 one held item, however many rows report it" 'When it is set already: nothing more'
+# Issue #59: a missing hosted status is refreshed by babysit, not counted
+g "HS1 the merge gate names a missing hosted status" '`PENDING hosted-status <check> missing on <sha>`'
+g "HS2 babysit refreshes it" 'refresh the hosted status on <sha7>'
+g "HS3 a second miss on the same head is a pending" 'the refresh did not help'
+g "HS4 the merge gate is told who the hosted reviewer is" 'adding `--hosted <hostedReviewer.login>` when'
+# Issue #73: evidence outlives the worktree
+g "EV1 the evidence folder in STAR's home" 'evidence/<item>/'
+g "EV2 the copy is named in the status line" '`kept-evidence <path>`'
+g "EV3 a worktree goes only after its evidence is copied" 'only after its evidence is copied'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
