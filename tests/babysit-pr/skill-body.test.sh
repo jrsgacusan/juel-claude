@@ -140,6 +140,7 @@ g "D58a a conflict wake runs the base sync" '| `conflict` |'
 g "D58b any snapshot with merge dirty does too" 'a snapshot whose `merge` is `dirty`'
 g "D58c behind is left to Phase 4 and the merge gate" '`behind` is not acted on here'
 g "D58d the sync is counted in the report" 'base-syncs=<s>'
+g "D58e a stale dirty with nothing to merge waits 60 s and looks again" 'wait 60 seconds and run the script again instead of re-entering `--wait`'
 # Issue #59: a status refresh is not a pass
 hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
 hrow() { printf '%s\n' "$hosted_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
