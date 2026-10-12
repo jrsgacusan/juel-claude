@@ -290,6 +290,50 @@ run basic 7
 check "a repository gh cannot see says how to fix it" '"gh cannot see o/r: export GH_TOKEN for this repository" in d["error"]'
 unset STUB_FAIL STUB_MSG
 
+# ---- the merge state (#58) ----
+# mpr <isDraft> <mergeStateStatus> <mergeable>: a PR view with GitHub's two merge fields
+mpr() { printf '{"state":"OPEN","reviewDecision":"","headRefOid":"h","isDraft":%s,"mergeStateStatus":"%s","mergeable":"%s","author":{"login":"me"},"url":"https://github.com/o/r/pull/20"}' "$1" "$2" "$3"; }
+merge_case() { fixture "$1" pr.json "$(mpr "$2" "$3" "$4")"; for f in reviews inline comments; do fixture "$1" "$f.json" ''; done; }
+merge_case m-dirty false DIRTY CONFLICTING
+run m-dirty 20
+check "merge: DIRTY is dirty" 'd["merge"] == "dirty"'
+merge_case m-draft true DRAFT CONFLICTING
+run m-draft 20
+check "merge: a draft with conflicts is dirty, though GitHub says DRAFT" 'd["merge"] == "dirty"'
+merge_case m-behind false BEHIND MERGEABLE
+run m-behind 20
+check "merge: BEHIND is behind" 'd["merge"] == "behind"'
+merge_case m-blocked false BLOCKED MERGEABLE
+run m-blocked 20
+check "merge: BLOCKED is blocked" 'd["merge"] == "blocked"'
+merge_case m-clean false CLEAN MERGEABLE
+run m-clean 20
+check "merge: CLEAN is clean" 'd["merge"] == "clean"'
+merge_case m-unstable false UNSTABLE MERGEABLE
+run m-unstable 20
+check "merge: UNSTABLE (a red check that is not required) still merges cleanly" 'd["merge"] == "clean"'
+merge_case m-unknown false UNKNOWN UNKNOWN
+run m-unknown 20
+check "merge: still computing is unknown" 'd["merge"] == "unknown"'
+run basic 7
+check "merge: a PR view without the fields is unknown" 'd["merge"] == "unknown"'
+
+run m-dirty 20 --wait --interval 0 --max-seconds 5
+check "wait: a dirty PR wakes conflict at once" 'd["wake"] == "conflict" and calls == 1'
+run m-dirty 20 --wait --interval 0 --max-seconds 5 --hold-approval
+check "wait: conflict wakes even while approval is held" 'd["wake"] == "conflict"'
+fixture m-turns pr.1.json "$(mpr false CLEAN MERGEABLE)"
+fixture m-turns pr.json "$(mpr false DIRTY CONFLICTING)"
+for f in reviews inline comments; do fixture m-turns "$f.json" ''; done
+run m-turns 20 --wait --interval 0 --max-seconds 5
+check "wait: a PR that turns dirty while waiting wakes conflict on that poll" 'd["wake"] == "conflict" and calls == 2'
+run m-behind 20 --wait --interval 0 --max-seconds 0
+check "wait: behind never wakes (CI still runs on a behind head)" 'd["wake"] == "timeout"'
+merge_case m-dirty-fb false DIRTY CONFLICTING
+fixture m-dirty-fb comments.json '{"id":81,"user":{"login":"mstr-ezra","type":"User"},"body":"see the conflict","created_at":"2026-10-01T09:00:00Z","html_url":"i81"}'
+run m-dirty-fb 20 --wait --interval 0
+check "wait: new feedback is reported before the conflict" 'd["wake"] == "feedback" and d["merge"] == "dirty"'
+
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

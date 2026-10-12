@@ -1,7 +1,10 @@
 #!/bin/sh
 # Reports what changed on a PR since a cursor, as one JSON object on stdout:
-#   {"state","decision","head","draft","base","author","url","approval","required","checks",
+#   {"state","decision","head","draft","base","author","url","approval","required","checks","merge",
 #    "changes_requested","new_feedback":[...],"reviewers","cursor"}
+# "merge" is clean, dirty (the PR conflicts with its base: mergeStateStatus DIRTY, or mergeable
+# CONFLICTING, which is all a draft shows, since GitHub reports DRAFT for it), behind, blocked, or
+# unknown (GitHub is still computing it). UNSTABLE and HAS_HOOKS still merge: clean.
 # Feedback = review bodies, inline comments and conversation comments from humans other than
 # the PR author, plus two kinds of bot: the app behind a status check the base branch's rules
 # require (a code-review app whose status is required; never github-actions[bot], which is CI),
@@ -20,7 +23,8 @@
 # Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60); under
 # --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
-# happens: feedback | approved (reviewDecision APPROVED; or, where the rules require 0
+# happens: feedback | conflict ("merge" is dirty; it wakes even under --hold-approval) |
+# approved (reviewDecision APPROVED; or, where the rules require 0
 # approving reviews, no reviewer's latest review is CHANGES_REQUESTED and "checks" is green) |
 # draft (approved while a draft: turned back into one, or never
 # marked ready) | closed | errors (3 in a row) | silence | timeout.
@@ -135,9 +139,25 @@ def checks_state(rollup, required):
     return "pending" if pending or any(r not in seen for r in required) else "green"
 
 
+def merge_state(view):
+    """clean | dirty | behind | blocked | unknown, from GitHub's two merge fields."""
+    status = str(view.get("mergeStateStatus") or "").upper()
+    mergeable = str(view.get("mergeable") or "").upper()
+    if status == "DIRTY" or mergeable == "CONFLICTING":
+        return "dirty"
+    if status == "BEHIND":
+        return "behind"
+    if status == "BLOCKED":
+        return "blocked"
+    if status in ("CLEAN", "HAS_HOOKS", "UNSTABLE") or (status == "DRAFT" and mergeable == "MERGEABLE"):
+        return "clean"
+    return "unknown"
+
+
 def snapshot(pr, since, repo, bots=()):
     view_args = ["pr", "view", pr, "--json",
-                 "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url,statusCheckRollup"]
+                 "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url,statusCheckRollup,"
+                 "mergeStateStatus,mergeable"]
     if repo:
         view_args += ["-R", repo]
     view = json.loads(gh(view_args))
@@ -226,6 +246,7 @@ def snapshot(pr, since, repo, bots=()):
             "base": view.get("baseRefName"), "author": author, "url": url,
             "approval": approval, "required": required,
             "checks": checks_state(view.get("statusCheckRollup"), required_checks),
+            "merge": merge_state(view),
             "changes_requested": sorted(w for w, s in latest.items() if s == "CHANGES_REQUESTED"),
             "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor}
 
@@ -235,6 +256,8 @@ def wake_reason(snap, hold_approval=False):
         return "closed"
     if snap["new_feedback"]:
         return "feedback"
+    if snap.get("merge") == "dirty":
+        return "conflict"
     if hold_approval:
         return None
     approved = snap["decision"] == "APPROVED" or (
