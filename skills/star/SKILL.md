@@ -1418,7 +1418,8 @@ reconcile step uses for a lost worker: a stage gets one automatic restart in all
 **A refused check-in.** `orca terminal send` answering with the error code `agent_prompt_blocked`
 means the worker's agent is mid-turn: busy, not idle, often inside a long command such as a wait
 for the gate lock. It is not a nudge: add one to `busy=` in `counters` and leave `nudge=` alone.
-An instruction sent with `orca terminal send` is a check-in for this rule.
+An instruction sent with `orca terminal send` is a check-in for this rule, so a refused one sets
+none of `asked=`, `step=` and `nudge=`: nothing reached the worker, and only `busy=` moves.
 While `busy=<n>` is set, send the next check-in only when this tick's probe prints `quiet <m>` or
 `stale <m>` with `m` at least the probe's own threshold × (n + 1) (15 for `quiet`,
 `progressDeadlineMin` for `stale`), so one silent stretch gets one try per window. When `busy=` is

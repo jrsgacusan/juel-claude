@@ -487,8 +487,9 @@ g "EV3 a worktree goes only after its evidence is copied" 'only after its eviden
 g "EL13 a hidden-window check follows juel:verify's Electron row" "as \`juel:verify\`'s Electron row says"
 g "EL14 a Checks line may name the project's launch helper" '[ | helper: <path>]'
 grep -q 'window that paints' "$SKILL" && fail "EL15 no 'window that paints' description left" || pass "EL15 no 'window that paints' description left"
-# Final-review fix: the start says what a gate migration means
+# Final-review fixes: the start says what a gate migration means; a refused send sets no counter
 g "FW1 migrated gate is said in one line" 'say in one line "gate moved to Sol with a Claude fallback"'
+g "FW2 a refused check-in sets no asked, step or nudge" 'none of `asked=`, `step=` and `nudge=`: nothing reached the worker'
 # README, v2.1.0
 grep -qF 'gate on the newest Sol' "$ROOT/README.md" && pass "RD2 the README names Sol for the gate" || fail "RD2 the README names Sol for the gate"
 grep -qi 'astra' "$ROOT/README.md" && fail "RD3 the README names no astra" || pass "RD3 the README names no astra"
