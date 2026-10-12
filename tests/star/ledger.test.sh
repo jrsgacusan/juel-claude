@@ -101,5 +101,7 @@ done; pass "the three v1-only stages are refused"
 L set V2-1 state=babysit-queued stage=babysit counters.capacity=+1 counters.mismatch=1 counters.mergefail=1 counters.rescoped=1 counters.rescope=V2-1-r3.md counters.batch=B-20261009T081200Z counters.parent=SPH-11 >/dev/null
 [ "$(L get V2-1 counters.rescope)" = "V2-1-r3.md" ] && [ "$(L get V2-1 counters.batch)" = "B-20261009T081200Z" ] && [ "$(L get V2-1 counters.capacity)" = "1" ] && [ "$(L get V2-1 counters.parent)" = "SPH-11" ] && pass "the new counters and words are kept" || fail "new counters ($(L get V2-1 counters))"
 
+# #56: shape= counts a worker_done that was not a report
+L set V2-1 counters.shape=1 >/dev/null && [ "$(L get V2-1 counters.shape)" = "1" ] && pass "shape= is a counter (#56)" || fail "shape counter ($(L get V2-1 counters))"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

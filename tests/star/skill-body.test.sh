@@ -425,5 +425,17 @@ g "SOL6 luna writes and Sol gates" 'Luna writes the code and Sol gates it'
 g "SOL7 the fallback is a second Claude review" 'a second Claude review, not a second model'
 g "SOL8 the gate's last resort" 'ERROR gate-down <why>'
 g "SOL9 an ERROR attempt keeps its round" '<item>-r<k>-error-<n>.log'
+# Issue #55: workers learn which research MCPs exist
+g "MCP1 the preflight tells needs-sign-in from available" '`needs-sign-in` when its only tools are `authenticate` and `complete_authentication`'
+g "MCP2 every start writes mcps" '"mcps": {"mobbin": "<state>", "context7": "<state>"}'
+g "MCP3 every worker reads mcps" '`gate`, `hostedReviewer` and `mcps` from this file'
+g "MCP4 a brief worker reads mcps" '`mcps` in `<HOME_DIR>/star.json`'
+g "MCP5 a brief worker uses an MCP only when its own session has it" 'use an MCP only when this session lists its'
+# Issue #56: the worker_done body is the report lines
+g "SHP1 report lines override the preamble" "Orca's worker preamble included"
+g "SHP2 a body with no report line is asked for once more" 'your worker_done body must be the report lines your skill names'
+g "SHP3 a second miss fails the row" 'reason=report-shape'
+g "SHP4 the shape counter" '| `shape=1` |'
+g "SHP5 a prose body never stops the settlement rule" 'does not count as a processed report'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

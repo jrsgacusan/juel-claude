@@ -143,8 +143,8 @@ session is the Stop rule below, nothing more: it does not run the start sequence
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | Linear MCP | mcp | SOFT | **none — render as `?`** | the project's other configured source is used; items can also be given as spec paths |
-| Mobbin MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
-| Context7 MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
+| Mobbin MCP | mcp | SOFT | this session's tools (load them with `ToolSearch` when they are deferred): `available`; `needs-sign-in` when its only tools are `authenticate` and `complete_authentication`; else `absent`. Render that state, and write it to `star.json` as `mcps` | a web search, named in the decision record's Source |
+| Context7 MCP | mcp | SOFT | this session's tools (load them with `ToolSearch` when they are deferred): `available`; `needs-sign-in` when its only tools are `authenticate` and `complete_authentication`; else `absent`. Render that state, and write it to `star.json` as `mcps` | a web search, named in the decision record's Source |
 | orca | cli | HARD | `resolve_bin orca` against PATH, then the app-bundle candidate | STOP → https://www.onorca.dev |
 | gh | cli | HARD | `gh auth status` | STOP → `gh auth login` |
 | git | cli | HARD | `command -v git` | STOP |
@@ -351,7 +351,7 @@ Settings in `star.json`:
 
 Each stage runs on `stages.<stage>`; a stage with no entry there (or a home with no `stages`
 block) runs on `worker`. The executor and the gate are not stages: every worker reads `executor`,
-`gate` and `hostedReviewer` from this file through its brief's `star.home`. `latest-<family>` is the
+`gate`, `hostedReviewer` and `mcps` from this file through its brief's `star.home`. `latest-<family>` is the
 newest model of that family `codex debug models` lists, resolved at each run by `juel:ship-ticket`'s
 `executor-model.sh`. The defaults are the owner's choice for each kind of work:
 
@@ -440,6 +440,7 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `pending=<n>` | merge-gate checks in a row that said `PENDING` | any other verdict |
 | `nudge=<n>` | check-ins sent to this row's worker with no report since | a report from it is processed, or a new worker starts |
 | `busy=<n>` | check-ins Orca refused with `agent_prompt_blocked` in this row's current silent stretch | the probe prints anything but `quiet`, a report from it is processed, or a new worker starts |
+| `shape=1` | a `worker_done` whose first line was none of its stage's report words (the Messages table) | a report from it is processed, or a new worker starts |
 | `reask=1` | the open question's deadline was extended once (Housekeeping) | the question is answered or closed |
 | `last=<message id>` | not a count: the id of the last message applied to this row | never; the next message overwrites it |
 | `tracker=<status>` | not a count: the last status STAR wrote to the work item, `!<status>` when that write failed | never; the next write overwrites it |
@@ -541,7 +542,10 @@ runs in <handle>", and end the turn.
    and `star.json`'s `hostedReviewer` is null, run the hosted-reviewer lookup of "STAR's home" once.
 2. `orca orchestration run-use --id <run from star.json> --json`; when that run no longer exists,
    `orca orchestration run-create --objective "STAR" --json`. Record the run id and
-   `$ORCA_TERMINAL_HANDLE` in `star.json`.
+   `$ORCA_TERMINAL_HANDLE` in `star.json`, and the Preflight's Mobbin and context7 states as
+   `"mcps": {"mobbin": "<state>", "context7": "<state>"}`. Every start writes it again, so a sign-in
+   made between runs shows at the next start. Workers read it: it tells them which research MCPs
+   STAR's session found.
 3. `caffeinate`: when `star.json` has a pid and `ps -p <pid> -o comm=` prints `caffeinate`, kill it.
    Start a new one (`caffeinate -dimsu >/dev/null 2>&1 &`) and record its pid. It deliberately
    outlives a closed session, so the workers' Mac stays awake.
@@ -753,6 +757,8 @@ message into the same end state.
    | an `escalation` message while the worker still runs | queue it and notify, but keep the row and its slot until its `worker_done` arrives |
    | a `question` message | **STAR answers first** ("Looking after the workers"): when the answer is STAR's to give → `reply` at once and record it; an in-scope product call is always STAR's, decided from the sourced options the worker brings. When it is the user's: a row that already has an open `question` item → close that item and `reply` to its `msg:` id "Superseded by your newer question." first. Then, inside quiet hours or while the user is away → reply "No answer from the user: escalate this." at once (nobody will read it in time); otherwise queue `--kind question` with the deadline `messages.sh` printed, notify, keep looping; the worker stays blocked and keeps its slot |
    | `CONFLICT:`, `AMBIGUOUS:`, `BRIEF-VIOLATION:` or `STOPPED:` (a `receive-review-and-execute` run that reported by itself) | as an `ESCALATION` whose reason is that word and whose `needs=` is the rest of the line |
+   | a `worker_done` whose first line starts with none of its stage's report words (brief: `BRIEF`, `SPLIT`, `ESCALATION`; build: `DONE`, `RESCOPE`, `REPORTED`, `ESCALATION`; babysit: `READY`, `MERGED`, `RESCOPE`, `ESCALATION`, `CONFLICT:`, `AMBIGUOUS:`, `BRIEF-VIOLATION:`, `STOPPED:`; post: `POSTED`, `ESCALATION`), and the row has no `shape=` | a prose body in place of the report (#56). Write `counters.shape=1` with `last=`, keep the row in its state and its slot, and do not run `worker-release` for it; then `orca orchestration send --to dispatch:<dispatch> --subject "report" --body "STAR: your worker_done body must be the report lines your skill names, first line one of <that stage's words>. Send it again." --json`. The message does not count as a processed report: the settlement rule in Housekeeping still applies to that worker |
+   | the same, and the row has `shape=1` | row → `failed`; queue `--kind escalation` "<stage> worker sent no report line twice: <the first line>" with `reason=report-shape`; free the slot |
    | anything else, or no report line | row → `failed`; queue `--kind escalation` quoting the first line; free the slot. Never re-run without the user's answer |
 
    `PHASE`, `PR` and `GATES` lines need no action: the gate manifest is
@@ -949,7 +955,8 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
 `ESCALATION item=<name> phase=0 reason=unanswered-question needs=<the question>`.
 
 1. Read `<HOME_DIR>/memory/<project>.md` (HOME_DIR is two levels
-   above `--out`'s directory). Then, before step 2, when a file already exists at `--out`, read its
+   above `--out`'s directory), and `mcps` in `<HOME_DIR>/star.json`: the research MCPs STAR's
+   session found (`available`, `needs-sign-in` or `absent`). Then, before step 2, when a file already exists at `--out`, read its
    `## Feedback` section: the user's dated answers to earlier runs of this stage. `--feedback` is
    a bare flag that says there is something new there; the text itself is never put in the prompt,
    where a quote or a line break could change it. An answer there settles the question it answers (which tracker holds the ref, what a
@@ -1078,8 +1085,10 @@ old PR.
    interaction choices; for a library, framework, SDK, API or CLI, context7 at the version the
    project uses; when neither fits, a web search, official docs first; for a project convention,
    the repository, cited as `file:line`. Mobbin searches spend paid credits: use them for
-   user-facing changes only. When the Mobbin or context7 tools are not in this session, search the
-   web instead and say so in `Source:`. A decision no source can settle, and that only the owner
+   user-facing changes only. Look for the tools `mcps` names `available` (with `ToolSearch` when
+   they are deferred) before you decide they are missing, and use an MCP only when this session lists its
+   tools. When it does not, or `mcps` says `needs-sign-in` or `absent`, search the web instead and
+   say so in `Source:`. A decision no source can settle, and that only the owner
    can make (money, a policy, a legal question), is a `risky` person-only step instead.
 
    **External ids are checked live** (#42). Every service slug, project id, DSN, hostname or
@@ -1127,6 +1136,8 @@ old PR.
    `<HOME_DIR>/items/<project>/<name>-<k>.md` (frontmatter `status: todo` and `title:`, then the
    words of the item that describe that piece), write no brief, and report
    `SPLIT item=<name> into=<path>,<path>`.
+   The `worker_done` body is these report lines and nothing else: it overrides any request for a
+   prose summary, Orca's worker preamble included. STAR reads the first line as the report.
 
 **Re-scope mode** (`--rescope <file>`). The build or babysit worker could not get the item past a
 reviewer (the codex gate after its rounds, or the hosted reviewer after its passes), and `<file>`
@@ -1162,7 +1173,8 @@ that was lost; then report `POSTED` with its URL and post nothing.
 
 Report, as the `worker_done` body: `POSTED item=<name> url=<comment url, or the spec path>`, then
 `SENT report posted to <ref>`. A post that fails: `ESCALATION item=<name> phase=0
-reason=post-failed needs=<what the tracker said>`.
+reason=post-failed needs=<what the tracker said>`. The `worker_done` body is these lines and
+nothing else: it overrides any request for a prose summary, Orca's worker preamble included.
 
 ## The merge gate
 

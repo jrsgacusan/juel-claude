@@ -377,7 +377,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <li>Each decision is a short record in the brief: context, decision, consequences, source.</li>
           <li>A decision with no source is not taken. The worker researches first, or brings STAR sourced options.</li>
           <li>STAR picks among the options a worker brings. It does no research in its own session.</li>
-          <li>Mobbin and context7 are prerequisites wherever STAR runs. Missing at the moment of use, the worker searches the web and says so in the record.</li>
+          <li>STAR records at every start which of Mobbin and context7 its session has, and every worker reads that list. A worker uses one only when its own session has it too; otherwise it searches the web and says so in the record.</li>
         </ul>
       </div>
     </div>
