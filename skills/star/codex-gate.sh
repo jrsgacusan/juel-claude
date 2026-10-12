@@ -52,7 +52,9 @@
 # with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
 # dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
 # post-pass posts "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)" on the PR, once per
-# head; --head must be the PR's current head, all 40 characters. The model and effort are
+# head; --head must be the PR's current head, all 40 characters. GitHub can show the previous head
+# for a few seconds after a push, so post-pass reads the PR's head every 5 seconds for up to 90
+# (times CODEX_GATE_SLEEP) until it is --head, and only then refuses (#62). The model and effort are
 # --model and --effort, else the "Gate: <model> <effort>" line of the --review file (the model
 # that ran, a fallback included), else the "gate" block of the project's star.json
 # ($JUEL_STAR_HOME, else the folder star-home.sh names), else latest-sol and xhigh; a
@@ -93,6 +95,10 @@ READ_ONLY = ["Read", "Grep", "Glob", "Bash(git diff *)", "Bash(git show *)", "Ba
 FORMAT = ("Write the review as plain text: first one short paragraph with your overall verdict, then each "
           "finding as one bullet line, \"- [P<n>] <title> — <path>:<line>\", with any detail indented on the "
           "lines below it. Write nothing else, and change nothing.")
+try:
+    PAUSE = float(os.environ.get("CODEX_GATE_SLEEP", "1"))
+except ValueError:
+    PAUSE = 1.0
 
 
 def out(line, code=0):
@@ -222,6 +228,20 @@ def check_review(text, path, k, head):
         error(f"round {k + 1} has its own review at {later}")
 
 
+def pr_view(pr):
+    """(author, comments, head, url) of the PR, or ERROR."""
+    view = run(["gh", "pr", "view", pr, "--json", "author,comments,headRefOid,url"], 60)
+    if view.returncode != 0:
+        error("gh: " + (last_line(view.stderr or view.stdout) or "failed"))
+    try:
+        d = json.loads(view.stdout)
+        author = (d.get("author") or {}).get("login") or ""
+        comments = [c for c in (d.get("comments") or []) if isinstance(c, dict)]
+    except (ValueError, AttributeError):
+        error("gh: unreadable output")
+    return author, comments, str(d.get("headRefOid") or "").lower(), d.get("url")
+
+
 def post_pass(o):
     head = o["head"].lower()
     if not re.fullmatch(r"[0-9a-f]{40}", head):
@@ -241,27 +261,23 @@ def post_pass(o):
     if model.startswith("latest-"):
         named = resolve(model, effort)
         model, effort = named if named[0] else (model, effort)
-    view = run(["gh", "pr", "view", o["pr"], "--json", "author,comments,headRefOid,url"], 60)
-    if view.returncode != 0:
-        error("gh: " + (last_line(view.stderr or view.stdout) or "failed"))
-    try:
-        d = json.loads(view.stdout)
-        author = (d.get("author") or {}).get("login") or ""
-        comments = [c for c in (d.get("comments") or []) if isinstance(c, dict)]
-    except (ValueError, AttributeError):
-        error("gh: unreadable output")
-    pr_head = str(d.get("headRefOid") or "").lower()
+    author, comments, pr_head, url = pr_view(o["pr"])
+    for _ in range(18):  # GitHub can show the previous head for a few seconds after a push (#62)
+        if pr_head == head:
+            break
+        time.sleep(5 * PAUSE)
+        author, comments, pr_head, url = pr_view(o["pr"])
     if pr_head != head:
-        error(f"the PR's head is {pr_head[:7] or '?'}, not {head[:7]}")
+        error(f"the PR's head is {pr_head[:7] or '?'}, not {head[:7]}, after 90 s")
     prefix = f"Codex gate: PASS (head {head}"
     for c in comments:
         if (c.get("author") or {}).get("login") == author and str(c.get("body") or "").startswith(prefix):
-            out(f"already {c.get('url') or d.get('url')}")
+            out(f"already {c.get('url') or url}")
     posted = run(["gh", "pr", "comment", o["pr"], "--body",
                   f"Codex gate: PASS (head {head}, round {o['round']}, {model} {effort})"], 60)
     if posted.returncode != 0:
         error("gh: " + (last_line(posted.stderr or posted.stdout) or "failed"))
-    out(f"posted {last_line(posted.stdout) or d.get('url')}")
+    out(f"posted {last_line(posted.stdout) or url}")
 
 
 argv = sys.argv[1:]
@@ -327,10 +343,6 @@ try:
     LIMIT = float(os.environ.get("CODEX_GATE_TIMEOUT", "3600"))
 except ValueError:
     LIMIT = 3600.0
-try:
-    PAUSE = float(os.environ.get("CODEX_GATE_SLEEP", "1"))
-except ValueError:
-    PAUSE = 1.0
 
 
 def prompt_text():

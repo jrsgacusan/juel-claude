@@ -56,7 +56,8 @@ cat > "$TMP/bin/gh" <<'EOF'
 printf '%s\n' "$*" >> "$STUB_DIR/gh-calls"
 [ -f "$STUB_DIR/gh-fail" ] && { echo "HTTP 502" >&2; exit 1; }
 case "$1 $2" in
-  "pr view") cat "$STUB_DIR/pr.json" ;;
+  "pr view") n=$(($(cat "$STUB_DIR/pr-n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$STUB_DIR/pr-n"
+             if [ -f "$STUB_DIR/pr-$n.json" ]; then cat "$STUB_DIR/pr-$n.json"; else cat "$STUB_DIR/pr.json"; fi ;;
   "pr comment") echo "https://github.com/o/r/pull/5#issuecomment-1" ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
@@ -73,7 +74,7 @@ rc=${line%% *}; rest=${line#* }; fixture=${rest%% *}; err=${rest#"$fixture"}
 exit "$rc"
 EOF
 chmod +x "$TMP/bin/claude"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/run-seen" "$TMP/stub-pid"; rm -rf "$H/reviews" "$H/specs"; }
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
 cplan() { printf '%s\n' "$1" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -265,7 +266,7 @@ out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD"
 [ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && pass "a PASS comment from someone other than the PR's author does not count" || fail "other author ($out)"
 reset; printf '{"author":{"login":"me"},"headRefOid":"0000000000000000000000000000000000000000","url":"u","comments":[]}\n' > "$TMP/pr.json"
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD"); rc=$?
-[ "$rc" -eq 69 ] && case "$out" in "ERROR the PR's head is 0000000"*) true ;; *) false ;; esac && pass "post-pass refuses another head" || fail "post-pass head ($rc $out)"
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR the PR's head is 0000000, not $(printf '%.7s' "$NEWHEAD"), after 90 s" ] && [ "$(cat "$TMP/pr-n")" = 19 ] && pass "post-pass refuses another head after waiting 90 s" || fail "post-pass head ($rc $out)"
 reset; touch "$TMP/gh-fail"
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD"); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR gh: HTTP 502" ] && pass "a gh failure is ERROR" || fail "gh failure ($rc $out)"
@@ -408,6 +409,13 @@ G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
 reset; plan "1 - You've hit your usage limit."; cplan "0 safe"; mkdir -p "$TMP/ev2"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --evidence "$TMP/ev2" >/dev/null
 grep -qF -- "--add-dir $H $TMP/ev2 --allowedTools" "$TMP/claude-calls" && pass "the Claude fallback gets the evidence folder as a readable directory" || fail "fallback evidence dir ($(tail -n 1 "$TMP/claude-calls"))"
+
+# #62: GitHub can show the previous head for a few seconds after a push
+reset; OLD=0000000000000000000000000000000000000000
+printf '{"author":{"login":"me"},"headRefOid":"%s","url":"u","comments":[]}\n' "$OLD" > "$TMP/pr-1.json"; cp "$TMP/pr-1.json" "$TMP/pr-2.json"
+printf '{"author":{"login":"me"},"headRefOid":"%s","url":"https://github.com/o/r/pull/5","comments":[]}\n' "$NEWHEAD" > "$TMP/pr.json"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && [ "$(cat "$TMP/pr-n")" = 3 ] && pass "post-pass waits out GitHub's head lag after a push (#62)" || fail "head lag ($out, $(cat "$TMP/pr-n") views)"
 
 # usage
 G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --brief is 64" || fail "usage brief"
