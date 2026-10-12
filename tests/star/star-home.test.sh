@@ -27,7 +27,7 @@ HS=$(sh "$SCRIPT" --cwd "$SP" init) && [ "$HS" = "$SP/docs/superpowers/context/s
 # init: creates once, never overwrites, makes git ignore it without touching .gitignore
 H=$(sh "$SCRIPT" --cwd "$APP" init)
 [ "$H" = "$APP/docs/superpowers/context/star" ] && [ -f "$H/open-loops.md" ] && [ -f "$H/ledger.md" ] && [ -f "$H/star.json" ] && pass "init creates the folder from the template" || fail "init"
-for d in inbox briefs reviews gates releases drafts memory specs reports items grants progress; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
+for d in inbox briefs reviews gates releases drafts memory specs reports items grants progress evidence; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["project"]=={"name":"app","repo":sys.argv[2]}, d["project"]; assert d["maxParallel"]==3' "$H/star.json" "$APP" && pass "init records the project in star.json" || fail "project block"
 (cd "$APP" && git check-ignore -q "$H/open-loops.md") && pass "git ignores the folder" || fail "folder not ignored"
 [ ! -e "$APP/.gitignore" ] && [ -z "$(cd "$APP" && git status --porcelain)" ] && pass ".gitignore untouched, nothing shows as a change" || fail "repo shows changes: $(cd "$APP" && git status --porcelain)"
@@ -140,7 +140,7 @@ assert set(d["stages"]) == {"brief", "build", "babysit", "post"}, d["stages"]
 assert all("executor" not in s for s in d["stages"].values()), d["stages"]
 assert "reviewer" not in d
 assert d["executor"] == {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"}, d["executor"]
-assert d["gate"]["model"] == "gpt-6-astra" and d["gate"]["maxRounds"] == 3, d["gate"]
+assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 3}, d["gate"]
 assert d["hostedReviewer"] is None and d["hostGate"]["maxAgents"] == 40 and d["progressDeadlineMin"] == 30
 PY
 [ -f "$HM2/star.json.v1.bak" ] && [ -f "$HM2/ledger.md.v1.bak" ] && grep -q '"reviewer"' "$HM2/star.json.v1.bak" && pass "v1 files are backed up first" || fail "backups"
@@ -210,5 +210,18 @@ LG5() { sh "$ROOT/skills/star/ledger.sh" --home "$HM6" get "$@"; }
 [ "$(LG5 D stage)" = "fix" ] && [ "$(LG5 P stage)" = "review" ] && [ "$(LG5 K stage)" = "build" ] && pass "done and dropped rows keep their stage, and a row already at build is left alone" || fail "closed rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
 [ "$out" = "$(printf 'stop ctx_r6\nmigrated rows=1')" ] && [ "$(LG5 R state)/$(LG5 R stage)" = "queued/build" ] && pass "only the row moved out of a v1 state is counted" || fail "restage count ($out)"
 
+# v2.1.0: migrate moves a v2.0.0 gate to Sol and the Claude fallback, and leaves the owner's own values alone
+mkrepo "$TMP/gate"; GT=$(real "$TMP/gate"); HG=$(sh "$SCRIPT" --cwd "$GT" init)
+setgate() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["gate"]=json.loads(sys.argv[2]); json.dump(d,open(p,"w"))' "$HG/star.json" "$1"; }
+setgate '{"model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 4}'
+out=$(sh "$SCRIPT" --cwd "$GT" migrate)
+[ "$out" = "$(printf 'migrated gate\ncurrent')" ] && python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["gate"]; assert g == {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 4}, g' "$HG/star.json" && pass "migrate moves a v2.0.0 gate to latest-sol and the Claude fallback, keeping maxRounds" || fail "gate migrate ($out)"
+[ "$(sh "$SCRIPT" --cwd "$GT" migrate)" = "current" ] && pass "a second migrate leaves the gate alone" || fail "gate migrate twice"
+setgate '{"model": "gpt-6-sol", "effort": "high", "fallback": null, "maxRounds": 3}'
+[ "$(sh "$SCRIPT" --cwd "$GT" migrate)" = "current" ] && python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["gate"]; assert g == {"model": "gpt-6-sol", "effort": "high", "fallback": None, "maxRounds": 3}, g' "$HG/star.json" && pass "an owner's own gate, fallback null included, is left alone (Review Focus)" || fail "own gate changed ($(cat "$HG/star.json"))"
+setgate '{"model": "gpt-6-astra", "effort": "high", "fallback": {"agent": "claude", "model": "fable", "effort": "max"}, "maxRounds": 2}'
+sh "$SCRIPT" --cwd "$GT" migrate >/dev/null
+python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["gate"]; assert g == {"model": "latest-sol", "effort": "high", "fallback": {"agent": "claude", "model": "fable", "effort": "max"}, "maxRounds": 2}, g' "$HG/star.json" && pass "only astra and a string fallback change; the owner's effort and own fallback stay" || fail "partial gate ($(cat "$HG/star.json"))"
+rmdir "$HG/evidence" && sh "$SCRIPT" --cwd "$GT" migrate >/dev/null && [ -d "$HG/evidence" ] && pass "migrate adds evidence/ to an existing folder (#73)" || fail "evidence folder on migrate"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

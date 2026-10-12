@@ -89,7 +89,7 @@ else:
     for stage, entry in star["stages"].items():
         check(stage, entry["model"], entry["effort"])
     check("executor", star["executor"]["model"].replace("latest-", ""), star["executor"]["effort"])
-    check("codex gate", star["gate"]["model"], star["gate"]["effort"])
+    check("codex gate", star["gate"]["model"].replace("latest-", ""), star["gate"]["effort"])
     coordinator = re.search(r"^\| STAR itself \| ([^|(]*?)\s*[(|]", skill, re.M)
     star_row = next((m for label, m, e in labelled if label.lower().startswith("star")), None)
     if coordinator is None:
