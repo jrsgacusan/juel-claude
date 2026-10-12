@@ -306,7 +306,7 @@ items/<project>/<name>.md            a spec item from a free-text brief, a split
 briefs/<project>/<item>.md
 grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, the time, the items
 reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log
-reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed
+reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
@@ -947,8 +947,9 @@ Claude review, not a second model.
 
 `/juel:star draft-brief <ref> --project <name> --item <name> --out <path> [--feedback] [--rescope <file>]`
 runs in the project's main checkout as an Orca worker. It never edits the repo: it writes only the
-brief at `--out` and, when it splits or re-scopes an item, spec items under
-`<HOME_DIR>/items/<project>/`. It is unattended: nobody is at its terminal, so it never asks there.
+brief at `--out`, spec items under `<HOME_DIR>/items/<project>/` when it splits an item or moves
+part of it to a follow-up, and in re-scope mode the `-fix.md` of the review it narrowed by. It is
+unattended: nobody is at its terminal, so it never asks there.
 With `--rescope <file>` it runs in re-scope mode ("Re-scope mode" below).
 Where a step below says ask, it sends `orca orchestration ask --question "<question>" --json` and
 waits for the reply; a reply of "No answer … escalate this." ends the run with
@@ -1150,7 +1151,12 @@ moved and why, with the findings file as its source. Keep `approved:`, `grant:`,
 `baseBranch` and `existingPr` as they are: the narrowed item builds on the same branch and PR,
 under the same go. Write what moved as a follow-up spec item,
 `<HOME_DIR>/items/<project>/<name>-followup.md` (frontmatter `status: todo` and `title:`, then what
-is left to do and the findings that sent it there). Report
+is left to do and the findings that sent it there). When `<file>` is a codex gate review
+(`<item>-r<k>.md`) and no `<item>-r<k>-fix.md` lies beside it, write that file: one line per
+finding of the review, in its order, `Disposition: moved to <follow-up path> (decision D<n>)` or
+`Disposition: kept, <why> (decision D<n>)`, citing the decision record that moved or kept it. The
+next gate round reads it as the dispositions of those findings, so it does not raise settled
+findings again. A hosted review file gets none: the gate never saw its findings. Report
 `BRIEF item=<name> path=<--out> rescoped=1 followup=<path>`. When narrowing cannot leave anything
 safe to ship, report `ESCALATION item=<name> phase=0 reason=rescope-impossible needs=<why>`.
 

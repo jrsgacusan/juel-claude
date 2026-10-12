@@ -437,5 +437,10 @@ g "SHP2 a body with no report line is asked for once more" 'your worker_done bod
 g "SHP3 a second miss fails the row" 'reason=report-shape'
 g "SHP4 the shape counter" '| `shape=1` |'
 g "SHP5 a prose body never stops the settlement rule" 'does not count as a processed report'
+# Issue #67: a re-scope leaves the dispositions the next gate round reads
+g "FIX1 a moved finding names its follow-up" 'Disposition: moved to <follow-up path> (decision D<n>)'
+g "FIX2 a kept finding says why" 'Disposition: kept, <why> (decision D<n>)'
+g "FIX3 only a gate review gets one" 'A hosted review file gets none'
+g "FIX4 the brief worker writes it into STAR's folder" 'in re-scope mode the `-fix.md` of the review it narrowed by'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
