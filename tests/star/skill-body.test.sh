@@ -345,7 +345,7 @@ left=""; for gone in '`pr-draft`' '`reviewing`' '`fix-queued`' '`fixing`' '`scre
 done
 [ -z "$left" ] && pass "nothing of the v1 flow is left" || fail "v1 flow still named:$left"
 g "MG3 the merge gate" 'sh S/pr-verify.sh <pr url> --head <head> --merge-gate'
-g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted` when'
+g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted <hostedReviewer.login>` when'
 g "MG5 STAR merges through merge.sh" 'sh S/merge.sh <pr url> --head <head> --grant <grant path>'
 g "MG6 a merge-gate failure goes back to babysitting once" 'mergefail=1'
 g "MG7 without a hosted reviewer, someone else approves" 'waits for an approval from someone other than you'
@@ -414,5 +414,74 @@ gin "FS7 the stop lines it printed are still stopped and released" "$start1" 'st
 gin "FS7 the claim is released as stop does" "$start1" 'release the claim'
 gin "FS7 the owner is told that running /juel:star again retries" "$start1" 'running `/juel:star` again retries the migrate'
 gin "FS7 no reconcile and no tick follow" "$start1" 'no reconcile and no tick'
+# Issues 55 to 74, lane D2
+# The gate reviews on Sol (owner, 2026-10-12), with a Claude fallback (#64); an ERROR attempt keeps its round (#66)
+grep -qi 'astra' "$SKILL" && fail "SOL1 STAR's text names no astra" || pass "SOL1 STAR's text names no astra"
+g "SOL2 the settings block's gate is Sol with a Claude fallback" '"gate":     { "model": "latest-sol", "effort": "xhigh", "fallback": { "agent": "claude", "model": "opus", "effort": "xhigh" }, "maxRounds": 3 }'
+g "SOL3 the settings block shows mcps" '"mcps":     { "mobbin": "available", "context7": "needs-sign-in" }'
+g "SOL4 the settings block shows gateDown" '"gateDown": null'
+g "SOL5 the models table's gate row" '| gate | the newest sol'
+g "SOL6 luna writes and Sol gates" 'Luna writes the code and Sol gates it'
+g "SOL7 the fallback is a second Claude review" 'a second Claude review, not a second model'
+g "SOL8 the gate's last resort" 'ERROR gate-down <why>'
+g "SOL9 an ERROR attempt keeps its round" '<item>-r<k>-error-<n>.log'
+# Issue #55: workers learn which research MCPs exist
+g "MCP1 the preflight tells needs-sign-in from available" '`needs-sign-in` when its only tools are `authenticate` and `complete_authentication`'
+g "MCP2 every start writes mcps" '"mcps": {"mobbin": "<state>", "context7": "<state>"}'
+g "MCP3 every worker reads mcps" '`gate`, `hostedReviewer` and `mcps` from this file'
+g "MCP4 a brief worker reads mcps" '`mcps` in `<HOME_DIR>/star.json`'
+g "MCP5 a brief worker uses an MCP only when its own session has it" 'use an MCP only when this session lists its'
+# Issue #56: the worker_done body is the report lines
+g "SHP1 report lines override the preamble" "Orca's worker preamble included"
+g "SHP2 a body with no report line is asked for once more" 'your worker_done body must be the report lines your skill names'
+g "SHP3 a second miss fails the row" 'reason=report-shape'
+g "SHP4 the shape counter" '| `shape=1` |'
+g "SHP5 a prose body never stops the settlement rule" 'does not count as a processed report'
+# Issue #67: a re-scope leaves the dispositions the next gate round reads
+g "FIX1 a moved finding names its follow-up" 'Disposition: moved to <follow-up path> (decision D<n>)'
+g "FIX2 a kept finding says why" 'Disposition: kept, <why> (decision D<n>)'
+g "FIX3 only a gate review gets one" 'A hosted review file gets none'
+g "FIX4 the brief worker writes it into STAR's folder" 'in re-scope mode the `-fix.md` of the review it narrowed by'
+# Issues #68 and #61: follow-up items get their own rows in every mode
+g "FUP1 a BRIEF may name a follow-up in every mode" 'BRIEF item=<name> path=<--out> asks=<n> [followup=<path>]'
+g "FUP2 the BRIEF row adds the follow-up row" 'When the line carries `followup=<path>`'
+g "FUP3 a follow-up whose parent has no grant waits for its batch's go" "whose parent's brief has a grant"
+g "FUP4 STAR may accept a residual" '**An accepted residual.**'
+g "FUP5 the DONE note adds the follow-up" 'a `NOTE: accepted residual <criterion>: <follow-up path>` line'
+g "FUP6 a missing follow-up file is held" 'which does not exist'
+# Issue #70: STAR reads each worker's step and restarts a stuck stage; the PR pass of #69
+g "STP1 housekeeping reads each running worker's step" 'sh S/step-check.sh --item <item> --home HOME_DIR --state <state> --deadline <progressDeadlineMin>'
+g "STP2 an act line sends its instruction" '| `act <step> <diagnosis> -- <instruction>` |'
+g "STP3 the second ignored instruction restarts the stage" '`nudge=2` with `asked` 15 minutes or more ago'
+g "STP4 one automatic restart per stage" 'stalled again at <step> after a restart'
+g "STP5 a build with uncommitted work is held, not restarted" 'with uncommitted work in <worktree>'
+g "STP6 the asked and step counters" '| `asked=<iso>` |'
+g "STP7 notes go in the status line" "this tick's \`step-check.sh\` (\`<item>: <diagnosis>\`)"
+grep -qF 'through 3 check-ins' "$SKILL" && fail "STP8 held after 3 check-ins is gone" || pass "STP8 held after 3 check-ins is gone"
+g "STP9 the run file" '<item>-r<k>.run'
+g "STP10 an act on a new step starts the count over" 'starts over at `nudge=1`'
+g "STP11 an instruction still fresh is a note, not a second send" '`note <step> instructed <m> min ago`'
+g "STP12 the act line splits on its first separator" 'split the line on its first ` -- `'
+# Issue #69: the build marks the PR ready
+g "STP13 the build marks the PR ready" 'the build does after its final SAFE round'
+# Issue #64: the review gate is down
+g "GD1 a gate-down escalation parks the row" '| `ESCALATION item=… reason=review-unavailable needs=ERROR gate-down …` in a `worker_done` |'
+g "GD2 no build or babysit starts while the gate is down" 'While `gateDown` is set, start no build and no babysit'
+g "GD3 the gate is checked every 30 minutes" '`gateDown` set, and its `checked` 30 minutes or more ago: `sh S/codex-gate.sh check`'
+g "GD4 retry checks the gate now" '| `held` "the review gate is down…" | `retry` |'
+g "GD5 retry is a command word" '`accept`, `retry` or `not merging`'
+g "GD6 STAR stays active while the gate is down" 'or while `gateDown` is set'
+g "GD7 the status line says so" '`gate down since <since>`'
+g "GD8 the Gate down rule" '**Gate down.**'
+g "GD9 one held item, however many rows report it" 'When it is set already: nothing more'
+# Issue #59: a missing hosted status is refreshed by babysit, not counted
+g "HS1 the merge gate names a missing hosted status" '`PENDING hosted-status <check> missing on <sha>`'
+g "HS2 babysit refreshes it" 'refresh the hosted status on <sha7>'
+g "HS3 a second miss on the same head is a pending" 'the refresh did not help'
+g "HS4 the merge gate is told who the hosted reviewer is" 'adding `--hosted <hostedReviewer.login>` when'
+# Issue #73: evidence outlives the worktree
+g "EV1 the evidence folder in STAR's home" 'evidence/<item>/'
+g "EV2 the copy is named in the status line" '`kept-evidence <path>`'
+g "EV3 a worktree goes only after its evidence is copied" 'only after its evidence is copied'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

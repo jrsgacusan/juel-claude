@@ -111,7 +111,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <li><span class="sw you"></span>You</li>
       <li><span class="sw star"></span>STAR, the coordinator (Fable 5.1)</li>
       <li><span class="sw work"></span>Orca worker (Opus 5.5)</li>
-      <li><span class="sw codex"></span>Headless codex (luna, astra)</li>
+      <li><span class="sw codex"></span>Headless codex (luna, Sol), Claude when Codex is down</li>
       <li><span class="sw dash"></span>Dashed: a note, or a worker's boundary</li>
     </ul>
   </header>
@@ -229,9 +229,9 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <line class="edge" x1="230" y1="988" x2="230" y2="1018" marker-end="url(#ah1)"/>
 
         <rect class="codex" x="60" y="1020" width="340" height="52" rx="8"/>
-        <text class="tag tg-codex" x="388" y="1036" text-anchor="end">ASTRA</text>
+        <text class="tag tg-codex" x="388" y="1036" text-anchor="end">SOL</text>
         <text class="t" x="76" y="1042">Codex gate</text>
-        <text class="s" x="76" y="1061">codex review · gpt-6-astra · xhigh</text>
+        <text class="s" x="76" y="1061">codex review · Sol xhigh · Claude if down</text>
 
         <rect class="work" x="470" y="1016" width="250" height="64" rx="8"/>
         <text class="tag tg-work" x="708" y="1032" text-anchor="end">OPUS + LUNA</text>
@@ -377,7 +377,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <li>Each decision is a short record in the brief: context, decision, consequences, source.</li>
           <li>A decision with no source is not taken. The worker researches first, or brings STAR sourced options.</li>
           <li>STAR picks among the options a worker brings. It does no research in its own session.</li>
-          <li>Mobbin and context7 are prerequisites wherever STAR runs. Missing at the moment of use, the worker searches the web and says so in the record.</li>
+          <li>STAR records at every start which of Mobbin and context7 its session has, and every worker reads that list. A worker uses one only when its own session has it too; otherwise it searches the web and says so in the record.</li>
         </ul>
       </div>
     </div>
@@ -452,15 +452,16 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>Approve risky calls even in scope: data migrations, billing or pricing, production credentials or data, deleting data.</li>
         <li>On a project with no hosted reviewer, have a teammate approve the PR.</li>
         <li>Accept a report item's report before STAR posts it.</li>
-        <li>Answer an escalation: a merge-gate check failing twice, or NOT-SAFE again after a re-scope.</li>
+        <li>When the review gate is down on every model: sign in again, or wait. STAR checks it every 30 minutes.</li>
+        <li>Answer an escalation: a merge-gate check failing twice, NOT-SAFE again after a re-scope, or a worker stalled again after STAR restarted it.</li>
       </ol>
       <p class="aside">Any time: read the decision records in each brief and overrule a call.</p>
     </div>
     <div>
       <h2>Never stalls</h2>
       <ul>
-        <li>Workers are judged by progress: their progress log, their latest commit and the files changed in their worktree. 30 minutes with none of those gets a check-in.</li>
-        <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself.</li>
+        <li>Workers are judged by progress: their progress log, their latest commit and the files changed in their worktree. Each tick STAR also reads the step a worker is on and the PR itself, sends a concrete instruction when the step stalls, and restarts the stage on its own when the evidence is plain or two instructions go unanswered. A second stall at the same step comes to you.</li>
+        <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself. The codex gate retries Sol, then runs the same review on Claude. With both down, STAR parks builds and babysits, asks you once, and checks the gate every 30 minutes until it is back.</li>
         <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
@@ -483,7 +484,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td class="k">babysit-queued</td><td>report checked; waiting for a babysit slot</td></tr>
           <tr><td class="k">babysitting</td><td>babysit worker running: ready, hosted review or approval, fixes</td></tr>
           <tr><td class="k">verifying</td><td>READY received; STAR runs the merge gate each tick until it holds</td></tr>
-          <tr><td class="k">done</td><td>merged; release record written</td></tr>
+          <tr><td class="k">done</td><td>merged; release record written, its evidence kept in STAR's folder</td></tr>
           <tr><td class="k">reported</td><td>a report item's report is written; waiting for your accept</td></tr>
           <tr><td class="k">post-queued, posting</td><td>accepted; a post worker puts it on the work item</td></tr>
           <tr><td class="k">escalated</td><td>stopped on something only you can answer</td></tr>

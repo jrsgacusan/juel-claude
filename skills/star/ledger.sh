@@ -36,8 +36,8 @@ STATES = ["inbox", "briefing", "brief-ready", "queued", "building", "babysit-que
           "verifying", "reported", "post-queued", "posting", "done", "escalated", "failed", "dropped"]
 STAGES = ["brief", "build", "babysit", "post"]
 COUNTS = ["miss", "silent", "unknown", "hold", "moved", "pending", "nudge", "reask", "screen", "start",
-          "kept", "busy", "capacity", "mismatch", "mergefail", "rescoped"]
-WORDS = ["last", "tracker", "live", "synced", "rescope", "batch", "parent"]
+          "kept", "busy", "capacity", "mismatch", "mergefail", "rescoped", "shape"]
+WORDS = ["last", "tracker", "live", "synced", "rescope", "batch", "parent", "asked", "step"]
 DEFAULTS = {"worktree": "-", "state": "inbox", "stage": "brief", "round": "0", "task": "-",
             "dispatch": "-", "restarts": "0", "pr": "-", "head": "-", "cursor": "-", "verify": "-",
             "counters": "-"}
