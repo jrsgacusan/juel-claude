@@ -40,7 +40,7 @@ clean; say 40 gate-r2 "round 2"; runfile 2 "$LIVE_PID" 5
 t "a live gate whose log grows is ok, though its progress line is old" "ok gate-r2" --state building
 clean; say 40 gate-r2 "round 2"; runfile 2 "$LIVE_PID" 25
 t "a live gate whose log is silent 20 min gets an instruction" \
-  "act gate-r2 log silent 25 min -- STAR: gate round 2 has printed nothing for 25 min (pid $LIVE_PID/$LIVE_PID). Stop it and run round 2 again; it falls back to Claude by itself." --state building
+  "act gate-r2 log silent 25 min -- STAR: gate round 2 has printed nothing for 25 min. Stop the gate process (kill $LIVE_PID), then run round 2 again. It starts on Sol again and moves to Claude only when Sol is at capacity or out of usage." --state building
 t "an instruction sent 5 min ago is waited on" "note gate-r2 instructed 5 min ago: log silent 25 min" --state building --asked "$(ago 5)"
 # a gate that died
 clean; say 40 gate-r2 "round 2"; runfile 2 "$DEAD_PID" 12

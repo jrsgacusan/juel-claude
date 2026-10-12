@@ -14,7 +14,7 @@
 #   no progress log, or no dated line in it           unknown no-progress-source
 #   <reviews>/<item>-r<k>.run (the newest k) whose pid or gate pid is alive:
 #     its log changed in the last 20 min               ok gate-r<k>
-#     its log silent 20 min or more                    act gate-r<k> log silent <m> min -- stop it, rerun round <k>
+#     its log silent 20 min or more                    act gate-r<k> log silent <m> min -- stop the gate process, rerun round <k>
 #   a run file whose pids are both gone, no verdict of round <k> newer than the run, and nothing
 #     written (its log, a progress line) for 10 min    restart gate-r<k> gate process gone
 #   step gate-r<k>, <reviews>/<item>-r<k>.md newer than the step's line and 15 min old:
@@ -177,13 +177,14 @@ if runs:
     if isinstance(run, dict):
         log_path = run["log"] if isinstance(run.get("log"), str) else os.path.join(reviews, f"{item}-r{k}.log")
         changed = mtime(log_path) or mtime(path) or NOW
-        pids = "/".join(str(run[key]) for key in ("pid", "gate") if isinstance(run.get(key), int))
+        stop = f"kill {run['gate']}" if isinstance(run.get("gate"), int) else "kill the codex-gate.sh process"
         if alive(run.get("pid")) or alive(run.get("gate")):
             if NOW - changed < LOG_SILENT * 60:
                 out(f"ok {step}")
             act(step, f"log silent {minutes(changed)} min",
-                f"STAR: gate round {k} has printed nothing for {minutes(changed)} min (pid {pids or '?'}). "
-                f"Stop it and run round {k} again; it falls back to Claude by itself.")
+                f"STAR: gate round {k} has printed nothing for {minutes(changed)} min. Stop the gate process "
+                f"({stop}), then run round {k} again. It starts on Sol again and moves to Claude only when Sol "
+                "is at capacity or out of usage.")
         verdict = mtime(os.path.join(reviews, f"{item}-r{k}.md"))
         started = when(run.get("started")) or mtime(path) or 0
         if verdict is None or verdict < started:
