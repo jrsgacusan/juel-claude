@@ -26,12 +26,14 @@ else
     */rules/branches/*) f=rules; [ -f "$D/rules.json" ] || { echo '[]'; exit 0; } ;;
     */protection*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
     */check-runs*) f=checkruns ;;
+    */commits/*/status*) f=statuses ;;
     */reviews*) f=reviews ;;
     */pulls/*/comments*) f=inline ;;
     */issues/*/comments*) f=comments ;;
     *) echo "unexpected gh call: $*" >&2; exit 9 ;;
   esac
 fi
+[ -n "${STUB_FAIL_ROUTE:-}" ] && [ "$STUB_FAIL_ROUTE" = "$f" ] && { echo "boom" >&2; exit 1; }
 if [ -f "$D/$f.$n.json" ]; then cat "$D/$f.$n.json"; elif [ -f "$D/$f.json" ]; then cat "$D/$f.json"; fi
 EOF
 chmod +x "$TMP/bin/gh"
@@ -333,6 +335,66 @@ merge_case m-dirty-fb false DIRTY CONFLICTING
 fixture m-dirty-fb comments.json '{"id":81,"user":{"login":"mstr-ezra","type":"User"},"body":"see the conflict","created_at":"2026-10-01T09:00:00Z","html_url":"i81"}'
 run m-dirty-fb 20 --wait --interval 0
 check "wait: new feedback is reported before the conflict" 'd["wake"] == "feedback" and d["merge"] == "dirty"'
+
+# ---- the hosted reviewer: its status on the head, and a summary edited in place (#72) ----
+HEADX=abc1234def5678abc1234def5678abc1234def56
+hpr() { printf '{"state":"OPEN","reviewDecision":"","headRefOid":"%s","isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","baseRefName":"main","author":{"login":"me"},"url":"https://github.com/o/r/pull/30"}' "$HEADX"; }
+hosted_case() { fixture "$1" pr.json "$(hpr)"; for f in reviews inline comments; do fixture "$1" "$f.json" ''; done; }
+hosted_case h-success
+fixture h-success checkruns.json '{"name":"Greptile Review","app":{"slug":"greptile-apps"},"status":"completed","conclusion":"success"}
+{"name":"ci","app":{"slug":"github-actions"},"status":"completed","conclusion":"success"}'
+run h-success 30 --hosted 'greptile-apps[bot]'
+check "hosted: a finished check run of its app is success" 'd["hosted"] == "success"'
+run h-success 30
+check "hosted: without --hosted the key is null" 'd["hosted"] is None'
+hosted_case h-pending
+fixture h-pending checkruns.json '{"name":"Greptile Review","app":{"slug":"greptile-apps"},"status":"in_progress","conclusion":null}'
+run h-pending 30 --hosted 'greptile-apps[bot]'
+check "hosted: a running check run is pending" 'd["hosted"] == "pending"'
+hosted_case h-failure
+fixture h-failure checkruns.json '{"name":"Greptile Review","app":{"slug":"greptile-apps"},"status":"completed","conclusion":"failure"}'
+run h-failure 30 --hosted 'greptile-apps[bot]'
+check "hosted: a failed check run is failure" 'd["hosted"] == "failure"'
+hosted_case h-none
+fixture h-none checkruns.json '{"name":"ci","app":{"slug":"github-actions"},"status":"completed","conclusion":"success"}'
+run h-none 30 --hosted 'greptile-apps[bot]'
+check "hosted: no run of its app on the head is none" 'd["hosted"] == "none"'
+hosted_case h-status
+fixture h-status statuses.json '{"context":"Greptile Review","state":"success","creator":{"login":"greptile-apps[bot]"}}'
+run h-status 30 --hosted 'greptile-apps[bot]'
+check "hosted: a commit status it created counts too" 'd["hosted"] == "success"'
+STUB_FAIL_ROUTE=checkruns; export STUB_FAIL_ROUTE
+run h-success 30 --hosted 'greptile-apps[bot]'
+check "hosted: a check-runs call that fails is unknown, never none" 'd["hosted"] == "unknown"'
+unset STUB_FAIL_ROUTE
+
+GOLD='{"id":50,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T10:00:00Z","html_url":"i50","body":"Confidence 3/5\n<sub>Last reviewed commit: <a href=\"https://github.com/o/r/commit/0dd0000aaa0dd0000aaa0dd0000aaa0dd0000aaa\">0dd0000</a></sub>"}'
+GNEW='{"id":50,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T11:00:00Z","html_url":"i50","body":"Confidence 5/5\nLast reviewed commit: [abc1234](https://github.com/o/r/commit/abc1234def5678abc1234def5678abc1234def56)"}'
+hosted_case h-edit
+fixture h-edit comments.1.json "$GOLD"
+fixture h-edit comments.json "$GNEW"
+run h-edit 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#50'
+check "hosted-pass: a summary naming an older head is not feedback" 'ids == []'
+run h-edit 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#50' --wait --interval 0 --max-seconds 5
+check "hosted-pass: the summary edited in place to name the head wakes the wait" 'd["wake"] == "feedback" and calls == 2 and [i["kind"] for i in d["new_feedback"]] == ["hosted-pass"]'
+check "hosted-pass: it carries the full head, its edit time and an id that names the edit" 'd["new_feedback"][0]["head"] == "'"$HEADX"'" and d["new_feedback"][0]["at"] == "2026-10-01T11:00:00Z" and ids == ["50@2026-10-01T11:00:00Z"] and d["cursor"] == "2026-10-01T11:00:00Z#50@2026-10-01T11:00:00Z"'
+hosted_case h-new
+fixture h-new comments.json "$GNEW"
+run h-new 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T11:00:00Z#50@2026-10-01T11:00:00Z'
+check "hosted-pass: the same edit is never reported twice" 'ids == []'
+fixture h-new comments.json "$(printf '%s' "$GNEW" | sed 's/T11:00:00Z/T12:00:00Z/')"
+run h-new 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T11:00:00Z#50@2026-10-01T11:00:00Z'
+check "hosted-pass: a later edit that names the head again is new (a status refresh)" 'ids == ["50@2026-10-01T12:00:00Z"]'
+run h-new 30 --review-bots 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#50'
+check "hosted-pass: --review-bots alone keeps today's plain comment, timed by its creation" 'ids == []'
+hosted_case h-first
+fixture h-first comments.json "$(printf '%s' "$GNEW" | sed 's/T11:00:00Z/T10:00:00Z/')"
+run h-first 30 --hosted 'greptile-apps[bot]' --since 2026-10-01T09:00:00Z
+check "hosted-pass: a first summary that names the head is a hosted pass, reported once" '[i["kind"] for i in d["new_feedback"]] == ["hosted-pass"] and ids == ["50@2026-10-01T10:00:00Z"]'
+hosted_case h-short
+fixture h-short comments.json '{"id":51,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T11:30:00Z","html_url":"i51","body":"Last reviewed commit: abc1234"}'
+run h-short 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#51'
+check "hosted-pass: a bare short sha in the footer is read too" 'ids == ["51@2026-10-01T11:30:00Z"]'
 
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
