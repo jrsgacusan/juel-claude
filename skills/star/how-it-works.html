@@ -118,7 +118,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
 
   <figure>
     <div class="scroll">
-      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS; STAR checks the report; the babysit worker marks ready once, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 rounds or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
+      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 rounds or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
         <defs>
           <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -245,7 +245,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
 
         <!-- exits from the build worker -->
         <line class="edge" x1="230" y1="1072" x2="230" y2="1158" marker-end="url(#ah1)"/>
-        <text class="lbl" x="242" y="1136">PASS posted on the PR · DONE</text>
+        <text class="lbl" x="242" y="1136">PASS posted · marked ready · DONE</text>
         <line class="edge" x1="595" y1="1080" x2="595" y2="1158" marker-end="url(#ah1)"/>
         <text class="lbl" x="605" y="1136">after 3 rounds</text>
 
@@ -272,8 +272,8 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
 
         <rect class="work" x="60" y="1300" width="340" height="44" rx="8"/>
         <text class="tag tg-work" x="388" y="1315" text-anchor="end">OPUS</text>
-        <text class="t" x="76" y="1319">Mark ready once</text>
-        <text class="s" x="76" y="1336">after the PASS, outside quiet hours</text>
+        <text class="t" x="76" y="1319">Mark ready, if still a draft</text>
+        <text class="s" x="76" y="1336">the build marks it at SAFE; quiet hours defer it</text>
         <line class="edge" x1="230" y1="1344" x2="230" y2="1370" marker-end="url(#ah1)"/>
 
         <rect class="work" x="60" y="1372" width="340" height="62" rx="8"/>
@@ -347,7 +347,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td class="k">ingest</td><td>STAR</td><td>its own session</td><td>each ref, and each piece of free text, is an item</td></tr>
           <tr><td class="k">brief</td><td>brief worker, Opus 5.5 high</td><td>the main checkout, read-only</td><td>the brief has criteria, approach, scope, blockers, its checks sorted, and sourced decisions</td></tr>
           <tr><td class="k">go</td><td>you</td><td>chat</td><td>the person-only steps are done and you said go</td></tr>
-          <tr><td class="k">build</td><td>build worker, Opus 5.5 xhigh; luna executes, astra gates</td><td>the item's own worktree</td><td>the draft PR passed the codex gate and the PASS is posted on it</td></tr>
+          <tr><td class="k">build</td><td>build worker, Opus 5.5 xhigh; luna executes, astra gates</td><td>the item's own worktree</td><td>the PR passed the codex gate, the PASS is posted on it, and it is marked ready (outside quiet hours)</td></tr>
           <tr><td class="k">check</td><td>STAR</td><td>its own session</td><td>the review file, the PASS comment and the PR's head agree</td></tr>
           <tr><td class="k">babysit</td><td>babysit worker, Opus 5.5 xhigh; luna fixes</td><td>the item's worktree</td><td>the PR is ready, reviewed clean or approved, and green on its head</td></tr>
           <tr><td class="k">merge</td><td>STAR</td><td>its own session</td><td>every gate holds and the PR merged on that exact head</td></tr>

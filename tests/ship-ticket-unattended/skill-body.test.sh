@@ -170,5 +170,11 @@ g "R61d the PR body carries it" '`## Accepted residual`'
 g "R61e the report carries it" 'NOTE: accepted residual <criterion>: <follow-up path>'
 g "R61f it is a fixed NOTE" '`NOTE: accepted residual'
 g "R61g never written as PASS" 'never written as PASS'
+# Issue #69: ready at the final SAFE round
+g "Y69a the build marks the PR ready after post-pass" 'mark the PR ready: `gh pr ready <url>`'
+g "Y69b not inside quiet hours, and no HELD line for it" 'leave the PR a draft and print no `HELD` line for it'
+g "Y69c the progress table has ready" '| `ready` |'
+g "Y69d the DONE row says ready" 'and it is marked ready (outside quiet hours)'
+grep -qF 'It is marked ready once, by the babysit stage, after the gate passed.' "$SKILL" && fail "Y69e babysit no longer marks every PR ready" || pass "Y69e babysit no longer marks every PR ready"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

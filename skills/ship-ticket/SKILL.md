@@ -327,7 +327,7 @@ line:
 | PR opened | `PR item=<item> url=<url> draft` |
 | an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished: the draft PR passed the codex gate and its PASS is posted | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
+| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
@@ -434,6 +434,7 @@ are waiting on; the free text goes in the third field:
 | `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix) |
 | `gate-r<k>` | right before gate round `k` starts (`gate-r1`, `gate-r2`, …) |
 | `post-pass` | right before `post-pass`, and before each quiet-hours wait for it |
+| `ready` | after the PR is marked ready (the codex gate loop, step 3) |
 | `sync` | right before merging the base branch in (an `existingPr`) |
 | `report` | right before the final report line |
 
@@ -558,8 +559,10 @@ before Phase 1 as well: any such result there means the window cannot be judged,
 `ESCALATION item=<item> phase=0 reason=preflight needs=a valid --quiet-hours window (<its message>)`,
 because guessing could send something while the user is away. `always` is inside at every moment.
 
-Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready, replying to
-reviewers and re-requesting review happen later, in the babysit stage, which gets the same window.
+Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready waits too:
+outside the window the build marks it ready after its final SAFE round (the codex gate loop, step
+3), and inside it the babysit stage marks it ready once the window ends. Replying to reviewers and
+re-requesting review happen later, in the babysit stage, which gets the same window.
 Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
 
 **Gate lock.** Under `--unattended`, every heavy command — Phase 5's targeted tests after
@@ -972,7 +975,7 @@ the evidence directory. Ask to proceed to PR.
      appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
      then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
      `PR item=<item> url=<url> existing`.
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. It is marked ready once, by the babysit stage, after the gate passed.
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. The build marks it ready after its final SAFE round (the codex gate loop, step 3), outside quiet hours; inside them the babysit stage marks it ready after the window.
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 
@@ -1004,7 +1007,13 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    When it ends, read only the last line of its output: that is the verdict line (`SAFE …`,
    `NOT-SAFE …` or `ERROR …`). Never read the transcript back.
 3. `SAFE …`: `sh <codex-gate.sh> post-pass --pr <url> --round <k> --head <the full head> --review <the review path the gate printed>`,
-   then end the run with `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
+   then mark the PR ready: `gh pr ready <url>`, then a progress line with the step `ready`. The
+   head is final here and has passed the gate, and a hosted reviewer such as Greptile starts its
+   review on ready, so the review and CI overlap with STAR's hand-over instead of following it. A
+   PR that is already ready is left as it is. Inside quiet hours (`quiet-hours.sh` says `inside`,
+   or anything but `outside`), leave the PR a draft and print no `HELD` line for it: the babysit
+   stage marks it ready after the window. Then end the run with
+   `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
    `post-pass` printing `ERROR …`: wait a minute and run it once more; a second `ERROR` is
    `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`. On a PR that is
    no longer a draft (a resumed build), inside quiet hours, the PASS comment is an outward action:

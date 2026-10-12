@@ -131,5 +131,9 @@ grow "G66d babysit reruns the same round after an ERROR" 'run the same round onc
 grow "G63c babysit passes the evidence folder" '--evidence <its "evidenceDir">'
 grow "G71b babysit reads only the verdict line" 'read only the last line of its output'
 grow "G64b babysit quotes a gate-down line whole" 'quoted whole: an `ERROR gate-down'
+# Issue #69: the build marks ready; babysit only when quiet hours kept it a draft
+g "Y69f mark-ready does nothing on a ready PR" 'A PR the build already marked ready is left as it is'
+g "Y69g pass 1 is the review started on ready, by either stage" 'Pass 1 is the review it started when the PR was marked ready, by the build or by this skill.'
+grep -q 'Never mark it ready a second time' "$SKILL" && pass "Y69h still never marked ready twice" || fail "Y69h still never marked ready twice"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
