@@ -12,7 +12,7 @@
 # post-pass prints: posted <url> | already <url> | ERROR <why>
 # Run the gate from the item's worktree. The brief's star: block gives home, project, notes,
 # reviews and gates. Model, effort and fallback come from the flags, else star.json's "gate"
-# block, else gpt-6-astra, xhigh and latest-sol. A latest-<family> name, from a flag or from
+# block, else latest-sol, xhigh and latest-sol. A latest-<family> name, from a flag or from
 # star.json, is resolved by ../ship-ticket/executor-model.sh before codex sees it (#65); a plain id
 # is used as given. A model name that does not resolve is ERROR, naming why.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
@@ -32,7 +32,7 @@
 # head; --head must be the PR's current head, all 40 characters. The model and effort are
 # --model and --effort, else the "Gate: <model> <effort>" line of the --review file (the model
 # that ran, a fallback included), else the "gate" block of the project's star.json
-# ($JUEL_STAR_HOME, else the folder star-home.sh names), else gpt-6-astra and xhigh; a
+# ($JUEL_STAR_HOME, else the folder star-home.sh names), else latest-sol and xhigh; a
 # latest-<family> name is resolved as above, or left as written when it does not resolve. A --review
 # file that cannot be read is ERROR, and so is one that is not this round's SAFE verdict: its first
 # line must be "VERDICT item=<item> round=<k> SAFE findings=<n> head=<7 to 40 hex characters>"
@@ -156,7 +156,7 @@ def post_pass(o):
     model, effort = o.get("model") or (ran and ran.group(1)), o.get("effort") or (ran and ran.group(2))
     if not model or not effort:
         gate = project_gate()
-        model, effort = model or gate.get("model") or "gpt-6-astra", effort or gate.get("effort") or "xhigh"
+        model, effort = model or gate.get("model") or "latest-sol", effort or gate.get("effort") or "xhigh"
     if model.startswith("latest-"):
         named = resolve(model, effort)
         model, effort = named if named[0] else (model, effort)
@@ -232,7 +232,7 @@ try:
 except (OSError, ValueError, AttributeError):
     gate = None
 gate = gate if isinstance(gate, dict) else {}
-asked = o.get("model") or gate.get("model") or "gpt-6-astra"
+asked = o.get("model") or gate.get("model") or "latest-sol"
 effort = o.get("effort") or gate.get("effort") or "xhigh"
 model, resolved = resolve(asked, effort)
 if model is None:

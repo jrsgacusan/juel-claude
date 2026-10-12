@@ -21,7 +21,7 @@ cat "$STUB_DIR/pr.json"
 EOF
 chmod +x "$TMP/bin/gh"
 pr() { printf '{"author":{"login":"me"},"headRefOid":"%s","comments":[%s]}\n' "$1" "$2" > "$TMP/pr.json"; }
-PASSC="{\"author\":{\"login\":\"me\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, gpt-6-astra xhigh)\"}"
+PASSC="{\"author\":{\"login\":\"me\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, gpt-6.1-sol xhigh)\"}"
 D() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" --home "$H" "$@"; }
 t() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (got: $3)"; fi; }
 
@@ -32,7 +32,7 @@ pr "ffff1234def5678901234567890123456789abcde" "$PASSC"
 t "another PR head is a mismatch" "MISMATCH head: the PR's head is ffff123, the report says abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 pr "$HEAD" ""
 t "no PASS comment is a mismatch" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
-pr "$HEAD" "{\"author\":{\"login\":\"someone\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, gpt-6-astra xhigh)\"}"
+pr "$HEAD" "{\"author\":{\"login\":\"someone\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, gpt-6.1-sol xhigh)\"}"
 t "a PASS from someone else does not count" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 pr "$HEAD" "$PASSC"
 mv "$H/reviews/app/ITEM-1-r2.md" "$TMP/r2.keep"
