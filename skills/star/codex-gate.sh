@@ -18,7 +18,15 @@
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
 # codex review runs read-only with no MCP servers; its stdout goes to <reviews>/<item>-r<k>.raw.md
 # and its stderr to <item>-r<k>.log. <item>-r<k>.md starts with the VERDICT line review-proof.sh
-# reads. A finding is a bullet (-, *, +, 1. or 1)) that starts with its tag, [P0] to [P3], bold or
+# reads. A run that ends in ERROR keeps no round files (#66): the log, then "--- stdout" and the
+# review text, then "--- ERROR <why>", move to <item>-r<k>-error-<n>.log (n counts up from 1), and
+# <item>-r<k>.raw.md, .log and .md are left absent, so the caller runs the same round again. While
+# an agent reviews, <item>-r<k>.run holds one JSON object, {"pid": the agent, "gate": this script,
+# "agent": "codex" or "claude", "model", "attempt", "started", "log"}, for step-check.sh; it is
+# removed on every exit. TERM, INT or HUP stops the agent and prints "ERROR stopped by SIG<NAME>";
+# an agent ended by a signal from outside is "ERROR <codex|claude> review stopped by signal <n>",
+# never gate-down.
+# A finding is a bullet (-, *, +, 1. or 1)) that starts with its tag, [P0] to [P3], bold or
 # not. Only a [P0] or [P1] finding makes it NOT-SAFE. A capacity, overload or rate-limit failure
 # is retried after 60 and 180 seconds; a usage-limit failure is not retried (#64). After those
 # tries, at once on a usage limit, or when the model does not resolve, the same prompt runs
@@ -51,9 +59,11 @@
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd)
 export STAR_SKILL_DIR
 exec python3 - "$@" <<'PY'
+import atexit
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -82,8 +92,43 @@ def out(line, code=0):
     sys.exit(code)
 
 
+ROUND = {}  # the round's files, set just before its first review run
+CHILD = {}  # the review agent running now
+
+
 def error(why):
+    if ROUND.get("raw"):
+        keep_error_log(why)
     out(f"ERROR {why}", 69)
+
+
+def keep_error_log(why):
+    """An ERROR keeps no round files (#66): the transcript moves to <item>-r<k>-error-<n>.log."""
+    r, raw = ROUND, ROUND.pop("raw")
+    pattern = re.compile(re.escape(r["item"]) + rf"-r{r['k']}-error-(\d+)\.log")
+    taken = [int(m.group(1)) for m in map(pattern.fullmatch, os.listdir(r["reviews"])) if m]
+    parts = []
+    for path, title in ((r["log"], ""), (raw, "--- stdout\n")):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                parts.append(title + f.read())
+            os.remove(path)
+        except OSError:
+            pass
+    target = os.path.join(r["reviews"], f"{r['item']}-r{r['k']}-error-{max(taken, default=0) + 1}.log")
+    with open(target, "w", encoding="utf-8") as f:
+        f.write("".join(p if p.endswith("\n") or not p else p + "\n" for p in parts) + f"--- ERROR {why}\n")
+    drop_run()
+
+
+def drop_run():
+    try:
+        os.remove(ROUND.get("run") or "")
+    except OSError:
+        pass
+
+
+atexit.register(drop_run)
 
 
 def die(msg):
@@ -305,6 +350,7 @@ os.makedirs(specs, exist_ok=True)
 review_path = os.path.join(reviews, f"{item}-r{k}.md")
 raw_path = os.path.join(reviews, f"{item}-r{k}.raw.md")
 log_path = os.path.join(reviews, f"{item}-r{k}.log")
+run_path = os.path.join(reviews, f"{item}-r{k}.run")
 prompt = prompt_text()
 with open(os.path.join(specs, f"{item}-gate-r{k}.md"), "w", encoding="utf-8") as f:
     f.write(prompt)
@@ -324,20 +370,30 @@ def claude_cmd(m, e):
             "--strict-mcp-config", "--no-session-persistence"]
 
 
-def attempt(cmd, label):
+def attempt(cmd, label, agent, model_):
     """One review run, stdout to the raw file and stderr to the log: (rc, stdout, this run's stderr).
-    rc is 127 when the program is missing and 124 past CODEX_GATE_TIMEOUT."""
+    rc is 127 when the program is missing, 124 past CODEX_GATE_TIMEOUT, negative when a signal ended it."""
+    ROUND["attempt"] = ROUND.get("attempt", 0) + 1
     start = os.path.getsize(log_path) if os.path.exists(log_path) else 0
     with open(raw_path, "w", encoding="utf-8") as so, open(log_path, "a", encoding="utf-8") as se:
         se.write(f"--- {label} {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
         se.flush()
         try:
-            rc = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=so, stderr=se, timeout=LIMIT).returncode
+            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=so, stderr=se, start_new_session=True)
         except FileNotFoundError:
             se.write(f"{cmd[0]} not found on PATH\n")
+            proc = None
+        if proc is None:
             rc = 127
-        except subprocess.TimeoutExpired:
-            rc = 124
+        else:
+            CHILD["proc"] = proc
+            write_run(proc.pid, agent, model_)
+            try:
+                rc = proc.wait(timeout=LIMIT)
+            except subprocess.TimeoutExpired:
+                stop_child(proc)
+                rc = 124
+            CHILD.clear()
     with open(log_path, encoding="utf-8", errors="replace") as f:
         f.seek(start)
         tail = "\n".join(f.read().splitlines()[1:])  # this run's stderr, without the script's own header line
@@ -350,13 +406,49 @@ def refusal(text):
     return first if first.lower().startswith(("error", "api error")) or first.startswith("⚠") else ""
 
 
+def write_run(pid, agent, model_):
+    """<item>-r<k>.run says which process reviews this round, for step-check.sh (#70)."""
+    tmp = f"{run_path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"pid": pid, "gate": os.getpid(), "agent": agent, "model": model_, "attempt": ROUND["attempt"],
+                   "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "log": log_path}, f)
+        f.write("\n")
+    os.replace(tmp, run_path)
+
+
+def stop_child(proc):
+    """TERM to the agent's whole process group, then KILL if it is still there after 5 seconds."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(proc.pid, sig)
+        except OSError:
+            return
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def stopped(signum, _frame):
+    proc = CHILD.get("proc")
+    if proc is not None and proc.poll() is None:
+        stop_child(proc)
+    error(f"stopped by {signal.Signals(signum).name}")
+
+
+ROUND.update(reviews=reviews, item=item, k=k, raw=raw_path, log=log_path, run=run_path)
+for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(sig, stopped)
 used, text, tail = None, "", ""
 short, why = f"cannot resolve {asked}", resolved
 if model is not None:
     for wait in (0, 60, 180):
         if wait:
             time.sleep(wait * PAUSE)
-        rc, text, tail = attempt(codex_cmd(model, effort), f"codex review {model} {effort}")
+        rc, text, tail = attempt(codex_cmd(model, effort), f"codex review {model} {effort}", "codex", model)
+        if rc < 0:
+            error(f"codex review stopped by signal {-rc}")
         if rc == 0 and text.strip():
             if refusal(text):
                 error("codex review failed: " + refusal(text)[:160])
@@ -375,7 +467,10 @@ if model is not None:
 if used is None:
     if fb is None:
         error(f"gate-down {short}: {why}; no fallback is set")
-    rc, text, tail = attempt(claude_cmd(fb["model"], fb["effort"]), f"claude {fb['model']} {fb['effort']}")
+    rc, text, tail = attempt(claude_cmd(fb["model"], fb["effort"]), f"claude {fb['model']} {fb['effort']}",
+                             "claude", fb["model"])
+    if rc < 0:
+        error(f"claude review stopped by signal {-rc}")
     if rc != 0 or not text.strip() or refusal(text):
         failed = refusal(text) or last_line(tail) or ("empty review" if rc == 0 else f"exit {rc}")
         error(f"gate-down {short}: {why}; claude: {failed[:160]}")

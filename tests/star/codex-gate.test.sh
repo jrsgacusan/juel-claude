@@ -45,6 +45,8 @@ printf '%s\n' "$*" >> "$STUB_DIR/calls"
 line=$(sed -n "${n}p" "$STUB_DIR/plan")
 rc=${line%% *}; rest=${line#* }; fixture=${rest%% *}; err=${rest#"$fixture"}
 if [ "$fixture" = move-head ]; then git -c user.email=t@t -c user.name=t commit -q --allow-empty -m moved; fixture=safe; fi
+if [ "$fixture" = peek ]; then cp "$STUB_RUN" "$STUB_DIR/run-seen" 2>/dev/null; echo $$ > "$STUB_DIR/stub-pid"; fixture=safe; fi
+if [ "$fixture" = sleep ]; then echo $$ > "$STUB_DIR/stub-pid"; printf 'reviewing\n' >&2; sleep 30; fixture=safe; fi
 [ "$fixture" != "-" ] && cat "$STUB_FIX/$fixture.txt"
 [ -n "$err" ] && printf '%s\n' "$err" >&2
 exit "$rc"
@@ -71,7 +73,7 @@ rc=${line%% *}; rest=${line#* }; fixture=${rest%% *}; err=${rest#"$fixture"}
 exit "$rc"
 EOF
 chmod +x "$TMP/bin/claude"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan"; rm -rf "$H/reviews" "$H/specs"; }
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/run-seen" "$TMP/stub-pid"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
 cplan() { printf '%s\n' "$1" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -327,6 +329,46 @@ reset; mkdir -p "$TMP/phome2"; printf '{"gate": {"model": "latest-sol", "effort"
 printf '{"author":{"login":"me"},"headRefOid":"%s","url":"u","comments":[]}\n' "$NEWHEAD" > "$TMP/pr.json"
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_MODELS="$MODELS" JUEL_STAR_HOME="$TMP/phome2" sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD") )
 grep -q "PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh)" "$TMP/gh-calls" && pass "post-pass names the model latest-sol resolves to, not the alias" || fail "post-pass alias ($out / $(cat "$TMP/gh-calls"))"
+
+# #66: an ERROR keeps its round number and leaves no round files
+R4="$H/reviews/app/ITEM-1-r4"
+reset; plan "1 - error: 401 Unauthorized"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 4 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ ! -e "$R4.md" ] && [ ! -e "$R4.raw.md" ] && [ ! -e "$R4.log" ] && [ ! -e "$R4.run" ] && grep -q '401 Unauthorized' "$R4-error-1.log" && grep -q '^--- ERROR codex review failed: error: 401 Unauthorized$' "$R4-error-1.log" && pass "an ERROR run leaves only <item>-r4-error-1.log (#66)" || fail "error files ($rc $out: $(ls "$H/reviews/app"))"
+rm -f "$TMP/n" "$TMP/calls"; plan "0 untagged"
+G --brief "$BRIEF" --item ITEM-1 --round 4 --base main >/dev/null
+[ -f "$R4-error-2.log" ] && grep -q '^--- stdout$' "$R4-error-2.log" && grep -q 'ERROR unreadable review' "$R4-error-2.log" && [ ! -e "$R4.raw.md" ] && pass "a second ERROR on the same round is error-2, with the review text kept" || fail "error-2 ($(ls "$H/reviews/app"))"
+rm -f "$TMP/n" "$TMP/calls"; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 4 --base main)
+[ "$out" = "SAFE round=4 findings=0 head=$HEAD review=$R4.md" ] && [ -f "$R4-error-1.log" ] && [ -f "$R4-error-2.log" ] && [ -s "$R4.raw.md" ] && pass "the next run of the same round gives it its verdict; the error logs stay" || fail "round 4 after errors ($out)"
+
+# the run file names the review agent while a round runs (#70 reads it)
+reset; export STUB_RUN="$H/reviews/app/ITEM-1-r1.run"; plan "0 peek"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+python3 - "$TMP/run-seen" "$(cat "$TMP/stub-pid" 2>/dev/null)" "$H/reviews/app/ITEM-1-r1.log" <<'PY' && pass "the run file names the review agent, the gate, the model and the log while it runs" || fail "run file ($(cat "$TMP/run-seen" 2>/dev/null))"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["pid"] == int(sys.argv[2]) and d["gate"] != d["pid"], d
+assert d["agent"] == "codex" and d["model"] == "gpt-6.1-sol" and d["attempt"] == 1 and d["log"] == sys.argv[3], d
+assert d["started"].endswith("Z"), d
+PY
+[ ! -e "$STUB_RUN" ] && pass "the run file is gone once the round has its verdict" || fail "run file left behind"
+
+# a signal stops the agent, keeps the round and removes the run file (Review Focus)
+waitfor() { i=0; while { [ ! -s "$STUB_RUN" ] || [ ! -s "$TMP/stub-pid" ]; } && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done; }
+gone() { i=0; while kill -0 "$1" 2>/dev/null && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done; ! kill -0 "$1" 2>/dev/null; }
+reset; plan "0 sleep"
+(cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" --brief "$BRIEF" --item ITEM-1 --round 1 --base main > "$TMP/bg.out" 2>/dev/null) &
+waitfor
+gate=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gate"])' "$STUB_RUN" 2>/dev/null)
+child=$(cat "$TMP/stub-pid" 2>/dev/null)
+kill -TERM "$gate" 2>/dev/null; wait
+[ "$(cat "$TMP/bg.out")" = "ERROR stopped by SIGTERM" ] && [ ! -e "$STUB_RUN" ] && [ -f "$H/reviews/app/ITEM-1-r1-error-1.log" ] && gone "$child" && pass "TERM stops the review agent, removes the run file and keeps the round" || fail "signal ($(cat "$TMP/bg.out"))"
+reset; plan "0 sleep"
+(cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" --brief "$BRIEF" --item ITEM-1 --round 1 --base main > "$TMP/bg.out" 2>/dev/null) &
+waitfor
+kill -TERM -- "-$(cat "$TMP/stub-pid")" 2>/dev/null; wait
+[ "$(cat "$TMP/bg.out")" = "ERROR codex review stopped by signal 15" ] && [ ! -e "$STUB_RUN" ] && [ -f "$H/reviews/app/ITEM-1-r1-error-1.log" ] && pass "an agent stopped from outside is ERROR for this round, never gate-down (Review Focus)" || fail "agent killed ($(cat "$TMP/bg.out"))"
 
 # usage
 G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --brief is 64" || fail "usage brief"
