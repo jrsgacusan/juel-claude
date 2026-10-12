@@ -1,0 +1,13 @@
+{
+ "type": "result",
+ "subtype": "error_max_turns",
+ "is_error": false,
+ "duration_ms": 41873,
+ "num_turns": 3,
+ "result": "",
+ "stop_reason": "end_turn",
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "total_cost_usd": 0.31,
+ "permission_denials": [],
+ "terminal_reason": "completed"
+}

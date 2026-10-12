@@ -69,7 +69,17 @@ printf '%s\n' "$*" >> "$STUB_DIR/claude-calls"
 line=$(sed -n 1p "$STUB_DIR/claude-plan" 2>/dev/null)
 [ -n "$line" ] || { echo "no claude plan" >&2; exit 9; }
 rc=${line%% *}; rest=${line#* }; fixture=${rest%% *}; err=${rest#"$fixture"}
-[ "$fixture" != "-" ] && cat "$STUB_FIX/$fixture.txt"
+# claude -p --output-format json prints one JSON object; a <name>.txt fixture is wrapped as a clean result,
+# <name>.json is printed as written, and raw-<name> prints <name>.txt unwrapped (prose, though JSON was asked for)
+case "$fixture" in
+  -) ;;
+  *.json) cat "$STUB_FIX/$fixture" ;;
+  raw-*) cat "$STUB_FIX/${fixture#raw-}.txt" ;;
+  *) case "$*" in
+       *"--output-format json"*) python3 -c 'import json, sys; print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": sys.stdin.read(), "permission_denials": []}))' < "$STUB_FIX/$fixture.txt" ;;
+       *) cat "$STUB_FIX/$fixture.txt" ;;
+     esac ;;
+esac
 [ -n "$err" ] && printf '%s\n' "$err" >&2
 exit "$rc"
 EOF
@@ -205,9 +215,9 @@ case "$c" in "-p You are STAR"*) true ;; *) false ;; esac \
   && printf '%s' "$c" | grep -qF -- '--model opus --effort xhigh' \
   && printf '%s' "$c" | grep -qF -- '--append-system-prompt Write the review as plain text' \
   && printf '%s' "$c" | grep -qF -- "--add-dir $H " \
-  && printf '%s' "$c" | grep -qF -- '--allowedTools Read Grep Glob Bash(git diff *) Bash(git show *) Bash(git log *)' \
-  && printf '%s' "$c" | grep -qF -- '--disallowedTools Edit Write NotebookEdit' \
-  && printf '%s' "$c" | grep -qF -- '--strict-mcp-config --no-session-persistence' \
+  && printf '%s' "$c" | grep -qF -- '--allowedTools Read Grep Glob Bash(git diff *) Bash(git -C * diff) Bash(git -C * diff *) Bash(git show *) Bash(git -C * show) Bash(git -C * show *) Bash(git log *) Bash(git -C * log) Bash(git -C * log *)' \
+  && printf '%s' "$c" | grep -qF -- '--disallowedTools Edit Write NotebookEdit Bash(git * --output*)' \
+  && printf '%s' "$c" | grep -qF -- '--output-format json --strict-mcp-config --no-session-persistence' \
   && pass "the fallback runs claude -p read-only, with STAR's home, no MCP server and no saved session" || fail "claude flags ($c)"
 grep -q '^Gate: claude:opus xhigh (fallback: sol at capacity) · base main' "$R1" && pass "the review names the fallback and why it ran" || fail "fallback gate line ($(grep '^Gate:' "$R1"))"
 reset; plan "1 - You've hit your usage limit. Try again at Oct 18th, 2026 6:00 PM."; cplan "0 safe"
@@ -222,9 +232,25 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; cplan "0 -"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol at capacity: at capacity; claude: empty review" ] && pass "an empty fallback review is gate-down" || fail "empty fallback ($rc $out)"
-reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; mkdir -p "$TMP/fix"; printf 'API Error: 500 Internal server error\n' > "$TMP/fix/apierr.txt"; cplan "0 apierr"
+reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; mkdir -p "$TMP/fix"; printf 'API Error: 500 Internal server error\n' > "$TMP/fix/apierr.txt"; cplan "0 raw-apierr"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol at capacity: at capacity; claude: API Error: 500 Internal server error" ] && pass "a fallback that prints its failure and exits 0 is gate-down, never SAFE" || fail "fallback api error ($rc $out)"
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol at capacity: at capacity; claude: unreadable output: API Error: 500 Internal server error" ] && pass "a fallback that prints its failure and exits 0 is gate-down, never SAFE" || fail "fallback api error ($rc $out)"
+# a fallback that could not review is never SAFE: claude -p exits 0 and answers in prose when a tool is denied
+fallback_down() { # <claude plan> <expected claude: reason> <test name>
+  reset; plan "1 - You've hit your usage limit."; cplan "$1"
+  out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+  [ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: $2" ] && [ ! -f "$R1" ] && ls "$H/reviews/app"/ITEM-1-r1-error-*.log >/dev/null 2>&1 && pass "$3" || fail "$3 ($rc $out)"
+}
+fallback_down "0 raw-claude-prose" "unreadable output: The git diff command was blocked because it needs approval, so I could not see what changed." "a prose-only fallback answer is ERROR gate-down, never SAFE"
+fallback_down "0 claude-denied.json" "Bash was denied: git -C /repo diff main...HEAD" "a JSON result with permission_denials is ERROR gate-down, whatever the prose says"
+fallback_down "0 claude-denied-read.json" "Read was denied: /etc/hosts" "a denied Read is ERROR gate-down too, though the review text reads clean"
+fallback_down "0 claude-is-error.json" "API Error: 529 Overloaded" "a JSON result with is_error true is ERROR gate-down"
+fallback_down "0 claude-max-turns.json" "error_max_turns" "a subtype other than success is ERROR gate-down"
+fallback_down "0 claude-no-denials.json" "unreadable output: no permission_denials" "JSON with no permission_denials list cannot be trusted: ERROR gate-down"
+fallback_down "0 claude-empty-result.json" "empty review" "a JSON result with a blank review is ERROR gate-down"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-clean.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "a clean JSON result still gives a verdict, and the raw file holds the review text" || fail "clean json fallback ($rc $out)"
 reset; cplan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-terra)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ ! -f "$TMP/n" ] && grep -q '^Gate: claude:opus xhigh (fallback: cannot resolve latest-terra)' "$R1" && pass "a Sol name that does not resolve goes straight to the fallback" || fail "unresolved goes to fallback ($out)"

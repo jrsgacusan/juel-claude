@@ -953,8 +953,9 @@ one headless `codex review` of the branch against its base, read-only and with n
 `latest-<family>`). A capacity error is retried after 60 and 180 seconds. After that, or at once
 when the Codex account is out of usage, the same prompt runs through `gate.fallback`: a headless
 `claude -p` review on Opus at xhigh, with read-only tools and no MCP server. The review's `Gate:`
-line and the PASS comment then name it (`claude:opus xhigh`). When the fallback fails too, the gate
-prints `ERROR gate-down <why>`. Its prompt, `S/template/gate-prompt.md`, kept as
+line and the PASS comment then name it (`claude:opus xhigh`). When the fallback fails too, or a tool
+call it made was denied so it may not have read the diff, the gate prints `ERROR gate-down <why>`,
+never a verdict. Its prompt, `S/template/gate-prompt.md`, kept as
 `HOME_DIR/specs/<project>/<item>-gate-r<k>.md`, carries the brief's criteria and `## Decisions`, the
 project's notes, the previous round's review and `-fix.md` from round 2, and the review rules from
 the base branch, so a PR cannot change its own rules. Only a `[P0]` or `[P1]` finding makes the round
