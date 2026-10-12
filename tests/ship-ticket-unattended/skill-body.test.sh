@@ -184,5 +184,9 @@ g "M55a the settings include mcps" 'and its `mcps`'
 g "M55b mcps names what STAR found" '`needs-sign-in`'
 g "M55c Mobbin cites the screen or flow URL" 'cite the screen or flow URL'
 g "M55d only tools your own session lists" 'only when your own session lists its tools'
+# Issue #74
+g "EL16 the screen lock rule points to juel:verify's Electron row" "as \`juel:verify\`'s Electron row says) takes none either"
+g "EL17 Phase 6 runs hidden-window checks through juel:verify's Electron row" "\`juel:verify\`'s Electron row: a hidden dev build driven over CDP"
+grep -q 'window that paints' "$SKILL" && fail "EL18 no 'window that paints' description left" || pass "EL18 no 'window that paints' description left"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

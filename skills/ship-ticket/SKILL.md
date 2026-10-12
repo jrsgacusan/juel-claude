@@ -481,9 +481,10 @@ least every 10 minutes: `sh <screen-lock.sh> renew --holder "<item>"`. A lock no
 minutes is taken over by the next worker. `renew` exiting 65 (the lock was taken over) or
 printing `free` (the lock lapsed): stop driving the screen and acquire it again. Take it only around
 the steps that drive the visible screen: a check the brief's `## Checks` marks `auto: playwright`
-runs headless and takes no lock, and `auto: hidden-window` (an Electron window that paints while
-hidden) takes none either; only `auto: computer-use` (`orca computer`) and a launched app's real
-window need it. Every check the brief marks `person:` was done by the owner before go. A check that
+runs headless and takes no lock, and `auto: hidden-window` (a hidden Electron dev build driven over
+CDP, as `juel:verify`'s Electron row says) takes none either; only `auto: computer-use`
+(`orca computer`) and a launched app's real window need it. Every check the brief marks `person:`
+was done by the owner before go. A check that
 turns out to need a person anyway is a brief miss:
 `ESCALATION item=<item> phase=6 reason=needs-human-input needs=<the check> needs a person and is not
 in the brief's person-only steps`. Never mark it PASS.
@@ -899,9 +900,11 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
      UI feedback. This is Claude's default for every UI-surfaced item, not a fallback offered only
      when the user is unavailable.
    - **Under `--brief`,** run each check the way the brief's `## Checks` marks it: `auto: playwright`
-     (headless Playwright through `juel:verify`, no screen lock), `auto: hidden-window` (an Electron
-     window that paints while hidden, no screen lock), `auto: computer-use` (`orca computer`, under
-     the screen lock, renewed every 10 minutes), `auto: api` or `auto: cli` (call it and observe).
+     (headless Playwright through `juel:verify`, no screen lock), `auto: hidden-window` (through
+     `juel:verify`'s Electron row: a hidden dev build driven over CDP, no screen lock, launched
+     through the check's `helper: <path>` when it names one), `auto: computer-use` (`orca computer`,
+     under the screen lock, renewed every 10 minutes), `auto: api` or `auto: cli` (call it and
+     observe).
      A check marked `person:` runs its automated part like any other and is recorded by that result,
      citing the person-only step the owner did before go.
    - **Any item whose diff touches UI:** capture the rule 4 screenshots (light mode, desktop

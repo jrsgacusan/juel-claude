@@ -24,6 +24,16 @@ metadata:
         why: phase 1 uses gh pr diff to establish scope when verifying an open PR
         check: "command -v gh"
         fallback: scope resolves from git diff against the upstream/base branch instead
+      - id: playwright-package
+        hard: false
+        why: phase 4 drives a hidden Electron window with a Playwright script over CDP, or with _electron.launch for a main-process check
+        check: none
+        fallback: an Electron check runs under the screen lock through computer use instead, and the report names each check that could not run hidden
+      - id: electron
+        hard: false
+        why: phase 4 launches the project's dev build of an Electron app with its own profile folder and a debugging port
+        check: none
+        fallback: an Electron check runs under the screen lock through computer use instead, and the report names each check that could not run hidden
     context:
       - id: git-repo
         hard: false
@@ -98,6 +108,8 @@ verbatim only because the block is copied byte-for-byte across every skill (see
 |---|---|---|---|---|
 | git ≥ 2.5 | cli | HARD | `git --version` | STOP → establishing scope needs git |
 | gh | cli | SOFT | `command -v gh` | scope resolves from git diff against the upstream/base branch instead |
+| Playwright package (`playwright` or `playwright-core` in the project) | cli | SOFT | **none — render as `?`** | an Electron check runs under the screen lock through computer use instead, and the report names each check that could not run hidden |
+| Electron binary (the project's own `electron`) | cli | SOFT | **none — render as `?`** | an Electron check runs under the screen lock through computer use instead, and the report names each check that could not run hidden |
 | git repository | context | SOFT | `git rev-parse --show-toplevel` | outside a repository, scope is whatever the user names explicitly; ask if they didn't |
 | resolved app URL | context | SOFT | **none — render as `?`** | phase 3 asks where the app is running, or launches it itself via a discovered verifier-*/run-* skill |
 | acceptance criteria to verify | context | SOFT | **none — render as `?`** | phase 1 derives the claim from the diff alone and reports any mismatch as a finding |
@@ -155,12 +167,51 @@ nowhere else.
 |---|---|---|
 | CLI / TUI | terminal | Typing the command, capturing the pane |
 | Web UI | browser | Clicking through the real page via Playwright — not curling the API underneath it |
+| Electron window | the app's renderer, or its real window | A Playwright script attached over CDP to a hidden dev build (`auto: hidden-window`), or the real window under the screen lock (`auto: computer-use`); see "Electron windows" below |
 | HTTP / RPC handler | request/response | Sending the real request and reading the real response body |
 | Background job / queue consumer | logs, DB state | Triggering the job and reading what it actually wrote |
 | Library / internal function | wherever its real caller sits | Trace to the CLI command, route, or render that calls it, then drive that |
 
 A change can reach more than one surface (a UI action that also writes to a queue) — trace all of
 them, not just the first one found.
+
+**Electron windows.** A brief's `## Checks` marks each Electron check `auto: hidden-window` or
+`auto: computer-use`, and may add `| helper: <path>`, the project's own launch helper. Run each
+check in the mode it names. With no brief, use `auto: hidden-window` unless the check is one of the
+kinds listed under `auto: computer-use`.
+
+`auto: hidden-window` (CDP, no screen lock):
+
+1. **Memory first.** Before each launch, check free memory (`vm_stat` on macOS, `free -h` on
+   Linux). The floor is `hostGate.minFreeGB` from `<star.home>/star.json` when `juel:ship-ticket`
+   runs this under a `star:` brief, else 3 GB. Below it, never launch: check again every 5 minutes
+   for up to 30, then report BLOCKED with the figure (under `--unattended`, the
+   `stack-unavailable` escalation).
+2. **Launch.** Start the dev or unpackaged build with a profile folder of its own, a new temporary
+   directory, never the user's own profile: the project's variable for it when its notes or the
+   brief name one, else `--user-data-dir=<dir>`. Add `--remote-debugging-port=<port>` on a free
+   port (bind port 0 and read the number back). When the check's line names `helper: <path>`,
+   launch through that helper and pass it the folder and the port.
+3. **Drive.** A small Playwright script attaches with
+   `const browser = await chromium.connectOverCDP('http://127.0.0.1:<port>')` and works on
+   `browser.contexts()[0].pages()`. Screenshots (`page.screenshot`) render while the window is
+   hidden.
+4. **Main-process checks.** A check that asserts main-process state launches with
+   `_electron.launch` instead, without `--remote-debugging-port`: Playwright owns the debugging
+   pipe of a process it starts.
+5. **Shared resources.** Look for what the instance shares outside its profile folder: a fixed
+   service port, a keychain prompt, a venv or cache rebuilt on a scratch home, a launchd agent.
+   Neutralise each the way the project's notes say (an environment variable that turns a service
+   off, a copy of a signed-in profile). One that cannot be neutralised moves the check to
+   `auto: computer-use`, and the report says why.
+6. **Record and clean up.** Write the port, the profile folder, the launch command and its
+   environment to the evidence folder. When the check ends, stop the app by its pid, never by name,
+   and delete its profile folder, also when the check fails or is stopped.
+
+`auto: computer-use` (the screen lock) covers keystrokes into other apps, OS permission prompts,
+audio or screen capture, and packaged or notarized builds, until someone measures that such a build
+accepts `--remote-debugging-port`. Drive the real window; under `juel:ship-ticket` that happens
+under its screen lock (`screen-lock.sh`).
 
 ### Step 3: Get a handle on the surface
 

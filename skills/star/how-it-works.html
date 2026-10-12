@@ -391,8 +391,8 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <h3>Automated, by the build worker</h3>
         <ul>
           <li>Web flows: Playwright, headless, no screen lock.</li>
-          <li>Electron render checks: a hidden window, no screen lock.</li>
-          <li>Native apps and real browser windows: computer use through <code>orca computer</code>, one worker at a time under the screen lock.</li>
+          <li>Electron render checks: a hidden dev build driven over CDP, no screen lock (<code>juel:verify</code>'s Electron row).</li>
+          <li>Native apps, real browser windows and Electron checks that need the desktop (keystrokes into other apps, OS prompts, packaged builds): computer use through <code>orca computer</code>, one worker at a time under the screen lock.</li>
         </ul>
       </div>
       <div>
