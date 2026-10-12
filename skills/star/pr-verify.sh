@@ -1,7 +1,7 @@
 #!/bin/sh
 # Checks a PR on the exact head a worker reported: for the human's merge, or, with --merge-gate,
 # for STAR's own merge.
-#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted]]
+#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]]]
 # Prints exactly one line and exits 0 (64, with nothing on stdout, only for bad usage):
 #   PASS [<note>] | PENDING <what> | MOVED <head> | MERGED <merge sha> | FAIL <what>
 # "PASS approval is on an earlier commit" is still a pass: the repo's review rule is satisfied,
@@ -32,7 +32,13 @@
 # --hosted says the project has a hosted reviewer (Greptile): it stands in for that
 # approval, and its review text is never read here: the babysit worker judges it from guidelines
 # and reports READY only on a head it judged clean. Logins are compared without a "[bot]" suffix.
-# Its PASS notes are "hosted" and "approved".
+# Its PASS notes are "hosted" and "approved". --hosted <login> (star.json's hostedReviewer.login)
+# also finds the hosted reviewer's own status: a check the base branch's rules require whose
+# name holds the first word of that login (greptile-apps[bot] -> greptile, any case). When the
+# head has no entry of that name at all, no check failed or conflicts, and none is still running,
+# the line is "PENDING hosted-status <check> missing on <head7>" (#59): the hosted reviewer does
+# not run by itself on a new head, so STAR sends the row back to babysit to refresh it. Rules
+# that cannot be read, and a bare --hosted, never print it.
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
@@ -80,7 +86,7 @@ p.add_argument("pr")
 p.add_argument("--head", required=True)
 p.add_argument("--repo")
 p.add_argument("--merge-gate", action="store_true")
-p.add_argument("--hosted", action="store_true")
+p.add_argument("--hosted", nargs="?", const=True, default=False)
 try:
     a = p.parse_args()
 except SystemExit as e:
@@ -104,18 +110,41 @@ def repo_of(url):
     return "/".join(parts[3:5]) if len(parts) >= 5 and parts[0] in ("https:", "http:") else ""
 
 
+RULE = {}
+
+
+def rule_lines(d):
+    """Every line review-rule.sh prints for this PR's base branch, read once; ["unknown"] when it cannot run."""
+    if "lines" not in RULE:
+        RULE["lines"] = ["unknown"]
+        repo = a.repo or repo_of(d.get("url")) or repo_of(a.pr)
+        base = d.get("baseRefName") if isinstance(d.get("baseRefName"), str) else ""
+        script = os.path.join(os.environ.get("JUEL_SKILLS_DIR") or "", "babysit-pr", "review-rule.sh")
+        if repo and base and os.path.isfile(script):
+            try:
+                proc = subprocess.run(["sh", script, repo, base], capture_output=True, text=True,
+                                      timeout=2 * LIMIT + 5)
+                RULE["lines"] = [l.strip() for l in (proc.stdout or "").splitlines() if l.strip()] or ["unknown"]
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    return RULE["lines"]
+
+
 def review_rule(d):
     """The first line review-rule.sh prints for this PR's base branch; "unknown" when it cannot run."""
-    repo = a.repo or repo_of(d.get("url")) or repo_of(a.pr)
-    base = d.get("baseRefName") if isinstance(d.get("baseRefName"), str) else ""
-    script = os.path.join(os.environ.get("JUEL_SKILLS_DIR") or "", "babysit-pr", "review-rule.sh")
-    if not repo or not base or not os.path.isfile(script):
-        return "unknown"
-    try:
-        proc = subprocess.run(["sh", script, repo, base], capture_output=True, text=True, timeout=2 * LIMIT + 5)
-    except (OSError, subprocess.TimeoutExpired):
-        return "unknown"
-    return ((proc.stdout or "").splitlines() or ["unknown"])[0].strip()
+    return rule_lines(d)[0]
+
+
+def hosted_missing(d, checks):
+    """The hosted reviewer's required check when the head has no entry for it at all, else None (#59)."""
+    login = bare(a.hosted).lower() if isinstance(a.hosted, str) else ""
+    word = re.split(r"[-_\[\s]", login)[0] if login else ""
+    lines = rule_lines(d)
+    if not word or lines[0].startswith("unknown"):
+        return None
+    reported = {c.get("name") or c.get("context") for c in checks}
+    required = [l[len("check "):] for l in lines[1:] if l.startswith("check ")]
+    return next((c for c in required if word in c.lower() and c not in reported), None)
 
 
 def threads(d):
@@ -289,6 +318,10 @@ def main():
         out("FAIL conflicts")
     if waiting:
         out("PENDING checks: " + names(waiting))
+    if a.merge_gate and a.hosted:
+        missing = hosted_missing(d, checks)
+        if missing:
+            out(f"PENDING hosted-status {missing} missing on {head[:7]}")
     if d.get("mergeable") != "MERGEABLE":
         out("PENDING mergeable")
     merge_state = str(d.get("mergeStateStatus") or "").upper()

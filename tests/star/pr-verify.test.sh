@@ -241,5 +241,26 @@ lag "a lag that outlasts the wait is PENDING, not MOVED" "PENDING head: the PR s
 lag "a branch at another head is a real move" "MOVED ffff999000000000000000000000000000000000" 9999999aaa all
 lag "a branch tip gh cannot read is a move, as before" "MOVED ffff999000000000000000000000000000000000" "" all
 
+# #59: the hosted reviewer's required status missing on the head is named, so STAR sends the row back for a refresh
+HRULES="$TMP/hosted-rules.json"
+printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"Greptile Review"}]}}]\n' > "$HRULES"
+CIONLY='"statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}],"mergeStateStatus":"BLOCKED"'
+WITHG='"statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"Greptile Review","state":"SUCCESS"}],"mergeStateStatus":"CLEAN"'
+RUNNING='"statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"IN_PROGRESS","conclusion":""}],"mergeStateStatus":"BLOCKED"'
+mh() { # mh <name> <expected> <json body> <--hosted value or nothing>
+  printf '{%s}\n' "$3" > "$TMP/pr.json"
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="$HRULES" sh "$SCRIPT" 5 --head abc1234 --merge-gate --hosted $4)
+  if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
+}
+mh "the hosted reviewer's required status missing on the head is named (#59)" "PENDING hosted-status Greptile Review missing on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+mh "a login without [bot] finds it too" "PENDING hosted-status Greptile Review missing on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps"
+mh "with the hosted status on the head, it passes" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$WITHG,\"comments\":[$PASSC]" "greptile-apps[bot]"
+mh "checks still running come first: ask again later" "PENDING checks: ci" "$OK,$BASE,$AUTHOR,$NOAPP,$RUNNING,\"comments\":[$PASSC]" "greptile-apps[bot]"
+mh "a bare --hosted never names it" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" ""
+printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"build"}]}}]\n' > "$HRULES"
+mh "a missing required check that is not the hosted reviewer's stays a blocked merge state (Review Focus)" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+printf '{"x":1}\n' > "$HRULES"
+mh "rules that cannot be read never name a hosted status" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
