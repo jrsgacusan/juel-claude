@@ -9,7 +9,11 @@
 # Green means every check that reported is green AND GitHub's merge state is not BLOCKED or
 # BEHIND, so a required check that has not started yet is PENDING, not a pass.
 # PENDING means "ask again later" (checks running, mergeable not computed, gh unreachable or
-# its output unreadable). Where the repo has no review rule (empty reviewDecision), an approval
+# its output unreadable). GitHub can show a PR's previous head for a few seconds after a push: when
+# the PR's head is not --head but its branch's tip (gh api .../git/ref/heads/<branch>) already is,
+# the PR is read again every 5 seconds for up to 90 (times PR_VERIFY_SLEEP), and a lag that
+# outlasts that is "PENDING head: the PR still shows <old> while its branch is at <tip>", never
+# MOVED (#62). Where the repo has no review rule (empty reviewDecision), an approval
 # counts only when it was given on the current head commit: dates are not compared, because a
 # commit made earlier and pushed later carries an older date than the approval. Where the base
 # branch's rules explicitly require 0 approving reviews (review-rule.sh prints "required 0"), no
@@ -38,6 +42,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+from urllib.parse import quote
 
 PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 WAITING = {"", "PENDING", "EXPECTED", "QUEUED", "IN_PROGRESS", "WAITING", "REQUESTED"}
@@ -87,6 +93,10 @@ try:
     LIMIT = float(os.environ.get("STAR_GH_TIMEOUT", "60"))
 except ValueError:
     LIMIT = 60.0
+try:
+    PAUSE = float(os.environ.get("PR_VERIFY_SLEEP", "1"))
+except ValueError:
+    PAUSE = 1.0
 
 
 def repo_of(url):
@@ -133,8 +143,10 @@ def threads(d):
     return found
 
 
-def main():
-    fields = "state,isDraft,reviewDecision,reviews,headRefOid,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,url,baseRefName"
+def fetch():
+    """(d, reviews, checks, comments, state) for the PR; anything unreadable is a PENDING line."""
+    fields = ("state,isDraft,reviewDecision,reviews,headRefOid,headRefName,headRepository,headRepositoryOwner,"
+              "mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,url,baseRefName")
     if a.merge_gate:
         fields += ",author,comments"
     cmd = ["gh", "pr", "view", a.pr, "--json", fields]
@@ -163,10 +175,46 @@ def main():
     comments = records(d, "comments") if a.merge_gate else []
     if reviews is None or checks is None or comments is None:
         out("PENDING gh: unreadable output")
-    a.head = a.head.strip().lower()
     state = d.get("state").upper() if isinstance(d.get("state"), str) else None
     if state not in ("OPEN", "MERGED", "CLOSED") or not isinstance(d.get("reviewDecision") or "", str):
         out("PENDING gh: unreadable output")
+    return d, reviews, checks, comments, state
+
+
+def branch_tip(d):
+    """The sha GitHub's git API gives for the PR's head branch, "" when it cannot be read. It moves
+    on a push before the PR's headRefOid does (#62)."""
+    owner = d.get("headRepositoryOwner") if isinstance(d.get("headRepositoryOwner"), dict) else {}
+    named = d.get("headRepository") if isinstance(d.get("headRepository"), dict) else {}
+    repo = (f"{owner.get('login')}/{named.get('name')}" if owner.get("login") and named.get("name")
+            else a.repo or repo_of(d.get("url")) or repo_of(a.pr))
+    branch = d.get("headRefName")
+    if not repo or not isinstance(branch, str) or not branch:
+        return ""
+    try:
+        proc = subprocess.run(["gh", "api", f"repos/{repo}/git/ref/heads/{quote(branch, safe='/')}"],
+                              capture_output=True, text=True, timeout=LIMIT)
+        sha = json.loads(proc.stdout)["object"]["sha"] if proc.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+        return ""
+    return sha.lower() if isinstance(sha, str) else ""
+
+
+def main():
+    a.head = a.head.strip().lower()
+    d, reviews, checks, comments, state = fetch()
+    head = (d.get("headRefOid") or "").lower()
+    if state == "OPEN" and len(a.head) >= 7 and head and not head.startswith(a.head):
+        tip = branch_tip(d)
+        if tip.startswith(a.head):
+            for _ in range(18):  # GitHub can show the previous head for a few seconds after a push (#62)
+                time.sleep(5 * PAUSE)
+                d, reviews, checks, comments, state = fetch()
+                head = (d.get("headRefOid") or "").lower()
+                if state != "OPEN" or not head or head.startswith(a.head):
+                    break
+            else:
+                out(f"PENDING head: the PR still shows {head[:7]} while its branch is at {tip[:7]}")
 
     if state == "MERGED":
         out("MERGED " + ((d.get("mergeCommit") or {}).get("oid") or "unknown"))

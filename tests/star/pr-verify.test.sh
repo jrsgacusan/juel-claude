@@ -13,11 +13,18 @@ cat > "$TMP/bin/gh" <<'EOF'
 if [ "$1" = api ]; then
   case "$2" in
     graphql) if [ -n "${STUB_THREADS:-}" ]; then cat "$STUB_THREADS"; else echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}'; fi; exit "${STUB_THREADS_RC:-0}" ;;
+    *"/git/ref/heads/"*)
+      if [ -n "${STUB_TIP:-}" ]; then printf '{"ref":"refs/heads/x","object":{"sha":"%s"}}\n' "$STUB_TIP"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
     *"/rules/branches/"*)
       [ -n "${STUB_RULES_ERR:-}" ] && { echo "$STUB_RULES_ERR" >&2; exit 1; }
       if [ -n "${STUB_RULES:-}" ]; then cat "$STUB_RULES"; else echo '[]'; fi ;;
     *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
   esac
+  exit 0
+fi
+if [ -n "${STUB_SEQ:-}" ]; then
+  n=$(($(cat "$STUB_SEQ/n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$STUB_SEQ/n"
+  if [ -f "$STUB_SEQ/$n.json" ]; then cat "$STUB_SEQ/$n.json"; else cat "$STUB_SEQ/last.json"; fi
   exit 0
 fi
 cat "$STUB_JSON"
@@ -128,7 +135,7 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_FAIL=1 STUB_ERR="GraphQL: Could not res
 
 # --merge-gate: STAR's merge gate. A hosted reviewer's review text is never read here.
 AUTHOR='"author":{"login":"me"}'
-PASSC='{"author":{"login":"me"},"body":"Codex gate: PASS (head abc1234def, round 2, gpt-6-astra xhigh)"}'
+PASSC='{"author":{"login":"me"},"body":"Codex gate: PASS (head abc1234def, round 2, gpt-6.1-sol xhigh)"}'
 NOAPP='"reviewDecision":"","reviews":[]'
 mg() { # mg <name> <expected> <json body> [extra args]
   printf '{%s}\n' "$3" > "$TMP/pr.json"
@@ -171,7 +178,7 @@ case "$err" in *"--hosted needs --merge-gate"*) echo "ok   --hosted alone says i
 HOSTED_TEXT='"reviewDecision":"","reviews":[{"author":{"login":"greptile-apps"},"authorAssociation":"NONE","state":"COMMENTED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"},"body":"<h3>Confidence Score: 1/5</h3> Do not merge. A markup nobody planned for."}]'
 mg "a hosted reviewer's review text is never read" "PASS hosted" "$OK,$BASE,$AUTHOR,$HOSTED_TEXT,$GREEN,\"comments\":[$PASSC]" "--hosted"
 # the gate is the head: a codex PASS or an approval for an earlier commit does not count
-OLDPASS='{"author":{"login":"me"},"body":"Codex gate: PASS (head 0ld0000aaa, round 1, gpt-6-astra xhigh)"}'
+OLDPASS='{"author":{"login":"me"},"body":"Codex gate: PASS (head 0ld0000aaa, round 1, gpt-6.1-sol xhigh)"}'
 mg "a codex PASS for an earlier head does not count" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$OLDPASS]" "--hosted"
 mg "an approval of an earlier commit does not count" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"0ld0000aaa\"}}],$GREEN,\"comments\":[$PASSC]"
 mg "logins are compared without a [bot] suffix" "PASS hosted" "$OK,$BASE,\"author\":{\"login\":\"ci[bot]\"},$NOAPP,$GREEN,\"comments\":[{\"author\":{\"login\":\"ci\"},\"body\":\"Codex gate: PASS (head abc1234def, round 1, m e)\"}]" "--hosted"
@@ -217,6 +224,22 @@ grep '^api graphql ' "$TMP/gh.log" | grep -q -- ' -f owner=o -f name=r -F number
 printf '{%s}\n' "$OK,$BASE,$APPROVED,$GREEN" > "$TMP/pr.json"
 out=$(logged 5 --head abc1234)
 [ "$out" = "PASS" ] && ! grep -q -E 'author|comments|^api graphql ' "$TMP/gh.log" && echo "ok   without --merge-gate it asks gh for no author, no comments and no threads" || { echo "FAIL a plain run asks for more than v1 (got: $out)"; fails=$((fails + 1)); }
+
+# #62: GitHub's head lag right after a push is waited out, not read as MOVED
+SEQ="$TMP/seq"; LAGGED='"state":"OPEN","isDraft":false,"headRefOid":"ffff999000000000000000000000000000000000","headRefName":"feat/x","url":"https://github.com/o/r/pull/5","mergeable":"MERGEABLE","mergeCommit":null'
+lag() { # lag <name> <expected> <branch tip> <lagging views, or all>
+  rm -rf "$SEQ"; mkdir -p "$SEQ"
+  if [ "$4" = all ]; then printf '{%s}\n' "$LAGGED,$APPROVED,$GREEN" > "$SEQ/last.json"
+  else i=1; while [ "$i" -le "$4" ]; do printf '{%s}\n' "$LAGGED,$APPROVED,$GREEN" > "$SEQ/$i.json"; i=$((i + 1)); done
+       printf '{%s}\n' "$OK,\"headRefName\":\"feat/x\",\"url\":\"https://github.com/o/r/pull/5\",$APPROVED,$GREEN" > "$SEQ/last.json"; fi
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_SEQ="$SEQ" STUB_TIP="$3" PR_VERIFY_SLEEP=0 sh "$SCRIPT" 5 --head abc1234)
+  if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
+}
+lag "a PR that still shows the old head while its branch is at the new one is waited out (#62)" "PASS" abc1234def 2
+[ "$(cat "$SEQ/n")" = 3 ] && echo "ok   the wait reads the PR again until the head catches up" || { echo "FAIL lag views ($(cat "$SEQ/n"))"; fails=$((fails + 1)); }
+lag "a lag that outlasts the wait is PENDING, not MOVED" "PENDING head: the PR still shows ffff999 while its branch is at abc1234" abc1234def all
+lag "a branch at another head is a real move" "MOVED ffff999000000000000000000000000000000000" 9999999aaa all
+lag "a branch tip gh cannot read is a move, as before" "MOVED ffff999000000000000000000000000000000000" "" all
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
