@@ -1017,7 +1017,7 @@ old PR.
    In: <what this item changes>
    Out: <what it deliberately does not touch>
    ## Checks
-   - <what is checked> | auto: <playwright, hidden-window, computer-use, api or cli>
+   - <what is checked> | auto: <playwright, hidden-window, computer-use, api or cli>[ | helper: <path>]
    ## Person-only steps
    1. [<kind>] <what to do>
    ## Decisions
@@ -1037,9 +1037,12 @@ old PR.
    `- [ ] NEEDS CRITERIA`. Never invent criteria the item's text does not support.
 
    `## Checks` holds one line per acceptance check, each marked with how the build runs it:
-   `auto: playwright` (a web page, headless), `auto: hidden-window` (an Electron window that paints
-   while hidden), `auto: computer-use` (a native window, through `orca computer`, under the screen
-   lock), `auto: api` or `auto: cli` (call it and read the answer). A check that needs a person
+   `auto: playwright` (a web page, headless), `auto: hidden-window` (an Electron window: a hidden
+   dev build driven over CDP with no screen lock, as `juel:verify`'s Electron row says; add
+   `| helper: <path>` when the project has its own launch helper), `auto: computer-use` (a native
+   window, through `orca computer`, under the screen lock; also keystrokes into other apps, OS
+   prompts, capture and packaged builds), `auto: api` or `auto: cli` (call it and read the
+   answer). A check that needs a person
    first (sign in with 2FA, grant a macOS permission once, approve a keychain prompt) adds
    `| person: <what>`, and the same step goes under `## Person-only steps`: the owner does it before
    go, and the build runs the rest of the check itself. A check no tool can run is not left for

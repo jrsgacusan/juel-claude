@@ -138,6 +138,16 @@ const DEFINITIONS = {
     label: 'coreutils',
     install: 'preinstalled on macOS and Linux',
   },
+  'playwright-package': {
+    kind: 'cli',
+    label: 'Playwright package',
+    install: "The project's own dev dependency (`npm i -D playwright`); juel:verify drives Electron over CDP with it",
+  },
+  electron: {
+    kind: 'cli',
+    label: 'Electron binary',
+    install: "The project's own dev dependency; juel:verify launches the project's dev build with it",
+  },
   'resolved-install-command': {
     kind: 'cli',
     label: 'project install command',

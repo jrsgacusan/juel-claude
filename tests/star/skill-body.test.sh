@@ -414,5 +414,9 @@ gin "FS7 the stop lines it printed are still stopped and released" "$start1" 'st
 gin "FS7 the claim is released as stop does" "$start1" 'release the claim'
 gin "FS7 the owner is told that running /juel:star again retries" "$start1" 'running `/juel:star` again retries the migrate'
 gin "FS7 no reconcile and no tick follow" "$start1" 'no reconcile and no tick'
+# Issue #74
+g "EL13 a hidden-window check follows juel:verify's Electron row" "as \`juel:verify\`'s Electron row says"
+g "EL14 a Checks line may name the project's launch helper" '[ | helper: <path>]'
+grep -q 'window that paints' "$SKILL" && fail "EL15 no 'window that paints' description left" || pass "EL15 no 'window that paints' description left"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
