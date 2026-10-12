@@ -2,7 +2,7 @@
 # STAR's second-model gate: one headless `codex review` of a branch against its base, with the
 # brief as the contract, written to STAR's home and read back as one verdict line.
 #   codex-gate.sh --brief <brief> --item <item> --round <k> --base <ref>
-#                 [--model <id>] [--effort <level>] [--fallback <id|latest-<family>>]
+#                 [--model <id|latest-<family>>] [--effort <level>] [--fallback <id|latest-<family>>]
 #   codex-gate.sh post-pass --pr <url> --round <k> --head <sha> [--review <path>]
 #                 [--model <id>] [--effort <level>]
 # The gate prints one line:
@@ -12,7 +12,9 @@
 # post-pass prints: posted <url> | already <url> | ERROR <why>
 # Run the gate from the item's worktree. The brief's star: block gives home, project, notes,
 # reviews and gates. Model, effort and fallback come from the flags, else star.json's "gate"
-# block, else gpt-6-astra, xhigh and latest-sol (resolved by ../ship-ticket/executor-model.sh).
+# block, else gpt-6-astra, xhigh and latest-sol. A latest-<family> name, from a flag or from
+# star.json, is resolved by ../ship-ticket/executor-model.sh before codex sees it (#65); a plain id
+# is used as given. A model name that does not resolve is ERROR, naming why.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
 # codex review runs read-only with no MCP servers; its stdout goes to <reviews>/<item>-r<k>.raw.md
 # and its stderr to <item>-r<k>.log. <item>-r<k>.md starts with the VERDICT line review-proof.sh
@@ -30,7 +32,8 @@
 # head; --head must be the PR's current head, all 40 characters. The model and effort are
 # --model and --effort, else the "Gate: <model> <effort>" line of the --review file (the model
 # that ran, a fallback included), else the "gate" block of the project's star.json
-# ($JUEL_STAR_HOME, else the folder star-home.sh names), else gpt-6-astra and xhigh. A --review
+# ($JUEL_STAR_HOME, else the folder star-home.sh names), else gpt-6-astra and xhigh; a
+# latest-<family> name is resolved as above, or left as written when it does not resolve. A --review
 # file that cannot be read is ERROR, and so is one that is not this round's SAFE verdict: its first
 # line must be "VERDICT item=<item> round=<k> SAFE findings=<n> head=<7 to 40 hex characters>"
 # with the head the start of --head, and no <item>-r<k+1>.md may lie beside it. Nothing is posted.
@@ -83,6 +86,21 @@ def run(cmd, timeout=120):
 def last_line(text):
     lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
     return lines[-1][:160] if lines else ""
+
+
+def resolve(name, effort_):
+    """(model, effort) for a Codex model name, or (None, why). latest-<family> is resolved by
+    ../ship-ticket/executor-model.sh (#65); a plain id is used as given."""
+    if not name.startswith("latest-"):
+        return name, effort_
+    r = run(["sh", os.path.join(os.path.dirname(S), "ship-ticket", "executor-model.sh"),
+             "--model", name, "--effort", effort_], 60)
+    words = r.stdout.split()
+    if r.returncode == 0 and len(words) == 2 and words[0] != "default":
+        return words[0], words[1]
+    if r.returncode == 0 and words[:1] == ["default"]:
+        return None, " ".join(words[1:]) or "executor-model.sh named no model"
+    return None, last_line(r.stderr or r.stdout) or f"executor-model.sh exited {r.returncode}"
 
 
 def options(argv, names):
@@ -139,6 +157,9 @@ def post_pass(o):
     if not model or not effort:
         gate = project_gate()
         model, effort = model or gate.get("model") or "gpt-6-astra", effort or gate.get("effort") or "xhigh"
+    if model.startswith("latest-"):
+        named = resolve(model, effort)
+        model, effort = named if named[0] else (model, effort)
     view = run(["gh", "pr", "view", o["pr"], "--json", "author,comments,headRefOid,url"], 60)
     if view.returncode != 0:
         error("gh: " + (last_line(view.stderr or view.stdout) or "failed"))
@@ -211,8 +232,12 @@ try:
 except (OSError, ValueError, AttributeError):
     gate = None
 gate = gate if isinstance(gate, dict) else {}
-model = o.get("model") or gate.get("model") or "gpt-6-astra"
+asked = o.get("model") or gate.get("model") or "gpt-6-astra"
 effort = o.get("effort") or gate.get("effort") or "xhigh"
+model, resolved = resolve(asked, effort)
+if model is None:
+    error(f"cannot resolve {asked}: {resolved}")
+effort = resolved
 fallback = o.get("fallback") or gate.get("fallback") or "latest-sol"
 try:
     LIMIT = float(os.environ.get("CODEX_GATE_TIMEOUT", "3600"))
@@ -281,24 +306,10 @@ def review(model_, effort_):
     return rc, open(raw_path, encoding="utf-8", errors="replace").read(), tail
 
 
-def fallback_model():
-    """(model, effort) for the fallback run, or (None, why) when it cannot be resolved."""
-    if not fallback.startswith("latest-"):
-        return fallback, effort
-    r = run(["sh", os.path.join(os.path.dirname(S), "ship-ticket", "executor-model.sh"),
-             "--model", fallback, "--effort", effort], 60)
-    words = r.stdout.split()
-    if r.returncode == 0 and len(words) == 2 and words[0] != "default":
-        return words[0], words[1]
-    if r.returncode == 0 and words[:1] == ["default"]:
-        return None, " ".join(words[1:]) or "executor-model.sh named no model"
-    return None, last_line(r.stderr or r.stdout) or f"executor-model.sh exited {r.returncode}"
-
-
 used, text, tail = None, "", ""
 for m_, e_, wait in ((model, effort, 0), (model, effort, 60), (model, effort, 180), (None, None, 0)):
     if m_ is None:
-        m_, e_ = fallback_model()
+        m_, e_ = resolve(fallback, effort)
         if m_ is None:
             error("codex review at capacity after 3 tries; no fallback: " + e_)
     if wait:

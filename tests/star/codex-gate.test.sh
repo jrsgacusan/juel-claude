@@ -273,6 +273,18 @@ rm -f "$TMP/gh-calls"; mkdir -p "$TMP/phome"; printf '{"gate": {"model": "gpt-6-
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" JUEL_STAR_HOME="$TMP/phome" sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD") )
 grep -q "PASS (head $NEWHEAD, round 2, gpt-6-sol high)" "$TMP/gh-calls" && pass "post-pass: with no flag and no review, star.json's gate block names the model" || fail "post-pass star.json ($out / $(cat "$TMP/gh-calls"))"
 
+# #65: a latest-<family> name never reaches codex as written
+reset; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-sol >/dev/null
+grep -q 'model="gpt-6.1-sol"' "$TMP/calls" && ! grep -q 'model="latest-sol"' "$TMP/calls" && pass "--model latest-sol is resolved before codex sees it (#65)" || fail "--model alias ($(cat "$TMP/calls"))"
+reset
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-terra); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR cannot resolve latest-terra: no current terra model is listed" ] && [ ! -f "$TMP/n" ] && pass "an alias that does not resolve is ERROR, and codex review never runs" || fail "unresolved alias ($rc $out)"
+reset; mkdir -p "$TMP/phome2"; printf '{"gate": {"model": "latest-sol", "effort": "xhigh"}}\n' > "$TMP/phome2/star.json"
+printf '{"author":{"login":"me"},"headRefOid":"%s","url":"u","comments":[]}\n' "$NEWHEAD" > "$TMP/pr.json"
+out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_MODELS="$MODELS" JUEL_STAR_HOME="$TMP/phome2" sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD") )
+grep -q "PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh)" "$TMP/gh-calls" && pass "post-pass names the model latest-sol resolves to, not the alias" || fail "post-pass alias ($out / $(cat "$TMP/gh-calls"))"
+
 # usage
 G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --brief is 64" || fail "usage brief"
 G --brief "$BRIEF" --item ITEM-1 --round 0 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "round 0 is 64" || fail "usage round"
