@@ -155,5 +155,12 @@ g "P1d a gate round's progress line names its round" 'Append a progress line wit
 # Issue #60: fixed NOTE lines are reported on top of the one free NOTE
 g "N60a fixed NOTE lines do not use up the free NOTE" 'plus the fixed `NOTE:` lines this file names'
 g "N60b an unattended preflight does not stop on the executor skill" 'under `--unattended` not a STOP'
+# Issues #63, #66, #71: the gate round from the worker's side
+g "G66a only verdict files count toward the round" 'Only those verdict files count'
+g "G66b an ERROR keeps the round number" 'an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move'
+g "G63a the gate gets the evidence folder" '--evidence <the Phase 6 evidence directory>'
+g "G63b the manifest names the evidence folder" '"evidenceDir": "<the evidence directory>"'
+g "G71a the round streams and only the verdict line is read" 'read only the last line of its output'
+g "G64a a gate-down line is quoted whole" 'quoted whole: an `ERROR gate-down'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

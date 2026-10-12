@@ -125,5 +125,11 @@ grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is g
 # Issue #60: the executor fallback reaches STAR through the report
 g "N60c babysit carries the executor fallback NOTE" 'NOTE: executor skill missing, the plan ran in this session'
 g "N60d the report line count includes it" 'That is 9 lines at most'
+# Issues #63, #66, #71: the gate round from the worker's side
+grow "G66c babysit counts verdict files only" 'error logs, raw files and run files never count'
+grow "G66d babysit reruns the same round after an ERROR" 'run the same round once more'
+grow "G63c babysit passes the evidence folder" '--evidence <its "evidenceDir">'
+grow "G71b babysit reads only the verdict line" 'read only the last line of its output'
+grow "G64b babysit quotes a gate-down line whole" 'quoted whole: an `ERROR gate-down'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

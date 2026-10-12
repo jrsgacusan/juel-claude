@@ -515,7 +515,7 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
-    `post-pass` printed `ERROR` twice, a minute apart. `needs=` quotes its `ERROR` line.
+    `post-pass` printed `ERROR` twice, a minute apart. `needs=` quotes its `ERROR` line, whole.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -805,7 +805,10 @@ screenshots plus one end-to-end recording for UI changes, (5) evidence in `${doc
 **Create this phase's evidence directory now:** write it to
 `${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (same date, ref and slug as the spec
 from Phase 2). Never overwrite an existing one; on a collision use `-v2`, then `-v3`. Pass this
-path to every `juel:verify` invocation below so all evidence lands in one place.
+path to every `juel:verify` invocation below so all evidence lands in one place. Under
+`--unattended`, also add `"evidenceDir": "<the evidence directory>"` (its absolute path) to the
+gate manifest (`run-gates.sh` reads only the gate keys): the codex gate is given this folder, so a
+criterion met by a live check with no change in the diff is judged on its evidence.
 
 Verify the change actually works, exhaustively, before opening the PR. This phase is
 **human-in-the-loop only where Claude genuinely cannot self-serve**: do not open the PR on the
@@ -971,12 +974,16 @@ unattended run without a `star:` block then ends with `DONE item=<item> pr=<url>
 no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 
 1. Round: `k` is 1 plus the highest `k` among `<star.reviews>/<item>-r<k>.md`, or 1 when there is none.
-   Append a progress line with the step `gate-r<k>`.
+   Only those verdict files count: error logs (`<item>-r<k>-error-<n>.log`), raw files and run files
+   never do. Append a progress line with the step `gate-r<k>`.
 2. Run, from the worktree root, in the background like `codex exec` (`run_in_background: true`, wait
    for the completion notification, never poll it):
-   `sh <codex-gate.sh> --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>`
+   `sh <codex-gate.sh> --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch> --evidence <the Phase 6 evidence directory>`
    (`codex-gate.sh` is in `juel:star`: `../star/codex-gate.sh` from this file, or
    `${CLAUDE_PLUGIN_ROOT}/skills/star/codex-gate.sh`). It reads the gate settings from `star.json`.
+   The review streams on its stderr while it runs, so anyone watching the terminal sees it work.
+   When it ends, read only the last line of its output: that is the verdict line (`SAFE …`,
+   `NOT-SAFE …` or `ERROR …`). Never read the transcript back.
 3. `SAFE …`: `sh <codex-gate.sh> post-pass --pr <url> --round <k> --head <the full head> --review <the review path the gate printed>`,
    then end the run with `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
    `post-pass` printing `ERROR …`: wait a minute and run it once more; a second `ERROR` is
@@ -1004,8 +1011,11 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
    item.
-6. `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more; a
-   second `ERROR` is `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`.
+6. `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
+   (an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move); a second `ERROR` is
+   `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`, the line
+   quoted whole: an `ERROR gate-down …` line tells STAR that the gate itself is down (Sol and its
+   Claude fallback both failed), and STAR parks the item instead of handing it to the owner.
 
 ### Phase 8 — Babysit PR
 
