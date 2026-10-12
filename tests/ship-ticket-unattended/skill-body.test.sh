@@ -119,8 +119,8 @@ grep -qF 'handed-off' "$ROOT/references/local-e2e.md" && pass "T24d rule 3 knows
 g "T21d a file the app loads is runtime whatever its extension" 'is runtime whatever its extension'
 grep -qF 'docs, `*.md` and `docs/`' "$SKILL" && fail "T21e every Markdown file no longer counts as outside runtime" || pass "T21e every Markdown file no longer counts as outside runtime"
 g "T21f the failure row defers to the reuse case" "re-run phase 6 in full (except step 6's evidence-reuse case)"
-g "T24e a PR template gets the handed-off section" 'the one section added to a template'
-g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry)'
+g "T24e a PR template gets the handed-off section" 'the only sections added to a template'
+g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry'
 # Task C1 fix round 1
 g "F1a a Phase 4 status under --unattended is a progress line, never a NOTE" 'a progress line and a terminal line, never a `NOTE`'
 [ "$(grep -cF 'never a `NOTE`' "$SKILL")" -ge 2 ] && pass "F1b both Phase 4 places say never a NOTE" || fail "F1b both Phase 4 places say never a NOTE"
@@ -162,5 +162,13 @@ g "G63a the gate gets the evidence folder" '--evidence <the Phase 6 evidence dir
 g "G63b the manifest names the evidence folder" '"evidenceDir": "<the evidence directory>"'
 g "G71a the round streams and only the verdict line is read" 'read only the last line of its output'
 g "G64a a gate-down line is quoted whole" 'quoted whole: an `ERROR gate-down'
+# Issue #61: a criterion accepted with a residual
+g "R61a the verdict exists" '`ACCEPTED-RESIDUAL`'
+g "R61b it needs a decision record that names a follow-up" 'accepts the residual and names a follow-up spec item'
+g "R61c the worker asks before escalating" 'whether it accepts the criterion with that residual'
+g "R61d the PR body carries it" '`## Accepted residual`'
+g "R61e the report carries it" 'NOTE: accepted residual <criterion>: <follow-up path>'
+g "R61f it is a fixed NOTE" '`NOTE: accepted residual'
+g "R61g never written as PASS" 'never written as PASS'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

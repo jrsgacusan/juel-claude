@@ -338,7 +338,10 @@ first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `
 from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` of your
 own, a fact the next worker in this project should know (a required env var, a flaky test, a
 naming rule), never a status update, plus the fixed `NOTE:` lines this file names
-(`NOTE: executor skill missing, the plan ran in this session`). With more than two `HELD` lines, write them all to a file beside the
+(`NOTE: executor skill missing, the plan ran in this session`; after a `DONE`, one
+`NOTE: accepted residual <criterion>: <follow-up path>` per `ACCEPTED-RESIDUAL` item, and with
+more than two of them one `NOTE: accepted residuals: <n>, listed in <path>`, the file beside the
+gate manifest). With more than two `HELD` lines, write them all to a file beside the
 gate manifest and report one line instead: `HELD item=<item> action=<n> held actions, listed in
 <path>`. `PHASE` and `PR` lines are for the terminal only and never go in the body. Anything longer
 goes into a file whose path you report; the
@@ -498,7 +501,14 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
 2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity
    (capacity retries, then the fallback model, then this session runs the plan; see Phase 4).
-3. `verification-failed` — a phase 6 item is still FAIL after one loop back through phase 5.
+3. `verification-failed`: a phase 6 item is still FAIL after one loop back through phase 5.
+   Before raising it, when what still fails is a residual that no further change inside this item
+   can close (an open-ended input the fix keeps chasing, say), ask the coordinator with
+   `orca orchestration ask` whether it accepts the criterion with that residual, naming the
+   residual and a proposed follow-up. Then read the brief's `## Decisions` again: a record that
+   accepts the residual and names a follow-up spec item makes the item `ACCEPTED-RESIDUAL` (Phase
+   6 step 4) and the escalation is not raised. An answer that accepts it while the brief holds no
+   such record: ask once more, naming the missing record; still none, raise the escalation.
 4. `gate-red` — the regression gate is red twice.
 5. `merge-conflict` — a merge conflict with the base branch.
 6. `needs-human-input` — the run needs a secret, a paid service, a real account, or anything else only a person can supply: verification steps for an item with no acceptance criteria, a browser check when no browser tool is available. Check the brief first: verification steps given under `## Decisions` (the user's answer to an earlier escalation of this kind) are the checklist's source, and the escalation is not raised again.
@@ -902,6 +912,13 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    method (`juel:verify` / `run` / user-confirmed), the evidence (request/response, log lines,
    screenshot, DB row), and a PASS/FAIL verdict. No item may be left off this list, and no group of
    items may be collapsed into one "looks good" line.
+
+   One more verdict exists, `ACCEPTED-RESIDUAL`, for an item whose live check still shows a small
+   residual after the loop back through phase 5. It is allowed only when a record in the brief's
+   `## Decisions` accepts the residual and names a follow-up spec item (the coordinator's or the
+   owner's answer to your ask, escalation 3). Record the residual as observed, the decision
+   record's title and the follow-up's path. It counts as met for the gate and for step 6, it is
+   never written as PASS, and an item with no such record stays FAIL.
 5. **Run the final regression gate** (under `--unattended`, inside the gate lock from "Unattended
    mode"). Re-run every toolchain command resolved in Phase 4 that is
    non-null — `test`, `lint`, `typecheck`, and `build` (reuse the resolved set; do not re-derive).
@@ -934,7 +951,8 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    `HELD item=<item> action=clean up <identifier> on <service>`. Interactively, ask the user at
    the checkpoint before handing one off.
 
-**Checkpoint:** show the full per-item checklist (all PASS), the regression-gate result, the
+**Checkpoint:** show the full per-item checklist (all PASS, or `ACCEPTED-RESIDUAL` where a decision
+record accepts the residual), the regression-gate result, the
 cleanup result (handed-off entries listed), the recording's path (or the `Recording missing` line), and the absolute path of
 the evidence directory. Ask to proceed to PR.
 
@@ -943,11 +961,12 @@ the evidence directory. Ask to proceed to PR.
 1. Push the branch: `git push -u <resolved-remote> <branch>` (remote resolved in Phase 5 — reuse it, do not re-derive).
 2. Resolve the PR title and body per "Base branch & repo conventions" above:
    - **Title:** apply the detected `[REF] <title>` / `feat(REF): <title>` / plain-title convention; drop the ref segment entirely if none was resolved — a title is never left with a dangling `[]` or `[NOREF]`.
-   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections, except that when Phase 6 handed off a `cleanup.md` entry, a **Left for you to clean up** section listing each one is appended after the template's last section: the one section added to a template. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off.
+   - **Body:** if a PR template was found, fill its sections (requirement-source link, QA instructions and test plan slot into whatever sections the template provides) without adding or reordering sections, except that when Phase 6 handed off a `cleanup.md` entry, a **Left for you to clean up** section listing each one is appended after the template's last section, and when Phase 6 recorded an `ACCEPTED-RESIDUAL` item, an `## Accepted residual` section after that: the only sections added to a template. If none was found, use the default body: **Summary** (1-3 bullets of what changed and why) / **Requirement source** — `<url>`, included only when the work item has a `url`, omitted entirely otherwise (no dead placeholder like "N/A" or "Requirement source: none" — the whole section does not appear) / **QA instructions** (concrete steps a reviewer can follow, derived from the work item's acceptance criteria if it has any; otherwise from the verification steps recorded in the spec in Phase 2) / **Test plan** (checklist) / **Left for you to clean up**: each handed-off `cleanup.md` entry, included only when Phase 6 handed one off / `## Accepted residual`: each `ACCEPTED-RESIDUAL` item with its criterion, the residual as observed, and the follow-up spec item's path, included only when Phase 6 recorded one.
 3. Open the PR, or degrade if `gh` is unavailable:
    - **`existingPr` in the brief:** do not run `gh pr create`. Push to its branch (step 1). Leave
      the PR's title and the author's text as they are: write this run's summary, QA instructions
-     and test plan (plus **Left for you to clean up** when Phase 6 handed off an entry) into one
+     and test plan (plus **Left for you to clean up** when Phase 6 handed off an entry, and
+     `## Accepted residual` when Phase 6 recorded an `ACCEPTED-RESIDUAL` item) into one
      section of the body that starts with the line `<!-- juel:update -->` and ends with
      `<!-- juel:update end -->`, replacing that section when the body already has it and
      appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
