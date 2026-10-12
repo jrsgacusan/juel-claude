@@ -248,6 +248,9 @@ fallback_down "0 claude-is-error.json" "API Error: 529 Overloaded" "a JSON resul
 fallback_down "0 claude-max-turns.json" "error_max_turns" "a subtype other than success is ERROR gate-down"
 fallback_down "0 claude-no-denials.json" "unreadable output: no permission_denials" "JSON with no permission_denials list cannot be trusted: ERROR gate-down"
 fallback_down "0 claude-empty-result.json" "empty review" "a JSON result with a blank review is ERROR gate-down"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-error-first"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "a Claude review that opens with the word Error is a review: the JSON, not its first line, says it failed" || fail "error-first fallback ($rc $out)"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-clean.json"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "a clean JSON result still gives a verdict, and the raw file holds the review text" || fail "clean json fallback ($rc $out)"

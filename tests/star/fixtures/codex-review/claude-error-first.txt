@@ -1,0 +1,1 @@
+Error handling in the export is covered by a test, and I found no defect that should block it.
