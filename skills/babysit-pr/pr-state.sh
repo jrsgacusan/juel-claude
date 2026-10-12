@@ -1,7 +1,10 @@
 #!/bin/sh
 # Reports what changed on a PR since a cursor, as one JSON object on stdout:
-#   {"state","decision","head","draft","base","author","url","approval","required","checks",
-#    "changes_requested","new_feedback":[...],"reviewers","cursor"}
+#   {"state","decision","head","draft","base","author","url","approval","required","checks","merge",
+#    "hosted","changes_requested","new_feedback":[...],"reviewers","cursor"}
+# "merge" is clean, dirty (the PR conflicts with its base: mergeStateStatus DIRTY, or mergeable
+# CONFLICTING, which is all a draft shows, since GitHub reports DRAFT for it), behind, blocked, or
+# unknown (GitHub is still computing it). UNSTABLE and HAS_HOOKS still merge: clean.
 # Feedback = review bodies, inline comments and conversation comments from humans other than
 # the PR author, plus two kinds of bot: the app behind a status check the base branch's rules
 # require (a code-review app whose status is required; never github-actions[bot], which is CI),
@@ -17,10 +20,20 @@
 # never reported twice. A bare time (no "#": the PR's createdAt, or a cursor from before ids
 # existed) is strict: only later items count. An inline comment is timed by the later of its own time and its review's
 # submit time: a comment written in a pending review counts from when the review was submitted.
+# --hosted <login> names the hosted reviewer (greptile-apps[bot]). It is kept like a --review-bots
+# login, and "hosted" says how its status on the head stands: none, pending, success, failure, or
+# unknown when GitHub could not be read (null without --hosted). Its status is a check run of the
+# app <login without [bot]>, or a commit status <login> created. Its summary comment, which it edits
+# in place on every re-review, is the item {"kind": "hosted-pass", "head": <the full head>, ...}
+# while its "Last reviewed commit" names the PR's head: the item's id is <comment id>@<updated_at>
+# and its time is updated_at, so each edit that names the head is new feedback once. An edit that
+# names an older head stays a plain comment, timed by its creation: not new.
+# <pr> is a number, a PR URL (STAR's ledger holds one), a branch name or #<n>; the REST paths use its number.
 # Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60); under
 # --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
-# happens: feedback | approved (reviewDecision APPROVED; or, where the rules require 0
+# happens: feedback | conflict ("merge" is dirty; it wakes even under --hold-approval) |
+# approved (reviewDecision APPROVED; or, where the rules require 0
 # approving reviews, no reviewer's latest review is CHANGES_REQUESTED and "checks" is green) |
 # draft (approved while a draft: turned back into one, or never
 # marked ready) | closed | errors (3 in a row) | silence | timeout.
@@ -135,9 +148,73 @@ def checks_state(rollup, required):
     return "pending" if pending or any(r not in seen for r in required) else "green"
 
 
-def snapshot(pr, since, repo, bots=()):
+def merge_state(view):
+    """clean | dirty | behind | blocked | unknown, from GitHub's two merge fields."""
+    status = str(view.get("mergeStateStatus") or "").upper()
+    mergeable = str(view.get("mergeable") or "").upper()
+    if status == "DIRTY" or mergeable == "CONFLICTING":
+        return "dirty"
+    if status == "BEHIND":
+        return "behind"
+    if status == "BLOCKED":
+        return "blocked"
+    if status in ("CLEAN", "HAS_HOOKS", "UNSTABLE") or (status == "DRAFT" and mergeable == "MERGEABLE"):
+        return "clean"
+    return "unknown"
+
+
+LAST_REVIEWED = re.compile(r"/commit/([0-9a-fA-F]{7,40})|last reviewed commit\W*([0-9a-fA-F]{7,40})\b", re.I)
+
+
+def last_reviewed(body):
+    """The commit a hosted reviewer's summary says it last reviewed, lowercase, or None."""
+    for line in body.splitlines():
+        lower = line.lower()
+        if "last reviewed commit" in lower:
+            m = LAST_REVIEWED.search(line[lower.index("last reviewed commit"):])
+            if m:
+                return (m.group(1) or m.group(2)).lower()
+    return None
+
+
+def hosted_status(runs, statuses, login):
+    """none | pending | success | failure: the hosted reviewer's status on the head; unknown unread."""
+    if runs is None or statuses is None:
+        return "unknown"
+    login = login.lower()
+    slug = login[:-len("[bot]")] if login.endswith("[bot]") else login
+    seen = []
+    for r in runs:
+        if ((r.get("app") or {}).get("slug") or "").lower() == slug:
+            if (r.get("status") or "completed").lower() != "completed":
+                seen.append("pending")
+            elif (r.get("conclusion") or "").lower() in ("success", "neutral", "skipped"):
+                seen.append("success")
+            else:
+                seen.append("failure")
+    for s in statuses:
+        if ((s.get("creator") or {}).get("login") or "").lower() == login:
+            value = (s.get("state") or "").lower()
+            seen.append(value if value in ("success", "pending") else "failure")
+    for verdict in ("failure", "pending", "success"):
+        if verdict in seen:
+            return verdict
+    return "none"
+
+
+def pr_number(pr, view):
+    """The number the REST paths need: <pr> itself when it is one, else the number in a /pull/<n> URL, else the
+    one gh returned for a branch name or #<n> in the same `gh pr view`."""
+    if pr.isdigit():
+        return pr
+    in_url = re.search(r"/pull/(\d+)", pr)
+    return in_url.group(1) if in_url else str(view["number"])
+
+
+def snapshot(pr, since, repo, bots=(), hosted=""):
     view_args = ["pr", "view", pr, "--json",
-                 "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url,statusCheckRollup"]
+                 "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url,statusCheckRollup,"
+                 "mergeStateStatus,mergeable,number"]
     if repo:
         view_args += ["-R", repo]
     view = json.loads(gh(view_args))
@@ -145,18 +222,30 @@ def snapshot(pr, since, repo, bots=()):
     repo = repo or "/".join(url.split("/")[3:5])
     author = view["author"]["login"]
     base = f"repos/{repo}"
+    number = pr_number(pr, view)
     rule, required_checks = review_rule(repo, view.get("baseRefName"))
     head = view.get("headRefOid")
-    kept = {b.lower() for b in bots}
-    if required_checks and head:
+    kept = {b.lower() for b in bots} | ({hosted.lower()} if hosted else set())
+    runs = None
+    if head and (required_checks or hosted):
         try:
-            for run in gh_list(f"{base}/commits/{head}/check-runs", ".check_runs[]"):
-                slug = (run.get("app") or {}).get("slug")
-                # GitHub Actions is CI, not a reviewer: only --review-bots can keep its bot
-                if slug and slug != "github-actions" and run.get("name") in required_checks:
-                    kept.add(f"{slug}[bot]".lower())
+            runs = gh_list(f"{base}/commits/{head}/check-runs", ".check_runs[]")
         except (GhError, ValueError):
-            pass  # no required-check bots this time; humans and listed bots still count
+            runs = None  # no required-check bots this time; humans and listed bots still count
+    for run in runs or []:
+        slug = (run.get("app") or {}).get("slug")
+        # GitHub Actions is CI, not a reviewer: only --review-bots can keep its bot
+        if slug and slug != "github-actions" and run.get("name") in required_checks:
+            kept.add(f"{slug}[bot]".lower())
+    hosted_state = None
+    if hosted:
+        statuses = None
+        if head:
+            try:
+                statuses = gh_list(f"{base}/commits/{head}/status", ".statuses[]")
+            except (GhError, ValueError):
+                statuses = None
+        hosted_state = hosted_status(runs, statuses, hosted)
 
     def wanted(user):
         if not user or user.get("login") == author:
@@ -168,7 +257,7 @@ def snapshot(pr, since, repo, bots=()):
             reviewers.add(user["login"])
 
     items, reviewers, submitted, latest = [], set(), {}, {}
-    raw_reviews = gh_list(f"{base}/pulls/{pr}/reviews")
+    raw_reviews = gh_list(f"{base}/pulls/{number}/reviews")
     for r in sorted(raw_reviews, key=lambda r: r.get("submitted_at") or ""):
         if r.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
             latest[(r.get("user") or {}).get("login") or f"#{r.get('id')}"] = r.get("state")
@@ -185,7 +274,7 @@ def snapshot(pr, since, repo, bots=()):
         items.append({"kind": "review", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
                       "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
                       "path": None, "line": None, "in_reply_to": None})
-    for c in gh_list(f"{base}/pulls/{pr}/comments"):
+    for c in gh_list(f"{base}/pulls/{number}/comments"):
         user = c.get("user")
         if not wanted(user):
             continue
@@ -195,13 +284,23 @@ def snapshot(pr, since, repo, bots=()):
                       "url": c.get("html_url"), "body": c.get("body") or "", "review_state": None,
                       "path": c.get("path"), "line": c.get("line") or c.get("original_line"),
                       "in_reply_to": c.get("in_reply_to_id")})
-    for c in gh_list(f"{base}/issues/{pr}/comments"):
+    for c in gh_list(f"{base}/issues/{number}/comments"):
         user = c.get("user")
         if not wanted(user):
             continue
         note_reviewer(user)
+        body = c.get("body") or ""
+        mine = bool(hosted) and (user.get("login") or "").lower() == hosted.lower()
+        reviewed = last_reviewed(body) if mine else None
+        if reviewed and head and head.lower().startswith(reviewed):
+            # the hosted reviewer's summary, edited in place: each edit that names the head is new once
+            at = c.get("updated_at") or c["created_at"]
+            items.append({"kind": "hosted-pass", "id": f"{c['id']}@{at}", "author": user["login"], "at": at,
+                          "url": c.get("html_url"), "body": body, "review_state": None,
+                          "path": None, "line": None, "in_reply_to": None, "head": head})
+            continue
         items.append({"kind": "comment", "id": c["id"], "author": user["login"], "at": c["created_at"],
-                      "url": c.get("html_url"), "body": c.get("body") or "", "review_state": None,
+                      "url": c.get("html_url"), "body": body, "review_state": None,
                       "path": None, "line": None, "in_reply_to": None})
 
     since_at, seen = split_cursor(since)
@@ -226,6 +325,7 @@ def snapshot(pr, since, repo, bots=()):
             "base": view.get("baseRefName"), "author": author, "url": url,
             "approval": approval, "required": required,
             "checks": checks_state(view.get("statusCheckRollup"), required_checks),
+            "merge": merge_state(view), "hosted": hosted_state,
             "changes_requested": sorted(w for w, s in latest.items() if s == "CHANGES_REQUESTED"),
             "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor}
 
@@ -235,6 +335,8 @@ def wake_reason(snap, hold_approval=False):
         return "closed"
     if snap["new_feedback"]:
         return "feedback"
+    if snap.get("merge") == "dirty":
+        return "conflict"
     if hold_approval:
         return None
     approved = snap["decision"] == "APPROVED" or (
@@ -256,7 +358,7 @@ def wait(a):
     while True:
         t_snap = time.monotonic()
         try:
-            snap = snapshot(a.pr, a.since, a.repo, a.bots)
+            snap = snapshot(a.pr, a.since, a.repo, a.bots, a.hosted)
         except Exception as e:
             errors += 1
             last_error = str(e) if isinstance(e, GhError) else f"unexpected gh output: {type(e).__name__}: {e}"
@@ -299,8 +401,10 @@ def main(argv):
     p.add_argument("--quiet-since")
     p.add_argument("--hold-approval", action="store_true")
     p.add_argument("--review-bots", default="")
+    p.add_argument("--hosted", default="")
     a = p.parse_args(argv)
     a.bots = [b.strip() for b in a.review_bots.split(",") if b.strip()]
+    a.hosted = a.hosted.strip()
     for flag, value in (("--since", split_cursor(a.since)[0]), ("--quiet-since", a.quiet_since)):
         try:
             if value:
@@ -312,7 +416,7 @@ def main(argv):
         emit(wait(a))
         return
     try:
-        emit(snapshot(a.pr, a.since, a.repo, a.bots))
+        emit(snapshot(a.pr, a.since, a.repo, a.bots, a.hosted))
     except GhError as e:
         emit({"error": str(e)})
     except Exception as e:  # output drift from gh; never a traceback

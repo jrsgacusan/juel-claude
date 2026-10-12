@@ -1,0 +1,13 @@
+{
+ "type": "result",
+ "subtype": "success",
+ "is_error": true,
+ "duration_ms": 41873,
+ "num_turns": 3,
+ "result": "API Error: 529 Overloaded",
+ "stop_reason": "end_turn",
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "total_cost_usd": 0.31,
+ "permission_denials": [],
+ "terminal_reason": "completed"
+}

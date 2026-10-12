@@ -2,6 +2,7 @@
 # Removes the Orca worktree of a finished STAR row when nothing in it would be lost.
 #   worktree-clean.sh [--home H] <item>
 #     -> removed <path> | kept <path>: <why> | none
+#        with "kept-evidence <H>/evidence/<item>/" on its own line first when evidence was copied
 # It removes the worktree only when all of these hold: the row is done or dropped; the path is not
 # the project's main checkout and no other open row names it; `git status --porcelain` is empty;
 # and the work is safe elsewhere: after a fetch from the project's remote, HEAD is contained in a
@@ -12,8 +13,14 @@
 # "<iso>\tSTAR\t<item>\tremoved worktree <path>".
 # A folder that is already gone: `git worktree prune`, the cell becomes -, and it prints none,
 # as for a row with no worktree.
+# Evidence outlives the worktree (#73): before the removal, every <docsRoot>/evidence/ folder the
+# worktree holds is copied into <H>/evidence/<item>/ (merged into what an earlier attempt left), and
+# every file is checked to have arrived at its size. The docsRoots looked at are the one STAR's home
+# sits in (<main checkout>/<docsRoot>/context/star) and the plugin's defaults, docs/superpowers and
+# docs/.superpowers, since a build resolves docsRoot inside its own worktree. Evidence is
+# git-ignored, so git status never counts it: without this copy it would be removed with the folder.
 # <why>: row is <state> | the main checkout | in use by <item> | not a git checkout |
-#        uncommitted changes | unpushed commits | orca: <message>
+#        uncommitted changes | unpushed commits | evidence copy failed: <why> | orca: <message>
 # Test seam: ORCA_CLI_COMMAND.
 # Exit: 0 with one of the lines above; 2 the STAR folder or star.json cannot be read; 4 no row for
 # the item; 64 usage.
@@ -23,6 +30,8 @@ export STAR_HOME_DEFAULT STAR_SKILL_DIR
 exec python3 - "$@" <<'PY'
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -90,6 +99,53 @@ def git_out(where, *a):
     return stdout.strip() if rc == 0 else ""
 
 
+def evidence_dirs(worktree):
+    """Each <docsRoot>/evidence/ folder the worktree holds: under the docsRoot STAR's home sits in,
+    and under the plugin's two default docsRoots."""
+    roots = ["docs/superpowers", "docs/.superpowers"]
+    real_home, main = os.path.realpath(home), os.path.realpath(repo)
+    docs = os.path.dirname(os.path.dirname(real_home))
+    if (os.path.basename(real_home) == "star" and os.path.basename(os.path.dirname(real_home)) == "context"
+            and (docs == main or docs.startswith(main + os.sep))):
+        roots.insert(0, os.path.relpath(docs, main))
+    found, seen = [], set()
+    for rel in roots:
+        folder = os.path.join(worktree, rel, "evidence")
+        if os.path.isdir(folder) and os.path.realpath(folder) not in seen:
+            seen.add(os.path.realpath(folder))
+            found.append(folder)
+    return found
+
+
+def keep_evidence(worktree):
+    """(<H>/evidence/<item>/, None) after a full copy; (None, None) when there is nothing to keep;
+    (None, why) when the copy failed or left a file out."""
+    sources = evidence_dirs(worktree)
+    if not sources:
+        return None, None
+    if re.search(r"[\x00-\x1f\x7f/\\]", item) or item.startswith("."):
+        return None, f"{item} is not a plain folder name"
+    dest = os.path.join(home, "evidence", item)
+    missing = total = 0
+    try:
+        for src in sources:
+            shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
+        for src in sources:
+            for top, dirs, files in os.walk(src):
+                for name in files + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
+                    total += 1
+                    orig = os.path.join(top, name)
+                    copy = os.path.join(dest, os.path.relpath(orig, src))
+                    plain = os.path.isfile(orig) and not os.path.islink(orig)
+                    if not os.path.lexists(copy) or (plain and os.path.getsize(copy) != os.path.getsize(orig)):
+                        missing += 1
+    except OSError as e:
+        return None, str(getattr(e, "strerror", None) or e)[:120]
+    if missing:
+        return None, f"{missing} of {total} files missing after the copy"
+    return dest + "/", None
+
+
 row = dict(l.split("=", 1) for l in ledger("get", item).splitlines() if "=" in l)
 path, state = row["worktree"], row["state"]
 if path in ("", "-"):
@@ -118,6 +174,11 @@ on_remote = bool(git_out(path, "branch", "-r", "--contains", "HEAD"))
 merged_head = state == "done" and len(recorded) >= 7 and head.startswith(recorded)
 if not (on_remote or merged_head):
     out(f"kept {path}: unpushed commits")
+kept_at, why = keep_evidence(path)
+if why:
+    out(f"kept {path}: evidence copy failed: {why}")
+if kept_at:
+    print(f"kept-evidence {kept_at}")
 rc, stdout, stderr = run([orca, "worktree", "rm", "--worktree", f"path:{path}", "--json"])
 try:
     data = json.loads(stdout, strict=False)

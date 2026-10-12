@@ -23,15 +23,18 @@ if [ "$1" = "pr" ]; then
 else
   n=$(cat "$C" 2>/dev/null || echo 1)
   case "$*" in
+    */pulls/[!0-9]*|*/issues/[!0-9]*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;  # a REST path takes the number, as the real API does
     */rules/branches/*) f=rules; [ -f "$D/rules.json" ] || { echo '[]'; exit 0; } ;;
     */protection*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
     */check-runs*) f=checkruns ;;
+    */commits/*/status*) f=statuses ;;
     */reviews*) f=reviews ;;
     */pulls/*/comments*) f=inline ;;
     */issues/*/comments*) f=comments ;;
     *) echo "unexpected gh call: $*" >&2; exit 9 ;;
   esac
 fi
+[ -n "${STUB_FAIL_ROUTE:-}" ] && [ "$STUB_FAIL_ROUTE" = "$f" ] && { echo "boom" >&2; exit 1; }
 if [ -f "$D/$f.$n.json" ]; then cat "$D/$f.$n.json"; elif [ -f "$D/$f.json" ]; then cat "$D/$f.json"; fi
 EOF
 chmod +x "$TMP/bin/gh"
@@ -85,6 +88,18 @@ check "thread reply keeps in_reply_to and falls back to original_line" 'd["new_f
 check "reviewers: humans who reviewed or commented, sorted, no bots or author" 'd["reviewers"] == ["mstr-ezra", "mstr-johnpaul"]'
 check "cursor is the newest reported item, with the ids seen in that second" 'd["cursor"] == "2026-10-01T07:00:00Z#902"'
 check "pr fields" 'd["state"] == "OPEN" and d["decision"] == "CHANGES_REQUESTED" and d["head"] == "abc123" and d["author"] == "me" and d["url"].endswith("/pull/7")'
+
+# ---- the PR argument: STAR's ledger holds a URL (#70) ----
+run basic https://github.com/o/r/pull/7
+check "a PR URL gives the same snapshot as its number" 'rc == 0 and "error" not in d and ids == [4, 501, 503, 902]'
+run basic https://github.com/o/r/pull/7/files --hosted greptile-apps[bot]
+check "a PR URL with a path after the number, and --hosted, still reads the number" 'rc == 0 and "error" not in d and d["hosted"] == "none"'
+fixture byname pr.json '{"state":"OPEN","reviewDecision":"","headRefOid":"abc123","author":{"login":"me"},"url":"https://github.com/o/r/pull/7","number":7}'
+fixture byname reviews.json ''
+fixture byname inline.json ''
+fixture byname comments.json '{"id":902,"user":{"login":"mstr-ezra","type":"User"},"body":"also update docs","created_at":"2026-10-01T07:00:00Z","html_url":"i902"}'
+run byname feat/my-branch
+check "a branch name takes the number gh returned for it" 'rc == 0 and "error" not in d and ids == [902]'
 
 run basic 7 --since '2026-10-01T04:00:00Z#501'
 check "--since filters older items and the ids already seen in its second" 'ids == [503, 902]'
@@ -289,6 +304,110 @@ STUB_FAIL=1; STUB_MSG="GraphQL: Could not resolve to a Repository with the name 
 run basic 7
 check "a repository gh cannot see says how to fix it" '"gh cannot see o/r: export GH_TOKEN for this repository" in d["error"]'
 unset STUB_FAIL STUB_MSG
+
+# ---- the merge state (#58) ----
+# mpr <isDraft> <mergeStateStatus> <mergeable>: a PR view with GitHub's two merge fields
+mpr() { printf '{"state":"OPEN","reviewDecision":"","headRefOid":"h","isDraft":%s,"mergeStateStatus":"%s","mergeable":"%s","author":{"login":"me"},"url":"https://github.com/o/r/pull/20"}' "$1" "$2" "$3"; }
+merge_case() { fixture "$1" pr.json "$(mpr "$2" "$3" "$4")"; for f in reviews inline comments; do fixture "$1" "$f.json" ''; done; }
+merge_case m-dirty false DIRTY CONFLICTING
+run m-dirty 20
+check "merge: DIRTY is dirty" 'd["merge"] == "dirty"'
+merge_case m-draft true DRAFT CONFLICTING
+run m-draft 20
+check "merge: a draft with conflicts is dirty, though GitHub says DRAFT" 'd["merge"] == "dirty"'
+merge_case m-behind false BEHIND MERGEABLE
+run m-behind 20
+check "merge: BEHIND is behind" 'd["merge"] == "behind"'
+merge_case m-blocked false BLOCKED MERGEABLE
+run m-blocked 20
+check "merge: BLOCKED is blocked" 'd["merge"] == "blocked"'
+merge_case m-clean false CLEAN MERGEABLE
+run m-clean 20
+check "merge: CLEAN is clean" 'd["merge"] == "clean"'
+merge_case m-unstable false UNSTABLE MERGEABLE
+run m-unstable 20
+check "merge: UNSTABLE (a red check that is not required) still merges cleanly" 'd["merge"] == "clean"'
+merge_case m-unknown false UNKNOWN UNKNOWN
+run m-unknown 20
+check "merge: still computing is unknown" 'd["merge"] == "unknown"'
+run basic 7
+check "merge: a PR view without the fields is unknown" 'd["merge"] == "unknown"'
+
+run m-dirty 20 --wait --interval 0 --max-seconds 5
+check "wait: a dirty PR wakes conflict at once" 'd["wake"] == "conflict" and calls == 1'
+run m-dirty 20 --wait --interval 0 --max-seconds 5 --hold-approval
+check "wait: conflict wakes even while approval is held" 'd["wake"] == "conflict"'
+fixture m-turns pr.1.json "$(mpr false CLEAN MERGEABLE)"
+fixture m-turns pr.json "$(mpr false DIRTY CONFLICTING)"
+for f in reviews inline comments; do fixture m-turns "$f.json" ''; done
+run m-turns 20 --wait --interval 0 --max-seconds 5
+check "wait: a PR that turns dirty while waiting wakes conflict on that poll" 'd["wake"] == "conflict" and calls == 2'
+run m-behind 20 --wait --interval 0 --max-seconds 0
+check "wait: behind never wakes (CI still runs on a behind head)" 'd["wake"] == "timeout"'
+merge_case m-dirty-fb false DIRTY CONFLICTING
+fixture m-dirty-fb comments.json '{"id":81,"user":{"login":"mstr-ezra","type":"User"},"body":"see the conflict","created_at":"2026-10-01T09:00:00Z","html_url":"i81"}'
+run m-dirty-fb 20 --wait --interval 0
+check "wait: new feedback is reported before the conflict" 'd["wake"] == "feedback" and d["merge"] == "dirty"'
+
+# ---- the hosted reviewer: its status on the head, and a summary edited in place (#72) ----
+HEADX=abc1234def5678abc1234def5678abc1234def56
+hpr() { printf '{"state":"OPEN","reviewDecision":"","headRefOid":"%s","isDraft":false,"mergeStateStatus":"CLEAN","mergeable":"MERGEABLE","baseRefName":"main","author":{"login":"me"},"url":"https://github.com/o/r/pull/30"}' "$HEADX"; }
+hosted_case() { fixture "$1" pr.json "$(hpr)"; for f in reviews inline comments; do fixture "$1" "$f.json" ''; done; }
+hosted_case h-success
+fixture h-success checkruns.json '{"name":"Greptile Review","app":{"slug":"greptile-apps"},"status":"completed","conclusion":"success"}
+{"name":"ci","app":{"slug":"github-actions"},"status":"completed","conclusion":"success"}'
+run h-success 30 --hosted 'greptile-apps[bot]'
+check "hosted: a finished check run of its app is success" 'd["hosted"] == "success"'
+run h-success 30
+check "hosted: without --hosted the key is null" 'd["hosted"] is None'
+hosted_case h-pending
+fixture h-pending checkruns.json '{"name":"Greptile Review","app":{"slug":"greptile-apps"},"status":"in_progress","conclusion":null}'
+run h-pending 30 --hosted 'greptile-apps[bot]'
+check "hosted: a running check run is pending" 'd["hosted"] == "pending"'
+hosted_case h-failure
+fixture h-failure checkruns.json '{"name":"Greptile Review","app":{"slug":"greptile-apps"},"status":"completed","conclusion":"failure"}'
+run h-failure 30 --hosted 'greptile-apps[bot]'
+check "hosted: a failed check run is failure" 'd["hosted"] == "failure"'
+hosted_case h-none
+fixture h-none checkruns.json '{"name":"ci","app":{"slug":"github-actions"},"status":"completed","conclusion":"success"}'
+run h-none 30 --hosted 'greptile-apps[bot]'
+check "hosted: no run of its app on the head is none" 'd["hosted"] == "none"'
+hosted_case h-status
+fixture h-status statuses.json '{"context":"Greptile Review","state":"success","creator":{"login":"greptile-apps[bot]"}}'
+run h-status 30 --hosted 'greptile-apps[bot]'
+check "hosted: a commit status it created counts too" 'd["hosted"] == "success"'
+STUB_FAIL_ROUTE=checkruns; export STUB_FAIL_ROUTE
+run h-success 30 --hosted 'greptile-apps[bot]'
+check "hosted: a check-runs call that fails is unknown, never none" 'd["hosted"] == "unknown"'
+unset STUB_FAIL_ROUTE
+
+GOLD='{"id":50,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T10:00:00Z","html_url":"i50","body":"Confidence 3/5\n<sub>Last reviewed commit: <a href=\"https://github.com/o/r/commit/0dd0000aaa0dd0000aaa0dd0000aaa0dd0000aaa\">0dd0000</a></sub>"}'
+GNEW='{"id":50,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T11:00:00Z","html_url":"i50","body":"Confidence 5/5\nLast reviewed commit: [abc1234](https://github.com/o/r/commit/abc1234def5678abc1234def5678abc1234def56)"}'
+hosted_case h-edit
+fixture h-edit comments.1.json "$GOLD"
+fixture h-edit comments.json "$GNEW"
+run h-edit 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#50'
+check "hosted-pass: a summary naming an older head is not feedback" 'ids == []'
+run h-edit 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#50' --wait --interval 0 --max-seconds 5
+check "hosted-pass: the summary edited in place to name the head wakes the wait" 'd["wake"] == "feedback" and calls == 2 and [i["kind"] for i in d["new_feedback"]] == ["hosted-pass"]'
+check "hosted-pass: it carries the full head, its edit time and an id that names the edit" 'd["new_feedback"][0]["head"] == "'"$HEADX"'" and d["new_feedback"][0]["at"] == "2026-10-01T11:00:00Z" and ids == ["50@2026-10-01T11:00:00Z"] and d["cursor"] == "2026-10-01T11:00:00Z#50@2026-10-01T11:00:00Z"'
+hosted_case h-new
+fixture h-new comments.json "$GNEW"
+run h-new 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T11:00:00Z#50@2026-10-01T11:00:00Z'
+check "hosted-pass: the same edit is never reported twice" 'ids == []'
+fixture h-new comments.json "$(printf '%s' "$GNEW" | sed 's/T11:00:00Z/T12:00:00Z/')"
+run h-new 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T11:00:00Z#50@2026-10-01T11:00:00Z'
+check "hosted-pass: a later edit that names the head again is new (a status refresh)" 'ids == ["50@2026-10-01T12:00:00Z"]'
+run h-new 30 --review-bots 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#50'
+check "hosted-pass: --review-bots alone keeps today's plain comment, timed by its creation" 'ids == []'
+hosted_case h-first
+fixture h-first comments.json "$(printf '%s' "$GNEW" | sed 's/T11:00:00Z/T10:00:00Z/')"
+run h-first 30 --hosted 'greptile-apps[bot]' --since 2026-10-01T09:00:00Z
+check "hosted-pass: a first summary that names the head is a hosted pass, reported once" '[i["kind"] for i in d["new_feedback"]] == ["hosted-pass"] and ids == ["50@2026-10-01T10:00:00Z"]'
+hosted_case h-short
+fixture h-short comments.json '{"id":51,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T11:30:00Z","html_url":"i51","body":"Last reviewed commit: abc1234"}'
+run h-short 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#51'
+check "hosted-pass: a bare short sha in the footer is read too" 'ids == ["51@2026-10-01T11:30:00Z"]'
 
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

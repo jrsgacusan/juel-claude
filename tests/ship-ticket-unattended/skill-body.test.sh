@@ -119,8 +119,8 @@ grep -qF 'handed-off' "$ROOT/references/local-e2e.md" && pass "T24d rule 3 knows
 g "T21d a file the app loads is runtime whatever its extension" 'is runtime whatever its extension'
 grep -qF 'docs, `*.md` and `docs/`' "$SKILL" && fail "T21e every Markdown file no longer counts as outside runtime" || pass "T21e every Markdown file no longer counts as outside runtime"
 g "T21f the failure row defers to the reuse case" "re-run phase 6 in full (except step 6's evidence-reuse case)"
-g "T24e a PR template gets the handed-off section" 'the one section added to a template'
-g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry)'
+g "T24e a PR template gets the handed-off section" 'the only sections added to a template'
+g "T24f an existing PR gets it inside its update section" '(plus **Left for you to clean up** when Phase 6 handed off an entry'
 # Task C1 fix round 1
 g "F1a a Phase 4 status under --unattended is a progress line, never a NOTE" 'a progress line and a terminal line, never a `NOTE`'
 [ "$(grep -cF 'never a `NOTE`' "$SKILL")" -ge 2 ] && pass "F1b both Phase 4 places say never a NOTE" || fail "F1b both Phase 4 places say never a NOTE"
@@ -145,5 +145,49 @@ g "F11 the unanswered-question sentence ends with a period" '`unanswered-questio
 # Final fixes C-3: only a run under a star: brief has a star.home, so only it creates the folder and keeps the log
 g "C3a the progress paragraph applies under a star: brief" '**Progress.** Under a `star:` brief, STAR judges this run by its progress'
 g "C3b a run without a star: brief keeps no progress log" 'A run without a `star:` brief has no `star.home` and keeps no progress log.'
+# Progress step tokens (spec 5, feeds #70)
+g "P1a a progress line carries a step token" '"<step>" "<one line>"'
+for t in '| `phase<N>` |' '| `executor` |' '| `live-check` |' '| `regression-gate` |' '| `gate-r<k>` |' '| `post-pass` |' '| `sync` |' '| `report` |'; do
+  grep -qF -- "$t" "$SKILL" && pass "P1b token row $t" || fail "P1b token row $t"
+done
+grep -qF '"<phase or round>"' "$SKILL" && fail "P1c the free-form step field is gone" || pass "P1c the free-form step field is gone"
+g "P1d a gate round's progress line names its round" 'Append a progress line with the step `gate-r<k>`.'
+# Issue #60: fixed NOTE lines are reported on top of the one free NOTE
+g "N60a fixed NOTE lines do not use up the free NOTE" 'plus the fixed `NOTE:` lines this file names'
+g "N60b an unattended preflight does not stop on the executor skill" 'under `--unattended` not a STOP'
+# Issues #63, #66, #71: the gate round from the worker's side
+g "G66a only verdict files count toward the round" 'Only those verdict files count'
+g "G66b an ERROR keeps the round number" 'an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move'
+g "G63a the gate gets the evidence folder" '--evidence <the Phase 6 evidence directory>'
+g "G63b the manifest names the evidence folder" '"evidenceDir": "<the evidence directory>"'
+g "G63d a resumed run reads the folder from the manifest and drops a missing one" 'leave `--evidence` out: a missing'
+g "G71a the round streams and only the verdict line is read" 'read only the last line of its output'
+g "G64a a gate-down line is quoted whole" 'quoted whole: an `ERROR gate-down'
+# Issue #61: a criterion accepted with a residual
+g "R61a the verdict exists" '`ACCEPTED-RESIDUAL`'
+g "R61b it needs a decision record that names a follow-up" 'accepts the residual and names a follow-up spec item'
+g "R61c the worker asks before escalating" 'whether it accepts the criterion with that residual'
+g "R61d the PR body carries it" '`## Accepted residual`'
+g "R61e the report carries it" 'NOTE: accepted residual <criterion>: <follow-up path>'
+g "R61f it is a fixed NOTE" '`NOTE: accepted residual'
+g "R61g never written as PASS" 'never written as PASS'
+# Issue #69: ready at the final SAFE round
+g "Y69a the build marks the PR ready after post-pass" 'mark the PR ready: `gh pr ready <url>`'
+g "Y69b not inside quiet hours, and no HELD line for it" 'leave the PR a draft and print no `HELD` line for it'
+g "Y69c the progress table has ready" '| `ready` |'
+g "Y69d the DONE row says ready" 'and it is marked ready (outside quiet hours)'
+grep -qF 'It is marked ready once, by the babysit stage, after the gate passed.' "$SKILL" && fail "Y69e babysit no longer marks every PR ready" || pass "Y69e babysit no longer marks every PR ready"
+# Issue #56: one instruction for the report's shape
+g "W56a the worker_done body is the report lines only" 'The `worker_done` body is these report lines and nothing else.'
+g "W56b it overrides Orca's preamble" "It overrides any request for a prose summary, Orca's worker preamble included."
+# Issue #55: research MCPs
+g "M55a the settings include mcps" 'and its `mcps`'
+g "M55b mcps names what STAR found" '`needs-sign-in`'
+g "M55c Mobbin cites the screen or flow URL" 'cite the screen or flow URL'
+g "M55d only tools your own session lists" 'only when your own session lists its tools'
+# Issue #74
+g "EL16 the screen lock rule points to juel:verify's Electron row" "as \`juel:verify\`'s Electron row says) takes none either"
+g "EL17 Phase 6 runs hidden-window checks through juel:verify's Electron row" "\`juel:verify\`'s Electron row: a hidden dev build driven over CDP"
+grep -q 'window that paints' "$SKILL" && fail "EL18 no 'window that paints' description left" || pass "EL18 no 'window that paints' description left"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

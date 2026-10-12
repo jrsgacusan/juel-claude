@@ -13,6 +13,9 @@ grep -qF 'Workers are judged by progress: their progress log, their latest commi
 # A re-scope is a brief worker in --rescope mode (SKILL.md, Re-scope mode), never STAR's own session.
 grep -qF 'brief worker in re-scope mode' "$PAGE" && ! grep -qE '<td[^>]*>re-scope</td>' "$PAGE" && pass "the Stages table gives a re-scope to a brief worker" || fail "re-scope stage row"
 grep -qF 'a brief worker narrows the PR' "$PAGE" && pass "the Re-scope box says a brief worker narrows the PR" || fail "re-scope box"
+grep -qi 'astra' "$PAGE" && fail "the page names no astra" || pass "the page names no astra"
+grep -qF 'restarts the stage on its own' "$PAGE" && pass "the page says STAR restarts a stuck stage" || fail "restart sentence"
+grep -qF 'checks the gate every 30 minutes' "$PAGE" && pass "the page says what STAR does when the gate is down" || fail "gate-down sentence"
 out=$(python3 - "$PAGE" "$ROOT/skills/star/SKILL.md" "$ROOT/skills/star/template/star.json" <<'PY'
 import html, json, re, sys
 page = open(sys.argv[1], encoding="utf-8").read()
@@ -89,7 +92,10 @@ else:
     for stage, entry in star["stages"].items():
         check(stage, entry["model"], entry["effort"])
     check("executor", star["executor"]["model"].replace("latest-", ""), star["executor"]["effort"])
-    check("codex gate", star["gate"]["model"], star["gate"]["effort"])
+    check("codex gate", star["gate"]["model"].replace("latest-", ""), star["gate"]["effort"])
+    fallback = star["gate"].get("fallback")
+    if isinstance(fallback, dict):
+        check("gate fallback", fallback["model"], fallback["effort"])
     coordinator = re.search(r"^\| STAR itself \| ([^|(]*?)\s*[(|]", skill, re.M)
     star_row = next((m for label, m, e in labelled if label.lower().startswith("star")), None)
     if coordinator is None:

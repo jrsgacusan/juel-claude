@@ -3,7 +3,9 @@ superpowers/
 .superpowers/
 
 # Design docs, research, specs and plans — local only
-docs/
+docs/*
+# The closed-loop design page is the one file under docs/ that is committed
+!docs/star-closed-loop.html
 
 # Local workspace config for developing this plugin (not product).
 # The plugin declares superpowers/pr-review-toolkit as dependencies, so

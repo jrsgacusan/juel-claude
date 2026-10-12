@@ -101,5 +101,10 @@ done; pass "the three v1-only stages are refused"
 L set V2-1 state=babysit-queued stage=babysit counters.capacity=+1 counters.mismatch=1 counters.mergefail=1 counters.rescoped=1 counters.rescope=V2-1-r3.md counters.batch=B-20261009T081200Z counters.parent=SPH-11 >/dev/null
 [ "$(L get V2-1 counters.rescope)" = "V2-1-r3.md" ] && [ "$(L get V2-1 counters.batch)" = "B-20261009T081200Z" ] && [ "$(L get V2-1 counters.capacity)" = "1" ] && [ "$(L get V2-1 counters.parent)" = "SPH-11" ] && pass "the new counters and words are kept" || fail "new counters ($(L get V2-1 counters))"
 
+# #56: shape= counts a worker_done that was not a report
+L set V2-1 counters.shape=1 >/dev/null && [ "$(L get V2-1 counters.shape)" = "1" ] && pass "shape= is a counter (#56)" || fail "shape counter ($(L get V2-1 counters))"
+# #70: asked= and step= hold the last instruction's time and step
+L set V2-1 counters.asked=2026-10-12T10:00:00Z counters.step=gate-r3 >/dev/null && [ "$(L get V2-1 counters.asked)" = "2026-10-12T10:00:00Z" ] && [ "$(L get V2-1 counters.step)" = "gate-r3" ] && pass "asked= and step= are words (#70)" || fail "asked and step ($(L get V2-1 counters))"
+L set V2-1 counters.asked=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "asked= does not count" || fail "asked +1"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

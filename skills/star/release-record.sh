@@ -6,6 +6,9 @@
 # One record per PR: asked again for the same PR it prints the existing record's path, so a
 # replayed "merged" message is harmless. Another PR for the same item gets -v2, -v3; nothing
 # is ever overwritten.
+# "- Evidence:" names <home>/evidence/<item>/, where worktree-clean.sh copies the worktree's
+# evidence before it removes the worktree, when the worktree holds an evidence folder (or the copy
+# is already there); else "none found".
 exec python3 - "$@" <<'PY'
 import argparse
 import fcntl
@@ -81,6 +84,27 @@ for c in d.get("statusCheckRollup") or []:
     if value not in ("SUCCESS", "NEUTRAL", "SKIPPED"):
         bad.append(f"{c.get('name') or c.get('context') or 'check'}: {value or 'pending'}")
 reviews = sorted(os.path.relpath(f, a.home) for f in glob.glob(os.path.join(a.home, "reviews", a.project, glob.escape(a.item) + "-r*.md")))
+
+
+def evidence_dirs(worktree):
+    """Each <docsRoot>/evidence/ folder the worktree holds: under the docsRoot this home sits in
+    (<main checkout>/<docsRoot>/context/star) and the plugin's two default docsRoots."""
+    roots = ["docs/superpowers", "docs/.superpowers"]
+    try:
+        repo = (json.load(open(os.path.join(a.home, "star.json"), encoding="utf-8")).get("project") or {}).get("repo")
+    except (OSError, ValueError, AttributeError):
+        repo = None
+    real_home = os.path.realpath(a.home)
+    docs = os.path.dirname(os.path.dirname(real_home))
+    if (isinstance(repo, str) and repo and os.path.basename(real_home) == "star"
+            and os.path.basename(os.path.dirname(real_home)) == "context"
+            and (docs == os.path.realpath(repo) or docs.startswith(os.path.realpath(repo) + os.sep))):
+        roots.insert(0, os.path.relpath(docs, os.path.realpath(repo)))
+    return [os.path.join(worktree, r, "evidence") for r in roots if os.path.isdir(os.path.join(worktree, r, "evidence"))]
+
+
+evidence = os.path.join(a.home, "evidence", a.item)
+has_evidence = os.path.isdir(evidence) or (worktree not in ("", "-") and bool(evidence_dirs(worktree)))
 follow = []
 loops = os.path.join(a.home, "open-loops.md")
 if os.path.exists(loops):
@@ -122,7 +146,8 @@ body = [
     f"- Second-model review rounds: {rounds}",
     f"- Brief: {brief if os.path.exists(os.path.join(a.home, brief)) else 'none on file'}",
     "- Reviews: " + (", ".join(reviews) if reviews else "none on file"),
-    f"- Worktree: {worktree} (verification evidence is under its docs root)",
+    f"- Worktree: {worktree}",
+    f"- Evidence: {evidence}/" if has_evidence else "- Evidence: none found",
     "- Open follow-ups: " + ("; ".join(follow) if follow else "none"),
     "",
 ]

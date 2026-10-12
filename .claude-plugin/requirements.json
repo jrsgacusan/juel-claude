@@ -48,6 +48,11 @@
       "label": "coreutils",
       "install": "preinstalled on macOS and Linux"
     },
+    "electron": {
+      "kind": "cli",
+      "label": "Electron binary",
+      "install": "The project's own dev dependency; juel:verify launches the project's dev build with it"
+    },
     "gh": {
       "kind": "cli",
       "label": "GitHub CLI",
@@ -170,6 +175,11 @@
       "kind": "mcp",
       "label": "Playwright MCP",
       "install": "Ships as a plugin dependency"
+    },
+    "playwright-package": {
+      "kind": "cli",
+      "label": "Playwright package",
+      "install": "The project's own dev dependency (`npm i -D playwright`); juel:verify drives Electron over CDP with it"
     },
     "playwright-video": {
       "kind": "mcp",
@@ -480,9 +490,11 @@
       ],
       "soft": [
         "app-url",
+        "electron",
         "gh",
         "git-repo",
         "playwright",
+        "playwright-package",
         "playwright-video",
         "run",
         "verification-criteria"

@@ -83,5 +83,33 @@ out=$(STUB_REFUSE=/O WC O)
 WC nope >/dev/null 2>&1; [ $? -eq 4 ] && pass "an unknown item is 4" || fail "unknown item"
 WC >/dev/null 2>&1; [ $? -eq 64 ] && pass "no item is 64" || fail "usage"
 
+# evidence outlives the worktree (#73). docs/ is ignored, as it is in the projects STAR runs, so
+# git status never counts the evidence as work that would be lost.
+printf 'docs/\n' >> "$APP/.git/info/exclude"
+EV=$(wt EV); git -C "$EV" push -q origin feat/EV; row EV done "$EV"
+mkdir -p "$EV/docs/superpowers/evidence/2026-10-12-ev/shots"
+echo report > "$EV/docs/superpowers/evidence/2026-10-12-ev/report.md"
+echo png > "$EV/docs/superpowers/evidence/2026-10-12-ev/shots/a.png"
+out=$(WC EV)
+[ "$out" = "kept-evidence $H/evidence/EV/
+removed $EV" ] && pass "evidence is copied into the STAR home before the worktree goes" || fail "evidence copy ($out)"
+[ -f "$H/evidence/EV/2026-10-12-ev/report.md" ] && [ -f "$H/evidence/EV/2026-10-12-ev/shots/a.png" ] && [ ! -d "$EV" ] && pass "every evidence file is in the STAR home" || fail "evidence files missing"
+EW=$(wt EW); git -C "$EW" push -q origin feat/EW; row EW done "$EW"
+mkdir -p "$EW/docs/.superpowers/evidence/run"; echo r > "$EW/docs/.superpowers/evidence/run/report.md"
+out=$(WC EW)
+[ "$(printf '%s\n' "$out" | head -1)" = "kept-evidence $H/evidence/EW/" ] && [ -f "$H/evidence/EW/run/report.md" ] && pass "evidence under the dotted docsRoot is copied too" || fail "dotted docsRoot ($out)"
+ER=$(wt ER); git -C "$ER" push -q origin feat/ER; row ER done "$ER"
+mkdir -p "$ER/docs/superpowers/evidence/run" "$H/evidence/ER/run"
+echo new > "$ER/docs/superpowers/evidence/run/report.md"; echo old > "$H/evidence/ER/run/report.md"
+out=$(WC ER)
+[ "$(printf '%s\n' "$out" | tail -1)" = "removed $ER" ] && [ "$(cat "$H/evidence/ER/run/report.md")" = new ] && pass "a copy into a folder an earlier attempt left (an Orca refusal) succeeds and refreshes it" || fail "copy over an earlier one ($out)"
+EF=$(wt EF); git -C "$EF" push -q origin feat/EF; row EF done "$EF"
+mkdir -p "$EF/docs/superpowers/evidence/run"; echo r > "$EF/docs/superpowers/evidence/run/report.md"
+chmod 555 "$H/evidence"; out=$(WC EF); chmod 755 "$H/evidence"
+case "$out" in
+  "kept $EF: evidence copy failed: "*) [ -d "$EF" ] && [ "$(L get EF worktree)" = "$EF" ] && pass "a failed copy keeps the worktree and says why" || fail "a failed copy removed the worktree" ;;
+  *) fail "failed copy ($out)" ;;
+esac
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
