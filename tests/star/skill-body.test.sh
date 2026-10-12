@@ -449,5 +449,20 @@ g "FUP3 a follow-up whose parent has no grant waits for its batch's go" "whose p
 g "FUP4 STAR may accept a residual" '**An accepted residual.**'
 g "FUP5 the DONE note adds the follow-up" 'a `NOTE: accepted residual <criterion>: <follow-up path>` line'
 g "FUP6 a missing follow-up file is held" 'which does not exist'
+# Issue #70: STAR reads each worker's step and restarts a stuck stage; the PR pass of #69
+g "STP1 housekeeping reads each running worker's step" 'sh S/step-check.sh --item <item> --home HOME_DIR --state <state> --deadline <progressDeadlineMin>'
+g "STP2 an act line sends its instruction" '| `act <step> <diagnosis> -- <instruction>` |'
+g "STP3 the second ignored instruction restarts the stage" '`nudge=2` with `asked` 15 minutes or more ago'
+g "STP4 one automatic restart per stage" 'stalled again at <step> after a restart'
+g "STP5 a build with uncommitted work is held, not restarted" 'with uncommitted work in <worktree>'
+g "STP6 the asked and step counters" '| `asked=<iso>` |'
+g "STP7 notes go in the status line" "this tick's \`step-check.sh\` (\`<item>: <diagnosis>\`)"
+grep -qF 'through 3 check-ins' "$SKILL" && fail "STP8 held after 3 check-ins is gone" || pass "STP8 held after 3 check-ins is gone"
+g "STP9 the run file" '<item>-r<k>.run'
+g "STP10 an act on a new step starts the count over" 'starts over at `nudge=1`'
+g "STP11 an instruction still fresh is a note, not a second send" '`note <step> instructed <m> min ago`'
+g "STP12 the act line splits on its first separator" 'split the line on its first ` -- `'
+# Issue #69: the build marks the PR ready
+g "STP13 the build marks the PR ready" 'the build does after its final SAFE round'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

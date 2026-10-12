@@ -34,7 +34,7 @@ metadata:
         check: "command -v git"
       - id: python3
         hard: true
-        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, worktree-clean.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh, done-check.sh, merge.sh, codex-gate.sh and the session hook run on it
+        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, worktree-clean.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh, done-check.sh, merge.sh, codex-gate.sh, step-check.sh and the session hook run on it
         check: "command -v python3"
       - id: claude
         hard: true
@@ -309,6 +309,7 @@ reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the ver
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
+reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
 progress/<item>.log                  one line per milestone, appended by the item's workers
 reports/<project>/<item>.md   a report item's report (deliverable: report)
@@ -438,7 +439,9 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `hold=<n>` | ticks in a row this row could not start because the host gate held it | it starts |
 | `moved=<n>` | merge-gate checks that found the head moved | a merge-gate `PASS`, or the user answers its escalation |
 | `pending=<n>` | merge-gate checks in a row that said `PENDING` | any other verdict |
-| `nudge=<n>` | check-ins sent to this row's worker with no report since | a report from it is processed, or a new worker starts |
+| `nudge=<n>` | instructions and check-ins sent to this row's worker with no progress since ("Checking in") | a report from it is processed, `step-check.sh` prints `ok`, a restart, or a new worker starts |
+| `asked=<iso>` | not a count: when STAR last sent this row's worker an instruction or a check-in | as `nudge=` |
+| `step=<token>` | not a count: the step that instruction was about (a progress step token, such as `gate-r3`) | as `nudge=` |
 | `busy=<n>` | check-ins Orca refused with `agent_prompt_blocked` in this row's current silent stretch | the probe prints anything but `quiet`, a report from it is processed, or a new worker starts |
 | `shape=1` | a `worker_done` whose first line was none of its stage's report words (the Messages table) | a report from it is processed, or a new worker starts |
 | `reask=1` | the open question's deadline was extended once (Housekeeping) | the question is answered or closed |
@@ -814,9 +817,14 @@ message into the same end state.
      holds `retry=` has reported: its `DONE` waits for `done-check.sh`, below):
      `sh S/worker-probe.sh <dispatch> --item <item> --home HOME_DIR --worktree <worktree> --deadline <progressDeadlineMin>`
      (no `--worktree` for a `briefing` or `posting` row).
-     `ok` → nothing. A ` holds-screen <m>` ending → name it in the status line
-     (`screen: <item> <m> min`). `stale <minutes> <terminal>` or `quiet <minutes> <terminal>` →
-     check in on it ("Looking after the workers"). `stalled: model at capacity` → the capacity rule:
+     A ` holds-screen <m>` ending → name it in the status line (`screen: <item> <m> min`).
+     `ok`, `stale <minutes> <terminal>` or `quiet <minutes> <terminal>` (with or without that
+     ending): the worker runs and shows no screen to act on, so read its step with
+     `sh S/step-check.sh --item <item> --home HOME_DIR --state <state> --deadline <progressDeadlineMin>`,
+     adding `--worktree <worktree>` (not for a `briefing` or `posting` row), `--pr <pr>` when the
+     row has one, `--asked <counters.asked>` when that is set and `--hosted <hostedReviewer.login>`
+     when `star.json` has a hosted reviewer, and act on its one line ("Checking in", in "Looking
+     after the workers"). `stalled: model at capacity` → the capacity rule:
      below `capacity=3`, send
 
      ```sh
@@ -855,8 +863,9 @@ message into the same end state.
 6. **Write.** `loops.sh resume …` with the current pools and the next step;
    `loops.sh waiting "<one line per PR in review, per blocked question>"`. Nothing is committed:
    the folder is plain files. Print one status line: counts per state, then every open queue item, `screen: <holder>, renewed <time>`
-   while `sh S/../ship-ticket/screen-lock.sh status` does not print `free`, and each issue filed
-   this tick ("filed issue #19").
+   while `sh S/../ship-ticket/screen-lock.sh status` does not print `free`, each `note` line from
+   this tick's `step-check.sh` (`<item>: <diagnosis>`), each restart (`restarted <item> at <step>`),
+   and each issue filed this tick ("filed issue #19").
 
 **Active or idle.** While any row is in `inbox`, `briefing`, `building`, `babysit-queued`,
 `babysitting` or `posting`, in `verifying` while its `verify` holds no `retry=` in the future, or in
@@ -875,7 +884,7 @@ Every stage is its own Orca task and a fresh worker.
 |---|---|---|---|
 | brief | the project's main checkout (`path:<repo path>`), read-only | `stages.brief` | `/juel:star draft-brief <ref> --project <name> --item <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback] [--rescope HOME_DIR/reviews/<project>/<file>]` (the row's raw `ref`, then its item name; `--rescope` when the row's `counters.rescope` names a review file) |
 | build | a new Orca worktree in that project, set up as below | `stages.build` | `/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`: the plan, the executor, the fresh Claude review, the live checks, the draft PR and the codex gate loop, in one worker |
-| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed <the item's newest review> --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the newest `<item>-r<k>.md`, the gate's SAFE review of the head: the worker's proof before it marks the PR ready) |
+| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed <the item's newest review> --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the newest `<item>-r<k>.md`, the gate's SAFE review of the head: the worker's proof that the head passed the gate. The build marks the PR ready after its final SAFE round; `--mark-ready` marks it when quiet hours held the build's) |
 | post | the project's main checkout (`path:<repo path>`), read-only | `stages.post` | `/juel:star post-report <ref> --item <name> --report HOME_DIR/reports/<project>/<item>.md` |
 
 **Build worktree.** `stage-start.sh build` sets it up before any agent starts, because Orca picks
@@ -1229,7 +1238,7 @@ Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. 
 here: through `merge.sh`, on the exact head the gate passed, under the item's grant, never inside
 quiet hours. `merge.sh` posts the owner's go on the PR first (`Merging head <sha> under your go of
 <date>: "<their words>"`) and merges with `--match-head-commit`, so a head that moved after the gate
-is GitHub's refusal, never a merge. STAR never marks a PR ready: babysit does that once.
+is GitHub's refusal, never a merge. STAR never marks a PR ready: the build does after its final SAFE round, or babysit when quiet hours held the build's.
 
 **`gh` that cannot see the repository.** `PENDING gh cannot see <repo>: export GH_TOKEN for this
 repository` is not retried blind and does not count as a `pending=`: queue `--kind held`
@@ -1327,20 +1336,61 @@ Every answer STAR gives is on record: append `- <date> STAR answered (<message i
 the brief's `## Decisions` (later workers read it as binding, and the user can overrule it there
 or in chat), and name it in the next status line.
 
-**Checking in.** `worker-probe.sh` printing `stale <minutes> <terminal>` means the worker runs but
-has made no progress for `progressDeadlineMin` minutes: no progress line, no commit and no changed
-file. `quiet <minutes> <terminal>`, for a worker with no progress source, means its terminal has
-printed nothing for 15 minutes. Either way it may have ended its turn without reporting, or be
-waiting on a long command. Unless the row has an open `question` item (then it is waiting for an
-answer, which is expected), send it one message and add one to `nudge=` in `counters`:
+**Checking in.** Each tick, Housekeeping runs `step-check.sh` for every worker the probe found
+running (`ok`, `quiet …` or `stale …`). It reads the worker's activity (progress lines, commits
+and changed files in its worktree), the step its last progress line names (the line's second
+field: `phase<N>`, `executor`, `live-check`, `regression-gate`, `gate-r<k>`, `post-pass`,
+`wait-hosted`, `wait-ci`, `sync`, `report`, or the step a build writes once it has marked the PR
+ready), that step's own evidence (a gate round's run file,
+whether its pids are alive, the age of its log, a verdict already on disk) and, for a row with a
+PR, the PR itself through `pr-state.sh` (draft or ready, its merge state, its checks, the hosted
+reviewer's status on the head). It reads none of that into STAR's context and prints one line:
+
+| Line | Then |
+|---|---|
+| `ok <step>` | the step is moving, even when the progress log is old (a gate round whose log still grows): clear `asked=`, `step=` and `nudge=` |
+| `note <step> <diagnosis>` | name it in the status line (`<item>: <diagnosis>`), for example "checks green, no hosted run on abc1234". `note <step> instructed <m> min ago` means STAR's last instruction is less than 15 minutes old: send nothing, and name it the same way |
+| `act <step> <diagnosis> -- <instruction>` | split the line on its first ` -- `: the diagnosis is before it, the instruction after it. Send the instruction: `orca terminal send --terminal <terminal> --text "<instruction>" --enter --json` when this tick's probe printed a terminal (`quiet` or `stale`), else `orca orchestration send --to dispatch:<dispatch> --subject "STAR" --body "<instruction>" --json`. Then `counters.asked=<now>`, `counters.step=<step>` and `counters.nudge=+1`. An `act` for a step other than `counters.step` starts over at `nudge=1`. `step-check.sh` spaces these out: within 15 minutes of an instruction it prints `note … instructed <m> min ago` instead |
+| `restart <step> <diagnosis>` | the restart rule below, at once: the evidence is plain (the gate's process is gone while the worker still waits, or a verdict or a green status sat unread after an instruction) |
+| `unknown <why>` | STAR cannot read a step (`no-progress-source`: the worker has written no progress line yet). A probe that printed `quiet <minutes> <terminal>` gets the plain check-in below; anything else, nothing |
+
+Pass `--asked <counters.asked>` whenever it is set: `step-check.sh` itself ignores one older than
+the worker's newest activity.
+
+The plain check-in is for a worker with no step to read whose terminal has printed nothing for
+15 minutes. Unless the row has an open `question` item (then it is waiting for an answer, which is
+expected), send it one message and set `asked=` and `nudge=` as for `act`:
 
 ```sh
 orca terminal send --terminal <terminal> --text "STAR checking in on <item>: say in one line where you are. Waiting on a background command: keep waiting. Blocked or unsure: ask me with orca orchestration ask. Finished: send your worker_done report now." --enter --json
 ```
 
+**The restart rule.** It runs on a `restart` line; on `nudge=2` with `asked` 15 minutes or more ago
+and this tick's line `act` again for the step in `counters.step` (the second instruction was
+ignored); and, for a worker with no step to read, on `nudge=2` with `asked` 15 minutes or more ago
+and the probe still `quiet`. "Once per stage" is the ledger's `restarts` column, the same one the
+reconcile step uses for a lost worker: a stage gets one automatic restart in all.
+
+1. The row's `restarts` is already 1 (its stage was restarted once, by this rule or by the
+   reconcile step): queue `--kind held` "<stage> worker for <item>
+   stalled again at <step> after a restart: <diagnosis>", notify, and send it nothing more while
+   that item is open. The worker is not stopped.
+2. A `building` row whose worktree has uncommitted changes (`git -C <worktree> status --porcelain`
+   prints anything) is not restarted: queue `--kind held` "<item>'s build is stuck at <step>
+   with uncommitted work in <worktree>", notify, and send it nothing more while that item is open.
+3. Otherwise restart it. Append `<dispatch> stopped <iso>` to `processed.log`, then
+   `orca orchestration worker-stop --dispatch <id> --json` and `worker-release`. Then
+   `sh S/ledger.sh set <item> state=<its stage's waiting state> restarts=1 counters.nudge=- counters.asked=- counters.step=-`
+   (`inbox`, `queued`, `babysit-queued` or `post-queued`; the round stays as it is, and babysit
+   resumes with `--since <cursor>`). Append "- <date> STAR restarted the <stage> worker at
+   <step>: <diagnosis>. Resume on the existing branch and PR." to the brief's `## Decisions` when
+   the brief exists, and say "restarted <item> at <step>" in the status line. "Fill slots" starts
+   it again.
+
 **A refused check-in.** `orca terminal send` answering with the error code `agent_prompt_blocked`
 means the worker's agent is mid-turn: busy, not idle, often inside a long command such as a wait
 for the gate lock. It is not a nudge: add one to `busy=` in `counters` and leave `nudge=` alone.
+An instruction sent with `orca terminal send` is a check-in for this rule.
 While `busy=<n>` is set, send the next check-in only when this tick's probe prints `quiet <m>` or
 `stale <m>` with `m` at least the probe's own threshold × (n + 1) (15 for `quiet`,
 `progressDeadlineMin` for `stale`), so one silent stretch gets one try per window. When `busy=` is
@@ -1351,15 +1401,13 @@ silent stretch is over.
 
 The probe never says `quiet` or `stale` while a question with numbered options is on the worker's
 screen (that is `stuck: confirmation dialog`), because the check-in ends with Enter and Enter would
-answer the prompt. Send a check-in only on a `quiet` or `stale` result from this tick's probe,
-never from memory of an earlier one.
+answer the prompt. Send a check-in or an instruction only on this tick's probe and `step-check.sh`
+lines, never from memory of an earlier one.
 
-At `nudge=3` with still no report, queue `--kind held` "<stage> worker for <item> has been quiet
-through 3 check-ins: look at terminal <terminal>", notify, and send no more check-ins to it. The
-worker is not stopped: it may be inside an hour-long gate. A blocking screen is a different thing
-(`stuck:`): that worker is stopped and the row goes to the user, and STAR never answers a worker's
-screen for it. A model at capacity is a third thing (`stalled:`): STAR nudges it to retry, three
-times at most, then restarts it (the capacity rule in Housekeeping).
+A blocking screen is a different thing (`stuck:`): that worker is stopped and the row goes to the
+user, and STAR never answers a worker's screen for it. A model at capacity is a third thing
+(`stalled:`): STAR nudges it to retry, three times at most, then restarts it (the capacity rule in
+Housekeeping).
 
 ## Notifications and quiet hours
 
@@ -1602,7 +1650,9 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - Product calls are STAR's, decided from sourced options and kept as decision records the owner
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
-  automatic restart of a brief, babysit or post stage whose worker was lost or stalled at capacity.
+  automatic restart of a stage: a brief, babysit or post worker that was lost or stalled at
+  capacity, or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
+  worktree).
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
 - The work item's status is written only by STAR, from the row's state ("The tracker status").
@@ -1631,6 +1681,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
 | Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
+| Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |
 | Picking a row for a message by its `item=` name | By dispatch id; the name only confirms it |
 | Writing a note or a count into `updated` | `updated` is a time. Counts go in `counters` |
 | Working out the quiet window in your head | `quiet-hours.sh` says `inside` or `outside` |
@@ -1671,6 +1722,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |
 | STAR stopped between `task-create` and recording the task | The next start replays the same request ids and gets the same task back |
 | A check-in Orca refuses with `agent_prompt_blocked` | The worker is busy, not idle: `busy=` counts it, not `nudge=`, and the next try waits a full quiet window |
+| A gate round that prints nothing for 20 minutes | `step-check.sh` says `act`: STAR tells the worker to stop it and run the round again; ignored twice, the stage restarts once |
+| A worker still polling for a review that already passed on its head | `step-check.sh` reads the PR: an instruction to judge it and report `READY`, then a restart if that is ignored |
 | Two items that each add a decision to the same register | Each worker reserves its ids through `ids.sh`, so siblings never take the same number |
 | An Orca nudge, the heartbeat or one of STAR's control phrases arrives while a question is open in chat | It is handled as what it is (a control phrase runs as its command), never as the answer; the question is printed again |
 | A build still NOT-SAFE after 3 rounds | `RESCOPE`: the brief is narrowed once and the rest becomes a follow-up item under the same go; a second re-scope escalates |
