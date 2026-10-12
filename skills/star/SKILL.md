@@ -308,6 +308,7 @@ grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, th
 reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
+reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
 progress/<item>.log                  one line per milestone, appended by the item's workers
 reports/<project>/<item>.md   a report item's report (deliverable: report)
@@ -338,10 +339,12 @@ Settings in `star.json`:
   },
   "worker":   { "agent": "claude", "model": "opus", "effort": "xhigh" },   // a stage with no entry, and the fallback
   "executor": { "model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol" },   // runs every written plan
-  "gate":     { "model": "gpt-6-astra", "effort": "xhigh", "fallback": "latest-sol", "maxRounds": 3 },   // the codex review gate
+  "gate":     { "model": "latest-sol", "effort": "xhigh", "fallback": { "agent": "claude", "model": "opus", "effort": "xhigh" }, "maxRounds": 3 },   // the review gate: Sol, then Claude
   "hostedReviewer": null,                                // or { "login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2 }
   "hostGate": { "minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25 },
   "progressDeadlineMin": 30,                             // no progress for this long: a check-in
+  "mcps":     { "mobbin": "available", "context7": "needs-sign-in" },   // null in a new folder; every start writes it from the Preflight: available, needs-sign-in or absent
+  "gateDown": null,                                      // while the review gate is down: { "since", "why", "checked" }
   "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // null = off
 }
 ```
@@ -358,7 +361,7 @@ newest model of that family `codex debug models` lists, resolved at each run by 
 | brief | Opus 5.5, high | a brief reads the item and enough code to propose an approach and take its product calls: `high` lands briefs sooner |
 | build, babysit, post | Opus 5.5, xhigh | plans, verifies and answers reviewers, and acts on an Orca dispatch. Fable 5.1 scores higher on rule-following but, started as an Orca worker, it treated the dispatch as pasted text and did nothing until told to go ahead (tried 2026-10-07): do not put it on a worker stage without trying that again |
 | executor | the newest luna (`gpt-6-luna` on 2026-10-09), xhigh | the owner's choice: a fast, affordable model types the plan Opus wrote. At capacity it falls back to the newest sol, then to the worker's own session |
-| gate | GPT-6-Astra, xhigh, through `codex review` | the highest reasoning score. Luna writes the code and astra gates it, so the build's own fresh Claude review is the independent one |
+| gate | the newest sol (`gpt-6.1-sol` on 2026-10-12), xhigh, through `codex review`; its fallback is Opus 5.5, xhigh, through `claude -p` | the owner's choice on 2026-10-12: only Sol reviews. Luna writes the code and Sol gates it, so the build's own fresh Claude review is the independent one. The fallback runs only when Sol is still at capacity after its retries, or the Codex account is out of usage: then the gate is a second Claude review, not a second model |
 | hosted review | the project's own (Greptile), 4/5 or better | the owner's convention for a hosted reviewer's 0 to 5 confidence score |
 
 `maxAgents` is 40, not the usual 20: this Mac ran 29 `claude` and `codex` processes on 2026-10-09.
@@ -912,20 +915,27 @@ cannot be judged never lets something out.
 (`juel:ship-ticket`'s gate loop), and the babysit worker runs it again after every push it makes.
 `sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>` runs
 one headless `codex review` of the branch against its base, read-only and with no MCP server, on
-`star.json`'s `gate` model (GPT-6-Astra at xhigh; at capacity it waits and retries, then falls back
-to the newest sol). Its prompt, `S/template/gate-prompt.md`, kept as
+`star.json`'s `gate` model (the newest sol at xhigh, resolved like the executor's
+`latest-<family>`). A capacity error is retried after 60 and 180 seconds. After that, or at once
+when the Codex account is out of usage, the same prompt runs through `gate.fallback`: a headless
+`claude -p` review on Opus at xhigh, with read-only tools and no MCP server. The review's `Gate:`
+line and the PASS comment then name it (`claude:opus xhigh`). When the fallback fails too, the gate
+prints `ERROR gate-down <why>`. Its prompt, `S/template/gate-prompt.md`, kept as
 `HOME_DIR/specs/<project>/<item>-gate-r<k>.md`, carries the brief's criteria and `## Decisions`, the
 project's notes, the previous round's review and `-fix.md` from round 2, and the review rules from
 the base branch, so a PR cannot change its own rules. Only a `[P0]` or `[P1]` finding makes the round
 NOT SAFE. It writes three files in `HOME_DIR/reviews/<project>/`: `<item>-r<k>.md`, whose first line
 is the verdict, `VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>` or
 `VERDICT item=<item> round=<k> NOT-SAFE findings=<n> head=<sha>`, then the numbered findings, then
-Notes; `<item>-r<k>.raw.md`, Codex's own text; and `<item>-r<k>.log`, its transcript. After a SAFE
+Notes; `<item>-r<k>.raw.md`, Codex's own text; and `<item>-r<k>.log`, its transcript. An attempt
+that ends in `ERROR` writes none of these: its transcript goes to `<item>-r<k>-error-<n>.log`, and
+the next attempt keeps round `k`, so `gate.maxRounds` counts verdicts only. After a SAFE
 round the worker posts `Codex gate: PASS (head <sha>, round <k>, <model> <effort>)` on the PR with
 `codex-gate.sh post-pass`, once per head. A build still NOT SAFE after `gate.maxRounds` (3) rounds
 reports `RESCOPE`. STAR opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
-read them and print one line. Luna writes the code and astra gates it, so the independent review is
-the build's fresh Claude review, before the gate.
+read them and print one line. Luna writes the code and Sol gates it, so the independent review is
+the build's fresh Claude review, before the gate. While the fallback runs, the gate is a second
+Claude review, not a second model.
 
 ## Brief worker mode: `draft-brief`
 

@@ -414,5 +414,16 @@ gin "FS7 the stop lines it printed are still stopped and released" "$start1" 'st
 gin "FS7 the claim is released as stop does" "$start1" 'release the claim'
 gin "FS7 the owner is told that running /juel:star again retries" "$start1" 'running `/juel:star` again retries the migrate'
 gin "FS7 no reconcile and no tick follow" "$start1" 'no reconcile and no tick'
+# Issues 55 to 74, lane D2
+# The gate reviews on Sol (owner, 2026-10-12), with a Claude fallback (#64); an ERROR attempt keeps its round (#66)
+grep -qi 'astra' "$SKILL" && fail "SOL1 STAR's text names no astra" || pass "SOL1 STAR's text names no astra"
+g "SOL2 the settings block's gate is Sol with a Claude fallback" '"gate":     { "model": "latest-sol", "effort": "xhigh", "fallback": { "agent": "claude", "model": "opus", "effort": "xhigh" }, "maxRounds": 3 }'
+g "SOL3 the settings block shows mcps" '"mcps":     { "mobbin": "available", "context7": "needs-sign-in" }'
+g "SOL4 the settings block shows gateDown" '"gateDown": null'
+g "SOL5 the models table's gate row" '| gate | the newest sol'
+g "SOL6 luna writes and Sol gates" 'Luna writes the code and Sol gates it'
+g "SOL7 the fallback is a second Claude review" 'a second Claude review, not a second model'
+g "SOL8 the gate's last resort" 'ERROR gate-down <why>'
+g "SOL9 an ERROR attempt keeps its round" '<item>-r<k>-error-<n>.log'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

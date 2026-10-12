@@ -111,7 +111,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <li><span class="sw you"></span>You</li>
       <li><span class="sw star"></span>STAR, the coordinator (Fable 5.1)</li>
       <li><span class="sw work"></span>Orca worker (Opus 5.5)</li>
-      <li><span class="sw codex"></span>Headless codex (luna, astra)</li>
+      <li><span class="sw codex"></span>Headless codex (luna, Sol), Claude when Codex is down</li>
       <li><span class="sw dash"></span>Dashed: a note, or a worker's boundary</li>
     </ul>
   </header>
@@ -229,9 +229,9 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <line class="edge" x1="230" y1="988" x2="230" y2="1018" marker-end="url(#ah1)"/>
 
         <rect class="codex" x="60" y="1020" width="340" height="52" rx="8"/>
-        <text class="tag tg-codex" x="388" y="1036" text-anchor="end">ASTRA</text>
+        <text class="tag tg-codex" x="388" y="1036" text-anchor="end">SOL</text>
         <text class="t" x="76" y="1042">Codex gate</text>
-        <text class="s" x="76" y="1061">codex review · gpt-6-astra · xhigh</text>
+        <text class="s" x="76" y="1061">codex review · Sol xhigh · Claude if down</text>
 
         <rect class="work" x="470" y="1016" width="250" height="64" rx="8"/>
         <text class="tag tg-work" x="708" y="1032" text-anchor="end">OPUS + LUNA</text>
@@ -459,7 +459,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <h2>Never stalls</h2>
       <ul>
         <li>Workers are judged by progress: their progress log, their latest commit and the files changed in their worktree. 30 minutes with none of those gets a check-in.</li>
-        <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself.</li>
+        <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself. The codex gate retries Sol, then runs the same review on Claude.</li>
         <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
