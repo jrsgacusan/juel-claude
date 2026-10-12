@@ -529,8 +529,9 @@ session's own heartbeat job (find it with `CronList` by its prompt: the id in `s
 belongs to the other session), do nothing else (no slot, no ledger write, no ack), say "STAR now
 runs in <handle>", and end the turn.
 
-1. Migrate: `sh S/star-home.sh migrate`. `current` → nothing. `migrated rows=<n>` → say it in one
-   line. For each `stop <dispatch>` line (a v1 review, fix or screen worker whose row moved on):
+1. Migrate: `sh S/star-home.sh migrate`. `current` → nothing. `migrated gate` (it comes first, before
+   `current` or `migrated rows=<n>`) → say in one line "gate moved to Sol with a Claude fallback".
+   `migrated rows=<n>` → say it in one line. For each `stop <dispatch>` line (a v1 review, fix or screen worker whose row moved on):
    append `<dispatch> stopped <iso>` to `processed.log`, then
    `orca orchestration worker-stop --dispatch <id> --json` and `worker-release`. All before the
    reconcile, so no v1 report lands on a row that moved. A non-zero exit stops the start: print
