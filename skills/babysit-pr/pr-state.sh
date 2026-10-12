@@ -28,6 +28,7 @@
 # while its "Last reviewed commit" names the PR's head: the item's id is <comment id>@<updated_at>
 # and its time is updated_at, so each edit that names the head is new feedback once. An edit that
 # names an older head stays a plain comment, timed by its creation: not new.
+# <pr> is a number, a PR URL (STAR's ledger holds one), a branch name or #<n>; the REST paths use its number.
 # Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60); under
 # --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
@@ -201,10 +202,19 @@ def hosted_status(runs, statuses, login):
     return "none"
 
 
+def pr_number(pr, view):
+    """The number the REST paths need: <pr> itself when it is one, else the number in a /pull/<n> URL, else the
+    one gh returned for a branch name or #<n> in the same `gh pr view`."""
+    if pr.isdigit():
+        return pr
+    in_url = re.search(r"/pull/(\d+)", pr)
+    return in_url.group(1) if in_url else str(view["number"])
+
+
 def snapshot(pr, since, repo, bots=(), hosted=""):
     view_args = ["pr", "view", pr, "--json",
                  "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url,statusCheckRollup,"
-                 "mergeStateStatus,mergeable"]
+                 "mergeStateStatus,mergeable,number"]
     if repo:
         view_args += ["-R", repo]
     view = json.loads(gh(view_args))
@@ -212,6 +222,7 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
     repo = repo or "/".join(url.split("/")[3:5])
     author = view["author"]["login"]
     base = f"repos/{repo}"
+    number = pr_number(pr, view)
     rule, required_checks = review_rule(repo, view.get("baseRefName"))
     head = view.get("headRefOid")
     kept = {b.lower() for b in bots} | ({hosted.lower()} if hosted else set())
@@ -246,7 +257,7 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
             reviewers.add(user["login"])
 
     items, reviewers, submitted, latest = [], set(), {}, {}
-    raw_reviews = gh_list(f"{base}/pulls/{pr}/reviews")
+    raw_reviews = gh_list(f"{base}/pulls/{number}/reviews")
     for r in sorted(raw_reviews, key=lambda r: r.get("submitted_at") or ""):
         if r.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
             latest[(r.get("user") or {}).get("login") or f"#{r.get('id')}"] = r.get("state")
@@ -263,7 +274,7 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
         items.append({"kind": "review", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
                       "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
                       "path": None, "line": None, "in_reply_to": None})
-    for c in gh_list(f"{base}/pulls/{pr}/comments"):
+    for c in gh_list(f"{base}/pulls/{number}/comments"):
         user = c.get("user")
         if not wanted(user):
             continue
@@ -273,7 +284,7 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
                       "url": c.get("html_url"), "body": c.get("body") or "", "review_state": None,
                       "path": c.get("path"), "line": c.get("line") or c.get("original_line"),
                       "in_reply_to": c.get("in_reply_to_id")})
-    for c in gh_list(f"{base}/issues/{pr}/comments"):
+    for c in gh_list(f"{base}/issues/{number}/comments"):
         user = c.get("user")
         if not wanted(user):
             continue

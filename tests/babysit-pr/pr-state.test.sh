@@ -23,6 +23,7 @@ if [ "$1" = "pr" ]; then
 else
   n=$(cat "$C" 2>/dev/null || echo 1)
   case "$*" in
+    */pulls/[!0-9]*|*/issues/[!0-9]*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;  # a REST path takes the number, as the real API does
     */rules/branches/*) f=rules; [ -f "$D/rules.json" ] || { echo '[]'; exit 0; } ;;
     */protection*) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
     */check-runs*) f=checkruns ;;
@@ -87,6 +88,18 @@ check "thread reply keeps in_reply_to and falls back to original_line" 'd["new_f
 check "reviewers: humans who reviewed or commented, sorted, no bots or author" 'd["reviewers"] == ["mstr-ezra", "mstr-johnpaul"]'
 check "cursor is the newest reported item, with the ids seen in that second" 'd["cursor"] == "2026-10-01T07:00:00Z#902"'
 check "pr fields" 'd["state"] == "OPEN" and d["decision"] == "CHANGES_REQUESTED" and d["head"] == "abc123" and d["author"] == "me" and d["url"].endswith("/pull/7")'
+
+# ---- the PR argument: STAR's ledger holds a URL (#70) ----
+run basic https://github.com/o/r/pull/7
+check "a PR URL gives the same snapshot as its number" 'rc == 0 and "error" not in d and ids == [4, 501, 503, 902]'
+run basic https://github.com/o/r/pull/7/files --hosted greptile-apps[bot]
+check "a PR URL with a path after the number, and --hosted, still reads the number" 'rc == 0 and "error" not in d and d["hosted"] == "none"'
+fixture byname pr.json '{"state":"OPEN","reviewDecision":"","headRefOid":"abc123","author":{"login":"me"},"url":"https://github.com/o/r/pull/7","number":7}'
+fixture byname reviews.json ''
+fixture byname inline.json ''
+fixture byname comments.json '{"id":902,"user":{"login":"mstr-ezra","type":"User"},"body":"also update docs","created_at":"2026-10-01T07:00:00Z","html_url":"i902"}'
+run byname feat/my-branch
+check "a branch name takes the number gh returned for it" 'rc == 0 and "error" not in d and ids == [902]'
 
 run basic 7 --since '2026-10-01T04:00:00Z#501'
 check "--since filters older items and the ids already seen in its second" 'ids == [503, 902]'
