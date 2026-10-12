@@ -745,7 +745,7 @@ message into the same end state.
    | First line of the report | Action |
    |---|---|
    | `BRIEF item=… path=… … rescoped=1 followup=<path>` (a re-scope's brief) | in every case: `counters.rescoped=1`, clear `counters.rescope`, and add the follow-up spec as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`). The brief keeps its `approved:` and `grant:` (`grep -cE '^grant: [^ #]' <brief>` prints 1): row → `queued`. A brief with no grant line (it prints 0): row → `brief-ready`, finished as the next row does (its person-only steps, the batch summary, the `go-batch` item), so the batch's go writes the grant |
-   | `BRIEF item=… path=… [asks=<n>]` | row → `brief-ready`; queue one `--kind person` per line of the brief's `## Person-only steps` section (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief). A row with `counters.parent=` (a re-scope's follow-up) and no person-only step: stamp `approved: <iso>`, its parent's `grant:` and `rescopedFrom: <parent>` in its brief, row → `queued`, and say "covered by <parent>'s go" in the status line. When no row of its batch is `inbox` or `briefing` any more, print the batch summary and queue the `go-batch` item ("The batch summary and go") |
+   | `BRIEF item=… path=… [asks=<n>] [followup=<path>]` | row → `brief-ready`; queue one `--kind person` per line of the brief's `## Person-only steps` section (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief). When the line carries `followup=<path>`, also add that path as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`), as the re-scope row does. A row with `counters.parent=` (a follow-up) and no person-only step, whose parent's brief has a grant (`grep -cE '^grant: [^ #]' <the parent's brief>` prints 1): stamp `approved: <iso>` and its parent's `grant:` in its brief, and `rescopedFrom: <parent>` when the parent was re-scoped (its `counters.rescoped=1`); row → `queued`, and say "covered by <parent>'s go" in the status line. A follow-up whose parent has no grant yet stays `brief-ready` and goes with its batch's go. When no row of its batch is `inbox` or `briefing` any more, print the batch summary and queue the `go-batch` item ("The batch summary and go") |
    | `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `counters.batch`); the row → `dropped`, and the status line says "split into <names>" |
    | `DONE item=… pr=<url> head=<sha> review=<path>` | first `sh S/done-check.sh <item> --pr <url> --head <sha>`. `OK` → record the PR and head, free the build slot, row → `babysit-queued`, clear `mismatch=`. `MISMATCH <what>` → record the PR and head; with no `mismatch=` yet: write `mismatch=1`, append to the brief's `## Decisions` "- <date> the report did not check out: <what>; resume the gate loop on the existing PR", row → `queued`. With `mismatch=1` already: → `escalated`, queue `--kind escalation` "the report did not check out twice: <what>" (`reason=mismatch`). `PENDING <why>`, no line, or a non-zero exit → process and ack the message as for any report, record the PR and head, and keep the row `building` with `verify` = `retry=<now + 2 min>`: it has reported, so neither the reconcile step nor Housekeeping's probe treats it as a lost worker, and Housekeeping runs `done-check.sh` again once that time has passed. Exit 64 (`done-check.sh` refused its arguments) also files an improvement issue |
    | `RESCOPE item=… reason=<gate or hosted-review> review=<path>` | free the slot. When the row has `counters.rescoped=1` or its brief has `rescopedFrom:` → `escalated`, queue `--kind escalation` "NOT-SAFE again after a re-scope" with the review's path. Otherwise row → `inbox` with `counters.rescope=<the review file's name>`: its next brief stage narrows the item (`--rescope`) |
@@ -765,7 +765,11 @@ message into the same end state.
    already at the brief's `star.gates` path, which the babysit stage is given.
 
    Also, for any report: each `HELD item=… action=…` line → `--kind held`; a `NOTE: <text>` line →
-   append `- <date> <item>: <text>` to `HOME_DIR/memory/<project>.md`; a `SENT …` line → append
+   append `- <date> <item>: <text>` to `HOME_DIR/memory/<project>.md`; a `NOTE: accepted residual <criterion>: <follow-up path>` line
+   also adds that path as an `inbox` row (its `ref` the path, `counters.batch` the item's,
+   `counters.parent=<item>`; `ledger.sh name` prints `open <item>` when STAR already added it, and
+   then nothing is added), or, when no file is at that path, queues `--kind held` "<item>'s
+   accepted residual names <path>, which does not exist"; a `SENT …` line → append
    `<iso>\t<project>\t<item>\t<the text after SENT>` to `HOME_DIR/sent.log`; a `STAR-ISSUE: <text>`
    line → "Improvement issues". STAR logs its own sends
    there too (a draft it posted with `gh pr comment`). After each settled
@@ -1128,8 +1132,12 @@ old PR.
    `baseRefName`, and step 5's naming rule does not apply. A PR whose `isCrossRepository` is
    true comes from a fork, which cannot be pushed to: leave `existingPr` out and take a decision
    record that `<url> comes from a fork`, so the build opens a new PR from a copy of its branch.
-7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n>` (`<n>` is the
-   number of lines under `## Person-only steps`, 0 for `none`), then `NEEDS-CRITERIA` (case 4 of
+7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n> [followup=<path>]`
+   (`<n>` is the number of lines under `## Person-only steps`, 0 for `none`). Add `followup=` when
+   a `## Feedback` entry made part of the item impossible as written and you moved that part to a
+   follow-up spec item, `<HOME_DIR>/items/<project>/<name>-followup.md` (`-followup-2` when that
+   file exists; frontmatter `status: todo` and `title:`, then what is left to do and the feedback
+   that moved it), with a decision record that says what moved and why. Then `NEEDS-CRITERIA` (case 4 of
    step 6) when that applies, or `PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`,
    then at most one `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own
    contract or tools got in the way (no project or ticket names). An item that holds more than one
@@ -1289,6 +1297,19 @@ the brief's intent and its decision records, reply, and append a decision record
 `## Decisions`: `### D<n> <title> (<date>, decided by STAR)`, with the worker's source in `Source:`
 and the message id in `Context:`. A question that brings no sourced options gets the reply
 "Bring sourced options: <what to look up>, each with its source." and no decision.
+
+**An accepted residual.** A build worker whose live check for one criterion still fails after its
+loop, with a residual the item cannot close (`juel:ship-ticket` Phase 6), asks whether the
+criterion may be accepted with that residual. It is STAR's to accept when the worker's evidence
+shows the criterion's intent met and the residual can be an item of its own; when the residual is
+most of the criterion, or touches a risky call, the question is the user's: ask it in chat, and
+on the user's yes take the same steps, with `decided by the owner` in the record. To accept: write the
+follow-up spec item `<HOME_DIR>/items/<project>/<item>-residual-<k>.md` (frontmatter
+`status: todo` and `title:`, then the residual and the criterion it comes from), add it as an
+`inbox` row (its `ref` the path, `counters.batch` the item's, `counters.parent=<item>`), append
+`### D<n> Accept a residual on <criterion> (<date>, decided by STAR)` to the brief's `## Decisions`
+with that path in `Consequences:`, and reply with the path. The worker's `DONE` then carries
+`NOTE: accepted residual <criterion>: <follow-up path>`.
 
 A question is the user's, and goes to the queue, when it would change or stretch the Scope or an
 acceptance criterion; needs a secret, an account or a paid service; is about anything that goes out

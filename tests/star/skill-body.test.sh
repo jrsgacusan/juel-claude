@@ -442,5 +442,12 @@ g "FIX1 a moved finding names its follow-up" 'Disposition: moved to <follow-up p
 g "FIX2 a kept finding says why" 'Disposition: kept, <why> (decision D<n>)'
 g "FIX3 only a gate review gets one" 'A hosted review file gets none'
 g "FIX4 the brief worker writes it into STAR's folder" 'in re-scope mode the `-fix.md` of the review it narrowed by'
+# Issues #68 and #61: follow-up items get their own rows in every mode
+g "FUP1 a BRIEF may name a follow-up in every mode" 'BRIEF item=<name> path=<--out> asks=<n> [followup=<path>]'
+g "FUP2 the BRIEF row adds the follow-up row" 'When the line carries `followup=<path>`'
+g "FUP3 a follow-up whose parent has no grant waits for its batch's go" "whose parent's brief has a grant"
+g "FUP4 STAR may accept a residual" '**An accepted residual.**'
+g "FUP5 the DONE note adds the follow-up" 'a `NOTE: accepted residual <criterion>: <follow-up path>` line'
+g "FUP6 a missing follow-up file is held" 'which does not exist'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
