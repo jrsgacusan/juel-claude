@@ -152,5 +152,8 @@ for t in '| `phase<N>` |' '| `executor` |' '| `live-check` |' '| `regression-gat
 done
 grep -qF '"<phase or round>"' "$SKILL" && fail "P1c the free-form step field is gone" || pass "P1c the free-form step field is gone"
 g "P1d a gate round's progress line names its round" 'Append a progress line with the step `gate-r<k>`.'
+# Issue #60: fixed NOTE lines are reported on top of the one free NOTE
+g "N60a fixed NOTE lines do not use up the free NOTE" 'plus the fixed `NOTE:` lines this file names'
+g "N60b an unattended preflight does not stop on the executor skill" 'under `--unattended` not a STOP'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

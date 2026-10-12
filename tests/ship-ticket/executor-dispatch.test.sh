@@ -17,5 +17,19 @@ done
 for s in review-and-execute receive-review-and-execute; do
   grep -qF -- '| `--executor-model <id|latest-<family>>` |' "$ROOT/skills/$s/SKILL.md" && pass "$s takes --executor-model" || fail "$s --executor-model"
 done
+# Issues #57 and #60
+for s in ship-ticket review-and-execute receive-review-and-execute execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -E '^codex exec ' "$F" | grep -vqF '<add-dirs>' && fail "#57 $s: a dispatch line without <add-dirs>" || pass "#57 $s: every dispatch line takes <add-dirs>"
+  grep -qF -- '`--add-dir <git-dir> --add-dir <common-dir>`' "$F" && grep -qF -- '--git-common-dir' "$F" && pass "#57 $s: a linked worktree adds its git dirs" || fail "#57 $s: a linked worktree adds its git dirs"
+  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$F" && pass "#60 $s: checks that the executor skill resolves" || fail "#60 $s: checks that the executor skill resolves"
+  grep -qF 'Right before the line, check that the skill resolves' "$F" && pass "#60 $s: checks again right before each dispatch" || fail "#60 $s: checks again right before each dispatch"
+done
+for s in ship-ticket review-and-execute receive-review-and-execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'node <plugin root>/scripts/link-agent-skills.mjs' "$F" && pass "#60 $s: an unattended run relinks once" || fail "#60 $s: an unattended run relinks once"
+  grep -qF 'NOTE: executor skill missing, the plan ran in this session' "$F" && pass "#60 $s: the session fallback is reported" || fail "#60 $s: the session fallback is reported"
+done
+grep -qF 'NOTE: executor skill missing' "$ROOT/skills/execute/SKILL.md" && fail "#60 execute: interactive only, it stops instead" || pass "#60 execute: interactive only, it stops instead"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

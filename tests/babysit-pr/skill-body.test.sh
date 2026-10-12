@@ -122,5 +122,8 @@ for t in '`phase<N>`' '`ready`' '`wait-hosted`' '`wait-ci`' '`executor`' '`regre
   prow "P2a babysit's progress row names $t" "$t"
 done
 grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is gone" || pass "P2b the free-form step field is gone"
+# Issue #60: the executor fallback reaches STAR through the report
+g "N60c babysit carries the executor fallback NOTE" 'NOTE: executor skill missing, the plan ran in this session'
+g "N60d the report line count includes it" 'That is 9 lines at most'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

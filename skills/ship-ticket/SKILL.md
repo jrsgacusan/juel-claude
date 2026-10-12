@@ -134,7 +134,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
-| claude-plan-executor | skill | HARD | vendored by this plugin | STOP → `node scripts/link-agent-skills.mjs` |
+| claude-plan-executor | skill | HARD | `test -f ~/.codex/skills/claude-plan-executor/SKILL.md` (follows the link) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
@@ -335,9 +335,10 @@ line:
 **Reporting.** You are an Orca worker. The `worker_done` body is at most 12 lines: the run's final
 line (`DONE`, `RESCOPE`, `REPORTED` or `ESCALATION`) is the
 first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `HELD` line
-from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` —
-a fact the next worker in this project should know (a required env var, a flaky test, a naming
-rule), never a status update. With more than two `HELD` lines, write them all to a file beside the
+from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` of your
+own, a fact the next worker in this project should know (a required env var, a flaky test, a
+naming rule), never a status update, plus the fixed `NOTE:` lines this file names
+(`NOTE: executor skill missing, the plan ran in this session`). With more than two `HELD` lines, write them all to a file beside the
 gate manifest and report one line instead: `HELD item=<item> action=<n> held actions, listed in
 <path>`. `PHASE` and `PR` lines are for the terminal only and never go in the body. Anything longer
 goes into a file whose path you report; the
@@ -701,8 +702,25 @@ drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in 
 `--unattended`, a progress line and a terminal line, never a `NOTE`). `executor-model.sh` failing
 (no line, a non-zero exit, no python3) counts as `default <why>`.
 
+**The executor skill.** Right before the line, check that the skill resolves:
+`test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
+a plugin version that is gone (a plugin update removes its old cache folder) fails it, even in the
+middle of a run. Missing under `--unattended`: relink once with
+`node <plugin root>/scripts/link-agent-skills.mjs` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or
+two levels above this file) and check again. Still missing: do not dispatch. Run the plan in this
+session with `superpowers:executing-plans`, and carry
+`NOTE: executor skill missing, the plan ran in this session` into the report. Codex saying during
+a run that `$claude-plan-executor` is unavailable gets the same `NOTE`. Interactively, missing is
+the Preflight STOP with its fix command.
+
+**A linked worktree.** Compare `git rev-parse --path-format=absolute --git-dir` with
+`git rev-parse --path-format=absolute --git-common-dir`. When they differ, the checkout is a linked
+worktree: its index lock lives under the main repository's `.git/worktrees/<name>/`, outside the
+paths the sandbox may write, so `<add-dirs>` below is `--add-dir <git-dir> --add-dir <common-dir>`
+with those two paths. Otherwise `<add-dirs>` is empty. Work it out again before every dispatch.
+
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
 ```
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
