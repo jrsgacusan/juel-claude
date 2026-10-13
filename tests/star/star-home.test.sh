@@ -142,6 +142,7 @@ assert "reviewer" not in d
 assert d["executor"] == {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"}, d["executor"]
 assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 3}, d["gate"]
 assert d["hostedReviewer"] is None and d["hostGate"]["maxAgents"] == 40 and d["progressDeadlineMin"] == 30
+assert "tokenCmd" in d and d["tokenCmd"] is None, d.get("tokenCmd")
 PY
 [ -f "$HM2/star.json.v1.bak" ] && [ -f "$HM2/ledger.md.v1.bak" ] && grep -q '"reviewer"' "$HM2/star.json.v1.bak" && pass "v1 files are backed up first" || fail "backups"
 python3 - "$HM2/briefs/mig/A.md" <<'PY' && pass "the decision record lands inside ## Decisions, before ## Feedback" || fail "decision record placement ($(cat "$HM2/briefs/mig/A.md"))"

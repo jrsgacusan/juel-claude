@@ -1,11 +1,17 @@
 #!/bin/sh
 # STAR's merge, the only place a PR is merged: under the owner's go, on the exact head.
-#   merge.sh <pr url> --head <sha> --grant <file> [--quiet-hours <window>] [--dry-run]
+#   merge.sh <pr url> --head <sha> --grant <file> [--quiet-hours <window>] [--home <dir> --item <item>] [--dry-run]
 # Prints one line and exits 0:
 #   MERGED <merge commit sha>
 #   HELD quiet hours         inside the window, or a window quiet-hours.sh cannot judge
 #   DRY-RUN <method> <sha>   with --dry-run: everything checked, nothing posted or merged
-#   FAIL <what>              grant: …, merge methods: …, comment: …, head moved, or merge: …
+#   FAIL <what>              live worker <dispatch>, ledger: …, grant: …, merge methods: …,
+#                            comment: …, head moved, or merge: …
+# With --home and --item (STAR passes both), before anything else it reads the item's ledger row
+# (#80). A row in a worker stage (briefing, building, babysitting, posting) is
+# "FAIL live worker <dispatch>": its worker may still push to the PR. The dispatch cell alone
+# decides nothing, since a verifying row still names its last babysit dispatch. An item with no
+# row is "FAIL ledger: <why>".
 # The grant file has a frontmatter block with date:, then the owner's words. The method is the
 # first of squash, merge and rebase the repository allows. Before merging it posts, once per head,
 # "Merging head <sha> under your go of <date>: "<words>"" (the words on one line, cut at 500
@@ -29,6 +35,7 @@ import sys
 import tempfile
 
 METHODS = (("squashMergeAllowed", "squash"), ("mergeCommitAllowed", "merge"), ("rebaseMergeAllowed", "rebase"))
+WORKER_STATES = ("briefing", "building", "babysitting", "posting")  # step-check.sh's STATES
 
 
 def out(line):
@@ -66,10 +73,19 @@ def as_json(proc):
     return value if isinstance(value, dict) else None
 
 
-args, pr, head, grant, window, dry = sys.argv[1:], None, None, None, None, False
+def live_worker(home, item):
+    """The row's dispatch while the row is in a worker stage, whose worker may still push (#80), else None."""
+    r = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "ledger.sh"), "--home", home, "get", item], 30)
+    if r.returncode != 0:
+        out("FAIL ledger: " + first(r))
+    row = dict(l.split("=", 1) for l in r.stdout.splitlines() if "=" in l)
+    return (row.get("dispatch") or "-") if row.get("state") in WORKER_STATES else None
+
+
+args, pr, head, grant, window, dry, home, item = sys.argv[1:], None, None, None, None, False, None, None
 while args:
     arg = args.pop(0)
-    if arg in ("--head", "--grant", "--quiet-hours"):
+    if arg in ("--head", "--grant", "--quiet-hours", "--home", "--item"):
         if not args:
             die(f"{arg} needs a value")
         value = args.pop(0)
@@ -77,6 +93,10 @@ while args:
             head = value.strip().lower()
         elif arg == "--grant":
             grant = value
+        elif arg == "--home":
+            home = value
+        elif arg == "--item":
+            item = value
         else:
             window = value
     elif arg == "--dry-run":
@@ -88,12 +108,18 @@ while args:
     else:
         die(f"unexpected argument: {arg}")
 if not pr or not head or not grant:
-    die("usage: merge.sh <pr url> --head <sha> --grant <file> [--quiet-hours <window>] [--dry-run]")
+    die("usage: merge.sh <pr url> --head <sha> --grant <file> [--quiet-hours <window>] [--home <dir> --item <item>] [--dry-run]")
+if (home is None) != (item is None):
+    die("--home and --item go together")
 if not re.fullmatch(r"[0-9a-f]{40}", head):
     die("--head takes the full 40-character commit")
 url = re.match(r"https?://[^/]+/([^/]+/[^/]+)/pull/\d+", pr)
 if not url:
     die("the PR must be a pull request URL")
+if home:
+    live = live_worker(home, item)
+    if live:
+        out(f"FAIL live worker {live}")
 if window:
     q = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "ship-ticket", "quiet-hours.sh"), window], 30)
     if q.returncode != 0 or q.stdout.strip() != "outside":

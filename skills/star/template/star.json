@@ -18,6 +18,7 @@
   "mcps": null,
   "gateDown": null,
   "quietHours": null,
+  "tokenCmd": null,
   "run": null,
   "terminal": null,
   "caffeinatePid": null,
