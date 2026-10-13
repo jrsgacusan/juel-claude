@@ -468,6 +468,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
         <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge a script proves adds nothing of its own keeps the last codex PASS, so only the regression gate runs again.</li>
+        <li>Before a stage starts again, a gate its stopped worker left holding the lock is stopped and the worker's own terminal is closed, a terminal still printing holds the start, and a merge you order stops the worker still fixing that PR first, so two sessions never work on one item.</li>
       </ul>
     </div>
   </section>

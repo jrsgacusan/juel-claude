@@ -657,6 +657,23 @@ also after a restart, when STAR no longer remembers stopping it. `release-record
 prints the existing record for a PR that already has one. A stop anywhere in that order replays the
 message into the same end state.
 
+**A stopped worker is gone** (#76). `worker-stop` fences the dispatch, but Orca can keep its
+terminal open, and the agent in it with it. After every `worker-stop` and `worker-release` STAR
+makes (a drop, an early merge, a closed PR, a restart, the capacity rule, a stuck worker, a merge
+the owner orders), check the dispatch's terminal:
+
+```sh
+orca orchestration worker-list --json | python3 -c 'import json, sys; ws = [w for w in json.load(sys.stdin)["result"]["workers"] if w.get("dispatchId") == sys.argv[1]]; w = ws[0] if ws else {}; print(" ".join([w.get("agentTerminalHandle") or "-", w.get("terminalState") or "none", (w.get("resource") or {}).get("retainedReason") or "-"]))' <dispatch>
+```
+
+It prints `<terminal> <state> <reason>`. A state of `released` or `none` is gone: nothing more. A
+reason of `user_takeover` or `identity_unproven` means a person may be at that terminal, or Orca
+cannot tell whose it is: never close it; queue `--kind held` "<item>: terminal <terminal>
+(<reason>) outlived its stopped worker; close it or finish there, then answer done". Any other
+state: `orca terminal close --terminal <terminal> --json`, and say `closed <terminal> for <item>`
+in the status line. `stage-start.sh` checks the row's previous dispatch again before its stage
+starts ("Fill slots"), so two sessions never work in one worktree.
+
 0. **Still STAR?** The claim check from "One STAR per home": `terminal` in `star.json` is this
    session's handle, or this session ends the turn without acting.
 1. **Inbox.** Read `HOME_DIR/inbox/*.md` in file-name order (the names start with a UTC time, so
@@ -698,7 +715,7 @@ message into the same end state.
 
    **An `escalation` answer for a row whose worker is still running** (its state is a worker stage
    and `sh S/worker-probe.sh <dispatch>` says `ok`, `quiet …`, `stale …` or `stalled: …`: a worker in any of those is still running) is handled first: `drop` stops the worker before
-   the row changes (`orca orchestration worker-stop --dispatch <id> --json`, then `worker-release`);
+   the row changes (`orca orchestration worker-stop --dispatch <id> --json`, then `worker-release` and the gone check);
    any other answer is appended to the brief's `## Decisions` and sent to that worker with
    `orca orchestration send --to dispatch:<id> --subject "decision" --body "<answer>" --json`, and
    the row stays as it is. An answer never starts a second worker for a row that has one.
@@ -795,7 +812,7 @@ message into the same end state.
    a PR and is `queued`, `building`, `babysit-queued`, `escalated` or `failed`,
    `sh S/pr-verify.sh <pr url> --head <head, or 0000000 when none is recorded>`. Only
    two answers matter here. `MERGED <sha>`: the user merged early; stop the row's worker if it has
-   one (`worker-stop`, then `worker-release`), close the row's open `escalation` item if any, then
+   one (`worker-stop`, then `worker-release` and the gone check), close the row's open `escalation` item if any, then
    handle it as `MERGED` below. `FAIL closed`: stop and release the worker, row → `escalated`,
    queue `--kind escalation` "PR was closed without a merge" (a row already `escalated` or
    `failed` only gets the queue item). Every other answer is ignored in these states. So no slot
@@ -808,13 +825,19 @@ message into the same end state.
    and starting the worker can take longer than the tool's 600 s foreground cap. It runs the host gate (memory, agents, swap and disk),
    sets up a build's worktree, clears Claude Code's first-run trust dialogs, writes the prompt and
    starts the worker, writing the row as it goes; a worktree named in another open row is refused
-   (`failed in-use`). Its one line:
+   (`failed in-use`). Its last line is one of these. Before it, up to three lines of their own may come
+   (`stopped previous gate …`, `ended previous session …`, `kept previous session …`): say each in
+   the status line as `<item>: <the line>`, one line each, then act on the last line:
 
    | Line | Then |
    |---|---|
    | `started task=… dispatch=…` | nothing more. A ` fallback <model>: <why>` suffix → `--kind held` "<stage> for <item> ran on <model>: <why>" |
    | `hold <what> <value>` (`memory`, `agents`, `swap` or `disk`) | the host gate held it: start nothing else this tick; `counters.hold=+1` on that row; at `hold=3`, `--kind held` "the host gate held every start for 3 ticks: <what> <value>" (for memory: "memory below 3 GB: nothing can start") and notify. The next start that succeeds clears `hold=` and closes that item |
    | `hold trust <path>` | `--kind held` "trust <path> for Claude Code once: run `claude` there and accept, then answer done"; the row keeps waiting and the next tick tries again |
+   | `stopped previous gate pgid=<n>` (a line of its own, before the last line) | the item's earlier session still held the gate lock, and `stage-start.sh` sent TERM to that gate (#76): say `<item>: stopped previous gate pgid=<n>` in the status line, then act on the next line |
+   | `ended previous session <terminal>` (a line of its own, before the last line) | the previous dispatch's own terminal was still open, and `stage-start.sh` closed it (#76): say `<item>: ended previous session <terminal>` in the status line, then act on the next line |
+   | `kept previous session <terminal> (<state>)` (a line of its own, before the last line) | a terminal Orca cannot place as the dispatch's (`user_takeover` or `identity_unproven`) had been quiet for 10 minutes or more, so it was left open and the start goes on (#76): say `<item>: kept previous session <terminal> (<state>)` in the status line, then act on the next line |
+   | `hold session <terminal> (<state>)` | a session may still be working on this item (#76): a terminal Orca cannot place as the previous dispatch's (a person took it over, or Orca cannot prove whose it is), or another `claude` or `codex` terminal in the item's worktree, printed output in the last 10 minutes. Start nothing for this row and keep it in its waiting state; queue `--kind held` "<item>: terminal <terminal> (<state>) may still be working on it; close it or finish there, then answer done", and give the slot to the next row in line. The next tick tries again |
    | `failed <step>: <why>` | row → `failed`, `--kind escalation` "<stage> could not start: <step>: <why>" |
    | no line, or a non-zero exit | the script was cut off: put the row back in its stage's waiting state with its `counters` as they are (its `live=` makes the next start a replay of this one), and file an improvement issue ("Improvement issues") |
 
@@ -846,10 +869,10 @@ message into the same end state.
      orca terminal send --terminal <terminal> --text "STAR: the model was at capacity. Retry now." --enter --json
      ```
 
-     and `counters.capacity=+1`; at `capacity=3`, `worker-stop`, `worker-release`, and treat it as
+     and `counters.capacity=+1`; at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as
      a lost worker (the reconcile rule: a `briefing`, `posting` or `babysitting` row restarts once;
      a `building` row gets `--kind restart-or-drop`) (#41).
-     `stuck: <what>` → `orca orchestration worker-stop`, then `worker-release`, row → `failed`, queue
+     `stuck: <what>` → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
      `--kind escalation` "<stage> worker stuck: <what>". `settled failed agent_prompt_stalled` (the
      worker never took its prompt) → `failed`, release, queue `--kind escalation` "<stage> worker
      never received its prompt: most likely Claude Code's trust dialog for <worktree>. Trust it once
@@ -1270,7 +1293,7 @@ or more: it cannot take another review run, so it must not be the one left behin
 
 | Verdict | Then |
 |---|---|
-| `PASS …` | First close the row's open `held` item "PR #<n> waits for an approval from someone other than you" when it has one. The brief has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1): `sh S/merge.sh <pr url> --head <head> --grant <grant path> [--quiet-hours <window>]` (the window as `stage-start.sh` renders it; none when `quietHours` is null), run in the background like `stage-start.sh`; its line is the next table. No grant (a brief whose grant line was lost, since every go writes one): queue `--kind go-merge` and leave the row |
+| `PASS …` | First close the row's open `held` item "PR #<n> waits for an approval from someone other than you" when it has one. The brief has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1): `sh S/merge.sh <pr url> --head <head> --grant <grant path> --home HOME_DIR --item <item> [--quiet-hours <window>]` (the window as `stage-start.sh` renders it; none when `quietHours` is null), run in the background like `stage-start.sh`; its line is the next table. No grant (a brief whose grant line was lost, since every go writes one): queue `--kind go-merge` and leave the row |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` |
 | `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. `PENDING hosted-status <check> missing on <sha>`: the hosted reviewer has no status on this head, most often after a base sync that came after its last pass. When the brief's `## Decisions` has no line "the merge gate said: no <check> status on <sha7>" yet: append "- <date> the merge gate said: no <check> status on <sha7>; refresh the hosted status on <sha7>", row → `babysit-queued` (babysit resumes with `--since <cursor>`; its Phase 1 asks the hosted reviewer for a status refresh, which is not a pass, unless `refreshOutsideCap` is false: then babysit escalates `reason=hosted-cap`, which the owner answers); it is not a `pending=`. When that line is there already, the refresh did not help: the Otherwise branch. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" |
@@ -1284,6 +1307,8 @@ or more: it cannot take another review run, so it must not be the one left behin
 | `MERGED <sha>` | as the verdict `MERGED`, then print it and push one notification, "merged <item>: PR #<n>". Then run the merge gate for the other `verifying` rows on that base in this same tick ("One merge per base at a time") |
 | `HELD quiet hours` | put `retry=<now + 10 min>` in `verify`: the gate runs again after that, and merges at the first run outside quiet hours |
 | `FAIL head moved` | as the verdict `MOVED` |
+| `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push to the PR (#80): fence it ("A merge on a PR a worker is still working on", below), then run the gate again |
+| `FAIL ledger: <why>` | `merge.sh` found no ledger row for the item it was given: nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
 | `FAIL grant: …`, `FAIL merge methods: …` or `FAIL comment: …` | nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
 | `FAIL merge: …` | as the Otherwise branch of a merge-gate `FAIL <what>` (the `mergefail=` budget) |
 | exit 64 | `merge.sh` refused its arguments (a head that is not 40 hex characters, a URL that is not a PR, or missing arguments): queue `--kind held` "merge.sh refused its arguments for PR #<n>" and file an improvement issue; the row stays as it is |
@@ -1294,6 +1319,24 @@ here: through `merge.sh`, on the exact head the gate passed, under the item's gr
 quiet hours. `merge.sh` posts the owner's go on the PR first (`Merging head <sha> under your go of
 <date>: "<their words>"`) and merges with `--match-head-commit`, so a head that moved after the gate
 is GitHub's refusal, never a merge. STAR never marks a PR ready: the build does after its final SAFE round, or babysit when quiet hours held the build's.
+
+**A merge on a PR a worker is still working on** (#80). When the owner orders a merge ("merge it
+now", "ship it at this head") on a row in `building` or `babysitting`, its worker may push at any
+moment, so a merge, and any reply STAR or a worker posts for it, races that push. Fence it first:
+
+1. Stop the worker: append `<dispatch> stopped <iso>` to `processed.log`, then `worker-stop`,
+   `worker-release` and the gone check ("A stopped worker is gone").
+2. Read the head again: `sh S/pr-verify.sh <pr url> --head <the row's head> --merge-gate`.
+   `MOVED <new head>` means the worker pushed before it stopped: `head=<new head>`. Any other line:
+   the head is the row's.
+3. Append "- <date> the owner ordered a merge at <head7>: <their words>. Reply on each review
+   thread the order settles (a `Disposition:` that quotes it), push nothing the order does not ask
+   for, and report READY." to the brief's `## Decisions`, and the row → `babysit-queued` (babysit
+   resumes with `--since <cursor>`). That fresh babysit run is then the only writer on the PR: it
+   replies, reports `READY` on the head, and the merge gate merges it as it does any row.
+
+The order never skips a gate: the merge gate still checks that exact head as for every
+`verifying` row.
 
 **`gh` that cannot see the repository.** `PENDING gh cannot see <repo>: export GH_TOKEN for this
 repository` is not retried blind and does not count as a `pending=`: queue `--kind held`
@@ -1434,7 +1477,7 @@ reconcile step uses for a lost worker: a stage gets one automatic restart in all
    prints anything) is not restarted: queue `--kind held` "<item>'s build is stuck at <step>
    with uncommitted work in <worktree>", notify, and send it nothing more while that item is open.
 3. Otherwise restart it. Append `<dispatch> stopped <iso>` to `processed.log`, then
-   `orca orchestration worker-stop --dispatch <id> --json` and `worker-release`. Then
+   `orca orchestration worker-stop --dispatch <id> --json`, `worker-release` and the gone check ("A stopped worker is gone"). Then
    `sh S/ledger.sh set <item> state=<its stage's waiting state> restarts=1 counters.nudge=- counters.asked=- counters.step=-`
    (`inbox`, `queued`, `babysit-queued` or `post-queued`; the round stays as it is, and babysit
    resumes with `--since <cursor>`). Append "- <date> STAR restarted the <stage> worker at
@@ -1756,6 +1799,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | The same ref given twice | One row. The second time changes nothing |
 | The user merges or closes a PR before STAR merged it | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
 | The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
+| The owner orders a merge while the item's worker is still fixing the PR | The worker is stopped and its terminal checked first, the head is read again, and a fresh babysit run replies and reports `READY`; `merge.sh` refuses a row in a worker stage (`FAIL live worker`) |
+| A stopped worker's terminal is still open when its stage starts again | `stage-start.sh` stops a gate the item's earlier session left holding the lock, and closes the terminal when Orca shows the stopped dispatch owns it. A terminal Orca cannot place holds the row while it still prints, and is left open once it has been quiet for 10 minutes |
 | A second `/juel:star` in another terminal of the same project | It hands its refs to the running STAR and ends; it never becomes a second coordinator |
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
 | The project is not registered with Orca | `--kind held` "register this repo with Orca: orca repo add"; inbox files stay until it is |

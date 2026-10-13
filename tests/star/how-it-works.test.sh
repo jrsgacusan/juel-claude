@@ -112,5 +112,6 @@ grep -qF 'keeps the last codex PASS, so only the regression gate runs again' "$P
 grep -qF 'One merge per base branch at a time' "$PAGE" && pass "G2 the page names the merge order" || fail "G2 merge order on the page"
 grep -qF '<code>refreshOutsideCap: false</code>' "$PAGE" && pass "G2 the page names refreshOutsideCap" || fail "G2 refreshOutsideCap on the page"
 grep -qF 'babysit merges the base in before asking for it' "$PAGE" && pass "G2 the last pass reviews a current head" || fail "G2 last pass on the page"
+grep -qF 'so two sessions never work on one item' "$PAGE" && pass "G3 the page says a stopped worker's terminal is closed" || fail "G3 stopped worker on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
