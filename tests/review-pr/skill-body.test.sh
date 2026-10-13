@@ -38,7 +38,7 @@ ng "H2g no hard-coded name in Step 7's prose" 'remains in `findings-review.md`'
 # Task H3: the re-review scope and the prior-thread buckets
 srow "H3a a re-review passes its scope to the agents" 2 'Re-review: review only the changes in git diff <SINCE>..HEAD'
 srow "H3b a force-push falls back to the whole diff" 2 'is not an ancestor of HEAD: reviewed the whole PR diff'
-srow "H3c the reviewed commit is the chosen PR's head" 2 'gh pr view $PR_SEL --json headRefOid'
+srow "H3c under --pr the reviewed commit is the head Step 1 fetched" 2 'Under `--pr`, `REVIEWED_COMMIT` is Step 1'"'"'s `PR_HEAD`'
 srow "H3d Step 4 judges every prior thread" 4 '**Prior threads.** Judge each prior thread'
 srow "H3e a thread can stay open" 4 '**still open**'
 srow "H3f the report has five sections" 5 'exactly five sections'
@@ -76,6 +76,20 @@ srow "H5k open threads get a reply" 7 'gh api -X POST "repos/<REPO>/pulls/<PR>/c
 srow "H5l a posted review hands off to babysit" 7 'invoke `/juel:babysit-pr <PR>`'
 g "H5m the edge cases say when" 'Hand off to `/juel:babysit-pr <PR>` (reviewer mode), unless `--from-babysit`'
 srow "H5n Step 7 reads the chosen PR" 7 'gh pr view $PR_SEL --json headRefOid --jq'
+
+# review fixes: scratch ignores stay out of the reviewed branch, the reviewed head is Step 1's, and --pr reaches every gh pr view
+srow "F2a the scratch ignores go to the local exclude file" 5 '$(git rev-parse --git-path info/exclude)'
+srow "F2b only when git does not already ignore them" 5 'git check-ignore -q'
+srow "F2c never to the repo's .gitignore" 5 'never to `.gitignore`'
+srow "F2d a review must not dirty the branch it reviews" 5 'must not dirty the branch it reviews'
+ng "F2e Step 5 no longer adds entries to the repo's .gitignore" "Ensure the repo's \`.gitignore\` contains"
+srow "F3a the fetch after the agents is not taken under --pr" 2 'Do not fetch it again'
+srow "F3b a push during the review would be marked as reviewed" 2 'a push that lands while the agents run'
+srow "F3c without --pr it is fetched as before" 2 'Without `--pr`'
+step 2 | grep -qF 'gh pr view $PR_SEL --json headRefOid' && fail "F3d Step 2 does not fetch the head again under --pr" || pass "F3d Step 2 does not fetch the head again under --pr"
+g "F6b the open-PR preflight row passes the chosen PR" '| open PR | context | SOFT | `gh pr view $PR_SEL --json number` |'
+srow "F6c Step 7's skip rule 2 passes the chosen PR" 7 '(`gh pr view $PR_SEL --json number` fails)'
+g "F6d the frontmatter check stays static" 'check: "gh pr view --json number"'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
