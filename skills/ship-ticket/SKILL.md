@@ -404,7 +404,8 @@ works from the branch as it is. Read the brief's newest `## Decisions` records f
 the build runs again. Phases 2 and 3 write a new spec and plan version (`-vN`) for what the brief
 still needs; Phase 4 runs only that plan; Phase 7 updates the PR the way it updates an
 `existingPr` (push to its branch, never force, the `<!-- juel:update -->` section) and prints
-`PR item=<item> url=<url> existing`. Never reset the branch or rewrite its history.
+`PR item=<item> url=<url> existing`. Never reset the branch or rewrite its history. The new plan's
+header carries the `**Base:**` line (Phase 3), naming the branch head it starts from.
 
 **Settings from STAR.** Under a brief with a `star:` block, read `<star.home>/star.json` once,
 before Phase 1: its `executor` (`model`, `effort`, `fallback`) and `gate` (`model`, `effort`,
@@ -699,6 +700,8 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 - Plan path: `${docsRoot}/plans/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` (same ref-optional naming as the spec path above — omitted entirely when `ref` is null; docsRoot already resolved in phase 2 — reuse it, do not re-derive)
 - **If that path already exists, never overwrite it.** Write `-v2` instead; if `-v2` exists too, `-v3`, and so on — same rule as the spec path in Phase 2, and distinct from `review-plan.md`'s own `-vN` versioning in Phase 5 below.
 - Each step must include file paths, line refs where applicable, and a verification command.
+- Every task has a `**Files:**` block naming each file it changes, with the function or line range (`Modify: path/to/file.py:120-145`, `Create: path/to/new.py`, `Test: tests/test_file.py`). The executor changes nothing a task does not name, and Phase 4's scope check restores any file no task names.
+- On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
 **Checkpoint:** show plan path, ask to proceed.
 
@@ -759,6 +762,12 @@ from the plan's ledger (above), so the same line continues at the first task not
 never write a resume prompt by hand. Each step is one
 line to the user (under `--unattended`, a progress line and a terminal line, never a `NOTE`). Any
 other non-zero exit is the `codex-failed` escalation under `--unattended`.
+
+**A fix-round plan.** A plan whose header has a `**Base:**` line changes a spec that is already
+implemented: the executor applies its tasks and never stops because the spec is done. When this
+session runs such a plan (`--executor session`, or the last step of the capacity rule), tell
+`superpowers:executing-plans`:
+"The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness."
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
@@ -961,7 +970,9 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
 6. If any checklist item is FAIL, or the regression gate fails, first run step 7's cleanup and
    report it (remote writes, the running stack and port redirects never outlive a failed run),
    then **do not patch by hand** — loop
-   back to Phase 5 (`/juel:review-and-execute`) or adjust the plan and re-run Phase 4. Re-run this
+   back to Phase 5 (`/juel:review-and-execute`) or write a new `-vN` plan whose header carries
+   `**Base:** spec implemented at <the evidence head>; apply only the tasks below.` and whose tasks
+   each name their files in a `**Files:**` block, and re-run Phase 4. Re-run this
    entire phase after the fix — a partial re-verify is not sufficient.
 
    One exception. When every checklist item passed and only the regression gate went red, and
@@ -1062,8 +1073,10 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    `Disposition: <the technical reason>`.
    No finding accepted: skip the plan, the executor, the tests, Phase 6, the commit and the push;
    write the `-fix.md` and run the next round on the same head (its prompt carries the dispositions).
-   Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`), run it with the executor
-   (Phase 4's line and its capacity rule), run the tests for the files it changed, then Phase 6
+   Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries
+   `**Base:** spec implemented at <the full head>; apply only the tasks below.` and whose tasks each
+   name their files in a `**Files:**` block, run it with the executor
+   (Phase 4's line, its capacity rule and its scope check), run the tests for the files it changed, then Phase 6
    again: its step 5 is the one regression gate of the round, run through the gate lock, and when
    every file changed since the evidence head is outside the runtime, as its step 6 defines it, the
    evidence is reused and only that gate runs; any other change gets its live checks again. Commit,

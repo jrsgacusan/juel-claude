@@ -195,5 +195,11 @@ g "L77b the ledger is git-ignored before the first dispatch" 'git rev-parse --gi
 g "L77c a capacity retry needs no hand-written resume prompt" 'never write a resume prompt by hand'
 g "L78a the scope check runs after the plan" 'sh <scope-check.sh> <the plan> <that sha>'
 g "L78b out-of-scope files are restored in one commit" '`revert: out-of-scope edits in <files>`'
+g "L78c every plan task names its files" 'Every task has a `**Files:**` block naming each file it changes'
+g "L81a a gate-loop fix plan carries a Base line" '`**Base:** spec implemented at <the full head>; apply only the tasks below.`'
+g "L81b a Phase 6 loop-back plan carries one" '`**Base:** spec implemented at <the evidence head>; apply only the tasks below.`'
+g "L81c a resumed build's plan carries one" 'spec implemented at <the branch head'
+g "L81d the in-session run is told the Base line wins" "The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness."
+g "L78d the gate loop runs the scope check" "(Phase 4's line, its capacity rule and its scope check)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
