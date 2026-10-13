@@ -38,6 +38,10 @@ metadata:
       - id: superpowers
         hard: true
         why: phase 4 delegates to superpowers:receiving-code-review
+      - id: juel:babysit-pr
+        hard: false
+        why: phase 7 hands a posted review on someone else's PR to its reviewer mode
+        fallback: watch the PR by hand
 ---
 
 # Review PR
@@ -87,6 +91,7 @@ Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree an
 |---|---|---|---|---|
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | fall back to `/review`, or an inline review of `git diff <base>...HEAD` |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
+| juel:babysit-pr | skill | SOFT | ships with this plugin | watch the PR by hand |
 | Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the Requirement-alignment section is omitted |
 | gh | cli | SOFT | `command -v gh` | ref resolution relies on the branch name alone; review proceeds ungraded if that alone yields nothing. Phase 7 is skipped — the verdict and posting plan from phase 6 are left in the report for manual posting. |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
@@ -110,8 +115,12 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `[ref]` | auto-detected — see Step 1 | Work-item reference (e.g. `SAVI-1234` or `#42`) to grade the review against |
+| `--pr <n or url>` | the current branch's PR | Review this PR. The checkout's `HEAD` must be the PR's `headRefOid`, or Step 1 stops with "check out the PR head first" |
+| `--since <sha>` | none | A re-review: the review agents get the commits `<sha>..HEAD` as their scope (Step 2). When `<sha>` is not an ancestor of `HEAD` (a force-push), the whole PR diff is reviewed and the evidence line says so |
+| `--from-babysit` | off | Set by `juel:babysit-pr`'s reviewer mode. Step 7 hands off to nothing, a moved head ends Step 7 instead of only stopping it, and the last line is a `REVIEW-PR` result line (Steps 1 and 7) |
 
-Usage: `/juel:review-pr` or `/juel:review-pr SAVI-1234`
+Usage: `/juel:review-pr`, `/juel:review-pr SAVI-1234`, or, from `juel:babysit-pr`'s reviewer mode,
+`/juel:review-pr --pr 412 --since 4f2a1c9 --from-babysit`.
 
 ## Workflow
 
@@ -144,6 +153,25 @@ set read earlier in this conversation, or in a prior invocation, is still curren
 already does this by construction (it dispatches a fresh review every time); this states it
 explicitly so a future edit can't quietly reintroduce a cached-diff assumption.
 
+**Resolve the PR.** `PR_SEL` is the `--pr` value, or empty for the current branch's PR. Every
+`gh pr view` in this skill passes it:
+
+```bash
+PR_SEL='<the --pr value, or empty>'
+PR=$(gh pr view $PR_SEL --json number --jq '.number' 2>/dev/null)
+PR_HEAD=$(gh pr view $PR_SEL --json headRefOid --jq '.headRefOid' 2>/dev/null)
+PR_AUTHOR=$(gh pr view $PR_SEL --json author --jq '.author.login' 2>/dev/null)
+ME=$(gh api user --jq '.login' 2>/dev/null)
+printf 'pr=%s head=%s author=%s me=%s checkout=%s\n' "$PR" "$PR_HEAD" "$PR_AUTHOR" "$ME" "$(git rev-parse HEAD)"
+```
+
+Shell variables do not survive between Bash calls: later commands write these values in literally.
+With `--pr`, an empty `PR` (no such PR, or no `gh`) stops the review with "no PR <the --pr value>",
+and a checkout that is not `PR_HEAD` stops it with "check out the PR head first (`gh pr checkout
+<PR>`)". A stop marks every remaining phase `completed` with "SKIPPED: stopped in step 1". Under
+`--from-babysit` the last line is then `REVIEW-PR stopped reason=<the stop message>`. Without
+`--pr`, an empty `PR` only means there is no open PR: the review goes on, as below.
+
 If `[ref]` was supplied as an argument, use it directly — skip detection entirely. Otherwise resolve
 it via `detect_ref` — anchored to whole `/`-delimited segments with a denylist of generic
 branch-type words (never a loose substring match), the same shared helper `juel:start` and
@@ -152,7 +180,7 @@ title:
 
 ```bash
 branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-title=$(gh pr view --json title --jq='.title' 2>/dev/null)
+title=$(gh pr view $PR_SEL --json title --jq='.title' 2>/dev/null)
 
 DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
 
@@ -234,6 +262,40 @@ If `REF` is non-empty, fetch it via the Linear MCP `get_issue` for `$REF` and re
 and acceptance criteria — treat them as the spec this diff must satisfy. If `REF` is empty, or the
 fetch fails, or the item is not found, skip work-item grading entirely and note that in the report.
 **Never block the review on a missing or unfetchable ref** — proceed straight to Step 2 either way.
+
+**Your earlier threads on this PR.** When `PR` is set and `gh` works, fetch every review thread on
+the PR and keep the unresolved ones whose first comment is yours. These are the **prior threads**:
+Step 4 judges each one, Step 6 never posts one again, and Step 7 replies on them or resolves them.
+
+```bash
+PR='<PR from above>'
+ME=$(gh api user --jq '.login')
+REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+gh api graphql --paginate -f owner="${REPO%/*}" -f name="${REPO#*/}" -F number="$PR" \
+  -f query='query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
+    repository(owner: $owner, name: $name) {
+      pullRequest(number: $number) {
+        reviewThreads(first: 100, after: $endCursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id isResolved isOutdated path line
+            comments(first: 100) { nodes { databaseId author { login } body createdAt } }
+          }
+        }
+      }
+    }
+  }' \
+  --jq ".data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false and .comments.nodes[0].author.login == \"$ME\")"
+```
+
+Read its output in full. It is one JSON object per prior thread, holding:
+
+- the thread's `id`, which Step 7 resolves by;
+- its `path` and `line`;
+- its comments. The first one's `databaseId` is the comment Step 7 replies to.
+
+No output means no prior threads: say so in one line and go on. A failed call goes in the phase's
+evidence line and counts as no prior threads. It never blocks the review.
 
 ### Step 2: Run pr-review-toolkit:review-pr
 

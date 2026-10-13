@@ -405,6 +405,7 @@
       "soft": [
         "gh",
         "interactive-user",
+        "juel:babysit-pr",
         "linear",
         "open-pr",
         "pr-review-toolkit"
