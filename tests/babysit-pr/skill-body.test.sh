@@ -113,7 +113,7 @@ g "C1k the hard rule allows the executor's fix plan for the gate" 'from a fix pl
 # and gets no third pass, so it keeps the clean judgement and READY may follow it
 hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
 [ "$(printf '%s\n' "$hosted_row" | grep -c .)" -eq 1 ] && pass "C2 one table row holds the hosted reviewer" || fail "C2 one table row holds the hosted reviewer"
-printf '%s\n' "$hosted_row" | grep -qF "push that only merges the base branch in keeps the hosted review's clean judgement (the codex gate re-gates that push), so \`READY\` may follow it" && pass "C2 a base-only merge push keeps the clean judgement" || fail "C2 a base-only merge push keeps the clean judgement"
+printf '%s\n' "$hosted_row" | grep -qF "push that only merges the base branch in keeps the hosted review's clean judgement (the codex gate re-gates that push, or carries its SAFE across a merge that added nothing of its own), so \`READY\` may follow it" && pass "C2 a base-only merge push keeps the clean judgement" || fail "C2 a base-only merge push keeps the clean judgement"
 printf '%s\n' "$hosted_row" | grep -qF 'Never ask it for a third pass' && pass "C2 the third pass is still never asked for" || fail "C2 the third pass is still never asked for"
 # Progress step tokens (spec 5, feeds #70)
 progress_row=$(grep -F '| progress |' "$SKILL")
@@ -161,5 +161,13 @@ g "W56d it overrides Orca's preamble" "It overrides any request for a prose summ
 settings_row=$(grep -F '| settings |' "$SKILL")
 printf '%s\n' "$settings_row" | grep -qF '`mcps`' && pass "M55e babysit reads mcps" || fail "M55e babysit reads mcps"
 printf '%s\n' "$settings_row" | grep -qF 'only when your own session lists its tools' && pass "M55f only tools its own session lists" || fail "M55f only tools its own session lists"
+# lane f: carry, owner carry, hosted passes, fix plans, decisions, token, lock wait, gate red (#75, #77, #78, #81, #82, #83, #88, #89, #90, #93)
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "L75a a base-only merge push is checked by carry-check" 'sh <carry-check.sh> --from <G> --head <the merge head>'
+grow "L75b the carried receipt goes through post-pass" '--carried-from <G> --reason'
+grow "L75c a NO line, or no SAFE round, gets the codex round" 'no SAFE round yet'
+grow "L75d post-pass refusing the carry gets the codex round" '`ERROR not carried: …`'
+g "L75e Phase 4 points at the carry" 'carries the last SAFE with no codex round'
+g "L75f a conflict wake's push is gated the same way" 'the push'"'"'s gate, a carry of the last SAFE when the merge added nothing of its own'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
