@@ -219,5 +219,28 @@ not_chain dropped "$SCRIPTS" 'node a && node b && node x' 'node a && node y'
 not_chain changed "$SCRIPTS" 'node a && node b && node x' 'node a && node b2 && node y'
 not_chain outside "$OTHER" 'node a && node x && node b' 'node a && node b && node y'
 
+# 16. --resolve: one file from three files, outside any repository or merge (I-1)
+D="$TMP/resolve"; mkdir -p "$D/base" "$D/ours" "$D/theirs"
+printf '| 1 |\n' > "$D/base/t.md"; printf '| 1 |\n| 3 |\n' > "$D/ours/t.md"; printf '| 1 |\n| 2 |\n' > "$D/theirs/t.md"
+(cd "$D" && sh "$SCRIPT" --resolve base/t.md ours/t.md theirs/t.md > "$D/out"); rc=$?
+[ $rc -eq 0 ] && [ "$(od -c "$D/out")" = "$(printf '| 1 |\n| 2 |\n| 3 |\n' | od -c)" ] && pass "--resolve prints the merged text exactly (exit 0)" || fail "--resolve: exit $rc ($(cat "$D/out"))"
+printf 'x = 1\n' > "$D/base/v.py"; printf 'x = 3\n' > "$D/ours/v.py"; printf 'x = 2\n' > "$D/theirs/v.py"
+out=$(cd "$D" && sh "$SCRIPT" --resolve base/v.py ours/v.py theirs/v.py); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict edited on both sides" ] && pass "--resolve: an edit on both sides is a conflict (exit 1)" || fail "--resolve conflict: exit $rc ($out)"
+pkg 'node a && node c' > "$D/base/b.json"; pkg 'node a && node c && node y' > "$D/ours/o.json"; pkg 'node a && node b && node c' > "$D/theirs/t.json"
+out=$(sh "$SCRIPT" --resolve --path app/package.json "$D/base/b.json" "$D/ours/o.json" "$D/theirs/t.json"); rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qF '"test": "node a && node b && node c && node y"' && pass "--resolve --path package.json applies the chain rule" || fail "--resolve --path: exit $rc ($out)"
+out=$(sh "$SCRIPT" --resolve "$D/base/b.json" "$D/ours/o.json" "$D/theirs/t.json"); rc=$?
+[ $rc -eq 1 ] && pass "--resolve without --path goes by the ours file's name (o.json is no package.json)" || fail "--resolve name: exit $rc ($out)"
+pkg 'node a && node c' > "$D/base/package.json"; pkg 'node a && node c && node y' > "$D/ours/package.json"; pkg 'node a && node b && node c' > "$D/theirs/package.json"
+out=$(sh "$SCRIPT" --resolve "$D/base/package.json" "$D/ours/package.json" "$D/theirs/package.json"); rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qF '"test": "node a && node b && node c && node y"' && pass "--resolve takes the name from the ours file" || fail "--resolve ours name: exit $rc ($out)"
+printf '{}\n' > "$D/base/yarn.lock"; printf '{}\n' > "$D/ours/yarn.lock"; printf '{}\n' > "$D/theirs/yarn.lock"
+out=$(sh "$SCRIPT" --resolve "$D/base/yarn.lock" "$D/ours/yarn.lock" "$D/theirs/yarn.lock"); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict lockfile" ] && pass "--resolve refuses a lockfile" || fail "--resolve lockfile: exit $rc ($out)"
+sh "$SCRIPT" --resolve "$D/base/t.md" "$D/ours/t.md" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--resolve with two files is 64" || fail "--resolve two files"
+err=$(sh "$SCRIPT" --resolve "$D/base/t.md" "$D/ours/t.md" "$D/nope.md" 2>&1 >/dev/null); rc=$?
+[ $rc -eq 64 ] && [ "$err" = "merge-union.sh: no such file: $D/nope.md" ] && pass "--resolve with a missing file is 64" || fail "--resolve missing: exit $rc ($err)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

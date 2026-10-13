@@ -3,6 +3,7 @@
 # at the same point of the base and changed nothing else (two rows appended to one table, two
 # entries added to one list) (#28). Run it in a worktree whose `git merge` stopped with conflicts.
 #   merge-union.sh [--repo-dir <path>]
+#   merge-union.sh --resolve [--path <repo path>] <base file> <ours file> <theirs file>
 # Prints one line per unmerged path:
 #   resolved <path>          exit 0, only when every unmerged path was mechanical: all written
 #                            and staged, ready for `git commit`
@@ -27,8 +28,12 @@
 # a file whose last line has no newline. Hunks are found with
 # `git merge-file --diff3 --marker-size=31`, so a file's own 7-character marker-like lines are
 # never mistaken for a hunk, and with `--diff-algorithm=histogram`, the one `git merge` uses.
+# --resolve merges one file from three files with the same rules and needs no repository or merge
+# in progress (carry-check.sh uses it): it prints the merged text exactly and exits 0, or prints
+# "conflict <why>" and exits 1. The lockfile and package.json rules go by the name --path gives,
+# else by the name of <ours file>.
 # Exit: 0 all resolved; 1 something is not mechanical; 2 no merge with conflicts in progress;
-# 64 usage.
+# 64 usage (in --resolve, also a file that does not exist).
 exec python3 - "$@" <<'PY'
 import difflib
 import json
@@ -47,7 +52,9 @@ PAIR = re.compile(r'^(\s*)"((?:[^"\\]|\\.)*)"(\s*:\s*)"((?:[^"\\]|\\.)*)"(\s*,?\
 
 
 def usage():
-    print("usage: merge-union.sh [--repo-dir <path>]", file=sys.stderr)
+    print("usage: merge-union.sh [--repo-dir <path>]\n"
+          "       merge-union.sh --resolve [--path <repo path>] <base file> <ours file> <theirs file>",
+          file=sys.stderr)
     sys.exit(64)
 
 
@@ -58,7 +65,21 @@ def stop(msg):
 
 argv = sys.argv[1:]
 where = None
-if argv[:1] == ["--repo-dir"]:
+resolve = None  # (name, base file, ours file, theirs file) with --resolve
+if argv[:1] == ["--resolve"]:
+    rest, name = argv[1:], None
+    if rest[:1] == ["--path"]:
+        if len(rest) < 2:
+            usage()
+        name, rest = os.path.basename(rest[1]), rest[2:]
+    if len(rest) != 3:
+        usage()
+    for f in rest:
+        if not os.path.isfile(f):
+            print(f"merge-union.sh: no such file: {f}", file=sys.stderr)
+            sys.exit(64)
+    resolve = (name or os.path.basename(rest[1]), *rest)
+elif argv[:1] == ["--repo-dir"]:
     if len(argv) != 2:
         usage()
     where = argv[1]
@@ -70,24 +91,6 @@ if where is not None and not os.path.isdir(where):
 
 def git(*args, cwd=None):
     return subprocess.run(["git", *args], cwd=cwd or where, capture_output=True)
-
-
-top = git("rev-parse", "--show-toplevel")
-if top.returncode != 0:
-    stop("not inside a git repository")
-top = top.stdout.decode().strip()
-if git("rev-parse", "-q", "--verify", "MERGE_HEAD", cwd=top).returncode != 0:
-    stop("no merge in progress")
-
-stages = {}
-for rec in git("ls-files", "-u", "-z", cwd=top).stdout.split(b"\0"):
-    if not rec:
-        continue
-    meta, _, path = rec.partition(b"\t")
-    mode, sha, stage = meta.decode().split()
-    stages.setdefault(path.decode("utf-8", "surrogateescape"), {})[int(stage)] = (mode, sha)
-if not stages:
-    stop("the merge has no conflicts left")
 
 
 def insertion(base, side):
@@ -266,10 +269,14 @@ def resolve_texts(name, raw):
     return merged(texts, scripts_of(texts) if name == "package.json" else None)
 
 
+def lockfile(name):
+    return name in LOCKFILES or name.endswith(".lock")
+
+
 def resolve_file(path, entry):
     """(the merged file, None), or (None, why) when the conflict in path is not mechanical."""
     name = os.path.basename(path)
-    if name in LOCKFILES or name.endswith(".lock"):
+    if lockfile(name):
         return None, "lockfile"
     if 1 not in entry:
         return None, "added on both sides"
@@ -283,6 +290,37 @@ def resolve_file(path, entry):
     if any(b.returncode != 0 for b in blobs.values()):
         return None, "unreadable blob"
     return resolve_texts(name, {label: b.stdout for label, b in blobs.items()})
+
+
+if resolve is not None:
+    name, *files = resolve
+    raw = {}
+    for label, f in zip(("base", "ours", "theirs"), files):
+        with open(f, "rb") as fh:
+            raw[label] = fh.read()
+    text, why = (None, "lockfile") if lockfile(name) else resolve_texts(name, raw)
+    if text is None:
+        print(f"conflict {why}")
+        sys.exit(1)
+    sys.stdout.write(text)
+    sys.exit(0)
+
+top = git("rev-parse", "--show-toplevel")
+if top.returncode != 0:
+    stop("not inside a git repository")
+top = top.stdout.decode().strip()
+if git("rev-parse", "-q", "--verify", "MERGE_HEAD", cwd=top).returncode != 0:
+    stop("no merge in progress")
+
+stages = {}
+for rec in git("ls-files", "-u", "-z", cwd=top).stdout.split(b"\0"):
+    if not rec:
+        continue
+    meta, _, path = rec.partition(b"\t")
+    mode, sha, stage = meta.decode().split()
+    stages.setdefault(path.decode("utf-8", "surrogateescape"), {})[int(stage)] = (mode, sha)
+if not stages:
+    stop("the merge has no conflicts left")
 
 
 results, problems = {}, []
