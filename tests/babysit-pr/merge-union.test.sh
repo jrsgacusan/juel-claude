@@ -145,5 +145,102 @@ out=$(U); rc=$?
 [ $rc -eq 1 ] && [ "$out" = "conflict m.md edited on both sides" ] && pass "an insertion inside the other's block is edited on both sides (exit 1)" || fail "mid-block: exit $rc ($out)"
 [ -n "$(git -C "$R" ls-files -u m.md)" ] && pass "an insertion inside the other's block stays conflicted" || fail "mid-block: staged ($(cat "$R/m.md"))"
 
+# 10. one in-line insertion that contains the other's text is edited on both sides, never
+# "node a && node x && node x && node y" (#85), whichever side is the longer
+for longer in main feat; do
+  repo "contain-$longer"
+  put chain.txt 'run: node a\n'; commit base; git -C "$R" branch feat
+  if [ "$longer" = main ]; then put chain.txt 'run: node a && node x && node y\n'; else put chain.txt 'run: node a && node x\n'; fi
+  commit main
+  git -C "$R" switch -q feat
+  if [ "$longer" = main ]; then put chain.txt 'run: node a && node x\n'; else put chain.txt 'run: node a && node x && node y\n'; fi
+  commit feat
+  merge
+  out=$(U); rc=$?
+  [ $rc -eq 1 ] && [ "$out" = "conflict chain.txt edited on both sides" ] && pass "contain-$longer: an insertion inside the other is edited on both sides (exit 1)" || fail "contain-$longer: exit $rc ($out)"
+  [ -n "$(git -C "$R" ls-files -u chain.txt)" ] && pass "contain-$longer: nothing is staged" || fail "contain-$longer: staged ($(cat "$R/chain.txt"))"
+done
+
+# 11. both sides only added lines, at more than one point: every insertion is kept, in order (#92)
+repo points
+put reg.txt 'a\nb\nc\n'; commit base; git -C "$R" branch feat
+put reg.txt 'a\nx\nb\ny\nc\n'; commit main
+git -C "$R" switch -q feat; put reg.txt 'a\nz\nb\nc\nw\n'; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$out" = "resolved reg.txt" ] && pass "insertions at several points resolve (exit 0)" || fail "points: exit $rc ($out)"
+[ "$(tr '\n' ' ' < "$R/reg.txt")" = "a x z b y c w " ] && pass "insertions at several points: each point gets theirs, then ours" || fail "points ($(tr '\n' ' ' < "$R/reg.txt"))"
+
+# 12. package.json: a test chain both sides added to, at different points and more than once (#85)
+pkg() { printf '{\n  "name": "p",\n  "scripts": {\n    "build": "tsc",\n    "test": "%s"\n  }\n}\n' "$1"; }
+chain() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["scripts"]["test"])' "$R/package.json" 2>/dev/null; }
+repo pkg
+pkg 'node a && node c' > "$R/package.json"; commit base; git -C "$R" branch feat
+pkg 'node a && node b && node c' > "$R/package.json"; commit main
+git -C "$R" switch -q feat; pkg 'node 0 && node a && node c && node d' > "$R/package.json"; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$out" = "resolved package.json" ] && pass "a package.json test chain resolves (exit 0)" || fail "pkg: exit $rc ($out)"
+[ "$(chain)" = "node 0 && node a && node b && node c && node d" ] && pass "the chain is the ordered union: theirs, then ours, at each point" || fail "pkg chain ($(chain))"
+[ "$(sed -n 4p "$R/package.json")" = '    "build": "tsc",' ] && [ -z "$(git -C "$R" diff --name-only --diff-filter=U)" ] && pass "the rest of package.json is untouched and nothing is left unmerged" || fail "pkg rest ($(cat "$R/package.json"))"
+
+# 13. package.json: one side's addition contains the other's: each command once (#85)
+repo pkgdup
+pkg 'node a' > "$R/package.json"; commit base; git -C "$R" branch feat
+pkg 'node a && node x' > "$R/package.json"; commit main
+git -C "$R" switch -q feat; pkg 'node a && node x && node y' > "$R/package.json"; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$(chain)" = "node a && node x && node y" ] && pass "a command both sides added is kept once" || fail "pkgdup: exit $rc ($(chain))"
+
+# 14. package.json: one command's name contains the other's: both kept, each exactly once (Review Focus 2)
+repo pkgbak
+pkg 'node a' > "$R/package.json"; commit base; git -C "$R" branch feat
+pkg 'node a && node x.test.cjs' > "$R/package.json"; commit main
+git -C "$R" switch -q feat; pkg 'node a && node x.test.cjs.bak' > "$R/package.json"; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$(chain)" = "node a && node x.test.cjs && node x.test.cjs.bak" ] && pass "commands that share text are both kept, each once" || fail "pkgbak: exit $rc ($(chain))"
+
+# 15. package.json chains that are not append-only stay conflicts: a dropped command, a changed
+# command, and a chain outside "scripts" (commands added at different points: the in-line rule
+# above already joins two additions at the same point, in any file)
+not_chain() {
+  repo "$1"; printf "$2" 'node a && node b' > "$R/package.json"; commit base; git -C "$R" branch feat
+  printf "$2" "$3" > "$R/package.json"; commit main
+  git -C "$R" switch -q feat; printf "$2" "$4" > "$R/package.json"; commit feat
+  merge
+  out=$(U); rc=$?
+  [ $rc -eq 1 ] && [ "$out" = "conflict package.json edited on both sides" ] && pass "$1: edited on both sides" || fail "$1: exit $rc ($out)"
+}
+SCRIPTS='{\n  "scripts": {\n    "test": "%s"\n  }\n}\n'
+OTHER='{\n  "jest": {\n    "test": "%s"\n  },\n  "scripts": {}\n}\n'
+not_chain dropped "$SCRIPTS" 'node a && node b && node x' 'node a && node y'
+not_chain changed "$SCRIPTS" 'node a && node b && node x' 'node a && node b2 && node y'
+not_chain outside "$OTHER" 'node a && node x && node b' 'node a && node b && node y'
+
+# 16. --resolve: one file from three files, outside any repository or merge (I-1)
+D="$TMP/resolve"; mkdir -p "$D/base" "$D/ours" "$D/theirs"
+printf '| 1 |\n' > "$D/base/t.md"; printf '| 1 |\n| 3 |\n' > "$D/ours/t.md"; printf '| 1 |\n| 2 |\n' > "$D/theirs/t.md"
+(cd "$D" && sh "$SCRIPT" --resolve base/t.md ours/t.md theirs/t.md > "$D/out"); rc=$?
+[ $rc -eq 0 ] && [ "$(od -c "$D/out")" = "$(printf '| 1 |\n| 2 |\n| 3 |\n' | od -c)" ] && pass "--resolve prints the merged text exactly (exit 0)" || fail "--resolve: exit $rc ($(cat "$D/out"))"
+printf 'x = 1\n' > "$D/base/v.py"; printf 'x = 3\n' > "$D/ours/v.py"; printf 'x = 2\n' > "$D/theirs/v.py"
+out=$(cd "$D" && sh "$SCRIPT" --resolve base/v.py ours/v.py theirs/v.py); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict edited on both sides" ] && pass "--resolve: an edit on both sides is a conflict (exit 1)" || fail "--resolve conflict: exit $rc ($out)"
+pkg 'node a && node c' > "$D/base/b.json"; pkg 'node a && node c && node y' > "$D/ours/o.json"; pkg 'node a && node b && node c' > "$D/theirs/t.json"
+out=$(sh "$SCRIPT" --resolve --path app/package.json "$D/base/b.json" "$D/ours/o.json" "$D/theirs/t.json"); rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qF '"test": "node a && node b && node c && node y"' && pass "--resolve --path package.json applies the chain rule" || fail "--resolve --path: exit $rc ($out)"
+out=$(sh "$SCRIPT" --resolve "$D/base/b.json" "$D/ours/o.json" "$D/theirs/t.json"); rc=$?
+[ $rc -eq 1 ] && pass "--resolve without --path goes by the ours file's name (o.json is no package.json)" || fail "--resolve name: exit $rc ($out)"
+pkg 'node a && node c' > "$D/base/package.json"; pkg 'node a && node c && node y' > "$D/ours/package.json"; pkg 'node a && node b && node c' > "$D/theirs/package.json"
+out=$(sh "$SCRIPT" --resolve "$D/base/package.json" "$D/ours/package.json" "$D/theirs/package.json"); rc=$?
+[ $rc -eq 0 ] && printf '%s\n' "$out" | grep -qF '"test": "node a && node b && node c && node y"' && pass "--resolve takes the name from the ours file" || fail "--resolve ours name: exit $rc ($out)"
+printf '{}\n' > "$D/base/yarn.lock"; printf '{}\n' > "$D/ours/yarn.lock"; printf '{}\n' > "$D/theirs/yarn.lock"
+out=$(sh "$SCRIPT" --resolve "$D/base/yarn.lock" "$D/ours/yarn.lock" "$D/theirs/yarn.lock"); rc=$?
+[ $rc -eq 1 ] && [ "$out" = "conflict lockfile" ] && pass "--resolve refuses a lockfile" || fail "--resolve lockfile: exit $rc ($out)"
+sh "$SCRIPT" --resolve "$D/base/t.md" "$D/ours/t.md" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--resolve with two files is 64" || fail "--resolve two files"
+err=$(sh "$SCRIPT" --resolve "$D/base/t.md" "$D/ours/t.md" "$D/nope.md" 2>&1 >/dev/null); rc=$?
+[ $rc -eq 64 ] && [ "$err" = "merge-union.sh: no such file: $D/nope.md" ] && pass "--resolve with a missing file is 64" || fail "--resolve missing: exit $rc ($err)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
