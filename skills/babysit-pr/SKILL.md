@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a juel:star Orca worker: marks a draft ready once, gets the hosted reviewer's passes or a person's approval, re-gates every push with a headless codex review, escalates instead of asking and holds reviewer-facing actions during quiet hours. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
+description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in, runs the gates and pushes. Never merges the PR. On a PR someone else authored it runs reviewer mode instead: waits for the author's re-request or a settled push, re-reviews through juel:review-pr and asks before every post. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a juel:star Orca worker: marks a draft ready once, gets the hosted reviewer's passes or a person's approval, re-gates every push with a headless codex review, escalates instead of asking and holds reviewer-facing actions during quiet hours. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
 metadata:
   requires:
     cli:
@@ -25,6 +25,9 @@ metadata:
       - id: juel:receive-review-and-execute
         hard: true
         why: phase 3 delegates every review round to it
+      - id: juel:review-pr
+        hard: true
+        why: reviewer mode's phase 3 runs every re-review through it
     context:
       - id: git-repo
         hard: true
@@ -34,6 +37,11 @@ metadata:
         hard: true
         why: there must be a PR to babysit
         check: "gh pr view <N> --json number"
+      - id: interactive-user
+        hard: false
+        why: reviewer mode asks the user before every post, through juel:review-pr
+        check: none
+        fallback: reviewer mode stops; author mode runs
 ---
 
 # Babysit PR
@@ -41,14 +49,15 @@ metadata:
 Wait on a PR you authored and keep it moving until a reviewer approves it with nothing left
 unanswered: every round of human feedback goes through `juel:receive-review-and-execute`, then
 the gates, a push, a reply on every item and a re-requested review. A clean approval ends with
-the base branch merged in, the gates green and a push. You merge the PR yourself.
+the base branch merged in, the gates green and a push. You merge the PR yourself. On a PR someone else authored, it runs **reviewer mode** instead (below):
+it waits until the author is ready for you again and re-reviews through `juel:review-pr`.
 
 **Announce at start:** "Using juel:babysit-pr to watch PR #<n>."
 
 Hard rules, in every phase:
 
 - **Never merge the PR.**
-- **Never resolve review threads.** Reply and leave resolving to the reviewer.
+- **Never resolve review threads** on your own PR. Reply and leave resolving to the reviewer. In reviewer mode you are the reviewer: a thread you opened is resolved only by `juel:review-pr`'s gated post, never by this skill.
 - **Never force-push.** Nothing is pushed while a gate is red.
 - **Never hand-edit a fix.** Fixes come from `juel:receive-review-and-execute`, or, for the codex gate's findings, from a fix plan the executor runs.
 
@@ -95,10 +104,12 @@ Run these as one batched Bash call, then render per the format below.
 | python3 | cli | HARD | `command -v python3` | STOP → install Python 3 |
 | orca | cli | SOFT | `command -v orca` | an interactive run does not need it; an unattended run stops with the preflight escalation |
 | juel:receive-review-and-execute | skill | HARD | ships with this plugin | STOP |
+| juel:review-pr | skill | HARD | ships with this plugin | STOP |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
 | open PR | context | HARD | `gh pr view <N> --json number` | STOP → open the PR first |
+| interactive user | context | SOFT | none: render as `?` | reviewer mode stops; author mode runs |
 
-All satisfied renders as: `Preflight: 7/7 OK (gh, git, python3, orca, juel:receive-review-and-execute, git repo, open PR)` / `→ PROCEED: all requirements met.`
+All satisfied renders as: `Preflight: 9/9 OK (gh, git, python3, orca, juel:receive-review-and-execute, juel:review-pr, git repo, open PR, interactive user)` / `→ PROCEED: all requirements met.`
 
 ## Phases
 
@@ -118,13 +129,13 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `[pr-number]` | the current branch's PR | The PR to babysit |
+| `[pr-number]` | the current branch's PR | The PR to babysit. One you did not author runs reviewer mode (Phase 1 step 2) |
 | `--gates "<cmd>;<cmd>"` | resolved once in Phase 1 | Gate commands, `;`-separated; ship-ticket passes its Phase 4 set |
 | `--gates-file <path>` | — | A JSON gate manifest (`{"test":{"cmd":…,"cwd":…},…}`, `null` for a skipped key) written by `juel:ship-ticket`'s build; each command runs in its `cwd`. Wins over `--gates`; an all-null manifest means no gates |
-| `--unattended` | off | No human answers: see "Unattended mode". Requires `--item` |
+| `--unattended` | off | No human answers: see "Unattended mode". Requires `--item`. Refused in reviewer mode |
 | `--item <item>` | — | The work item's name for report lines (its ref, or its slug) |
 | `--mark-ready` | off | Mark a draft PR ready for review once, in Phase 1 (deferred while inside `--quiet-hours`). Under `--unattended` it needs `--reviewed`. A PR the build already marked ready is left as it is: under STAR the flag only acts when quiet hours kept the PR a draft |
-| `--reviewed <path>` | — | The item's newest review from `juel:star`'s `codex-gate.sh`, whose first line is `VERDICT … SAFE … head=<sha>`: the proof that this head passed the gate before it is shown to people |
+| `--reviewed <path>` | — | The proof that this head passed the gate before it is shown to people: the item's newest review from `juel:star`'s `codex-gate.sh`, whose first line is `VERDICT … SAFE … head=<sha>`, or that round's `<item>-r<k>-carried.md` when the owner shipped with the round's findings deferred (`review-proof.sh` prints `OK carried round=<k>` for it) |
 | `--quiet-hours <HH:MM-HH:MM@tz>` | off | Window in which marking ready, replies and review requests wait; pushes still happen. The word `always` means the user is away: every moment is inside it |
 | `--brief <path>` | — | The item's approved brief. Passed on to `receive-review-and-execute`, which refuses reviewer requests outside its scope |
 | `--executor <session|codex>` | `codex` | Who runs a remediation plan: passed on to `receive-review-and-execute` unchanged. `session` means this session runs it; `codex` dispatches `codex exec` |
@@ -199,11 +210,45 @@ file and the pending commands in order, keep waiting in Phase 2, and run every d
 order, at the first wake after the window ends. Fixes, gates and pushes never wait. A deferred
 `gh pr ready` means no reviewer sees the PR yet, so Phase 2 simply times out until the window ends.
 
+## Reviewer mode
+
+Phase 1 step 2 chose it: someone else authored the PR, and you reviewed it with
+`juel:review-pr`. Reviewer mode keeps the PR moving from the reviewer's side. It waits until the
+author is ready for you again, re-reviews through `juel:review-pr` in place of
+`juel:receive-review-and-execute`, and asks you before every post.
+It never commits, pushes, merges, runs gates or edits the author's branch.
+Neither "Unattended mode" nor `--quiet-hours` applies to it: nothing goes out without your answer.
+
+`<you>` is `gh api user --jq .login`. Before the first wait, it stops with the reason when any of
+these fails:
+
+- `--unattended` is set: STAR never runs reviewer mode, because every round needs your answer.
+- You have no submitted review on the PR. This prints one line per review of yours, oldest first,
+  so the last line is your newest:
+  `gh api repos/<owner>/<repo>/pulls/<pr>/reviews --paginate --jq '.[] | select(.user.login == "<you>" and .state != "PENDING") | [.commit_id, .submitted_at] | @tsv'`.
+  No line: stop with "Review it first with /juel:review-pr".
+- The working tree is dirty: `git status --porcelain` prints anything. Name the files and stop;
+  never discard them.
+- Nobody can answer a question in this session: stop with "reviewer mode needs you at the
+  keyboard".
+
+Each row overrides the phase it names:
+
+| Phase | Reviewer mode |
+|---|---|
+| 1. Resolve PR and gates | Steps 1, 3 and 5 as written. Steps 4 (gates), 7 (`--mark-ready`), 8 (review bots) and 9 (the hosted refresh) do not apply. The **reviewed head** is the `commit_id` of your newest review (the last line above), the **cursor** is its `submitted_at`, and quiet-since is the same time. When `gh pr view --json number --jq .number` on the current branch does not print `<pr>`, run `gh pr checkout <pr>`. |
+| 2. Wait for feedback | `sh <script> <pr> --wait --as-reviewer <you> --reviewed-head <reviewed head> --settle-minutes 30 --since <cursor> --interval 600 --silence-hours 72 --quiet-since <quiet-since>`, in the background as in Phase 2 (Codex: the foreground form with `--max-seconds 540`, and `--head-seen <the last snapshot's head_seen>` on every repeat). On `wake`: `rerequested` (the author asked for your review again) or `settled` (a new head has stayed put for 30 minutes) → Phase 3. `closed` → Phase 5. `silence` → say once "no response from the author for 72 h, still waiting", then wait again with `--silence-hours 0`. `errors` and `timeout` as in Phase 2. No other wake comes in this mode. The snapshot's `reviewers` is empty here, and reviewer mode never takes the `cursor` the snapshot prints: in this mode it still moves with the author's items, so only Phase 3 step (4) sets the cursor. |
+| 3. Remediate and push | **Re-review.** (1) `git status --porcelain` prints nothing; otherwise stop and name the dirty files: never discard them. (2) `gh pr checkout <pr> --force`, which moves the local branch to the PR's head, a force-push included. (3) `/juel:review-pr --pr <pr> --since <reviewed head> --from-babysit`: it reviews, asks you, then posts, replies and resolves your fixed threads, all behind its Step 7 question. (4) Read its last line, then set the cursor to now (an ISO time with `Z`) and quiet-since with it, whatever the line says and never from the snapshot, so a re-request already handled never wakes the wait again. `REVIEW-PR posted verdict=APPROVE …` → Phase 5. `REVIEW-PR posted verdict=REQUEST_CHANGES …` or `REVIEW-PR posted verdict=COMMENT …` → the reviewed head becomes its `commit=`, back to Phase 2. `REVIEW-PR not-posted head=<sha>` → the reviewed head becomes that `<sha>`, so the same head never wakes again, back to Phase 2. `REVIEW-PR head-moved from=<sha> to=<sha>` → the reviewed head stays, back to Phase 2: the new head wakes `settled` once it has stayed put for 30 minutes. `REVIEW-PR stopped reason=<why>` → Phase 5 with that reason. |
+| 4. Final sync and push | SKIPPED: "reviewer mode: nothing to push". |
+| 5. Report | The PR URL; each round with its verdict (or "not posted"), the threads it resolved and the comments it added; and the outcome: **"Approved by you"**, **"Merged or closed by someone else"**, or why it stopped. |
+
 ## Phase 1: Resolve PR and gates
 
 1. PR: the argument, else `gh pr view --json number --jq .number` on the current branch.
-2. `gh pr view <pr> --json author,baseRefName,headRefName,url,createdAt`. Refuse if `author` is
-   not the current `gh api user --jq .login`: this skill answers reviews on your own PRs only.
+2. `gh pr view <pr> --json author,baseRefName,headRefName,url,createdAt`. When `author` is the
+   current `gh api user --jq .login`, this is **author mode**: every phase below, as written.
+   Any other author is **reviewer mode**: read "Reviewer mode" above now, and let its table override
+   each phase. It stops before any wait when one of its checks there fails.
 3. Remote: the current branch's upstream remote (`git rev-parse --abbrev-ref @{upstream}`, the
    part before `/`). No upstream: the remote whose URL matches the PR's repo.
 4. Gates: the `--gates` list when given. Otherwise resolve `test`, `lint`, `typecheck` and
@@ -260,6 +305,8 @@ each time. Phase 4 merges the base in before `READY`, and STAR's merge gate send
 the repository requires an up-to-date branch.
 
 ## Phase 3: Remediate and push
+
+In reviewer mode, this phase is the re-review in "Reviewer mode"; the steps below are author mode's.
 
 1. Invoke `/juel:receive-review-and-execute <pr>` (under `--unattended`: `/juel:receive-review-and-execute <pr> --unattended --only <ids> [--brief <path>] [--executor session]`, see "Unattended mode"; `--executor` is passed on exactly as this skill received it). It merges the base branch, reads every
    thread, validates findings into actionable / rejected / ambiguous, asks the user about
@@ -321,6 +368,8 @@ the repository requires an up-to-date branch.
 
 ## Phase 5: Report
 
+In reviewer mode, report what the "Reviewer mode" table's Phase 5 row lists instead.
+
 - PR URL and final state
 - rounds handled, with items fixed / declined / decided per round
 - final gate result and the pushed head
@@ -337,3 +386,6 @@ the repository requires an up-to-date branch.
 | Ending on approval without re-checking | Phase 4 step 5: new feedback arrived while you were gating goes back to Phase 3 |
 | Resolving threads after replying | Leave them; the reviewer resolves |
 | Polling in the foreground in Claude Code | One background `--wait` call; the notification wakes you |
+| Committing, pushing or running gates in reviewer mode | Reviewer mode only re-reviews: the author's branch is theirs |
+| Re-reviewing on every push of the author's | Wait for a re-request, or for a head that has stayed put for 30 minutes (`--settle-minutes 30`) |
+| Leaving the cursor where it was after a reviewer-mode round | Set it to now after every round, or a re-request already handled wakes the wait again |

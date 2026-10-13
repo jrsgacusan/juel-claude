@@ -249,10 +249,12 @@
         "git",
         "git-repo",
         "juel:receive-review-and-execute",
+        "juel:review-pr",
         "open-pr",
         "python3"
       ],
       "soft": [
+        "interactive-user",
         "orca"
       ]
     },
