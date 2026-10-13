@@ -398,6 +398,14 @@ like a Decision. Do not ask what the brief already answers, and do not ask leave
 brief already allows. When a message from the coordinator appears in your terminal (a check-in),
 answer it in one line and carry on with what you were doing.
 
+**Read decisions after every background step.** A coordinator decision cannot interrupt a step
+that runs in the background (an executor run, a gate round, the regression gate): STAR appends each
+answer to the brief's `## Decisions`, then sends it as a message this session only sees between
+steps. So after every background step returns, before choosing the next step, re-read the brief's
+`## Decisions` and run `orca orchestration check --unread --json`. A decision that is new since the
+last check overrides the next step this file prescribes: apply it, say so in one terminal line, and
+never escalate what it settles.
+
 **Resume on an existing draft PR.** A build whose branch already carries the item's draft PR (a
 re-scope, a report STAR could not check, an item STAR moved from v1 in the middle of its review)
 works from the branch as it is. Read the brief's newest `## Decisions` records first: they say why
@@ -439,7 +447,7 @@ are waiting on; the free text goes in the third field:
 | `phase<N>` | at the start of phase N (`phase1` to `phase8`) |
 | `executor` | right before each executor dispatch: Phase 4, and each fix plan of the gate loop |
 | `live-check` | after each live check in Phase 6, naming the check and its verdict |
-| `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix) |
+| `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix); while it waits for the gate lock, `gate-lock.sh --progress` writes this step itself every 10 minutes |
 | `gate-r<k>` | right before gate round `k` starts (`gate-r1`, `gate-r2`, …) |
 | `post-pass` | right before `post-pass`, and before each quiet-hours wait for it |
 | `ready` | after the PR is marked ready (the codex gate loop, step 3) |
@@ -519,7 +527,11 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
    accepts the residual and names a follow-up spec item makes the item `ACCEPTED-RESIDUAL` (Phase
    6 step 4) and the escalation is not raised. An answer that accepts it while the brief holds no
    such record: ask once more, naming the missing record; still none, raise the escalation.
-4. `gate-red` — the regression gate is red twice.
+4. `gate-red` — the regression gate is red twice. A red does not count toward the two when the fix
+   for it changed only files outside runtime (Phase 6 step 6's definition, read from
+   `git diff --name-only <the commit before the fix>..HEAD`): a test registration or bookkeeping
+   audit fixed in a test file, say. At most two such reds are refunded between two green gates; a
+   third counts. The fix still goes through a plan and the executor, or Phase 5, never by hand.
 5. `merge-conflict` — a merge conflict with the base branch.
 6. `needs-human-input` — the run needs a secret, a paid service, a real account, or anything else only a person can supply: verification steps for an item with no acceptance criteria, a browser check when no browser tool is available. Check the brief first: verification steps given under `## Decisions` (the user's answer to an earlier escalation of this kind) are the checklist's source, and the escalation is not raised again.
 7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
@@ -584,8 +596,13 @@ notification, never poll it, then read its output. Waiting for the lock plus run
 take longer than the Bash tool's 600 s foreground cap.
 
 ```sh
-sh <gate-lock.sh> --holder "<item>" -- sh <run-gates.sh> <gate manifest> --root <repo root> [test lint ...]
+sh <gate-lock.sh> --holder "<item>" [--progress <star.home>/progress/<item>.log] -- sh <run-gates.sh> <gate manifest> --root <repo root> [test lint ...]
 ```
+
+Under a `star:` brief, this session passes `--progress <star.home>/progress/<item>.log`: while the
+lock is busy, `gate-lock.sh` appends a `regression-gate` progress line when it starts waiting and
+another every 10 minutes, so STAR's progress check reads a worker queued for the lock as moving.
+Never put `--progress` in a plan the executor runs: its sandbox cannot write the STAR folder.
 
 `run-gates.sh` (next to `gate-lock.sh`) runs the manifest's gates, each in its own `cwd` taken from
 the repo root, exactly as written. Never paste a command into a quoted `sh -c '…'` string: one

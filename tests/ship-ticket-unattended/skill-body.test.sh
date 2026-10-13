@@ -201,5 +201,12 @@ g "L81b a Phase 6 loop-back plan carries one" '`**Base:** spec implemented at <t
 g "L81c a resumed build's plan carries one" 'spec implemented at <the branch head'
 g "L81d the in-session run is told the Base line wins" "The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness."
 g "L78d the gate loop runs the scope check" "(Phase 4's line, its capacity rule and its scope check)"
+g "L83a decisions are read after every background step" 'after every background step returns, before choosing the next step'
+g "L83b through orca's unread messages" 'orca orchestration check --unread --json'
+g "L89a the gate lock line takes the progress log" '[--progress <star.home>/progress/<item>.log]'
+g "L89b never inside a plan the executor runs" 'Never put `--progress` in a plan the executor runs'
+g "L89c the progress row says gate-lock writes the wait" '`gate-lock.sh --progress` writes this step itself every 10 minutes'
+g "L90a a red fixed outside runtime does not count" 'A red does not count toward the two when the fix'
+g "L90b at most two refunds between green gates" 'At most two such reds are refunded between two green gates'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
