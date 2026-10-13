@@ -162,7 +162,9 @@ Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute
   one command with its arguments, not a shell line: `sh <gate-lock.sh> --holder <pr> -- <command>`
   with a `&&`, a `cd`, a `VAR=value` or a quote in `<command>` runs only its first word inside the
   lock. Put the commands in a file under `set -e` and run
-  `-- sh <that file>`.
+  `-- sh <that file>`. A plan step's `gate-lock.sh` line never carries `--progress`: the
+  executor's sandbox cannot write STAR's folder, and the caller's own gates (`juel:babysit-pr`
+  runs them right after this skill) are the ones that report a wait for the lock.
 - Any other STOP (a preflight STOP, a dirty tree, a missing PR) prints `STOPPED: <reason>` as its
   last line, so the caller never mistakes it for a run with nothing to fix.
 - Everything else runs as normal.
@@ -373,8 +375,14 @@ ls "$docsRoot/plans"/receive-review-plan*.md 2>/dev/null
 Then pass the chosen path to Codex in Step 4.
 
 The plan must:
+- Carry in its header `**Base:** spec implemented at <full sha>; apply only the tasks below.`
+  (`<full sha>` is `git rev-parse HEAD` now): it fixes a change that is already built, so the
+  executor must not re-check the spec for completeness
 - Reference each confirmed finding (link to the GitHub comment URL)
 - Include file paths and line numbers
+- Give every task a `**Files:**` block naming each file it changes (`Create:`, `Modify:`, `Test:`
+  or `Delete:`, one backticked path each) with the function or line range: the executor changes
+  nothing else, and the scope check after it reverts any other file
 - Note user decisions for previously ambiguous findings
 - Have bite-sized, executable steps
 - Include verification commands per task
@@ -410,6 +418,24 @@ line. Missing in an interactive run: the Preflight STOP with its fix command.
 worktree whose index lock lives outside the paths the sandbox may write, so `<add-dirs>` below is
 `--add-dir <git-dir> --add-dir <common-dir>` with those two paths. Otherwise `<add-dirs>` is empty.
 
+**The progress ledger.** The executor records each finished task in
+`.superpowers/sdd/<plan name>/progress.md` under the repo root, the ledger
+`superpowers:executing-plans` keeps, and a later dispatch of the same plan resumes from it. Right
+before the line, from the repo root, make sure that folder is git-ignored, note the commit the
+executor starts from, and record every path that already differs from it:
+
+```bash
+git check-ignore -q .superpowers/x || printf '.superpowers/\n' >> "$(git rev-parse --git-path info/exclude)"
+BASE_SHA=$(git rev-parse HEAD)
+BEFORE=$(git rev-parse --git-path juel_scope_before)
+sh <scope-check.sh> --record "$BEFORE"
+```
+
+`<scope-check.sh>` is named under **Scope check** below. It prints `recorded <n>`: the paths that
+differ from HEAD right now, which are not the executor's (the user's own edits, untracked files,
+this skill's `.gitignore` edit). Shell variables do not survive between Bash calls: write the sha
+and the `$BEFORE` path in literally in the later commands.
+
 ```bash
 codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/receive-review-plan<-vN if applicable>.md' < /dev/null
 ```
@@ -417,7 +443,9 @@ codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effo
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
 fallback model (`latest-sol`, resolved the same way); then run the plan in this session with
-`superpowers:executing-plans`. Say each step in one line.
+`superpowers:executing-plans`. Say each step in one line. Each of them resumes from the plan's
+ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
+checked before it is edited, since the stop may have left it half applied.
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
@@ -428,6 +456,23 @@ line and apply the plan in this session directly rather than falling back to `co
 Always run this in the **background** (`run_in_background: true`) — `codex exec` runs through the Bash tool, whose 600s timeout cap would otherwise silently detach it mid-run. Do not redirect its output to a file — the user watches the executor run in the shell. Announce to the user that Codex has been dispatched and surface the command.
 
 Wait for Codex to complete, then state the exit status and files changed before marking the phase done — do not print its full output back into the conversation.
+
+**Scope check.** When the executor finishes cleanly (codex exits 0, or the spawned agent returns),
+run `sh <scope-check.sh> <the plan's path> "$BASE_SHA" --before "$BEFORE"`
+(`../ship-ticket/scope-check.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/scope-check.sh`). `ok`: go on.
+`unchecked the plan names no files`: nothing was checked, so revert nothing, say so in this phase's
+evidence line and go on. Each `outside <path>` line is a file no task's `**Files:**` block names:
+restore it with `git checkout "$BASE_SHA" -- <path>`, or delete it when it did not exist at
+`$BASE_SHA`. The check never prints a path the record lists (work that was there before the
+executor ran): never restore or delete a file the record lists. When the executor committed its
+work, commit the restores as `revert: out-of-scope edits in <files>`; otherwise leave them in the
+working tree. Name the files in this phase's evidence line. A file the plan needed but did not name
+is the plan's defect: the next plan names it.
+
+**A plan with a `**Base:**` line** changes a spec that is already implemented. Whenever this skill
+runs a plan in this session with `superpowers:executing-plans` and the plan has that line, tell it:
+`The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness.`
 
 ## Common Mistakes
 

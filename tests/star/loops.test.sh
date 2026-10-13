@@ -260,5 +260,12 @@ mkdir -p "$TMP/noproj"; err=$(cd "$TMP/noproj" && env -u JUEL_STAR_HOME sh "$SCR
 mkdir -p "$TMP/envhome"; cp "$ROOT/skills/star/template/open-loops.md" "$TMP/envhome/"
 [ "$(cd "$TMP/noproj" && JUEL_STAR_HOME="$TMP/envhome" sh "$SCRIPT" add --kind held --project p --item e --title env)" = N-1 ] && pass "JUEL_STAR_HOME still names the folder" || fail "JUEL_STAR_HOME"
 
+# lane g: a person-only step that carries a value (#86) keeps its marker and its whole answer
+V="$TMP/value.md"; cp "$ROOT/skills/star/template/open-loops.md" "$V"
+vid=$(sh "$SCRIPT" --file "$V" add --kind person --project p --item v --title "host name of the staging database" --body 'brief: briefs/p/v.md\nstep: 2\nkind: account (value)\nOptions: <the value> / can'"'"'t now')
+grep -qxF '> kind: account (value)' "$V" && pass "a value step's kind line keeps its marker" || fail "value marker"
+sh "$SCRIPT" --file "$V" set-answer "$vid" 'db-1.staging.internal:5432' >/dev/null
+want=$(printf '%s\tperson\tp\tv\t%s' "$vid" 'db-1.staging.internal:5432')
+sh "$SCRIPT" --file "$V" answers | grep -qxF "$want" && pass "a value answer comes back whole" || fail "value answer"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

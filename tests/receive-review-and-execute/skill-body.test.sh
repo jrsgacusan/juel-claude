@@ -29,5 +29,8 @@ grep -qF 'one command with its arguments' "$SKILL" && pass "R2 the gate line nev
 grep -q 'id: orca' "$SKILL" && grep -q 'id: python3' "$SKILL" && pass "R3 orca and python3 are declared" || fail "R3 requirements"
 grep -qF -- '| `--executor <session|codex>` |' "$SKILL" && pass "X5 receive-review takes the executor choice" || fail "X5 --executor"
 grep -q 'merge-union.sh' "$SKILL" && pass "U3 mechanical conflicts are resolved before asking" || fail "U3 merge-union"
+# lane e: #89 a plan's gate lines never carry --progress: the executor's sandbox cannot write STAR's folder
+grep -qF 'A plan step'"'"'s `gate-lock.sh` line never carries `--progress`' "$SKILL" && pass "#89 plan gate lines never carry --progress" || fail "#89 the --progress rule for plan gate lines"
+grep -qF -- '--progress <star.home>' "$SKILL" && fail "#89 a plan gate line is told to write STAR's progress log" || pass "#89 no plan gate line writes STAR's progress log"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -159,7 +159,8 @@ assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"age
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
-assert list(d) == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert [k for k in d if k != "tokenCmd"] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert d.get("tokenCmd") is None, d.get("tokenCmd")
 assert d["notified"] == [], d["notified"]
 for k in ("mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
     assert d[k] is None, (k, d[k])
@@ -232,7 +233,7 @@ g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
 g "K2 busy has its own count" '`busy=<n>`'
 g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
 # Issue #27
-g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
+g "Z5 a repository gh cannot see goes to the user, who sets tokenCmd" 'set tokenCmd in star.json to a command that prints a token for it'
 # Issue #28
 g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
 g "U5 the sync is named in the counters table" '`synced=<sha7>`'
@@ -324,7 +325,7 @@ g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --u
 g "ST2 the brief stage can re-scope" '[--rescope HOME_DIR/reviews/<project>/<file>]'
 g "ST3 the gate is a script, not a stage" 'sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>'
 g "ST4 the gate's files" "\`<item>-r<k>.raw.md\`, Codex's own text"
-g "ST5 the PASS comment" 'Codex gate: PASS (head <sha>, round <k>, <model> <effort>)'
+g "ST5 the PASS comment" 'Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)'
 g "DB1 the copied item's headings are demoted (#36)" 'demoted one level'
 g "DB2 a brief names its blockers (#37)" 'blockedBy: ['
 g "DB3 decision records" '### D<n> <title> (<date>, decided by'
@@ -496,5 +497,73 @@ grep -qi 'astra' "$ROOT/README.md" && fail "RD3 the README names no astra" || pa
 grep -qF 'restarts it once before asking you' "$ROOT/README.md" && pass "RD4 the README says STAR restarts a stuck worker" || fail "RD4 the README says STAR restarts a stuck worker"
 grep -qF "keeps each merged item's evidence" "$ROOT/README.md" && pass "RD5 the README says evidence outlives the worktree" || fail "RD5 the README says evidence outlives the worktree"
 grep -qF 'an Electron window over CDP' "$ROOT/README.md" && pass "RD6 the README's verify row names Electron" || fail "RD6 the README's verify row names Electron"
+# lane g: STAR's contract for issues #75 to #93
+g "G1a the receipt carries a VERDICT line (#84)" 'Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)`, then `VERDICT: PASS`'
+g "G1b a clean base merge carries the last SAFE (#75)" 'the base that `carry-check.sh` proves added no change of its own'
+g "G1c no receipt is written by hand (#84)" 'so none is ever written by hand'
+g "G1d an owner's ship decision is written as a carried proof (#82)" 'sh S/../babysit-pr/review-proof.sh carry --reviews HOME_DIR/reviews/<project> --item <item> --round <k>'
+g "G1e babysit gets the carried proof as --reviewed (#82)" '`<item>-r<k>-carried.md` when the owner shipped that round'
+g "G1f STAR's home lists the carried proof" 'reviews/<project>/<item>-r<k>-carried.md'
+g "G2a refreshOutsideCap is a hosted-reviewer setting (#93)" '"maxPasses": 2, "refreshOutsideCap": true }'
+g "G2b the lookup writes it too (#93)" '"maxPasses": 2, "refreshOutsideCap": true}` and says so in one line'
+g "G2c a project that counts every run escalates hosted-cap (#93)" 'comes to the owner as `reason=hosted-cap`'
+g "G2d one merge per base at a time (#75)" '**One merge per base at a time** (#75, #93)'
+g "G2e a row with no hosted pass left merges first (#93)" 'merge first a row with no hosted pass left'
+g "G2f siblings sync in the same tick (#75)" 'run the merge gate at once, in the same tick, for every other `verifying` row on that base'
+g "G2g STAR's home lists the hosted pass record" 'reviews/<project>/<item>-hosted.log'
+g "G3a a stopped worker is gone (#76)" '**A stopped worker is gone** (#76)'
+g "G3b the gone check reads Orca's worker list" 'orca orchestration worker-list --json | python3 -c'
+g "G3c a terminal a person may be at is never closed (#76)" 'never close it; queue `--kind held`'
+g "G3d an owned terminal is closed" 'orca terminal close --terminal <terminal> --json'
+g "G3e the restart rule runs the gone check" '`worker-release` and the gone check ("A stopped worker is gone")'
+g "G3f stage-start ended an earlier session" '| `ended previous session <terminal>`'
+g "G3g stage-start holds a row a live session may still work on" '| `hold session <terminal> (<state>)` |'
+g "G3l stage-start stopped a gate the earlier session left (#76)" '| `stopped previous gate pgid=<n>`'
+g "G3m stage-start kept a quiet terminal it cannot place (#76)" '| `kept previous session <terminal> (<state>)`'
+g "G3n the extra lines come before any final line" 'Its last line is one of these. Before it, up to three lines of their own may come'
+g "G3o merge.sh may find no ledger row" '| `FAIL ledger: <why>` |'
+g "G3h merge.sh is told the home and the item (#80)" '--grant <grant path> --home HOME_DIR --item <item>'
+g "G3i merge.sh refuses a row with a live worker (#80)" '| `FAIL live worker <dispatch>` |'
+g "G3j the fence before an ordered merge (#80)" '**A merge on a PR a worker is still working on** (#80)'
+g "G3k the edge case of an ordered merge" 'The owner orders a merge while the item'"'"'s worker is still fixing the PR'
+g "G4a a person-only step can carry a value (#86)" '`<n>. [account] (value) <what to provide>`'
+g "G4b never a value on a secret step (#86)" 'Never on a `secret` step'
+g "G4c the queue item says it takes a value (#86)" 'a `(value)` step: the kind line `kind: <kind> (value)`'
+g "G4d the answer is recorded as the value (#86)" '(<kind>, value): <step> → value: <answer>'
+g "G4e done alone is asked again for the value (#86)" '(answer with the value)'
+g "G4f the chat question asks for the value (#86)" 'Or tell me the value.'
+g "G4g the edge case" 'A person-only step needs a value from the owner'
+g "G5a the brief template has notBefore (#87)" 'notBefore: <YYYY-MM-DD or ISO datetime>'
+g "G5b the brief worker sets it from the item's words (#87)" '**Not before** (#87)'
+g "G5c a row waiting for its date is named in the status line (#87)" 'one waiting for its date: `<item> waits until <date>`'
+g "G5d Fill slots reads stage-start's wait until (#87)" '   | `wait until <iso>` |'
+g "G5e a queued row starts only after its notBefore (#87)" '`notBefore` time (`sed -n '"'"'s/^notBefore: //p'"'"' <brief>`), when it has one, has passed (#87)'
+g "G5f the batch summary shows it (#87)" '`item.title`, `blockedBy`, `notBefore` and `deliverable`'
+g "G5g the edge case" 'An item that may only be built after a date'
+g "G6a the settings block names tokenCmd (#91)" '"tokenCmd": null'
+g "G6b the session hook exports it in every session (#91)" 'export GH_TOKEN="$(<tokenCmd>)"'
+g "G6c the hook never writes the token (#91)" 'The hook writes the command, never the token'
+g "G6d a shell export never reaches a worker (#92)" 'A token exported in a shell never reaches Orca'"'"'s workers'
+# review fixes: the gate holder label names the project (#76), and the gone check survives an Orca that does not answer (#76)
+g "RF1 the gate stage-start stops is held under the project's label (#76)" 'under the label `<project>/<item>`'
+g "RF2 the gone check says what unknown means (#76)" 'A state of `unknown` (the line `- unknown -`) means Orca did not answer: check again on the next tick'
+# RF3 runs the gone-check command as SKILL.md prints it, against a stub orca
+RFTMP=$(mktemp -d); mkdir -p "$RFTMP/bin"
+awk '/^\*\*A stopped worker is gone\*\*/ { on = 1 } on && /^```sh$/ { grab = 1; next } on && grab && /^```$/ { exit } grab { print }' "$SKILL" | sed 's/<dispatch>/d1/' > "$RFTMP/gone-check.sh"
+printf '#!/bin/sh\ncat "$STUB_REPLY"\n' > "$RFTMP/bin/orca"
+chmod +x "$RFTMP/bin/orca"
+gone_check() { STUB_REPLY="$RFTMP/reply" PATH="$RFTMP/bin:$PATH" sh "$RFTMP/gone-check.sh" 2>"$RFTMP/err"; }
+[ -s "$RFTMP/gone-check.sh" ] && grep -q 'worker-list' "$RFTMP/gone-check.sh" && pass "RF3a the gone-check command is extracted from SKILL.md" || fail "RF3a gone-check extraction"
+printf '{"ok":true,"result":{"workers":[{"dispatchId":"d1","agentTerminalHandle":"term_9","terminalState":"running","resource":{"retainedReason":"user_takeover"}}]}}' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "term_9 running user_takeover" ] && pass "RF3b a listed worker prints its terminal, state and reason" || fail "RF3b listed worker ($out)"
+printf '{"ok":true,"result":{"workers":[]}}' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- none -" ] && pass "RF3c a worker the list does not hold prints none" || fail "RF3c unlisted worker ($out)"
+printf 'orca: command not found' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3d no JSON prints unknown, never a traceback" || fail "RF3d no JSON ($out; $(cat "$RFTMP/err"))"
+: > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3e an empty answer prints unknown" || fail "RF3e empty answer ($out; $(cat "$RFTMP/err"))"
+printf '{"ok":false,"error":{"message":"orca is not running"}}' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3f an error answer prints unknown" || fail "RF3f error answer ($out; $(cat "$RFTMP/err"))"
+rm -rf "$RFTMP"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

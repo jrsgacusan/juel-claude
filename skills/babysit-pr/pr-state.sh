@@ -2,6 +2,7 @@
 # Reports what changed on a PR since a cursor, as one JSON object on stdout:
 #   {"state","decision","head","draft","base","author","url","approval","required","checks","merge",
 #    "hosted","changes_requested","new_feedback":[...],"reviewers","cursor"}
+#   plus "requested","head_seen" under --as-reviewer (below).
 # "merge" is clean, dirty (the PR conflicts with its base: mergeStateStatus DIRTY, or mergeable
 # CONFLICTING, which is all a draft shows, since GitHub reports DRAFT for it), behind, blocked, or
 # unknown (GitHub is still computing it). UNSTABLE and HAS_HOOKS still merge: clean.
@@ -29,7 +30,8 @@
 # and its time is updated_at, so each edit that names the head is new feedback once. An edit that
 # names an older head stays a plain comment, timed by its creation: not new.
 # <pr> is a number, a PR URL (STAR's ledger holds one), a branch name or #<n>; the REST paths use its number.
-# Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60); under
+# Exits 0, except a usage error in the reviewer flags (64, below). Per gh call timeout:
+# BABYSIT_GH_TIMEOUT seconds (default 60); under
 # --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
 # happens: feedback | conflict ("merge" is dirty; it wakes even under --hold-approval) |
@@ -40,11 +42,30 @@
 # --hold-approval turns the approved and draft wakes off: use it while this run still holds
 # deferred replies or a deferred "gh pr ready", so an approved PR waits out the quiet window
 # instead of waking at once on every call.
+# --as-reviewer <login> --reviewed-head <sha> [--settle-minutes <n>] [--head-seen <sha>@<iso>]
+# watch a PR that <login> reviewed and someone else authored (babysit-pr's reviewer mode).
+# --settle-minutes defaults to 30. The other three flags without --as-reviewer, an empty
+# --as-reviewer, --as-reviewer without a --reviewed-head of 7 to 40 hex, a negative or non-finite
+# (nan, inf) --settle-minutes, or a --head-seen that is not <sha>@<iso> print the reason on stderr
+# and exit 64, before any gh call.
+# In that mode "new_feedback" holds only the PR author's items, "reviewers" is empty, and the
+# snapshot adds "requested" (the time of the newest review_requested timeline event that names
+# <login> itself, compared without case, never a team, after the cursor's second; else null: a
+# request at or before the cursor never counts) and "head_seen" ("<head>@<iso>": when this script
+# first saw that head; --head-seen carries the time into a new call while its sha still starts the
+# head). The timeline is read, paginated, only in this mode; a timeline that cannot be read is an
+# error, like any other gh failure.
+# --wait then wakes only: closed | rerequested ("requested" is not null) | settled (the head does
+# not start with --reviewed-head, and "head_seen" is at least --settle-minutes old; a force-pushed
+# head is a new head like any other) | errors | silence | timeout. Never feedback, conflict,
+# approved or draft: those are the author's to act on. One --wait call keeps "head_seen" across
+# its polls; the foreground form passes the last snapshot's "head_seen" back as --head-seen.
 BABYSIT_DIR=$(cd "$(dirname "$0")" && pwd)
 export BABYSIT_DIR
 exec python3 - "$@" <<'PY'
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -211,7 +232,7 @@ def pr_number(pr, view):
     return in_url.group(1) if in_url else str(view["number"])
 
 
-def snapshot(pr, since, repo, bots=(), hosted=""):
+def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
     view_args = ["pr", "view", pr, "--json",
                  "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url,statusCheckRollup,"
                  "mergeStateStatus,mergeable,number"]
@@ -248,12 +269,15 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
         hosted_state = hosted_status(runs, statuses, hosted)
 
     def wanted(user):
+        if reviewer:
+            # a reviewer waits on the author: only the author's own words are news
+            return bool(user) and user.get("login") == author
         if not user or user.get("login") == author:
             return False
         return not is_bot(user) or (user.get("login") or "").lower() in kept
 
     def note_reviewer(user):
-        if not is_bot(user):
+        if not reviewer and not is_bot(user):
             reviewers.add(user["login"])
 
     items, reviewers, submitted, latest = [], set(), {}, {}
@@ -315,6 +339,21 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
         newest = ts(items[-1]["at"])
         at_newest = sorted({str(i["id"]) for i in everything if ts(i["at"]) == newest}, key=lambda x: (len(x), x))
         cursor = items[-1]["at"] + "#" + ",".join(at_newest)
+    extra = {}
+    if reviewer:
+        # a re-request counts only after the cursor's second, so a request already handled never wakes again
+        edge = ts(since_at) if since_at else None
+        asked = []
+        for e in gh_list(f"{base}/issues/{number}/timeline"):
+            who = ((e.get("requested_reviewer") or {}).get("login") or "").lower()
+            if e.get("event") != "review_requested" or who != reviewer["login"].lower() or not e.get("created_at"):
+                continue  # a team request names requested_team, not requested_reviewer
+            if edge is None or ts(e["created_at"]) > edge:
+                asked.append(e["created_at"])
+        seen_sha, _, seen_at = (reviewer.get("head_seen") or "").partition("@")
+        if not (head and seen_sha and head.lower().startswith(seen_sha.lower())):
+            seen_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        extra = {"requested": max(asked, key=ts) if asked else None, "head_seen": f"{head or ''}@{seen_at}"}
     approval, required = "unknown", None
     if rule == "none":
         approval = "none"
@@ -327,12 +366,27 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
             "checks": checks_state(view.get("statusCheckRollup"), required_checks),
             "merge": merge_state(view), "hosted": hosted_state,
             "changes_requested": sorted(w for w, s in latest.items() if s == "CHANGES_REQUESTED"),
-            "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor}
+            "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor, **extra}
 
 
-def wake_reason(snap, hold_approval=False):
+def settled(snap, reviewer):
+    """The head moved off the one the reviewer last reviewed and has stayed put for --settle-minutes."""
+    head = (snap.get("head") or "").lower()
+    if not head or head.startswith(reviewer["reviewed_head"]):
+        return False
+    at = (snap.get("head_seen") or "").partition("@")[2]
+    return bool(at) and (datetime.now(timezone.utc) - ts(at)).total_seconds() >= reviewer["settle"] * 60
+
+
+def wake_reason(snap, hold_approval=False, reviewer=None):
     if snap["state"] in ("CLOSED", "MERGED"):
         return "closed"
+    if reviewer:
+        # the author's comments, a conflict, an approval or a draft are the author's to act on: only a
+        # re-request, or a head that stopped moving, asks the reviewer to look again
+        if snap.get("requested"):
+            return "rerequested"
+        return "settled" if settled(snap, reviewer) else None
     if snap["new_feedback"]:
         return "feedback"
     if snap.get("merge") == "dirty":
@@ -358,7 +412,7 @@ def wait(a):
     while True:
         t_snap = time.monotonic()
         try:
-            snap = snapshot(a.pr, a.since, a.repo, a.bots, a.hosted)
+            snap = snapshot(a.pr, a.since, a.repo, a.bots, a.hosted, a.reviewer)
         except Exception as e:
             errors += 1
             last_error = str(e) if isinstance(e, GhError) else f"unexpected gh output: {type(e).__name__}: {e}"
@@ -366,7 +420,9 @@ def wait(a):
                 return {**(last_good or {}), "error": last_error, "wake": "errors"}
         else:
             errors, last_good = 0, snap
-            reason = wake_reason(snap, a.hold_approval)
+            if a.reviewer:
+                a.reviewer["head_seen"] = snap["head_seen"]  # the next poll keeps when this head was first seen
+            reason = wake_reason(snap, a.hold_approval, a.reviewer)
             if reason:
                 return {**snap, "wake": reason}
             quiet_for = (datetime.now(timezone.utc) - quiet_since).total_seconds()
@@ -389,6 +445,41 @@ def emit(obj):
     print(json.dumps(obj, separators=(",", ":")))
 
 
+SHA = re.compile(r"[0-9a-fA-F]{7,40}")
+
+
+def usage(msg):
+    print(f"pr-state.sh: {msg}", file=sys.stderr)
+    sys.exit(64)
+
+
+def reviewer_args(a):
+    """None without --as-reviewer; else {login, reviewed_head, settle (minutes), head_seen}. Half given: exit 64."""
+    if a.as_reviewer is None:
+        for flag, value in (("--reviewed-head", a.reviewed_head), ("--settle-minutes", a.settle_minutes),
+                            ("--head-seen", a.head_seen)):
+            if value is not None:
+                usage(f"{flag} needs --as-reviewer")
+        return None
+    login = a.as_reviewer.strip()
+    if not login:
+        usage("--as-reviewer needs a login")
+    if not a.reviewed_head or not SHA.fullmatch(a.reviewed_head):
+        usage("--as-reviewer needs --reviewed-head <sha> (7 to 40 hex)")
+    settle = 30.0 if a.settle_minutes is None else a.settle_minutes
+    if not math.isfinite(settle) or settle < 0:
+        usage("--settle-minutes must be 0 or more")
+    if a.head_seen is not None:
+        sha, _, at = a.head_seen.partition("@")
+        try:
+            ok = bool(SHA.fullmatch(sha)) and bool(at) and ts(at) is not None
+        except ValueError:
+            ok = False
+        if not ok:
+            usage("--head-seen must be <sha>@<iso time>")
+    return {"login": login, "reviewed_head": a.reviewed_head.lower(), "settle": settle, "head_seen": a.head_seen}
+
+
 def main(argv):
     p = argparse.ArgumentParser(prog="pr-state.sh")
     p.add_argument("pr")
@@ -402,9 +493,14 @@ def main(argv):
     p.add_argument("--hold-approval", action="store_true")
     p.add_argument("--review-bots", default="")
     p.add_argument("--hosted", default="")
+    p.add_argument("--as-reviewer")
+    p.add_argument("--reviewed-head")
+    p.add_argument("--settle-minutes", type=float)
+    p.add_argument("--head-seen")
     a = p.parse_args(argv)
     a.bots = [b.strip() for b in a.review_bots.split(",") if b.strip()]
     a.hosted = a.hosted.strip()
+    a.reviewer = reviewer_args(a)
     for flag, value in (("--since", split_cursor(a.since)[0]), ("--quiet-since", a.quiet_since)):
         try:
             if value:
@@ -416,7 +512,7 @@ def main(argv):
         emit(wait(a))
         return
     try:
-        emit(snapshot(a.pr, a.since, a.repo, a.bots, a.hosted))
+        emit(snapshot(a.pr, a.since, a.repo, a.bots, a.hosted, a.reviewer))
     except GhError as e:
         emit({"error": str(e)})
     except Exception as e:  # output drift from gh; never a traceback

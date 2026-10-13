@@ -4,7 +4,7 @@
 #   codex-gate.sh --brief <brief> --item <item> --round <k> --base <ref>
 #                 [--model <id|latest-<family>>] [--effort <level>] [--evidence <dir>]
 #   codex-gate.sh post-pass --pr <url> --round <k> --head <sha> [--review <path>]
-#                 [--model <id>] [--effort <level>]
+#                 [--carried-from <sha> --reason <text>] [--model <id>] [--effort <level>]
 #   codex-gate.sh check
 # The gate prints one line:
 #   SAFE round=<k> findings=<n> head=<sha> review=<path>
@@ -61,8 +61,10 @@
 # read"), a "Review comment(s):" header with no tagged finding under it, and a bullet that ends
 # with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
 # dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
-# post-pass posts "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)" on the PR, once per
-# head; --head must be the PR's current head, all 40 characters. GitHub can show the previous head
+# post-pass posts two lines on the PR, "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)"
+# and "VERDICT: PASS", the line a project's review rule reads (#84), once per head (a comment by
+# the PR's author that starts "Codex gate: PASS (head <sha>" is already the receipt); --head must
+# be the PR's current head, all 40 characters. GitHub can show the previous head
 # for a few seconds after a push, so post-pass reads the PR's head every 5 seconds for up to 90
 # (times CODEX_GATE_SLEEP) until it is --head, and only then refuses (#62). The model and effort are
 # --model and --effort, else the "Gate: <model> <effort>" line of the --review file (the model
@@ -72,6 +74,18 @@
 # file that cannot be read is ERROR, and so is one that is not this round's SAFE verdict: its first
 # line must be "VERDICT item=<item> round=<k> SAFE findings=<n> head=<7 to 40 hex characters>"
 # with the head the start of --head, and no <item>-r<k+1>.md may lie beside it. Nothing is posted.
+# Two receipts carry a verdict to a head no round reviewed, so none is ever written by hand.
+# --carried-from <G> --reason <text> (#75): --review is G's SAFE review of round <k>, checked
+# against G, and --head is merges of the base on top of G. post-pass runs carry-check.sh --from G
+# --head <head> --base <the PR's baseRefName as a remote-tracking branch, origin's when there is
+# one> itself, and anything but OK is "ERROR not carried: <why>". The first line then ends
+# ", carried from <G full sha>: <reason>)". A --review named <item>-r<k>-carried.md (#82) is the
+# owner's decision to ship with round k's findings deferred: review-proof.sh must answer
+# "OK carried round=<k>" for --head; the model and effort come from round k's own review's "Gate:"
+# line when the flags do not give them; the first line ends ", carried by owner decision <id>:
+# findings deferred)" and the second line is "VERDICT: PASS (owner decision <id>)".
+# --carried-from with a carried file, --carried-from without --review, and --reason without
+# --carried-from or the reverse, are bad usage.
 # Test seams: CODEX_GATE_SLEEP multiplies the waits (default 1); CODEX_GATE_TIMEOUT, seconds per
 # codex run (default 3600).
 # Exit: 0 with a verdict, a post-pass result or up; 69 with ERROR or down; 64 on bad usage.
@@ -265,9 +279,12 @@ def check_review(text, path, k, head):
         error(f"round {k + 1} has its own review at {later}")
 
 
+CARRIED_REVIEW = re.compile(r".+-r\d+-carried\.md")
+
+
 def pr_view(pr):
-    """(author, comments, head, url) of the PR, or ERROR."""
-    view = run(["gh", "pr", "view", pr, "--json", "author,comments,headRefOid,url"], 60)
+    """(author, comments, head, url, base branch) of the PR, or ERROR."""
+    view = run(["gh", "pr", "view", pr, "--json", "author,baseRefName,comments,headRefOid,url"], 60)
     if view.returncode != 0:
         error("gh: " + (last_line(view.stderr or view.stdout) or "failed"))
     try:
@@ -276,20 +293,73 @@ def pr_view(pr):
         comments = [c for c in (d.get("comments") or []) if isinstance(c, dict)]
     except (ValueError, AttributeError):
         error("gh: unreadable output")
-    return author, comments, str(d.get("headRefOid") or "").lower(), d.get("url")
+    return author, comments, str(d.get("headRefOid") or "").lower(), d.get("url"), str(d.get("baseRefName") or "")
+
+
+def full_commit(rev):
+    """The full sha of a commit git knows here, or ERROR."""
+    r = run(["git", "rev-parse", "--verify", "--quiet", rev + "^{commit}"], 30)
+    if r.returncode != 0 or not r.stdout.strip():
+        error(f"not carried: git knows no commit {rev}")
+    return r.stdout.strip().lower()
+
+
+def owner_carry(path, text, k, head):
+    """(decision id, round k's own review) of the owner's carried PASS, once review-proof.sh accepts
+    it for head (#82)."""
+    first = (text.splitlines() or [""])[0]
+    m = re.fullmatch(r"CARRIED item=(\S+) round=\d+ head=[0-9a-f]{40} from=(\S+) decision=(\S+)", first)
+    if not m:
+        error(f"the carried review's first line is not a full CARRIED line: {first[:120]!r}")
+    item, source, decision = m.groups()
+    proof = run(["sh", os.path.join(os.path.dirname(S), "babysit-pr", "review-proof.sh"), path,
+                 "--item", item, "--head", head], 30)
+    said = last_line(proof.stdout) or last_line(proof.stderr) or f"review-proof.sh exited {proof.returncode}"
+    if said.startswith("OK carried round=") and said != f"OK carried round={k}":
+        error(f"the carried review is of round {said.rsplit('=', 1)[1]}, not round {k}")
+    if said != f"OK carried round={k}":
+        error("the carried review is not proof for this head: " + (said[3:] if said.startswith("NO ") else said))
+    return decision, os.path.join(os.path.dirname(os.path.abspath(path)), source)
+
+
+def carry(gated, head, base):
+    """ERROR unless carry-check.sh proves head is gated plus merges of the PR's base and nothing else (#75)."""
+    if not base:
+        error("not carried: the PR's base branch is unknown")
+    refs = run(["git", "for-each-ref", "--format=%(refname:short)", f"refs/remotes/*/{base}"], 30).stdout.split()
+    ref = f"origin/{base}" if f"origin/{base}" in refs else (refs[0] if len(refs) == 1 else "")
+    if not ref:
+        found = ", ".join(refs) or "none"
+        error(f"not carried: no single remote-tracking branch for the base {base} (found: {found})")
+    r = run(["sh", os.path.join(S, "carry-check.sh"), "--from", gated, "--head", head, "--base", ref], 120)
+    said = last_line(r.stdout)
+    if r.returncode != 0 or not said.startswith("OK carried from "):
+        why = said[3:] if said.startswith("NO ") else (said or last_line(r.stderr) or f"carry-check.sh exited {r.returncode}")
+        error("not carried: " + why)
 
 
 def post_pass(o):
     head = o["head"].lower()
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         die("--head takes the full 40-character commit")
-    ran = None
+    k = int(o["round"])
+    ran, clause, verdict = None, "", "VERDICT: PASS"
+    gated = full_commit(o["carried-from"]) if o.get("carried-from") else head
     if o.get("review"):
         try:
             review_text = open(o["review"], encoding="utf-8", errors="replace").read()
         except OSError as e:
             error(f"cannot read the review: {e.strerror}")
-        check_review(review_text, o["review"], int(o["round"]), head)
+        if CARRIED_REVIEW.fullmatch(os.path.basename(o["review"])):
+            decision, source = owner_carry(o["review"], review_text, k, head)
+            clause = f", carried by owner decision {decision}: findings deferred"
+            verdict = f"VERDICT: PASS (owner decision {decision})"
+            try:  # the model and effort of the round the owner carried
+                review_text = open(source, encoding="utf-8", errors="replace").read()
+            except OSError:
+                review_text = ""
+        else:
+            check_review(review_text, o["review"], k, gated)
         ran = re.search(r"^Gate: (\S+) (\S+)", review_text, re.M)
     model, effort = o.get("model") or (ran and ran.group(1)), o.get("effort") or (ran and ran.group(2))
     if not model or not effort:
@@ -298,20 +368,24 @@ def post_pass(o):
     if model.startswith("latest-"):
         named = resolve(model, effort)
         model, effort = named if named[0] else (model, effort)
-    author, comments, pr_head, url = pr_view(o["pr"])
+    author, comments, pr_head, url, base = pr_view(o["pr"])
     for _ in range(18):  # GitHub can show the previous head for a few seconds after a push (#62)
         if pr_head == head:
             break
         time.sleep(5 * PAUSE)
-        author, comments, pr_head, url = pr_view(o["pr"])
+        author, comments, pr_head, url, base = pr_view(o["pr"])
     if pr_head != head:
         error(f"the PR's head is {pr_head[:7] or '?'}, not {head[:7]}, after 90 s")
+    if o.get("carried-from"):
+        carry(gated, head, base)
+        reason = " ".join(o["reason"].split())
+        clause = f", carried from {gated}: {reason}"
     prefix = f"Codex gate: PASS (head {head}"
     for c in comments:
         if (c.get("author") or {}).get("login") == author and str(c.get("body") or "").startswith(prefix):
             out(f"already {c.get('url') or url}")
-    posted = run(["gh", "pr", "comment", o["pr"], "--body",
-                  f"Codex gate: PASS (head {head}, round {o['round']}, {model} {effort})"], 60)
+    body = f"Codex gate: PASS (head {head}, round {o['round']}, {model} {effort}{clause})\n{verdict}"
+    posted = run(["gh", "pr", "comment", o["pr"], "--body", body], 60)
     if posted.returncode != 0:
         error("gh: " + (last_line(posted.stderr or posted.stdout) or "failed"))
     out(f"posted {last_line(posted.stdout) or url}")
@@ -350,12 +424,20 @@ if argv[:1] == ["check"]:
         die("check takes no arguments")
     check()
 if argv[:1] == ["post-pass"]:
-    o = options(argv[1:], ("--pr", "--round", "--head", "--review", "--model", "--effort"))
+    o = options(argv[1:], ("--pr", "--round", "--head", "--review", "--model", "--effort", "--carried-from", "--reason"))
     for key in ("pr", "round", "head"):
         if key not in o:
             die(f"post-pass needs --{key}")
     if not o["round"].isdigit():
         die("--round takes a number")
+    if ("carried-from" in o) != ("reason" in o):
+        die("--carried-from and --reason go together")
+    if "carried-from" in o and "review" not in o:
+        die("--carried-from needs --review, the gated head's SAFE review")
+    if "carried-from" in o and CARRIED_REVIEW.fullmatch(os.path.basename(o["review"])):
+        die("--carried-from does not go with a carried review")
+    if "carried-from" in o and not re.fullmatch(r"[0-9a-fA-F]{7,40}", o["carried-from"]):
+        die("--carried-from takes 7 to 40 hex characters")
     post_pass(o)
 
 o = options(argv, ("--brief", "--item", "--round", "--base", "--model", "--effort", "--evidence"))

@@ -54,6 +54,7 @@ V2_DEFAULTS = {
     "hostedReviewer": None,
     "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
     "progressDeadlineMin": 30,
+    "tokenCmd": None,
 }
 MOVES = {"pr-draft": ("queued", "build", "resume"), "reviewing": ("queued", "build", "resume"),
          "fix-queued": ("queued", "build", "resume"), "fixing": ("queued", "build", "resume"),

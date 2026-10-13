@@ -9,8 +9,36 @@
 #   hold swap <gb>            more swap in use than hostGate.maxSwapGB (default 11)
 #   hold disk <gb>            less free disk under STAR's home than hostGate.minDiskGB (default 25)
 #   hold trust <path>         Claude Code's first-run dialogs for <path> could not be cleared
+#   wait until <iso>          build only: the brief's notBefore is still ahead (#87). A date alone
+#                             is 00:00 in quietHours.tz, else local time; a time needs an offset or Z
+#   hold session <terminal> (<state>)
+#                             a session may still be working (#76): the row's previous dispatch has
+#                             an open terminal Orca does not prove it owns (<state> is its
+#                             retainedReason, such as user_takeover or identity_unproven, or its
+#                             ownershipState) that printed output in the last 10 minutes; or closing
+#                             the dispatch's own terminal failed ("close failed: <why>"); or, for
+#                             build and babysit, another claude or codex terminal in the worktree
+#                             printed output in the last 10 minutes ("live in the worktree")
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
-# In order: the host gate (nothing starts while one of its four checks fails); for build, the
+# Before that one line it may print, in this order, each on a line of its own, whatever line
+# follows (#76):
+#   stopped previous gate pgid=<n>    the gate lock is held under this item's label, <project name>/<item>
+#                                     (project.name from star.json; the lock is one file per user for
+#                                     every project, so a bare item id would also match another
+#                                     project's item of the same id): TERM to its recorded group,
+#                                     whatever the state of its terminal, but only once no "hold
+#                                     session" was printed (a live session may be the one running it)
+#   ended previous session <terminal> the previous dispatch's own terminal was open: closed
+#   kept previous session <terminal> (<state>)
+#                                     an open terminal Orca does not prove is the dispatch's, quiet
+#                                     for 10 minutes or more: left open (a person's terminal is never
+#                                     closed), and the start goes on
+# These run only when the row's dispatch is not "-", and never on a replay, which would be its own
+# dispatch. Nothing is written to the row before a hold.
+# In order: for build, the brief's notBefore (a value that is not a date is "failed brief");
+# the host gate (nothing starts while one of its four checks fails); the previous dispatch's
+# terminal; for build and babysit, live terminals in the worktree, once it is known; then, with no
+# hold session, the previous dispatch's gate; for build, the
 # worktree (reuse one already on the brief's branch, else orca worktree create, then put it on the
 # brief's branch, copy the main checkout's git-ignored environment files, and add a
 # .git/info/exclude line when the worktree sits inside the repository); for babysit, a review a v1
@@ -26,26 +54,31 @@
 # A brief with existingPr: <url> and no local branch yet gets its branch fetched from the
 # project's remote and checked out tracking it (an open PR's head), instead of a renamed branch.
 # The brief stage gets --rescope <reviews>/<file> when the row's counters hold rescope=<file>; the
-# babysit stage gets --reviewed <the item's newest review>. The executor, gate and hosted-reviewer
+# babysit stage gets --reviewed <the newest round's <item>-r<k>-carried.md when the owner carried
+# that round (#82), else its <item>-r<k>.md>. The executor, gate and hosted-reviewer
 # settings are not in any prompt: workers read them from star.json through their brief.
 # --quiet-hours is star.json's quietHours, or nothing; being away does not change it.
 # Every spec sent is one line. A failed worker-start is retried once: with --retry-of, one effort
 # level lower when the effort was refused, or on "worker" when the model was refused.
 # Test seams: ORCA_CLI_COMMAND, STAR_FREE_GB, STAR_AGENTS, STAR_SWAP_GB, STAR_DISK_GB,
-# STAR_TRUST_POLL (seconds), CLAUDE_CONFIG_DIR.
+# STAR_TRUST_POLL (seconds), CLAUDE_CONFIG_DIR, JUEL_GATE_LOCK (the gate lock's path, as gate-lock.sh).
 # Exit: 0 with one of the lines above; 2 the STAR folder or star.json cannot be read; 4 no row for
 # the item; 64 usage.
 STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd)
 export STAR_HOME_DEFAULT STAR_SKILL_DIR
 exec python3 - "$@" <<'PY'
+import fcntl
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 S = os.environ["STAR_SKILL_DIR"]
 RUNNING = {"brief": "briefing", "build": "building", "babysit": "babysitting", "post": "posting"}
@@ -53,6 +86,8 @@ WAITING = {"brief": "inbox", "build": "queued", "babysit": "babysit-queued", "po
 EFFORTS = ["max", "xhigh", "high", "medium", "low"]
 REFUSED = ("not installed", "unknown agent", "model", "access", "credit", "quota", "not available")
 ENV_NAMES = (".env", ".envrc", ".npmrc", ".tool-versions")
+LIVE_MS = 10 * 60 * 1000  # a terminal that printed output this recently is a working session (#76)
+NOTES = []  # extra lines (#76), printed in this order before the one result line
 orca = os.environ.get("ORCA_CLI_COMMAND") or "orca"
 
 
@@ -62,6 +97,8 @@ def die(code, msg):
 
 
 def out(line):
+    for note in NOTES:
+        print(note)
     print(line)
     sys.exit(0)
 
@@ -185,6 +222,24 @@ def frontmatter(path):
         if k and not line[:1].isspace():
             found[k.group(1)] = k.group(2).strip().strip("\"'")
     return found
+
+
+def not_before(value):
+    """The brief's notBefore as an aware time, or None when it is not a time STAR reads (#87)."""
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            day = datetime.strptime(value, "%Y-%m-%d")
+            q = star.get("quietHours")
+            if isinstance(q, dict) and q.get("tz"):
+                try:
+                    return day.replace(tzinfo=ZoneInfo(q["tz"]))
+                except (ZoneInfoNotFoundError, ValueError):
+                    pass
+            return day.astimezone()  # a naive day read as local time
+        when = datetime.fromisoformat(value[:-1] + "+00:00" if value[-1:] in ("Z", "z") else value)
+    except ValueError:
+        return None
+    return when if when.tzinfo else None
 
 
 def free_gb():
@@ -437,9 +492,13 @@ def has_feedback(path):
 
 
 def newest_review():
+    """The newest round's proof: its carried file when the owner carried that round (#82), else its review."""
     names = os.listdir(reviews) if os.path.isdir(reviews) else []
     rounds = [int(m.group(1)) for m in (re.fullmatch(re.escape(item) + r"-r(\d+)\.md", n) for n in names) if m]
-    return os.path.join(reviews, f"{item}-r{max(rounds)}.md") if rounds else None
+    if not rounds:
+        return None
+    carried = os.path.join(reviews, f"{item}-r{max(rounds)}-carried.md")
+    return carried if os.path.isfile(carried) else os.path.join(reviews, f"{item}-r{max(rounds)}.md")
 
 
 def prompt():
@@ -465,14 +524,129 @@ def prompt():
     return f"/juel:star post-report {row['ref']} --item {item} --report {home}/reports/{name}/{item}.md"
 
 
+def lock_holder():
+    """The gate lock's holder as (label, pid, pgid) while someone holds the lock, else None."""
+    lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"/tmp/juel.gate.{os.getuid()}.lock")
+    try:
+        fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            return None  # nobody holds it: whatever the file says is stale
+        except OSError:
+            pass
+        words = os.pread(fd, 400, 0).decode("utf-8", "replace").split()
+    finally:
+        os.close(fd)
+    fields = dict(w.split("=", 1) for w in words[1:] if "=" in w)
+    try:
+        return words[0], int(fields.get("pid", "0")), int(fields.get("pgid", "0"))
+    except (IndexError, ValueError):
+        return None
+
+
+def stop_gate():
+    """A gate the lock says this item holds stops before a new stage of it starts, whatever its terminal (#76).
+    Called only once no "hold session" was printed: a live session may be the one running it."""
+    held = lock_holder()
+    # the label ship-ticket and babysit-pr give gate-lock.sh under a star: brief, whitespace folded as it folds it
+    if not held or held[0] != "_".join(f"{name}/{item}".split()):
+        return
+    _, pid, pgid = held
+    if pgid <= 1 or pgid == os.getpgrp():
+        return
+    for kill, target in ((os.killpg, pgid), (os.kill, pid)):
+        if target > 1 and target != os.getpid():
+            try:
+                kill(target, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                pass
+    NOTES.insert(0, f"stopped previous gate pgid={pgid}")  # first, before the session lines
+
+
+def recent(last):
+    """True when a terminal printed output in the last 10 minutes, or Orca does not say when."""
+    return not isinstance(last, (int, float)) or time.time() * 1000 - last <= LIVE_MS
+
+
+def checks_previous():
+    """The previous dispatch is checked when the row names one, and never on a replay of itself."""
+    return not replay and (row.get("dispatch") or "-") != "-"
+
+
+def previous_session():
+    """The row's previous dispatch's terminal (#76): close its own, keep a quiet one it cannot prove
+    is its own, and hold on a working one. Returns that terminal's handle."""
+    if not checks_previous():
+        return None
+    prev = row["dispatch"]
+    shown = run([orca, "orchestration", "worker-show", "--dispatch", prev, "--json"], 60)
+    data = lenient(shown.stdout)
+    result = data.get("result") if isinstance(data, dict) else None
+    if shown.returncode != 0 or not isinstance(result, dict):
+        return None  # Orca no longer knows the dispatch: nothing of it is left to end
+    terminal = result.get("terminal")
+    handle = terminal.get("handle") if isinstance(terminal, dict) else None
+    if not handle:
+        return None  # its terminal is closed
+    res = result.get("terminalResource") if isinstance(result.get("terminalResource"), dict) else {}
+    seen = result.get("observation") if isinstance(result.get("observation"), dict) else {}
+    reason, state = res.get("retainedReason") or "", None
+    if res.get("ownershipState") != "owned" or res.get("ownerDispatchId") != prev:
+        state = reason or res.get("ownershipState") or "unowned"
+    elif reason or seen.get("exactWorker") is not True:
+        state = reason or "identity_unproven"
+    if state:
+        if recent(terminal.get("lastOutputAt")):
+            out(f"hold session {handle} ({state})")
+        NOTES.append(f"kept previous session {handle} ({state})")  # never close a terminal a person may own
+        return handle
+    closed = run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
+    if closed.returncode != 0:
+        out(f"hold session {handle} (close failed: {why(closed)})")
+    NOTES.append(f"ended previous session {handle}")
+    return handle
+
+
+def worktree_sessions(path, previous):
+    """Any other claude or codex terminal that printed output in this worktree in the last 10 minutes holds the start (#76)."""
+    listed = run([orca, "terminal", "list", "--worktree", f"path:{path}", "--json"], 60)
+    data = lenient(listed.stdout)
+    result = data.get("result") if isinstance(data, dict) else None
+    terminals = result.get("terminals") if isinstance(result, dict) else None
+    if listed.returncode != 0 or not isinstance(terminals, list):
+        return  # Orca cannot list them: the previous dispatch was already checked
+    now, real = time.time() * 1000, os.path.realpath(path)
+    for t in terminals:
+        if not isinstance(t, dict) or not t.get("handle") or t.get("handle") == previous:
+            continue
+        if t.get("agentIdentity") not in ("claude", "codex"):
+            continue
+        where = t.get("worktreePath")
+        if where and os.path.realpath(where) != real:
+            continue
+        last = t.get("lastOutputAt")
+        if isinstance(last, (int, float)) and now - last <= LIVE_MS:
+            out(f"hold session {t['handle']} (live in the worktree)")
+
+
 fm = {}
 if stage != "brief":
     fm = frontmatter(brief)
     if fm is None:
         out(f"failed brief: no brief at {brief}")
+if stage == "build" and fm.get("notBefore"):
+    when = not_before(fm["notBefore"])
+    if when is None:
+        out(f"failed brief: notBefore {fm['notBefore']} is not a date (YYYY-MM-DD, or an ISO time with an offset)")
+    if datetime.now(timezone.utc) < when:
+        out(f"wait until {when.isoformat()}")
 held = host_gate()
 if held:
     out(f"hold {held}")
+previous = previous_session()
 entry, fallback = setting()
 if stage in ("brief", "post"):
     place = repo
@@ -495,6 +669,10 @@ else:
                 os.makedirs(reviews, exist_ok=True)
                 shutil.move(os.path.join(stray_dir, n), target)
                 print(f"stage-start.sh: moved {os.path.join(stray_dir, n)} to {target}", file=sys.stderr)
+if stage in ("build", "babysit"):
+    worktree_sessions(place, previous)
+if checks_previous():
+    stop_gate()  # only now, with no hold session: a live session may be the one running it
 
 
 def ensure_trust(setting_):

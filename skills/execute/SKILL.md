@@ -184,6 +184,24 @@ execute something else.
 worktree whose index lock lives outside the paths the sandbox may write, so `<add-dirs>` below is
 `--add-dir <git-dir> --add-dir <common-dir>` with those two paths. Otherwise `<add-dirs>` is empty.
 
+**The progress ledger.** The executor records each finished task in
+`.superpowers/sdd/<plan name>/progress.md` under the repo root, the ledger
+`superpowers:executing-plans` keeps, and a later dispatch of the same plan resumes from it. Right
+before the line, from the repo root, make sure that folder is git-ignored, note the commit the
+executor starts from, and record every path that already differs from it:
+
+```bash
+git check-ignore -q .superpowers/x || printf '.superpowers/\n' >> "$(git rev-parse --git-path info/exclude)"
+BASE_SHA=$(git rev-parse HEAD)
+BEFORE=$(git rev-parse --git-path juel_scope_before)
+sh <scope-check.sh> --record "$BEFORE"
+```
+
+`<scope-check.sh>` is named under **Scope check** below. It prints `recorded <n>`: the paths that
+differ from HEAD right now, which are not the executor's (the user's own edits, untracked files,
+this skill's `.gitignore` edit). Shell variables do not survive between Bash calls: write the sha
+and the `$BEFORE` path in literally in the later commands.
+
 ```bash
 codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor <plan-path>' < /dev/null
 ```
@@ -191,7 +209,9 @@ codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effo
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
 fallback model (`latest-sol`, resolved the same way); then run the plan in this session with
-`superpowers:executing-plans`. Say each step in one line.
+`superpowers:executing-plans`. Say each step in one line. Each of them resumes from the plan's
+ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
+checked before it is edited, since the stop may have left it half applied.
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
@@ -208,6 +228,23 @@ If the plan does not specify any commit conventions, do not invent them.
 Always run this in the **background** (`run_in_background: true`) — `codex exec` runs through the Bash tool, whose 600s timeout cap would otherwise silently detach it mid-run. Do not redirect its output to a file — the user watches the executor run in the shell. Wait for it to exit, then state the exit status and files changed before marking the phase done — do not print its full output back into the conversation.
 
 Wait for Codex to complete before marking this phase done.
+
+**Scope check.** When the executor finishes cleanly (codex exits 0, or the spawned agent returns),
+run `sh <scope-check.sh> <the plan's path> "$BASE_SHA" --before "$BEFORE"`
+(`../ship-ticket/scope-check.sh` from this file, or
+`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/scope-check.sh`). `ok`: go on.
+`unchecked the plan names no files`: nothing was checked, so revert nothing, say so in this phase's
+evidence line and go on. Each `outside <path>` line is a file no task's `**Files:**` block names:
+restore it with `git checkout "$BASE_SHA" -- <path>`, or delete it when it did not exist at
+`$BASE_SHA`. The check never prints a path the record lists (work that was there before the
+executor ran): never restore or delete a file the record lists. When the executor committed its
+work, commit the restores as `revert: out-of-scope edits in <files>`; otherwise leave them in the
+working tree. Name the files in this phase's evidence line. A file the plan needed but did not name
+is the plan's defect: the next plan names it.
+
+**A plan with a `**Base:**` line** changes a spec that is already implemented. Whenever this skill
+runs a plan in this session with `superpowers:executing-plans` and the plan has that line, tell it:
+`The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness.`
 
 ## Common Mistakes
 

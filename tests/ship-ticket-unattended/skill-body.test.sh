@@ -189,5 +189,27 @@ g "M55d only tools your own session lists" 'only when your own session lists its
 g "EL16 the screen lock rule points to juel:verify's Electron row" "as \`juel:verify\`'s Electron row says) takes none either"
 g "EL17 Phase 6 runs hidden-window checks through juel:verify's Electron row" "\`juel:verify\`'s Electron row: a hidden dev build driven over CDP"
 grep -q 'window that paints' "$SKILL" && fail "EL18 no 'window that paints' description left" || pass "EL18 no 'window that paints' description left"
+# lane f: the worker skills carry, resume, scope, and read decisions (#77, #78, #81, #83, #89, #90)
+g "L77a the executor resumes from the shared ledger" '`<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`'
+g "L77b the ledger is git-ignored before the first dispatch" 'git rev-parse --git-path info/exclude'
+g "L77c a capacity retry needs no hand-written resume prompt" 'never write a resume prompt by hand'
+g "L78a the scope check runs after the plan" 'sh <scope-check.sh> <the plan> <that sha>'
+g "L78b out-of-scope files are restored in one commit" '`revert: out-of-scope edits in <files>`'
+g "L78c every plan task names its files" 'Every task has a `**Files:**` block naming each file it changes'
+g "L81a a gate-loop fix plan carries a Base line" '`**Base:** spec implemented at <the full head>; apply only the tasks below.`'
+g "L81b a Phase 6 loop-back plan carries one" '`**Base:** spec implemented at <the evidence head>; apply only the tasks below.`'
+g "L81c a resumed build's plan carries one" 'spec implemented at <the branch head'
+g "L81d the in-session run is told the Base line wins" "The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness."
+g "L78d the gate loop runs the scope check" "(Phase 4's line, its capacity rule and its scope check)"
+g "L83a decisions are read after every background step" 'after every background step returns, before choosing the next step'
+g "L83b through orca's unread messages" 'orca orchestration check --unread --json'
+g "L89a the gate lock line takes the progress log" '[--progress <star.home>/progress/<item>.log]'
+g "L89b never inside a plan the executor runs" 'Never put `--progress` in a plan the executor runs'
+g "L89c the progress row says gate-lock writes the wait" '`gate-lock.sh --progress` writes this step itself every 10 minutes'
+g "L90a a red fixed outside runtime does not count" 'A red does not count toward the two when the fix'
+g "L90b at most two refunds between green gates" 'At most two such reds are refunded between two green gates'
+# fix-1: R4 the gate lock is one file per user, so under a star: brief the holder names the project (#76)
+g "R4a a star: brief's gate-lock holder carries the project" '--holder "<star.project>/<item>"'
+g "R4b a run without a star: brief keeps the item as the holder" 'The holder is `"<item>"`, except under a `star:` brief'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
