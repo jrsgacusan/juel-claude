@@ -416,7 +416,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <div>
         <h3>Always</h3>
         <ul>
-          <li>Codex PASS posted on the PR for that head</li>
+          <li>Codex PASS posted on the PR for that head, with a <code>VERDICT: PASS</code> line: gated on that head, carried to it from a gated head by a base merge a script proves adds nothing of its own, or carried by your decision to ship with the findings deferred</li>
           <li>Every check SUCCESS, NEUTRAL or SKIPPED</li>
           <li>A written disposition for every unfixed finding</li>
           <li>GitHub reports it mergeable, so branch rules still apply</li>
@@ -465,7 +465,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
-        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed.</li>
+        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge a script proves adds nothing of its own keeps the last codex PASS, so only the regression gate runs again.</li>
       </ul>
     </div>
   </section>

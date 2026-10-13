@@ -307,6 +307,7 @@ briefs/<project>/<item>.md
 grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, the time, the items
 reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
+reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
@@ -713,6 +714,7 @@ message into the same end state.
    | `accept-report` | drop | row → `dropped` |
    | `accept-report` | anything else | it is a decision: append it to the brief under `## Decisions` with the date; row → `queued`, so the build stage runs again with it |
    | `escalation` | drop | row → `dropped` |
+   | `escalation` | an answer that ships the PR's head with the codex gate's open findings deferred ("ship it", "merge it, defer the findings"), on a row with a PR whose newest review is NOT-SAFE | first the proof, which STAR writes and never reads (#82). `<k>` is the newest round: `ls HOME_DIR/reviews/<project>/ | sed -n 's/^<item>-r\([0-9]*\)\.md$/\1/p' | sort -n | tail -1`. The head is the PR's: `gh pr view <pr url> --json headRefOid --jq .headRefOid`. Then `sh S/../babysit-pr/review-proof.sh carry --reviews HOME_DIR/reviews/<project> --item <item> --round <k> --head <that head> --decision <the answered item's id> --note "<the answer>"`. `wrote <path>` → append "- <date> the owner shipped <head7> with the findings of <item>-r<k>.md deferred (<id>): <the answer>" to the brief's `## Decisions`, `head=<that head>`, row → `babysit-queued`: `stage-start.sh` gives babysit that file as `--reviewed`, and babysit posts the carried PASS with it. `ERROR <why>` → queue `--kind held` "could not record the owner's carried PASS for <item>: <why>" and leave the row as it is |
    | `escalation` | anything else | the answer is the decision. Brief stage: append it to the brief file under `## Feedback` (creating the file with only that section when the worker stopped before writing a brief), row → `inbox`; the brief stage then runs with `--feedback`. `reason=no-safe-verdict` (babysit could not prove the head passed the gate) or `reason=mismatch` (a `DONE` that did not check out twice): append it under `## Decisions`, row → `queued`: the build resumes the gate loop on the existing PR. A row with no PR whose worker lacked `gh`: an answer that is a PR URL records it, row → `queued` (the build resumes on it). Any other stage: append the answer to the brief under `## Decisions` with the date (workers read that section first and treat it as binding; where two decisions disagree the later one wins), then put the row in the waiting state of the stage in its `stage` column (babysit resumes with `--since <cursor>`) |
    | `question` | any | `orca orchestration reply --id <the item's msg id> --body "<answer>" --json` |
    | every `escalation` and `restart-or-drop` answer that runs a stage again | also clears every counter except `hold=`, `last=`, `start=`, `tracker=`, `batch=`, `rescoped=` and `parent=` from the row (`sh S/ledger.sh set <item> counters=keep:hold,last,start,tracker,batch,rescoped,parent`), and `restarts` goes back to 0: the user's "try again" starts with fresh budgets, while the attempt number (so a new start never reuses an old request id), the last status written, the batch and the re-scope lineage stay |
@@ -900,7 +902,7 @@ Every stage is its own Orca task and a fresh worker.
 |---|---|---|---|
 | brief | the project's main checkout (`path:<repo path>`), read-only | `stages.brief` | `/juel:star draft-brief <ref> --project <name> --item <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback] [--rescope HOME_DIR/reviews/<project>/<file>]` (the row's raw `ref`, then its item name; `--rescope` when the row's `counters.rescope` names a review file) |
 | build | a new Orca worktree in that project, set up as below | `stages.build` | `/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`: the plan, the executor, the fresh Claude review, the live checks, the draft PR and the codex gate loop, in one worker |
-| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed <the item's newest review> --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the newest `<item>-r<k>.md`, the gate's SAFE review of the head: the worker's proof that the head passed the gate. The build marks the PR ready after its final SAFE round; `--mark-ready` marks it when quiet hours held the build's) |
+| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed <the item's newest review> --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the newest round's `<item>-r<k>-carried.md` when the owner shipped that round, else the newest `<item>-r<k>.md`, the gate's SAFE review of the head: the worker's proof that the head passed the gate. The build marks the PR ready after its final SAFE round; `--mark-ready` marks it when quiet hours held the build's) |
 | post | the project's main checkout (`path:<repo path>`), read-only | `stages.post` | `/juel:star post-report <ref> --item <name> --report HOME_DIR/reports/<project>/<item>.md` |
 
 **Build worktree.** `stage-start.sh build` sets it up before any agent starts, because Orca picks
@@ -966,8 +968,15 @@ is the verdict, `VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>` or
 Notes; `<item>-r<k>.raw.md`, Codex's own text; and `<item>-r<k>.log`, its transcript. An attempt
 that ends in `ERROR` writes none of these: its transcript goes to `<item>-r<k>-error-<n>.log`, and
 the next attempt keeps round `k`, so `gate.maxRounds` counts verdicts only. After a SAFE
-round the worker posts `Codex gate: PASS (head <sha>, round <k>, <model> <effort>)` on the PR with
-`codex-gate.sh post-pass`, once per head. A build still NOT SAFE after `gate.maxRounds` (3) rounds
+round the worker posts the receipt with `codex-gate.sh post-pass`, once per head, in two lines:
+`Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)`, then `VERDICT: PASS`. Two receipts
+carry an earlier verdict, and `post-pass` writes both, so none is ever written by hand. A merge of
+the base that `carry-check.sh` proves added no change of its own (git merged it cleanly, or every
+conflict is one `merge-union.sh` resolves) carries the last SAFE to the merge head, with
+`, carried from <gated head>: <reason>` before the first line's closing parenthesis (#75). A head
+the owner shipped with a round's findings deferred carries `, carried by owner decision <id>:
+findings deferred` there, and `VERDICT: PASS (owner decision <id>)` (#82; the Answers row for a ship
+decision writes its proof). A build still NOT SAFE after `gate.maxRounds` (3) rounds
 reports `RESCOPE`. STAR opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
 read them and print one line. Luna writes the code and Sol gates it, so the independent review is
 the build's fresh Claude review, before the gate. While the fallback runs, the gate is a second

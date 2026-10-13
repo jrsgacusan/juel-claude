@@ -106,5 +106,8 @@ print("\n".join(problems) or "ok")
 PY
 )
 [ "$out" = ok ] && pass "stages, states and models match the skill" || { fail "drift"; echo "$out" | sed 's/^/     /'; }
+# lane g: the page shows STAR's changes for issues #75 to #93
+grep -qF 'with a <code>VERDICT: PASS</code> line' "$PAGE" && pass "G1 the merge gate names the receipt's VERDICT line and both carries" || fail "G1 receipt on the page"
+grep -qF 'keeps the last codex PASS, so only the regression gate runs again' "$PAGE" && pass "G1 a clean base merge keeps the PASS" || fail "G1 carried SAFE on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

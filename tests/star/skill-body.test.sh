@@ -324,7 +324,7 @@ g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --u
 g "ST2 the brief stage can re-scope" '[--rescope HOME_DIR/reviews/<project>/<file>]'
 g "ST3 the gate is a script, not a stage" 'sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>'
 g "ST4 the gate's files" "\`<item>-r<k>.raw.md\`, Codex's own text"
-g "ST5 the PASS comment" 'Codex gate: PASS (head <sha>, round <k>, <model> <effort>)'
+g "ST5 the PASS comment" 'Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)'
 g "DB1 the copied item's headings are demoted (#36)" 'demoted one level'
 g "DB2 a brief names its blockers (#37)" 'blockedBy: ['
 g "DB3 decision records" '### D<n> <title> (<date>, decided by'
@@ -496,5 +496,12 @@ grep -qi 'astra' "$ROOT/README.md" && fail "RD3 the README names no astra" || pa
 grep -qF 'restarts it once before asking you' "$ROOT/README.md" && pass "RD4 the README says STAR restarts a stuck worker" || fail "RD4 the README says STAR restarts a stuck worker"
 grep -qF "keeps each merged item's evidence" "$ROOT/README.md" && pass "RD5 the README says evidence outlives the worktree" || fail "RD5 the README says evidence outlives the worktree"
 grep -qF 'an Electron window over CDP' "$ROOT/README.md" && pass "RD6 the README's verify row names Electron" || fail "RD6 the README's verify row names Electron"
+# lane g: STAR's contract for issues #75 to #93
+g "G1a the receipt carries a VERDICT line (#84)" 'Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)`, then `VERDICT: PASS`'
+g "G1b a clean base merge carries the last SAFE (#75)" 'the base that `carry-check.sh` proves added no change of its own'
+g "G1c no receipt is written by hand (#84)" 'so none is ever written by hand'
+g "G1d an owner's ship decision is written as a carried proof (#82)" 'sh S/../babysit-pr/review-proof.sh carry --reviews HOME_DIR/reviews/<project> --item <item> --round <k>'
+g "G1e babysit gets the carried proof as --reviewed (#82)" '`<item>-r<k>-carried.md` when the owner shipped that round'
+g "G1f STAR's home lists the carried proof" 'reviews/<project>/<item>-r<k>-carried.md'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
