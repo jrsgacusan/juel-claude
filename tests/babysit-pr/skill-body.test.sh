@@ -187,5 +187,13 @@ grow "L78d babysit's gate fix plan names its files" 'name their files in a `**Fi
 grow "L78e babysit runs the scope check after the plan" 'sh <scope-check.sh> <the plan> <the head before the executor>'
 grow "L77d babysit's capacity retries resume from the ledger" "each try resumes from the plan's ledger"
 grow "L81f the in-session run is told the Base line wins" "The plan's Base line overrides its Spec"
+g "L88a gh cannot see reads the notes for a token rule first" 'may name a `GH_TOKEN` rule'
+g "L88b the token prefix goes on every later GitHub command" 'an `export` does not outlive one shell call'
+g "L88c tokenCmd is named as the lasting fix" 'the plugin'"'"'s session hook already gives every session the token'
+g "L90c a red fixed outside runtime is refunded" 'A red is refunded, and does not count toward the two'
+g "L90d the Phase 4 red row counts the same way" 'counted as the row above counts them'
+g "L89d babysit's gate lock reports its wait" '--progress <star.home>/progress/<item>.log -- sh <run-gates.sh>'
+g "L83c decisions are read after every background step" '| after every background step (an executor run, a gate round, the regression gate, a CI poll, a Phase 2 wake) |'
+g "L83d through orca's unread messages" 'orca orchestration check --unread --json'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
