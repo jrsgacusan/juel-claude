@@ -239,6 +239,28 @@ case "$out" in "started "*) pass "an existing PR's item starts" ;; *) fail "exis
 [ "$(git -C "$WT30" rev-parse HEAD)" = "$PRHEAD" ] && pass "it starts at the PR's head" || fail "head"
 git -C "$APP" show-ref --verify --quiet refs/heads/orca/SPH-30 && fail "Orca's branch was left behind" || pass "Orca's own branch is deleted"
 
+# a brief's notBefore holds its build until that time (#87)
+nb() { # nb <item> <notBefore value>: a queued row whose brief has that notBefore
+  L add "$1" ref="$1" project=app state=queued >/dev/null 2>&1 || L set "$1" state=queued >/dev/null
+  mkdir -p "$H/briefs/app"
+  printf -- '---\njuel_brief: 1\nbranch: feat/%s-x\nbaseBranch: main\ndeliverable: pr\nnotBefore: %s\n---\n## Work item\nx\n' "$(echo "$1" | tr 'A-Z' 'a-z')" "$2" > "$H/briefs/app/$1.md"
+}
+reset; nb SPH-60 2099-01-01
+out=$(ST build SPH-60)
+case "$out" in "wait until 2099-01-01T00:00:00"*) pass "a date still ahead holds the build" ;; *) fail "notBefore ahead ($out)" ;; esac
+[ ! -f "$TMP/calls" ] && [ "$(L get SPH-60 state)" = "queued" ] && pass "nothing is created or written while it waits" || fail "notBefore wrote ($(cat "$TMP/calls" 2>/dev/null))"
+settings 'quietHours={"tz":"Asia/Manila","start":"22:00","end":"07:00"}'
+reset; out=$(ST build SPH-60)
+[ "$out" = "wait until 2099-01-01T00:00:00+08:00" ] && pass "a date alone is midnight in the quiet-hours zone" || fail "zone ($out)"
+settings
+reset; nb SPH-60 2099-01-01T09:00:00Z; out=$(ST build SPH-60)
+[ "$out" = "wait until 2099-01-01T09:00:00+00:00" ] && pass "an ISO time with Z is read as UTC" || fail "iso Z ($out)"
+reset; nb SPH-60 2099-01-01T09:00:00; out=$(ST build SPH-60)
+case "$out" in "failed brief: notBefore 2099-01-01T09:00:00 is not a date"*) pass "a time with no offset is refused, not guessed" ;; *) fail "naive time ($out)" ;; esac
+reset; nb SPH-60 "next week"; out=$(ST build SPH-60)
+case "$out" in "failed brief: notBefore next week is not a date"*) pass "words are refused" ;; *) fail "words ($out)" ;; esac
+reset; nb SPH-60 2000-01-01; out=$(ST build SPH-60)
+case "$out" in "started "*) pass "a date already past starts the build" ;; *) fail "past date ($out)" ;; esac
 # usage: the v1-only stages and --round are gone; unknown items
 for gone in review fix screen; do ST "$gone" SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] || fail "stage $gone still runs"; done; pass "review, fix and screen are not stages any more"
 ST --round 1 babysit SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--round is gone" || fail "--round"

@@ -9,8 +9,11 @@
 #   hold swap <gb>            more swap in use than hostGate.maxSwapGB (default 11)
 #   hold disk <gb>            less free disk under STAR's home than hostGate.minDiskGB (default 25)
 #   hold trust <path>         Claude Code's first-run dialogs for <path> could not be cleared
+#   wait until <iso>          build only: the brief's notBefore is still ahead (#87). A date alone
+#                             is 00:00 in quietHours.tz, else local time; a time needs an offset or Z
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
-# In order: the host gate (nothing starts while one of its four checks fails); for build, the
+# In order: for build, the brief's notBefore (a value that is not a date is "failed brief");
+# the host gate (nothing starts while one of its four checks fails); for build, the
 # worktree (reuse one already on the brief's branch, else orca worktree create, then put it on the
 # brief's branch, copy the main checkout's git-ignored environment files, and add a
 # .git/info/exclude line when the worktree sits inside the repository); for babysit, a review a v1
@@ -46,6 +49,8 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 S = os.environ["STAR_SKILL_DIR"]
 RUNNING = {"brief": "briefing", "build": "building", "babysit": "babysitting", "post": "posting"}
@@ -185,6 +190,24 @@ def frontmatter(path):
         if k and not line[:1].isspace():
             found[k.group(1)] = k.group(2).strip().strip("\"'")
     return found
+
+
+def not_before(value):
+    """The brief's notBefore as an aware time, or None when it is not a time STAR reads (#87)."""
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            day = datetime.strptime(value, "%Y-%m-%d")
+            q = star.get("quietHours")
+            if isinstance(q, dict) and q.get("tz"):
+                try:
+                    return day.replace(tzinfo=ZoneInfo(q["tz"]))
+                except (ZoneInfoNotFoundError, ValueError):
+                    pass
+            return day.astimezone()  # a naive day read as local time
+        when = datetime.fromisoformat(value[:-1] + "+00:00" if value[-1:] in ("Z", "z") else value)
+    except ValueError:
+        return None
+    return when if when.tzinfo else None
 
 
 def free_gb():
@@ -470,6 +493,12 @@ if stage != "brief":
     fm = frontmatter(brief)
     if fm is None:
         out(f"failed brief: no brief at {brief}")
+if stage == "build" and fm.get("notBefore"):
+    when = not_before(fm["notBefore"])
+    if when is None:
+        out(f"failed brief: notBefore {fm['notBefore']} is not a date (YYYY-MM-DD, or an ISO time with an offset)")
+    if datetime.now(timezone.utc) < when:
+        out(f"wait until {when.isoformat()}")
 held = host_gate()
 if held:
     out(f"hold {held}")
