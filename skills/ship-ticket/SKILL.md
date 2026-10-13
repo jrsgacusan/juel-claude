@@ -717,7 +717,7 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 - Plan path: `${docsRoot}/plans/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` (same ref-optional naming as the spec path above — omitted entirely when `ref` is null; docsRoot already resolved in phase 2 — reuse it, do not re-derive)
 - **If that path already exists, never overwrite it.** Write `-v2` instead; if `-v2` exists too, `-v3`, and so on — same rule as the spec path in Phase 2, and distinct from `review-plan.md`'s own `-vN` versioning in Phase 5 below.
 - Each step must include file paths, line refs where applicable, and a verification command.
-- Every task has a `**Files:**` block naming each file it changes, with the function or line range (`Modify: path/to/file.py:120-145`, `Create: path/to/new.py`, `Test: tests/test_file.py`). The executor changes nothing a task does not name, and Phase 4's scope check restores any file no task names.
+- Every task has a `**Files:**` block naming each file it changes, with the function or line range (``Modify: `path/to/file.py:120-145` ``, ``Create: `path/to/new.py` ``, ``Test: `tests/test_file.py` ``). The executor changes nothing a task does not name, and Phase 4's scope check restores any file no task names.
 - On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
 **Checkpoint:** show plan path, ask to proceed.
@@ -749,6 +749,21 @@ drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in 
 `Task <N>: complete` line. A second dispatch of the same line, the fallback model and this session
 all resume from it, at the first task not marked complete. Before the first dispatch, make sure git
 ignores it: `git check-ignore -q .superpowers/x || echo '.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
+
+**The scope record.** Right before the first dispatch (Codex or this session), from the repo root,
+note the commit the executor starts from and record every path that already differs from it:
+
+```bash
+BASE_SHA=$(git rev-parse HEAD)
+BEFORE=$(git rev-parse --git-path juel_scope_before)
+sh <scope-check.sh> --record "$BEFORE"
+```
+
+`scope-check.sh` is next to this file. It prints `recorded <n>`: the paths that differ from HEAD
+right now, which are not the executor's (the user's own edits, untracked files, this skill's
+`.gitignore` edit). A later try of the same plan keeps this sha and this record. Shell variables do
+not survive between Bash calls: write the sha and the `$BEFORE` path in literally in the later
+commands.
 
 **The executor skill.** Right before the line, check that the skill resolves:
 `test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
@@ -794,16 +809,20 @@ line and apply the plan in this session directly rather than falling back to `co
 
 Do not redirect its output to a file — the user watches the executor run in the shell. Wait for it to exit, then state the exit status and files changed before marking the phase done — do not print its full output back into the conversation.
 
-**Scope check.** Note `git rev-parse HEAD` right before the first dispatch. After the plan ran
-(codex exited 0, or this session finished it), run `sh <scope-check.sh> <the plan> <that sha>`
-(`scope-check.sh` is next to this file). `ok`: carry on. Each `outside <path>` line names a file
-that no task's `**Files:**` block names: restore it, with `git checkout <that sha> -- <path>` when
-the file existed at that sha, else `git rm -q --cached --ignore-unmatch -- <path>` and
-`rm -f -- <path>`. When the executor committed its work (`git rev-parse HEAD` is no longer that
-sha), commit the restores as one commit, `revert: out-of-scope edits in <files>`; otherwise leave
-them in the working tree with the rest of its edits. Name the files in this phase's evidence (under
-`--unattended`, in a progress line with the step `executor` too). Exit 64 (an unreadable plan or
-sha): say so in one line and carry on, since Phase 5's review still reads the whole diff.
+**Scope check.** After the plan ran (codex exited 0, or this session finished it), run
+`sh <scope-check.sh> <the plan> <that sha> --before <the record>` (`scope-check.sh` is next to this
+file; `<that sha>` and `<the record>` are the `$BASE_SHA` and `$BEFORE` noted above). `ok`: carry on.
+`unchecked the plan names no files`: nothing was checked, so revert nothing, say so in this phase's
+evidence and carry on. Each `outside <path>` line names a file that no task's `**Files:**` block
+names: restore it, with `git checkout <that sha> -- <path>` when the file existed at that sha, else
+`git rm -q --cached --ignore-unmatch -- <path>` and `rm -f -- <path>`. The check never prints a path
+the record lists, since that work was there before the executor ran:
+never restore or delete a file the record lists. When the executor committed its work
+(`git rev-parse HEAD` is no longer that sha), commit the restores as one commit,
+`revert: out-of-scope edits in <files>`; otherwise leave them in the working tree with the rest of
+its edits. Name the files in this phase's evidence (under `--unattended`, in a progress line with
+the step `executor` too). Exit 64 (an unreadable plan, sha or record): say so in one line and carry
+on, since Phase 5's review still reads the whole diff.
 
 **Resolve toolchain commands now, once.** Immediately after Codex finishes, resolve
 `commands.install`, `.test`, `.lint`, `.typecheck`, `.build`, `.format` and `.run` per "Toolchain

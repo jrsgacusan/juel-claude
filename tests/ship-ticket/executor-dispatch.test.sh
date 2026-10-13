@@ -58,5 +58,20 @@ for s in review-and-execute receive-review-and-execute; do
   grep -qF 'Give every task a `**Files:**` block' "$F" && pass "#78 $s: its plans name each task's files" || fail "#78 $s: Files block in its plans"
 done
 
+# fix-1: R1 R5 R4 the four dispatchers record what already differs before the executor and check with --before
+for s in execute review-and-execute receive-review-and-execute ship-ticket; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'BEFORE=$(git rev-parse --git-path juel_scope_before)' "$F" && grep -qF 'sh <scope-check.sh> --record "$BEFORE"' "$F" && pass "#78 $s: it records the paths that already differ, right after noting the base" || fail "#78 $s: scope record"
+  grep -qF -- '--before' "$F" && grep -qF 'never restore or delete a file the record lists' "$F" && pass "#78 $s: the check passes --before and never reverts the user's own work" || fail "#78 $s: --before"
+  grep -qF '`unchecked the plan names no files`' "$F" && pass "#78 $s: an unchecked plan reverts nothing" || fail "#78 $s: unchecked"
+done
+for s in execute review-and-execute receive-review-and-execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'sh <scope-check.sh> <the plan'"'"'s path> "$BASE_SHA" --before "$BEFORE"' "$F" && pass "#78 $s: the check line carries --before" || fail "#78 $s: check line"
+done
+F="$ROOT/skills/ship-ticket/SKILL.md"
+grep -qF 'sh <scope-check.sh> <the plan> <that sha> --before <the record>' "$F" && pass "#78 ship-ticket: the check line carries --before" || fail "#78 ship-ticket: check line"
+grep -qF 'Modify: `path/to/file.py:120-145`' "$F" && grep -qF 'Create: `path/to/new.py`' "$F" && grep -qF 'Test: `tests/test_file.py`' "$F" && pass "#78 ship-ticket: its Files example names each path in backticks" || fail "#78 ship-ticket: Files example backticks"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

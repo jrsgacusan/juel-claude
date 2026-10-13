@@ -24,9 +24,10 @@ The plan does not need to be perfect. The skill should refine missing implementa
 **Required: a `**Files:**` block per task.** Each task names every file it may change, one list
 line per file: `Create:`, `Modify:`, `Test:` or `Delete:`, then the backticked path, with the
 function or line range when known (``Modify: `src/auth.py:40-62` ``). A path ending in `/` names
-everything under it. The executor changes nothing outside these blocks, and the caller's scope
-check (`skills/ship-ticket/scope-check.sh` in the juel plugin) reverts any changed file no block
-names.
+everything under it. A `:<lines>` or `::<test name>` suffix (``Test: `tests/test_a.py::test_x` ``)
+is dropped when the path is matched. The executor changes nothing outside these blocks, and the
+caller's scope check (`skills/ship-ticket/scope-check.sh` in the juel plugin) reverts any changed
+file no block names.
 
 ## Execution Contract
 
