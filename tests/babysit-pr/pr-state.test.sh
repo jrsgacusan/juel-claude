@@ -16,6 +16,7 @@ mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
 D="$STUB_FIX"; C="$D/.calls"
+echo "$*" >> "$D/.log"
 if [ "${STUB_FAIL:-}" = 1 ]; then echo "${STUB_MSG:-boom}" >&2; exit 1; fi
 [ -n "${STUB_DELAY:-}" ] && sleep "$STUB_DELAY"
 if [ "$1" = "pr" ]; then
@@ -31,6 +32,7 @@ else
     */reviews*) f=reviews ;;
     */pulls/*/comments*) f=inline ;;
     */issues/*/comments*) f=comments ;;
+    */issues/*/timeline*) f=timeline ;;
     *) echo "unexpected gh call: $*" >&2; exit 9 ;;
   esac
 fi
@@ -46,23 +48,34 @@ fixture() { mkdir -p "$TMP/fx/$1"; printf '%s\n' "$3" > "$TMP/fx/$1/$2"; }
 # run <case> <args...>: output to $TMP/out
 run() {
   c=$1; shift
-  rm -f "$TMP/fx/$c/.calls"
+  rm -f "$TMP/fx/$c/.calls" "$TMP/fx/$c/.log"
   PATH="$TMP/bin:/usr/bin:/bin" STUB_FIX="$TMP/fx/$c" BABYSIT_GH_TIMEOUT=5 /bin/sh "$SCRIPT" "$@" > "$TMP/out" 2> "$TMP/err"
   echo $? > "$TMP/rc"
   cat "$TMP/fx/$c/.calls" 2>/dev/null > "$TMP/calls" || echo 0 > "$TMP/calls"
+  cat "$TMP/fx/$c/.log" 2>/dev/null > "$TMP/log" || : > "$TMP/log"
 }
 
 # check <name> <python expr over d (dict), rc (int), calls (int)>
 check() {
-  if "$PY" - "$TMP/out" "$TMP/rc" "$TMP/calls" "$2" <<'PY'
+  if "$PY" - "$TMP/out" "$TMP/rc" "$TMP/calls" "$2" "$TMP/log" <<'PY'
 import json, sys
 d = json.loads(open(sys.argv[1]).read())
 rc = int(open(sys.argv[2]).read())
 calls = int(open(sys.argv[3]).read().strip() or 0)
+try:
+    log = open(sys.argv[5]).read().splitlines()
+except OSError:
+    log = []
 ids = [i["id"] for i in d.get("new_feedback", [])]
 assert eval(sys.argv[4]), (d, rc, calls)
 PY
   then echo "ok   $1"; else echo "FAIL $1"; fails=$((fails + 1)); fi
+}
+
+# check_rc <name> <code>: a usage error, so no JSON on stdout and no gh call at all
+check_rc() {
+  if [ "$(cat "$TMP/rc")" = "$2" ] && [ ! -s "$TMP/out" ] && [ ! -s "$TMP/log" ]; then echo "ok   $1"
+  else echo "FAIL $1 (rc $(cat "$TMP/rc"), $(wc -l < "$TMP/log" | tr -d ' ') gh calls)"; fails=$((fails + 1)); fi
 }
 
 # ---- basic: every source, bots, author, empty bodies, thread replies ----
@@ -408,6 +421,136 @@ hosted_case h-short
 fixture h-short comments.json '{"id":51,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T11:30:00Z","html_url":"i51","body":"Last reviewed commit: abc1234"}'
 run h-short 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#51'
 check "hosted-pass: a bare short sha in the footer is read too" 'ids == ["51@2026-10-01T11:30:00Z"]'
+
+# lane c: reviewer mode, a PR someone else authored, watched by the user who reviewed it
+HA=aaaaaaa1111111aaaaaaa1111111aaaaaaa11111
+HB=bbbbbbb2222222bbbbbbb2222222bbbbbbb22222
+HC=ccccccc3333333ccccccc3333333ccccccc33333
+# rpr <head> [<state> <decision> <draft> <mergeStateStatus> <mergeable>]: alice's PR #40
+rpr() { printf '{"state":"%s","reviewDecision":"%s","headRefOid":"%s","isDraft":%s,"mergeStateStatus":"%s","mergeable":"%s","baseRefName":"main","author":{"login":"alice"},"url":"https://github.com/o/r/pull/40"}' "${2:-OPEN}" "${3:-CHANGES_REQUESTED}" "$1" "${4:-false}" "${5:-CLEAN}" "${6:-MERGEABLE}"; }
+RREV='{"id":70,"user":{"login":"me","type":"User"},"state":"CHANGES_REQUESTED","body":"two things","submitted_at":"2026-10-02T09:00:00Z","html_url":"r70"}
+{"id":71,"user":{"login":"alice","type":"User"},"state":"COMMENTED","body":"answered inline","submitted_at":"2026-10-02T10:00:00Z","html_url":"r71"}'
+RINL='{"id":801,"user":{"login":"me","type":"User"},"body":"this leaks","created_at":"2026-10-02T09:00:00Z","pull_request_review_id":70,"html_url":"c801","path":"a.py","line":3,"in_reply_to_id":null}
+{"id":802,"user":{"login":"alice","type":"User"},"body":"fixed in the next push","created_at":"2026-10-02T10:05:00Z","html_url":"c802","path":"a.py","line":3,"in_reply_to_id":801}
+{"id":803,"user":{"login":"bob","type":"User"},"body":"+1 on the leak","created_at":"2026-10-02T10:10:00Z","html_url":"c803","path":"a.py","line":3,"in_reply_to_id":801}'
+RCOM='{"id":901,"user":{"login":"alice","type":"User"},"body":"pushed","created_at":"2026-10-02T10:20:00Z","html_url":"i901"}
+{"id":902,"user":{"login":"bob","type":"User"},"body":"lgtm from me","created_at":"2026-10-02T10:30:00Z","html_url":"i902"}
+{"id":903,"user":{"login":"me","type":"User"},"body":"will look","created_at":"2026-10-02T10:40:00Z","html_url":"i903"}'
+# The timeline holds the first request (before the user's review), a commit (no created_at), a team
+# request and another user's request: none is a re-request of "me" after the review.
+RTL='{"event":"review_requested","created_at":"2026-10-02T08:00:00Z","requested_reviewer":{"login":"me","type":"User"}}
+{"event":"committed","sha":"x"}
+{"event":"review_requested","created_at":"2026-10-02T11:00:00Z","requested_team":{"slug":"core"}}
+{"event":"review_requested","created_at":"2026-10-02T11:30:00Z","requested_reviewer":{"login":"carol","type":"User"}}'
+RREQ='{"event":"review_requested","created_at":"2026-10-02T12:00:00Z","requested_reviewer":{"login":"me","type":"User"}}'
+# reviewer_case <case> <pr json> [<one more timeline line>]
+reviewer_case() {
+  fixture "$1" pr.json "$2"
+  fixture "$1" reviews.json "$RREV"; fixture "$1" inline.json "$RINL"; fixture "$1" comments.json "$RCOM"
+  if [ -n "${3:-}" ]; then fixture "$1" timeline.json "$RTL
+$3"; else fixture "$1" timeline.json "$RTL"; fi
+}
+reviewer_case r-base "$(rpr "$HB")"
+reviewer_case r-req "$(rpr "$HB")" "$RREQ"
+
+run r-base 40 --reviewed-head "$HA"
+check_rc "reviewer flags: --reviewed-head without --as-reviewer is a usage error, before any gh call" 64
+run r-base 40 --settle-minutes 5
+check_rc "reviewer flags: --settle-minutes without --as-reviewer is a usage error" 64
+run r-base 40 --head-seen "$HB@2026-10-02T10:00:00Z"
+check_rc "reviewer flags: --head-seen without --as-reviewer is a usage error" 64
+run r-base 40 --as-reviewer me
+check_rc "reviewer flags: --as-reviewer without --reviewed-head is a usage error" 64
+run r-base 40 --as-reviewer '' --reviewed-head "$HA"
+check_rc "reviewer flags: an empty --as-reviewer is a usage error" 64
+run r-base 40 --as-reviewer me --reviewed-head nothex
+check_rc "reviewer flags: a --reviewed-head that is not a sha is a usage error" 64
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --settle-minutes -1
+check_rc "reviewer flags: a negative --settle-minutes is a usage error" 64
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "$HB"
+check_rc "reviewer flags: a --head-seen without @<iso> is a usage error" 64
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "$HB@yesterday"
+check_rc "reviewer flags: a --head-seen whose time is not ISO is a usage error" 64
+run r-base 40 --as-reviewer me --reviewed-head "$HA"
+check "reviewer flags: a whole set runs and exits 0" 'rc == 0 and "error" not in d'
+
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: new_feedback holds only the author's items after the cursor" 'ids == [71, 802, 901] and all(i["author"] == "alice" for i in d["new_feedback"])'
+check "reviewer snapshot: no reviewers to re-request" 'd["reviewers"] == []'
+check "reviewer snapshot: the first request, a team request and another user's request are no re-request" 'd["requested"] is None'
+check "reviewer snapshot: head_seen names the full head and a UTC time" 'd["head_seen"].startswith("'"$HB"'@") and d["head_seen"].endswith("Z")'
+check "reviewer snapshot: the timeline is read, paginated" 'any("--paginate" in l and "/issues/40/timeline" in l for l in log)'
+run r-base 40 --since 2026-10-02T09:00:00Z
+check "without --as-reviewer: the author is still excluded, as today" 'ids == [803, 902, 903] and d["reviewers"] == ["bob", "me"]'
+check "without --as-reviewer: no requested or head_seen key" '"requested" not in d and "head_seen" not in d'
+check "without --as-reviewer: the timeline is never read" 'not any("timeline" in l for l in log)'
+
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: a re-request of the user after the cursor gives its time" 'd["requested"] == "2026-10-02T12:00:00Z"'
+run r-req 40 --as-reviewer Me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: the login compares without case, as GitHub logins do" 'd["requested"] == "2026-10-02T12:00:00Z"'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T12:00:00Z
+check "reviewer snapshot: a request in the cursor's own second never counts (Review Focus 3)" 'd["requested"] is None'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since '2026-10-02T12:00:00Z#903'
+check "reviewer snapshot: a cursor with ids still counts only requests after its second" 'd["requested"] is None'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T13:00:00Z
+check "reviewer snapshot: a request before the cursor never counts" 'd["requested"] is None'
+
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "$HB@2026-10-02T10:00:00Z"
+check "reviewer snapshot: --head-seen keeps its time while its sha is the head" 'd["head_seen"] == "'"$HB"'@2026-10-02T10:00:00Z"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "bbbbbbb@2026-10-02T10:00:00Z"
+check "reviewer snapshot: a short --head-seen sha that starts the head counts; the full head is printed" 'd["head_seen"] == "'"$HB"'@2026-10-02T10:00:00Z"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "$HC@2026-10-02T10:00:00Z"
+check "reviewer snapshot: a --head-seen for another sha starts the clock again" 'd["head_seen"].startswith("'"$HB"'@") and not d["head_seen"].endswith("2026-10-02T10:00:00Z")'
+
+STUB_FAIL_ROUTE=timeline; export STUB_FAIL_ROUTE
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: a timeline that cannot be read is an error, never 'not requested'" 'rc == 0 and "exited 1" in d.get("error", "")'
+unset STUB_FAIL_ROUTE
+
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --wait --interval 0 --max-seconds 5
+check "reviewer wait: a re-request wakes rerequested" 'd["wake"] == "rerequested" and calls == 1'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: a new head that has stayed put long enough wakes settled" 'd["wake"] == "settled" and calls == 1'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: a re-request wins over a settled head" 'd["wake"] == "rerequested"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --wait --interval 0 --max-seconds 0
+check "reviewer wait: a head first seen now is not settled at the default 30 minutes" 'd["wake"] == "timeout"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --head-seen "$HB@2020-01-01T00:00:00Z" --wait --interval 0 --max-seconds 5
+check "reviewer wait: --head-seen carries an old sighting, so it settles at once" 'd["wake"] == "settled" and d["head_seen"] == "'"$HB"'@2020-01-01T00:00:00Z"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --head-seen "$HC@2020-01-01T00:00:00Z" --wait --interval 0 --max-seconds 0
+check "reviewer wait: an old sighting of another head does not settle this one" 'd["wake"] == "timeout"'
+run r-base 40 --as-reviewer me --reviewed-head "$HB" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 0
+check "reviewer wait: the reviewed head itself never settles" 'd["wake"] == "timeout"'
+run r-base 40 --as-reviewer me --reviewed-head bbbbbbb --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 0
+check "reviewer wait: a short --reviewed-head that starts the head is that head" 'd["wake"] == "timeout"'
+
+# A force-push: the new head is no descendant of the reviewed one. The script never asks git or
+# GitHub how two heads relate, so it settles like any other new head.
+reviewer_case r-force "$(rpr fffffff9999999fffffff9999999fffffff99999)"
+run r-force 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: a force-pushed head settles like any other new head" 'd["wake"] == "settled" and not any("compare" in l for l in log)'
+
+# One --wait call keeps head_seen across its polls: poll 1 sees the reviewed head, poll 2 the new
+# one, and a later poll finds it has stayed put for 0.02 min. Losing head_seen between polls
+# would restart the clock every poll and end in timeout.
+reviewer_case r-mem "$(rpr "$HB")"
+fixture r-mem pr.1.json "$(rpr "$HA")"
+run r-mem 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0.02 --wait --interval 0.5 --max-seconds 8
+check "reviewer wait: one --wait keeps head_seen across polls, so the new head settles" 'd["wake"] == "settled" and calls >= 3'
+
+reviewer_case r-quiet "$(rpr "$HB" OPEN APPROVED true DIRTY CONFLICTING)"
+run r-quiet 40 --as-reviewer me --reviewed-head "$HB" --since 2026-10-02T09:00:00Z --wait --interval 0 --max-seconds 0
+check "reviewer wait: the author's comments, a conflict, an approval and a draft never wake it" 'd["wake"] == "timeout" and ids == [71, 802, 901] and d["merge"] == "dirty" and d["decision"] == "APPROVED"'
+reviewer_case r-closed "$(rpr "$HB" MERGED APPROVED)" "$RREQ"
+run r-closed 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: closed wins over a re-request and a settled head" 'd["wake"] == "closed"'
+run r-quiet 40 --as-reviewer me --reviewed-head "$HB" --since 2026-10-02T09:00:00Z --wait --interval 0 --silence-hours 72 --quiet-since 2020-01-01T00:00:00Z
+check "reviewer wait: silence still fires" 'd["wake"] == "silence"'
+STUB_FAIL_ROUTE=timeline; export STUB_FAIL_ROUTE
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --wait --interval 0
+check "reviewer wait: three unreadable timelines in a row wake errors" 'd["wake"] == "errors"'
+unset STUB_FAIL_ROUTE
 
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
