@@ -173,5 +173,13 @@ g "L82a an owner's carried PASS is proof" 'It prints `OK carried round=<k>` for 
 g "L82b both OK forms are proof" 'Both `OK` forms are proof.'
 g "L82c its receipt is posted by post-pass in Phase 1" 'names a `<item>-r<k>-carried.md` file) | in Phase 1'
 g "L82d never a hand-written receipt" 'never write one by hand'
+hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
+hrow "L93a the pass record" '<star.reviews>/<item>-hosted.log'
+hrow "L93b passes are counted from the file" 'a restarted run counts them from the file, never from memory'
+hrow "L93c the last pass reviews a current head" 'so the last pass reviews a head that is current with the base'
+hrow "L93d refreshOutsideCap false escalates" 'reason=hosted-cap'
+settings_row=$(grep -F '| settings |' "$SKILL")
+printf '%s\n' "$settings_row" | grep -qF '`refreshOutsideCap`, true when absent' && pass "L93e settings name refreshOutsideCap" || fail "L93e settings name refreshOutsideCap"
+g "L93f Phase 1's refresh honours the setting" 'false and every pass used'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
