@@ -231,7 +231,7 @@ rv "R12a silence names what the wait is for" 'no re-request or settled push for 
 printf '%s\n' "$review_mode" | grep -qF 'no response from the author for 72 h' && fail "R12b the author-response wording is gone" || pass "R12b the author-response wording is gone"
 rv "R13a an unattended run prints the stop as an escalation" 'ESCALATION item=<item> phase=8 reason=preflight needs=the PR'"'"'s author is <login>: reviewer mode runs only interactively'
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
-grow "R1a babysit records what is already changed before the executor" 'sh <scope-check.sh> --record "$(git rev-parse --git-path juel-scope-before)"'
+grow "R1a babysit records what is already changed before the executor" 'sh <scope-check.sh> --record "$(git rev-parse --git-path juel_scope_before)"'
 grow "R1b the record is taken right before the executor runs" 'Right before the executor runs'
 grow "R1c the check reads that record" 'sh <scope-check.sh> <the plan> <the head before the executor> --before <that record file>'
 grow "R1d a file in the record is never outside" 'a file in the record is never `outside`'
