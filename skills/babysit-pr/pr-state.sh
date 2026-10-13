@@ -45,9 +45,9 @@
 # --as-reviewer <login> --reviewed-head <sha> [--settle-minutes <n>] [--head-seen <sha>@<iso>]
 # watch a PR that <login> reviewed and someone else authored (babysit-pr's reviewer mode).
 # --settle-minutes defaults to 30. The other three flags without --as-reviewer, an empty
-# --as-reviewer, --as-reviewer without a --reviewed-head of 7 to 40 hex, a negative
-# --settle-minutes, or a --head-seen that is not <sha>@<iso> print the reason on stderr and exit
-# 64, before any gh call.
+# --as-reviewer, --as-reviewer without a --reviewed-head of 7 to 40 hex, a negative or non-finite
+# (nan, inf) --settle-minutes, or a --head-seen that is not <sha>@<iso> print the reason on stderr
+# and exit 64, before any gh call.
 # In that mode "new_feedback" holds only the PR author's items, "reviewers" is empty, and the
 # snapshot adds "requested" (the time of the newest review_requested timeline event that names
 # <login> itself, compared without case, never a team, after the cursor's second; else null: a
@@ -65,6 +65,7 @@ export BABYSIT_DIR
 exec python3 - "$@" <<'PY'
 import argparse
 import json
+import math
 import os
 import re
 import subprocess
@@ -466,7 +467,7 @@ def reviewer_args(a):
     if not a.reviewed_head or not SHA.fullmatch(a.reviewed_head):
         usage("--as-reviewer needs --reviewed-head <sha> (7 to 40 hex)")
     settle = 30.0 if a.settle_minutes is None else a.settle_minutes
-    if settle < 0:
+    if not math.isfinite(settle) or settle < 0:
         usage("--settle-minutes must be 0 or more")
     if a.head_seen is not None:
         sha, _, at = a.head_seen.partition("@")

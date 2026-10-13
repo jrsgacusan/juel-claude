@@ -184,7 +184,7 @@ g "L93f Phase 1's refresh honours the setting" 'false and every pass used'
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "L81e babysit's gate fix plan carries a Base line" '`**Base:** spec implemented at <the full head>; apply only the tasks below.`'
 grow "L78d babysit's gate fix plan names its files" 'name their files in a `**Files:**` block'
-grow "L78e babysit runs the scope check after the plan" 'sh <scope-check.sh> <the plan> <the head before the executor>'
+grow "L78e babysit runs the scope check after the plan" 'sh <scope-check.sh> <the plan> <the head before the executor> --before <that record file>'
 grow "L77d babysit's capacity retries resume from the ledger" "each try resumes from the plan's ledger"
 grow "L81f the in-session run is told the Base line wins" "The plan's Base line overrides its Spec"
 g "L88a gh cannot see reads the notes for a token rule first" 'may name a `GH_TOKEN` rule'
@@ -221,6 +221,37 @@ g "RV19 review-pr is a HARD dependency" '| juel:review-pr | skill | HARD |'
 g "RV20 an interactive user is a SOFT context" '| interactive user | context | SOFT |'
 g "RV21 --reviewed accepts the owner's carried proof" '`<item>-r<k>-carried.md` when the owner shipped'
 rv "RV22 the snapshot's cursor is never taken" 'never takes the `cursor` the snapshot prints'
+
+# review fixes: reviewer-mode waits and stops (R10, R12, R13), the gate fix plan's scope check (#78), the gate lock's holder (#76), carried proof and the carry round (#75)
+review_mode=$(awk '/^## Reviewer mode/ { f = 1; next } /^## / { f = 0 } f' "$SKILL")
+rv "R10a every reviewer-mode wait after the first passes the settle sighting" 'Every wait after the first passes `--head-seen <the last snapshot'"'"'s head_seen>`, in both forms'
+rv "R10b that covers the waits after errors and silence" 'after `errors`, `silence` or `timeout`'
+printf '%s\n' "$review_mode" | grep -qF 'and `--head-seen <the last snapshot'"'"'s head_seen>` on every repeat' && fail "R10c the Codex-only head-seen wording is gone" || pass "R10c the Codex-only head-seen wording is gone"
+rv "R12a silence names what the wait is for" 'no re-request or settled push for 72 h, still waiting'
+printf '%s\n' "$review_mode" | grep -qF 'no response from the author for 72 h' && fail "R12b the author-response wording is gone" || pass "R12b the author-response wording is gone"
+rv "R13a an unattended run prints the stop as an escalation" 'ESCALATION item=<item> phase=8 reason=preflight needs=the PR'"'"'s author is <login>: reviewer mode runs only interactively'
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "R1a babysit records what is already changed before the executor" 'sh <scope-check.sh> --record "$(git rev-parse --git-path juel_scope_before)"'
+grow "R1b the record is taken right before the executor runs" 'Right before the executor runs'
+grow "R1c the check reads that record" 'sh <scope-check.sh> <the plan> <the head before the executor> --before <that record file>'
+grow "R1d a file in the record is never outside" 'a file in the record is never `outside`'
+grow "R1e an unchecked plan is reported and passed" '`unchecked …` means nothing was checked: say so in the round'"'"'s evidence line and go on'
+gates_row=$(grep -F '| gates run directly |' "$SKILL")
+[ "$(printf '%s\n' "$gates_row" | grep -c .)" -eq 1 ] && pass "R4a one table row holds the direct gate run" || fail "R4a one table row holds the direct gate run"
+printf '%s\n' "$gates_row" | grep -qF -- '--holder "<star.project>/<item>"' && pass "R4b under a star brief the lock holder names the project" || fail "R4b under a star brief the lock holder names the project"
+printf '%s\n' "$gates_row" | grep -qF 'without a `star:` brief, leave out `--progress` and use `--holder "<item>"`' && pass "R4c without a star brief it stays the item" || fail "R4c without a star brief it stays the item"
+grow "R11a the carry names the round of G's review" '`<g>` is the round of G'"'"'s review'
+grow "R11b the carried receipt posts G's round" 'post-pass --pr <url> --round <g> --head <the pushed head>'
+grow "R11c the codex round keeps its own count" 'Round `k` is 1 plus the highest `k`'
+markready_row=$(grep -F '| `--mark-ready` on a draft PR |' "$SKILL")
+[ "$(printf '%s\n' "$markready_row" | grep -c .)" -eq 1 ] && pass "R9a one table row holds the mark-ready proof" || fail "R9a one table row holds the mark-ready proof"
+mrow() { printf '%s\n' "$markready_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+mrow "R9b a NO may be a merge made after the review" 'A `NO …` is not final yet when the head is a merge of the base branch made after the review'
+mrow "R9c the newest SAFE review is the starting point" 'the newest `<star.reviews>/<item>-r<k>.md` says `SAFE`'
+mrow "R9d carry-check judges the current head" 'sh <carry-check.sh> --from <its head=> --head <the PR'"'"'s current headRefOid> --base <remote>/<base>'
+mrow "R9e a carry is proof as well" '`OK carried from …` is proof as well'
+mrow "R9f any other NO still escalates" 'Any other `NO …`'
+mrow "R9g the deferred ready re-checks the proof" 'again right before a deferred'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -95,7 +95,7 @@ Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree an
 | Linear MCP | mcp | SOFT | **none — render as `?`** | review proceeds ungraded; the Requirement-alignment section is omitted |
 | gh | cli | SOFT | `command -v gh` | ref resolution relies on the branch name alone; review proceeds ungraded if that alone yields nothing. Phase 7 is skipped — the verdict and posting plan from phase 6 are left in the report for manual posting. |
 | git repo | context | HARD | `git rev-parse --show-toplevel` | STOP |
-| open PR | context | SOFT | `gh pr view --json number` | phase 7 is skipped — there is no open PR to post to |
+| open PR | context | SOFT | `gh pr view $PR_SEL --json number` | phase 7 is skipped — there is no open PR to post to |
 | AskUserQuestion | context | SOFT | **none — render as `?`** | phase 7 is skipped — posting never proceeds without interactive confirmation |
 
 ## Phases
@@ -325,11 +325,14 @@ on the whole PR diff, and put "<SINCE> is not an ancestor of HEAD: reviewed the 
 the phase's evidence line. Either way, an inline comment still needs a line inside the full PR diff
 (Step 6).
 
-**Capture the head commit this review is actually reviewing:**
+**Capture the head commit this review is actually reviewing.**
+Under `--pr`, `REVIEWED_COMMIT` is Step 1's `PR_HEAD`. Step 1 proved the checkout is that commit,
+so it is the commit the agents read. Do not fetch it again: a push that lands while the agents run
+would make a fresh fetch name a head nobody reviewed, and Step 7's guard would then let the review
+through. Without `--pr`:
 
 ```bash
-PR_SEL='<the --pr value, or empty>'
-REVIEWED_COMMIT=$(gh pr view $PR_SEL --json headRefOid --jq '.headRefOid' 2>/dev/null)
+REVIEWED_COMMIT=$(gh pr view --json headRefOid --jq '.headRefOid' 2>/dev/null)
 ```
 
 Carry `REVIEWED_COMMIT` forward — Step 5 writes it into the report, and Step 7 compares a fresh
@@ -413,8 +416,19 @@ fi
 (If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
 the filesystem check above — config always takes precedence.)
 
-Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
-unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+Make sure git ignores unanchored `superpowers/` and `.superpowers/` entries, unanchored so they
+match at any depth. This directory is scratch, not product. When `git check-ignore -q` says an entry
+is not ignored yet, append it to the repo's local exclude file, never to `.gitignore`: a review
+must not dirty the branch it reviews, and on someone else's PR a changed `.gitignore` would stop
+`juel:babysit-pr`'s reviewer mode on "working tree is dirty" after the very first review.
+
+```bash
+EXCLUDE=$(git rev-parse --git-path info/exclude)
+mkdir -p "$(dirname "$EXCLUDE")"
+for d in superpowers .superpowers; do
+  git check-ignore -q "$d/x" || printf '%s/\n' "$d" >> "$EXCLUDE"
+done
+```
 
 **Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
 findings report, or context file that already exists at the derived path — append `-v2` before
@@ -574,7 +588,7 @@ Skip this step entirely, marking its task `completed` with a one-line "SKIPPED: 
 any of the following hold — check in order:
 
 1. `gh` is not installed → "SKIPPED: gh not installed".
-2. The current branch has no open PR (`gh pr view --json number` fails) → "SKIPPED: no open PR".
+2. There is no open PR to post to (`gh pr view $PR_SEL --json number` fails) → "SKIPPED: no open PR".
 3. This session cannot ask the user anything (no interactive user) → "SKIPPED: non-interactive session".
 
 None of these block the skill overall — Step 6's verdict and posting plan already live in
