@@ -159,7 +159,8 @@ assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"age
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
-assert list(d) == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert [k for k in d if k != "tokenCmd"] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert d.get("tokenCmd") is None, d.get("tokenCmd")
 assert d["notified"] == [], d["notified"]
 for k in ("mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
     assert d[k] is None, (k, d[k])
@@ -232,7 +233,7 @@ g "K1 a refused check-in is not a nudge" 'agent_prompt_blocked'
 g "K2 busy has its own count" '`busy=<n>`'
 g "K3 a long busy stretch goes to the user" 'silent and busy for 2 h'
 # Issue #27
-g "Z5 a repository gh cannot see goes to the user" 'export GH_TOKEN for <repo>'
+g "Z5 a repository gh cannot see goes to the user, who sets tokenCmd" 'set tokenCmd in star.json to a command that prints a token for it'
 # Issue #28
 g "U4 a moved base is synced once per head" 'counters.synced=<sha7>'
 g "U5 the sync is named in the counters table" '`synced=<sha7>`'
@@ -539,5 +540,9 @@ g "G5d Fill slots reads stage-start's wait until (#87)" '   | `wait until <iso>`
 g "G5e a queued row starts only after its notBefore (#87)" '`notBefore` time (`sed -n '"'"'s/^notBefore: //p'"'"' <brief>`), when it has one, has passed (#87)'
 g "G5f the batch summary shows it (#87)" '`item.title`, `blockedBy`, `notBefore` and `deliverable`'
 g "G5g the edge case" 'An item that may only be built after a date'
+g "G6a the settings block names tokenCmd (#91)" '"tokenCmd": null'
+g "G6b the session hook exports it in every session (#91)" 'export GH_TOKEN="$(<tokenCmd>)"'
+g "G6c the hook never writes the token (#91)" 'The hook writes the command, never the token'
+g "G6d a shell export never reaches a worker (#92)" 'A token exported in a shell never reaches Orca'"'"'s workers'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

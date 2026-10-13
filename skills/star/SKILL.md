@@ -349,7 +349,8 @@ Settings in `star.json`:
   "progressDeadlineMin": 30,                             // no progress for this long: a check-in
   "mcps":     { "mobbin": "available", "context7": "needs-sign-in" },   // null in a new folder; every start writes it from the Preflight: available, needs-sign-in or absent
   "gateDown": null,                                      // while the review gate is down: { "since", "why", "checked" }
-  "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" }   // null = off
+  "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" },  // null = off
+  "tokenCmd": null                                       // or a command that prints a GitHub token, such as a keychain lookup
 }
 ```
 
@@ -375,6 +376,13 @@ reliably, so it is not the default.
 
 A model of `default` means: pass neither `--model` nor `--effort`. Model ids come from the CLIs,
 never from memory.
+
+`tokenCmd` (null when absent) is for a repository the default `gh` account cannot see (#91, #92).
+Set it to a command that prints a token for it, such as `security find-generic-password -s <item> -w`:
+the plugin's session hook then adds `export GH_TOKEN="$(<tokenCmd>)"` to every session that starts
+in this project, STAR's and every worker's, so `gh`, and every script that runs it, has the token.
+The hook writes the command, never the token, and leaves a session that already has `GH_TOKEN`
+alone. The command must be quick and must not ask anything.
 
 `hostedReviewer.refreshOutsideCap` (true when absent) says whether a status refresh after the
 last pass stays outside `maxPasses`. A project whose own rule counts every run the hosted reviewer
@@ -1357,9 +1365,11 @@ The order never skips a gate: the merge gate still checks that exact head as for
 
 **`gh` that cannot see the repository.** `PENDING gh cannot see <repo>: export GH_TOKEN for this
 repository` is not retried blind and does not count as a `pending=`: queue `--kind held`
-"export GH_TOKEN for <repo> in the shell that runs STAR and its workers, then answer done" once,
-and leave the row as it is. The next check runs after that item is answered. A worker's escalation
-that says so goes through the `ESCALATION` row of the report table as usual.
+"gh cannot see <repo>: set tokenCmd in star.json to a command that prints a token for it, restart STAR's session, then answer done" once,
+and leave the row as it is. A token exported in a shell never reaches Orca's workers; `tokenCmd`
+reaches every session that starts after it is set (#91). The next check runs after that item is
+answered. A worker's escalation that says so goes through the `ESCALATION` row of the report table
+as usual, and the stage that runs again on its answer starts with the token.
 
 **Sync after the base moved.** `FAIL conflicts` or `PENDING merge state: behind the base branch`
 for a `verifying` row means the base branch moved since babysit last merged it in,

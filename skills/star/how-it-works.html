@@ -455,6 +455,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>On a project with no hosted reviewer, have a teammate approve the PR.</li>
         <li>Accept a report item's report before STAR posts it.</li>
         <li>When the review gate is down on every model: sign in again, or wait. STAR checks it every 30 minutes.</li>
+        <li>When <code>gh</code> cannot see a repository: set <code>tokenCmd</code> in <code>star.json</code> once (a keychain lookup). Every session in the project then gets the token.</li>
         <li>Answer an escalation: a merge-gate check failing twice, NOT-SAFE again after a re-scope, or a worker stalled again after STAR restarted it.</li>
       </ol>
       <p class="aside">Any time: read the decision records in each brief and overrule a call.</p>
