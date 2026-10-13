@@ -393,7 +393,7 @@ work gets the answer without waiting for the next tick.
 | When | Command |
 |---|---|
 | a batch's briefs are drafted (no row of the batch is `inbox` or `briefing` any more) | `loops.sh add --kind go-batch --project <p> --item <batch> --title "go for batch <batch>: <n> items" --body "<item names, one per line>\nOptions: go / go except <items> / drop <item> / or say what to change"` |
-| a brief lists a person-only step | `loops.sh add --kind person --project <p> --item <i> --title "<the step>" --body "brief: <brief path>\nstep: <n>\nkind: <secret, account, screen, confirm-id or risky>\nOptions: done / can't now"` (a `risky` step: `Options: approve / no`) |
+| a brief lists a person-only step | `loops.sh add --kind person --project <p> --item <i> --title "<the step>" --body "brief: <brief path>\nstep: <n>\nkind: <secret, account, screen, confirm-id or risky>\nOptions: done / can't now"` (a `risky` step: `Options: approve / no`; a `(value)` step: the kind line `kind: <kind> (value)` and `Options: <the value> / can't now`) |
 | a `verifying` row's brief has no grant (`grep -cE '^grant: [^ #]' <brief>` prints 0: a brief whose grant line was lost, since every go writes one) | `loops.sh add --kind go-merge --project <p> --item <i> --title "merge PR #<n> under a go?" --body "<pr url>\nOptions: go / not merging"` |
 | a report item's report is written | `loops.sh add --kind accept-report --project <p> --item <i> --title "accept report for <i>" --body "<report path>\nOptions: accept / drop / or say what to redo"` |
 | a worker escalated, or a row failed | `loops.sh add --kind escalation --project <p> --item <i> --title "<reason>" --body "<needs= text, or what failed>\nOptions: answer with your decision to run the stage again / drop"` |
@@ -728,7 +728,9 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `go-batch` | `go except <items>` | the same, for every row of the batch but the named ones; those stay `brief-ready` with a `go-batch` item of their own |
    | `go-batch` | `drop <item>` | that row → `dropped`; add the `go-batch` item again for the rest |
    | `go-batch` | anything else, including "go, but …" | it is feedback for the item it names (it names none and the batch has more than one item: ask which, one question), never a conditional go: append it to that brief under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `go-batch` item again, showing the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line there, since the summary does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix until the go. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
-   | `person` | `done` or `approve` | append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title); the row does not change |
+   | `person`, a `(value)` step (the kind line of its body ends in `(value)`) | exactly `done` | no value came with it: close the answered item and add it again with the title "<the step> (answer with the value)" and the same body. The step stays open, so the row stays out of the go |
+   | `person`, a `(value)` step | anything but `done`, `can't now` or `no` | the answer is the value (#86): append `- <date> person-only step #<n> (<kind>, value): <step> → value: <answer>` to the brief's `## Decisions` (the step is the title without a trailing " (answer with the value)", and the answer exactly as `loops.sh answers` printed it). The step is done; the row does not change |
+   | `person` | `done` or `approve` | append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title); the row does not change. A `(value)` step never takes this row: `done` alone is asked again, and any other answer but `can't now` or `no` is its value (the two rows above) |
    | `person` | `can't now` or `no` | the same record, then close the answered item and add the same `person` item again (`loops.sh add` returns an item that is still in the queue, answered or not, and adds nothing): the open item keeps the row from starting on a go, and the next batch summary asks it again. A `risky` step answered `no`: append "risky call refused: <step>" under `## Feedback`, row → `inbox`, and do not add the item again: the brief stage plans without it |
    | `person` | anything else | record it under `## Decisions` as feedback on that step (the same line, ending `→ feedback: <answer>`), then close the answered item and add the same `person` item again: the step is asked again, and the row stays out of the go |
    | `go-merge` | exactly `go`, `yes` or `ok` | write a grant for that item as for `go-batch`, and stamp `grant:` in its brief; the row stays `verifying`, and the next merge-gate check may merge it |
@@ -1151,8 +1153,12 @@ old PR.
    (something a person must do at the Mac: sign in to an app, grant a permission, approve a
    keychain or Gatekeeper prompt once), `confirm-id` (an external id that could not be checked
    live, below) and `risky` (a call the owner must approve: deleting data, a migration that cannot
-   be undone, spending money, anything outward beyond the PR). A product call is never a
-   person-only step: take it as a decision record. Nothing the brief, its `## Decisions` or the
+   be undone, spending money, anything outward beyond the PR). A step whose answer the build needs
+   as a value (a host name, an id, a path) adds `(value)` after its kind,
+   `<n>. [account] (value) <what to provide>`: the owner's answer is recorded as that value under
+   `## Decisions` (`→ value: <answer>`), where the build reads it (#86). Never on a `secret` step:
+   the queue and the brief are plain files, so a secret goes where its step says, never into an
+   answer. A product call is never a person-only step: take it as a decision record. Nothing the brief, its `## Decisions` or the
    memory notes already answer goes here. Write `none` under the heading when there is nothing.
 
    **Decisions are taken, not asked.** Every question the item leaves open that a builder would
@@ -1650,7 +1656,8 @@ batch then runs without them.
    2. can't now
    ```
 
-   A `risky` step's options are `1. approve` and `2. no`. A worker's `question` that reaches the
+   A `risky` step's options are `1. approve` and `2. no`. A `(value)` step's only numbered option is
+   `1. can't now`, followed by "Or tell me the value." A worker's `question` that reaches the
    owner lists the options the worker brought, STAR's pick first, labelled `(Recommended)`. An
    `escalation`'s option is `1. drop`, followed by "Or tell me your decision." A queue option that
    asks for words is never numbered: it becomes that closing "Or tell me" line.
@@ -1816,6 +1823,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock and the host gate are shared by the machine |
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
 | The user leaves with person-only steps unanswered | Those items stay `brief-ready`; the rest of the batch builds and merges |
+| A person-only step needs a value from the owner (a host name, an id) | `(value)` on the step: the answer is recorded under `## Decisions` as `→ value: <answer>`, and the step is done |
 | A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
 | The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |

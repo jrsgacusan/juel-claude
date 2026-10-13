@@ -525,5 +525,12 @@ g "G3h merge.sh is told the home and the item (#80)" '--grant <grant path> --hom
 g "G3i merge.sh refuses a row with a live worker (#80)" '| `FAIL live worker <dispatch>` |'
 g "G3j the fence before an ordered merge (#80)" '**A merge on a PR a worker is still working on** (#80)'
 g "G3k the edge case of an ordered merge" 'The owner orders a merge while the item'"'"'s worker is still fixing the PR'
+g "G4a a person-only step can carry a value (#86)" '`<n>. [account] (value) <what to provide>`'
+g "G4b never a value on a secret step (#86)" 'Never on a `secret` step'
+g "G4c the queue item says it takes a value (#86)" 'a `(value)` step: the kind line `kind: <kind> (value)`'
+g "G4d the answer is recorded as the value (#86)" '(<kind>, value): <step> → value: <answer>'
+g "G4e done alone is asked again for the value (#86)" '(answer with the value)'
+g "G4f the chat question asks for the value (#86)" 'Or tell me the value.'
+g "G4g the edge case" 'A person-only step needs a value from the owner'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
