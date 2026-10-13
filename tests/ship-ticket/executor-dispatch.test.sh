@@ -31,5 +31,18 @@ for s in ship-ticket review-and-execute receive-review-and-execute; do
   grep -qF 'NOTE: executor skill missing, the plan ran in this session' "$F" && pass "#60 $s: the session fallback is reported" || fail "#60 $s: the session fallback is reported"
 done
 grep -qF 'NOTE: executor skill missing' "$ROOT/skills/execute/SKILL.md" && fail "#60 execute: interactive only, it stops instead" || pass "#60 execute: interactive only, it stops instead"
+# lane e: #77 #78 #81 the executor resumes from the shared ledger, stays in its Files blocks, and applies Base plans
+EX="$ROOT/assets/codex-skills/claude-plan-executor/SKILL.md"
+PC="$ROOT/assets/codex-skills/claude-plan-executor/references/plan-contract.md"
+grep -qF '.superpowers/sdd/<plan file name without .md>/progress.md' "$EX" && grep -qF '.superpowers/sdd/<plan file name without .md>/progress.md' "$PC" && pass "#77 the executor and its contract name the shared ledger" || fail "#77 ledger path"
+grep -qF 'Task <N>: complete (commits <a7>..<b7>, tests: <command> → <result>)' "$EX" && grep -qF 'Task <N>: complete (uncommitted, tests: <command> → <result>)' "$EX" && pass "#77 the executor writes the superpowers done lines" || fail "#77 done lines"
+grep -qF '# SDD ledger — plan: <plan file path>' "$EX" && pass "#77 the ledger's first line is the superpowers literal" || fail "#77 identity line"
+grep -qF 'Start at the first task without one.' "$EX" && grep -qF 'never apply its edits a second time' "$EX" && pass "#77 a resumed run finishes a half-applied task, never redoes it" || fail "#77 resume rule"
+grep -qF 'Change only what each task'"'"'s `**Files:**` block names' "$EX" && grep -qF 'goes under a `Notes:` heading' "$EX" && pass "#78 the executor stays inside each task's Files block" || fail "#78 scope rule"
+grep -qF 'into concrete code or design changes before editing' "$EX" && fail "#78 the widening heuristic is still there" || pass "#78 the widening heuristic is gone"
+grep -qF '**Base:** spec implemented at <sha>; apply only the tasks below.' "$EX" && grep -qF 'never stop because the' "$EX" && pass "#81 a Base plan is applied, never stopped as already done" || fail "#81 Base rule in the executor"
+grep -qF '**Base:** spec implemented at <full sha>; apply only the tasks below.' "$PC" && pass "#81 the contract documents the Base line" || fail "#81 Base line in the contract"
+grep -qF '`**Files:**` block per task' "$PC" && pass "#78 the contract requires a Files block per task" || fail "#78 Files block in the contract"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
