@@ -162,7 +162,9 @@ Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute
   one command with its arguments, not a shell line: `sh <gate-lock.sh> --holder <pr> -- <command>`
   with a `&&`, a `cd`, a `VAR=value` or a quote in `<command>` runs only its first word inside the
   lock. Put the commands in a file under `set -e` and run
-  `-- sh <that file>`.
+  `-- sh <that file>`. A plan step's `gate-lock.sh` line never carries `--progress`: the
+  executor's sandbox cannot write STAR's folder, and the caller's own gates (`juel:babysit-pr`
+  runs them right after this skill) are the ones that report a wait for the lock.
 - Any other STOP (a preflight STOP, a dirty tree, a missing PR) prints `STOPPED: <reason>` as its
   last line, so the caller never mistakes it for a run with nothing to fix.
 - Everything else runs as normal.
