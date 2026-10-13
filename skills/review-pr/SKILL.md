@@ -48,7 +48,7 @@ metadata:
 
 ## Overview
 
-Reviews the current diff in this repo — a fresh, self-contained review cycle: resolve and fetch the linked work item (if any) → run `pr-review-toolkit:review-pr` → assess requirement alignment → validate every finding → write a consolidated report → assess approvability and triage findings into inline vs. summary-comment candidates → post the review to GitHub, gated behind your explicit confirmation. Everything the review needs lives in this skill, not in a prompt string handed to another session.
+Reviews the current diff in this repo — a fresh, self-contained review cycle: resolve and fetch the linked work item (if any) → run `pr-review-toolkit:review-pr` → assess requirement alignment → validate every finding → write a consolidated report → assess approvability and triage findings into inline vs. summary-comment candidates → post the review to GitHub, gated behind your explicit confirmation. Everything the review needs lives in this skill, not in a prompt string handed to another session. With `--since`, the same cycle is a re-review: it also judges your earlier open threads on the PR (Step 4), so none is posted twice.
 
 Differs from `/juel:cmux-review-pr`: that skill spins up an isolated worktree and CMUX workspace and queues this skill as the startup prompt inside it. This skill does the actual reviewing, wherever it runs.
 
@@ -307,10 +307,29 @@ Require `all parallel` mode so the review agents dispatch together instead of on
 the entire review output and state the finding count before proceeding to Step 3. Capture every
 finding — file, line, severity, claim, suggested fix — nothing summarized away yet.
 
+**A re-review (`--since <sha>`).** Check that the commit is here and is an ancestor of `HEAD`:
+
+```bash
+SINCE='<the --since value>'
+git cat-file -e "$SINCE^{commit}" && git merge-base --is-ancestor "$SINCE" HEAD && echo ancestor
+```
+
+When it prints `ancestor`, pass the scope with the mode, in place of the call above:
+
+```
+Skill("pr-review-toolkit:review-pr", args: "all parallel. Re-review: review only the changes in git diff <SINCE>..HEAD; the rest of the PR diff is context, not scope.", run_in_background: false)
+```
+
+Otherwise the commit is not here, or it is not an ancestor (a force-push). Run the plain call above
+on the whole PR diff, and put "<SINCE> is not an ancestor of HEAD: reviewed the whole PR diff" in
+the phase's evidence line. Either way, an inline comment still needs a line inside the full PR diff
+(Step 6).
+
 **Capture the head commit this review is actually reviewing:**
 
 ```bash
-REVIEWED_COMMIT=$(gh pr view --json headRefOid --jq '.headRefOid' 2>/dev/null)
+PR_SEL='<the --pr value, or empty>'
+REVIEWED_COMMIT=$(gh pr view $PR_SEL --json headRefOid --jq '.headRefOid' 2>/dev/null)
 ```
 
 Carry `REVIEWED_COMMIT` forward — Step 5 writes it into the report, and Step 7 compares a fresh
@@ -354,6 +373,20 @@ Sort every finding from Step 2 into exactly one of three buckets — **Confirmed
 **Ambiguous** (defined in Step 5). A finding whose validation outcome is unclear is Ambiguous, not
 dropped. No finding may go unaccounted for.
 
+**Prior threads.** Judge each prior thread from Step 1 at `HEAD`, with the same rigor, into exactly
+one bucket:
+
+- **fixed**: the code at `HEAD` resolves what the thread raised. Name the commit that did it
+  (`git log -L <start>,<end>:<path>` over the commits since your review, or the commit in the
+  `--since` range that touched those lines).
+- **answered**: the author replied with a reason that holds up under the same validation. Say
+  why it holds.
+- **still open**: not fixed, or the author's reply does not hold. Say why, and judge it
+  `blocking: yes` or `blocking: no` by the finding it raised, with Step 6's rule.
+
+An outdated thread (`isOutdated`: its line changed since) is judged like any other. No prior thread
+may go unaccounted for.
+
 ### Step 5: Write the consolidated report
 
 **Resolve `docsRoot` once, then reuse it.** In order:
@@ -388,7 +421,7 @@ findings report, or context file that already exists at the derived path — app
 the extension; if `-v2` exists too, use `-v3`, and so on. This applies to every file type written
 under `${docsRoot}`, not only the one this skill produces.
 
-**Record the reviewed commit at the top of the report, before the four sections below** — Step 7
+**Record the reviewed commit at the top of the report, before the sections below** — Step 7
 reads this line back to detect whether the PR moved since this review ran:
 
 ```markdown
@@ -402,7 +435,8 @@ Write the report to `${docsRoot}/findings/findings-review.md`, or to the next fr
 that exists (above), and set `REPORT` to the path actually written. Steps 6 and 7 read and edit
 `$REPORT`, never a hard-coded `findings-review.md`: on a second run the file is
 `findings-review-v2.md`, and reading the first run's file would compare the wrong commit. It has
-exactly four sections, in this order (Step 6 appends a fifth once triage runs):
+exactly five sections, in this order (Step 6 then adds the Good-to-merge line at the top and
+appends a sixth):
 
 1. **Requirement-alignment** — each requirement/acceptance criterion from Step 3, marked met /
    partial / unmet with evidence, plus any scope-creep beyond the work item. Omit this section
@@ -415,11 +449,16 @@ exactly four sections, in this order (Step 6 appends a fifth once triage runs):
    a `Verified via:` field alongside it, same as Confirmed.
 4. **Ambiguous** — findings that could not be settled against the diff and need the user's
    judgment. Exempt from `Verified via` by definition — nothing was settled to record a method for.
+5. **Prior threads**: each prior thread from Step 1, with its location (`path:line`), the point it
+   raised in one line, its thread `id`, its first comment's `databaseId`, and its bucket from
+   Step 4: **fixed** (with the commit), **answered** (with why), or **still open** (with why, and
+   `blocking: yes` or `blocking: no`). With no prior threads, this section is one line saying so.
 
 **Every finding captured in Step 2 must appear in exactly one of Confirmed / Rejected / Ambiguous —
 state this explicitly in the report.** Silently dropping a finding between Step 2 and the report is
 this plugin's most recurrent defect class; a reader of the report must be able to verify the count
-in equals the count out.
+in equals the count out. Every prior thread from Step 1 appears exactly once under Prior threads,
+the same way.
 
 ### Step 6: Assess approval readiness and triage postable findings
 
@@ -453,7 +492,7 @@ posted inline, since it is by definition unresolved. Note the count of Rejected 
 summary line (not their detail) so nothing is silently dropped from the record, without spamming
 the PR with dismissed nitpicks.
 
-Append a fifth section to the same `$REPORT` file Step 5 wrote. Do not create a second file:
+Append a sixth section to the same `$REPORT` file Step 5 wrote. Do not create a second file:
 
 ```markdown
 ## Verdict & posting plan

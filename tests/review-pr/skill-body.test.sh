@@ -35,5 +35,16 @@ srow "H2e Posted goes into that file" 7 'section of `$REPORT`, the file Step 6 a
 g "H2f the versioning edge case says so" 'Steps 6 and 7 then use the file actually written'
 ng "H2g no hard-coded name in Step 7's prose" 'remains in `findings-review.md`'
 
+# Task H3: the re-review scope and the prior-thread buckets
+srow "H3a a re-review passes its scope to the agents" 2 'Re-review: review only the changes in git diff <SINCE>..HEAD'
+srow "H3b a force-push falls back to the whole diff" 2 'is not an ancestor of HEAD: reviewed the whole PR diff'
+srow "H3c the reviewed commit is the chosen PR's head" 2 'gh pr view $PR_SEL --json headRefOid'
+srow "H3d Step 4 judges every prior thread" 4 '**Prior threads.** Judge each prior thread'
+srow "H3e a thread can stay open" 4 '**still open**'
+srow "H3f the report has five sections" 5 'exactly five sections'
+srow "H3g the fifth is Prior threads" 5 '5. **Prior threads**'
+srow "H3h Step 6 appends the sixth" 6 'Append a sixth section to the same `$REPORT` file'
+g "H3i the overview names the re-review" 'With `--since`, the same cycle is a re-review'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
