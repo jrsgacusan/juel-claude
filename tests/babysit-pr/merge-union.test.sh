@@ -171,5 +171,53 @@ out=$(U); rc=$?
 [ $rc -eq 0 ] && [ "$out" = "resolved reg.txt" ] && pass "insertions at several points resolve (exit 0)" || fail "points: exit $rc ($out)"
 [ "$(tr '\n' ' ' < "$R/reg.txt")" = "a x z b y c w " ] && pass "insertions at several points: each point gets theirs, then ours" || fail "points ($(tr '\n' ' ' < "$R/reg.txt"))"
 
+# 12. package.json: a test chain both sides added to, at different points and more than once (#85)
+pkg() { printf '{\n  "name": "p",\n  "scripts": {\n    "build": "tsc",\n    "test": "%s"\n  }\n}\n' "$1"; }
+chain() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["scripts"]["test"])' "$R/package.json" 2>/dev/null; }
+repo pkg
+pkg 'node a && node c' > "$R/package.json"; commit base; git -C "$R" branch feat
+pkg 'node a && node b && node c' > "$R/package.json"; commit main
+git -C "$R" switch -q feat; pkg 'node 0 && node a && node c && node d' > "$R/package.json"; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$out" = "resolved package.json" ] && pass "a package.json test chain resolves (exit 0)" || fail "pkg: exit $rc ($out)"
+[ "$(chain)" = "node 0 && node a && node b && node c && node d" ] && pass "the chain is the ordered union: theirs, then ours, at each point" || fail "pkg chain ($(chain))"
+[ "$(sed -n 4p "$R/package.json")" = '    "build": "tsc",' ] && [ -z "$(git -C "$R" diff --name-only --diff-filter=U)" ] && pass "the rest of package.json is untouched and nothing is left unmerged" || fail "pkg rest ($(cat "$R/package.json"))"
+
+# 13. package.json: one side's addition contains the other's: each command once (#85)
+repo pkgdup
+pkg 'node a' > "$R/package.json"; commit base; git -C "$R" branch feat
+pkg 'node a && node x' > "$R/package.json"; commit main
+git -C "$R" switch -q feat; pkg 'node a && node x && node y' > "$R/package.json"; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$(chain)" = "node a && node x && node y" ] && pass "a command both sides added is kept once" || fail "pkgdup: exit $rc ($(chain))"
+
+# 14. package.json: one command's name contains the other's: both kept, each exactly once (Review Focus 2)
+repo pkgbak
+pkg 'node a' > "$R/package.json"; commit base; git -C "$R" branch feat
+pkg 'node a && node x.test.cjs' > "$R/package.json"; commit main
+git -C "$R" switch -q feat; pkg 'node a && node x.test.cjs.bak' > "$R/package.json"; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$(chain)" = "node a && node x.test.cjs && node x.test.cjs.bak" ] && pass "commands that share text are both kept, each once" || fail "pkgbak: exit $rc ($(chain))"
+
+# 15. package.json chains that are not append-only stay conflicts: a dropped command, a changed
+# command, and a chain outside "scripts" (commands added at different points: the in-line rule
+# above already joins two additions at the same point, in any file)
+not_chain() {
+  repo "$1"; printf "$2" 'node a && node b' > "$R/package.json"; commit base; git -C "$R" branch feat
+  printf "$2" "$3" > "$R/package.json"; commit main
+  git -C "$R" switch -q feat; printf "$2" "$4" > "$R/package.json"; commit feat
+  merge
+  out=$(U); rc=$?
+  [ $rc -eq 1 ] && [ "$out" = "conflict package.json edited on both sides" ] && pass "$1: edited on both sides" || fail "$1: exit $rc ($out)"
+}
+SCRIPTS='{\n  "scripts": {\n    "test": "%s"\n  }\n}\n'
+OTHER='{\n  "jest": {\n    "test": "%s"\n  },\n  "scripts": {}\n}\n'
+not_chain dropped "$SCRIPTS" 'node a && node b && node x' 'node a && node y'
+not_chain changed "$SCRIPTS" 'node a && node b && node x' 'node a && node b2 && node y'
+not_chain outside "$OTHER" 'node a && node x && node b' 'node a && node b && node y'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

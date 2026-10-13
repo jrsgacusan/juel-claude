@@ -15,6 +15,11 @@
 # other, and theirs must end or ours start with whitespace or , ; |.
 # Two in-line insertions where one contains the other's text (" && node x" and " && node x && node y")
 # are edited on both sides: putting both in would repeat the shorter one (#85).
+# package.json: a conflicted line of its "scripts" object whose value is a chain of commands joined
+# by " && ", where each side kept the base's commands in order and only added commands, at any
+# points, resolves to the ordered union of the chain: the base's commands in order, and before each
+# one the commands theirs added there, then those ours added there; a command already in the chain
+# is not added again (#85, #92). Every other line of such a hunk must be the same on all three sides.
 # Insertions at different points of a file are separate hunks, each resolved as above, so a file
 # where both sides only added lines resolves to the union of both, at every point (#92).
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
@@ -25,6 +30,8 @@
 # Exit: 0 all resolved; 1 something is not mechanical; 2 no merge with conflicts in progress;
 # 64 usage.
 exec python3 - "$@" <<'PY'
+import difflib
+import json
 import os
 import re
 import subprocess
@@ -34,6 +41,9 @@ import tempfile
 MARK = 31
 SEPARATORS = " \t\n,;|"
 LOCKFILES = {"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "go.sum"}
+AND = " && "
+# one "key": "value" line of a JSON object, its two strings still escaped as written
+PAIR = re.compile(r'^(\s*)"((?:[^"\\]|\\.)*)"(\s*:\s*)"((?:[^"\\]|\\.)*)"(\s*,?\s*)$')
 
 
 def usage():
@@ -121,13 +131,68 @@ def resolve_hunk(base, ours, theirs):
     return before + t[1] + o[1] + after
 
 
+def chain_union(base, ours, theirs):
+    """The ordered union of two command chains that only added commands to base; None otherwise."""
+    def added(side):
+        at = {}
+        for tag, i1, _i2, j1, j2 in difflib.SequenceMatcher(None, base, side, autojunk=False).get_opcodes():
+            if tag == "insert":
+                at.setdefault(i1, []).extend(side[j1:j2])
+            elif tag != "equal":
+                return None
+        return at
+    o, t = added(ours), added(theirs)
+    if o is None or t is None:
+        return None
+    out = []
+    for i in range(len(base) + 1):
+        for command in t.get(i, []) + o.get(i, []):
+            if command not in out and command not in base:
+                out.append(command)
+        if i < len(base):
+            out.append(base[i])
+    return out
+
+
+def unescape(raw):
+    return json.loads(f'"{raw}"')
+
+
+def resolve_chains(base, ours, theirs, scripts):
+    """A hunk whose differing lines are all package.json script chains, resolved; else None."""
+    lines = {k: v.splitlines(keepends=True) for k, v in (("base", base), ("ours", ours), ("theirs", theirs))}
+    if not lines["base"] or len({len(v) for v in lines.values()}) != 1:
+        return None
+    out = []
+    for b, o, t in zip(lines["base"], lines["ours"], lines["theirs"]):
+        if b == o == t:
+            out.append(b)
+            continue
+        found = [PAIR.match(x.rstrip("\n")) for x in (b, o, t)]
+        if not all(found) or len({(m.group(1), m.group(2), m.group(3), m.group(5)) for m in found}) != 1:
+            return None
+        try:
+            key, values = unescape(found[0].group(2)), [unescape(m.group(4)) for m in found]
+        except ValueError:
+            return None
+        if any(value != scripts[label].get(key) for value, label in zip(values, ("base", "ours", "theirs"))):
+            return None
+        chain = chain_union(*(m.group(4).split(AND) for m in found))
+        if chain is None:
+            return None
+        m = found[0]
+        out.append(f'{m.group(1)}"{m.group(2)}"{m.group(3)}"{AND.join(chain)}"{m.group(5)}\n')
+    return "".join(out)
+
+
 def marker(line, ch):
     body = line.rstrip("\r\n")
     return body.startswith(ch * MARK) and (len(body) == MARK or body[MARK] == " ")
 
 
-def merged(texts):
-    """(the file with every hunk resolved, None), or (None, why)."""
+def merged(texts, scripts=None):
+    """(the file with every hunk resolved, None), or (None, why). scripts: each side's package.json
+    "scripts" object, when the file is a package.json whose three versions all have one."""
     with tempfile.TemporaryDirectory() as tmp:
         names = []
         for label in ("ours", "base", "theirs"):
@@ -159,7 +224,10 @@ def merged(texts):
             else:
                 part["base"].append(line)
         elif marker(line, ">"):
-            done = resolve_hunk("".join(part["base"]), "".join(part["ours"]), "".join(part["theirs"]))
+            hunk = ("".join(part["base"]), "".join(part["ours"]), "".join(part["theirs"]))
+            done = resolve_hunk(*hunk)
+            if done is None and scripts:
+                done = resolve_chains(*hunk, scripts)
             if done is None:
                 return None, "edited on both sides"
             out.append(done)
@@ -169,6 +237,33 @@ def merged(texts):
     if state != "text":
         return None, "unreadable merge"
     return "".join(out), None
+
+
+def scripts_of(texts):
+    """Each side's "scripts" object when all three sides are JSON objects that have one, else None."""
+    found = {}
+    for label, text in texts.items():
+        try:
+            doc = json.loads(text)
+        except ValueError:
+            return None
+        if not isinstance(doc, dict) or not isinstance(doc.get("scripts"), dict):
+            return None
+        found[label] = doc["scripts"]
+    return found
+
+
+def resolve_texts(name, raw):
+    """(the merged file, None), or (None, why), from the three versions' bytes."""
+    if any(b"\0" in v for v in raw.values()):
+        return None, "binary"
+    try:
+        texts = {k: v.decode("utf-8") for k, v in raw.items()}
+    except UnicodeDecodeError:
+        return None, "binary"
+    if any(v and not v.endswith("\n") for v in texts.values()):
+        return None, "no newline at the end of the file"
+    return merged(texts, scripts_of(texts) if name == "package.json" else None)
 
 
 def resolve_file(path, entry):
@@ -187,16 +282,7 @@ def resolve_file(path, entry):
              for label, k in (("base", 1), ("ours", 2), ("theirs", 3))}
     if any(b.returncode != 0 for b in blobs.values()):
         return None, "unreadable blob"
-    raw = {label: b.stdout for label, b in blobs.items()}
-    if any(b"\0" in v for v in raw.values()):
-        return None, "binary"
-    try:
-        texts = {k: v.decode("utf-8") for k, v in raw.items()}
-    except UnicodeDecodeError:
-        return None, "binary"
-    if any(v and not v.endswith("\n") for v in texts.values()):
-        return None, "no newline at the end of the file"
-    return merged(texts)
+    return resolve_texts(name, {label: b.stdout for label, b in blobs.items()})
 
 
 results, problems = {}, []
