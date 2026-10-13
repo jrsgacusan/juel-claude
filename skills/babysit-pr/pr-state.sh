@@ -2,6 +2,7 @@
 # Reports what changed on a PR since a cursor, as one JSON object on stdout:
 #   {"state","decision","head","draft","base","author","url","approval","required","checks","merge",
 #    "hosted","changes_requested","new_feedback":[...],"reviewers","cursor"}
+#   plus "requested","head_seen" under --as-reviewer (below).
 # "merge" is clean, dirty (the PR conflicts with its base: mergeStateStatus DIRTY, or mergeable
 # CONFLICTING, which is all a draft shows, since GitHub reports DRAFT for it), behind, blocked, or
 # unknown (GitHub is still computing it). UNSTABLE and HAS_HOOKS still merge: clean.
@@ -47,6 +48,13 @@
 # --as-reviewer, --as-reviewer without a --reviewed-head of 7 to 40 hex, a negative
 # --settle-minutes, or a --head-seen that is not <sha>@<iso> print the reason on stderr and exit
 # 64, before any gh call.
+# In that mode "new_feedback" holds only the PR author's items, "reviewers" is empty, and the
+# snapshot adds "requested" (the time of the newest review_requested timeline event that names
+# <login> itself, compared without case, never a team, after the cursor's second; else null: a
+# request at or before the cursor never counts) and "head_seen" ("<head>@<iso>": when this script
+# first saw that head; --head-seen carries the time into a new call while its sha still starts the
+# head). The timeline is read, paginated, only in this mode; a timeline that cannot be read is an
+# error, like any other gh failure.
 BABYSIT_DIR=$(cd "$(dirname "$0")" && pwd)
 export BABYSIT_DIR
 exec python3 - "$@" <<'PY'
@@ -218,7 +226,7 @@ def pr_number(pr, view):
     return in_url.group(1) if in_url else str(view["number"])
 
 
-def snapshot(pr, since, repo, bots=(), hosted=""):
+def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
     view_args = ["pr", "view", pr, "--json",
                  "state,reviewDecision,headRefOid,isDraft,baseRefName,author,url,statusCheckRollup,"
                  "mergeStateStatus,mergeable,number"]
@@ -255,12 +263,15 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
         hosted_state = hosted_status(runs, statuses, hosted)
 
     def wanted(user):
+        if reviewer:
+            # a reviewer waits on the author: only the author's own words are news
+            return bool(user) and user.get("login") == author
         if not user or user.get("login") == author:
             return False
         return not is_bot(user) or (user.get("login") or "").lower() in kept
 
     def note_reviewer(user):
-        if not is_bot(user):
+        if not reviewer and not is_bot(user):
             reviewers.add(user["login"])
 
     items, reviewers, submitted, latest = [], set(), {}, {}
@@ -322,6 +333,21 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
         newest = ts(items[-1]["at"])
         at_newest = sorted({str(i["id"]) for i in everything if ts(i["at"]) == newest}, key=lambda x: (len(x), x))
         cursor = items[-1]["at"] + "#" + ",".join(at_newest)
+    extra = {}
+    if reviewer:
+        # a re-request counts only after the cursor's second, so a request already handled never wakes again
+        edge = ts(since_at) if since_at else None
+        asked = []
+        for e in gh_list(f"{base}/issues/{number}/timeline"):
+            who = ((e.get("requested_reviewer") or {}).get("login") or "").lower()
+            if e.get("event") != "review_requested" or who != reviewer["login"].lower() or not e.get("created_at"):
+                continue  # a team request names requested_team, not requested_reviewer
+            if edge is None or ts(e["created_at"]) > edge:
+                asked.append(e["created_at"])
+        seen_sha, _, seen_at = (reviewer.get("head_seen") or "").partition("@")
+        if not (head and seen_sha and head.lower().startswith(seen_sha.lower())):
+            seen_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        extra = {"requested": max(asked, key=ts) if asked else None, "head_seen": f"{head or ''}@{seen_at}"}
     approval, required = "unknown", None
     if rule == "none":
         approval = "none"
@@ -334,7 +360,7 @@ def snapshot(pr, since, repo, bots=(), hosted=""):
             "checks": checks_state(view.get("statusCheckRollup"), required_checks),
             "merge": merge_state(view), "hosted": hosted_state,
             "changes_requested": sorted(w for w, s in latest.items() if s == "CHANGES_REQUESTED"),
-            "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor}
+            "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor, **extra}
 
 
 def wake_reason(snap, hold_approval=False):
@@ -365,7 +391,7 @@ def wait(a):
     while True:
         t_snap = time.monotonic()
         try:
-            snap = snapshot(a.pr, a.since, a.repo, a.bots, a.hosted)
+            snap = snapshot(a.pr, a.since, a.repo, a.bots, a.hosted, a.reviewer)
         except Exception as e:
             errors += 1
             last_error = str(e) if isinstance(e, GhError) else f"unexpected gh output: {type(e).__name__}: {e}"
@@ -463,7 +489,7 @@ def main(argv):
         emit(wait(a))
         return
     try:
-        emit(snapshot(a.pr, a.since, a.repo, a.bots, a.hosted))
+        emit(snapshot(a.pr, a.since, a.repo, a.bots, a.hosted, a.reviewer))
     except GhError as e:
         emit({"error": str(e)})
     except Exception as e:  # output drift from gh; never a traceback

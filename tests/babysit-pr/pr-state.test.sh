@@ -474,6 +474,40 @@ check_rc "reviewer flags: a --head-seen whose time is not ISO is a usage error" 
 run r-base 40 --as-reviewer me --reviewed-head "$HA"
 check "reviewer flags: a whole set runs and exits 0" 'rc == 0 and "error" not in d'
 
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: new_feedback holds only the author's items after the cursor" 'ids == [71, 802, 901] and all(i["author"] == "alice" for i in d["new_feedback"])'
+check "reviewer snapshot: no reviewers to re-request" 'd["reviewers"] == []'
+check "reviewer snapshot: the first request, a team request and another user's request are no re-request" 'd["requested"] is None'
+check "reviewer snapshot: head_seen names the full head and a UTC time" 'd["head_seen"].startswith("'"$HB"'@") and d["head_seen"].endswith("Z")'
+check "reviewer snapshot: the timeline is read, paginated" 'any("--paginate" in l and "/issues/40/timeline" in l for l in log)'
+run r-base 40 --since 2026-10-02T09:00:00Z
+check "without --as-reviewer: the author is still excluded, as today" 'ids == [803, 902, 903] and d["reviewers"] == ["bob", "me"]'
+check "without --as-reviewer: no requested or head_seen key" '"requested" not in d and "head_seen" not in d'
+check "without --as-reviewer: the timeline is never read" 'not any("timeline" in l for l in log)'
+
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: a re-request of the user after the cursor gives its time" 'd["requested"] == "2026-10-02T12:00:00Z"'
+run r-req 40 --as-reviewer Me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: the login compares without case, as GitHub logins do" 'd["requested"] == "2026-10-02T12:00:00Z"'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T12:00:00Z
+check "reviewer snapshot: a request in the cursor's own second never counts (Review Focus 3)" 'd["requested"] is None'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since '2026-10-02T12:00:00Z#903'
+check "reviewer snapshot: a cursor with ids still counts only requests after its second" 'd["requested"] is None'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T13:00:00Z
+check "reviewer snapshot: a request before the cursor never counts" 'd["requested"] is None'
+
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "$HB@2026-10-02T10:00:00Z"
+check "reviewer snapshot: --head-seen keeps its time while its sha is the head" 'd["head_seen"] == "'"$HB"'@2026-10-02T10:00:00Z"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "bbbbbbb@2026-10-02T10:00:00Z"
+check "reviewer snapshot: a short --head-seen sha that starts the head counts; the full head is printed" 'd["head_seen"] == "'"$HB"'@2026-10-02T10:00:00Z"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --head-seen "$HC@2026-10-02T10:00:00Z"
+check "reviewer snapshot: a --head-seen for another sha starts the clock again" 'd["head_seen"].startswith("'"$HB"'@") and not d["head_seen"].endswith("2026-10-02T10:00:00Z")'
+
+STUB_FAIL_ROUTE=timeline; export STUB_FAIL_ROUTE
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
+check "reviewer snapshot: a timeline that cannot be read is an error, never 'not requested'" 'rc == 0 and "exited 1" in d.get("error", "")'
+unset STUB_FAIL_ROUTE
+
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
