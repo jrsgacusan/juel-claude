@@ -236,6 +236,10 @@ grow "R1b the record is taken right before the executor runs" 'Right before the 
 grow "R1c the check reads that record" 'sh <scope-check.sh> <the plan> <the head before the executor> --before <that record file>'
 grow "R1d a file in the record is never outside" 'a file in the record is never `outside`'
 grow "R1e an unchecked plan is reported and passed" '`unchecked …` means nothing was checked: say so in the round'"'"'s evidence line and go on'
+gates_row=$(grep -F '| gates run directly |' "$SKILL")
+[ "$(printf '%s\n' "$gates_row" | grep -c .)" -eq 1 ] && pass "R4a one table row holds the direct gate run" || fail "R4a one table row holds the direct gate run"
+printf '%s\n' "$gates_row" | grep -qF -- '--holder "<star.project>/<item>"' && pass "R4b under a star brief the lock holder names the project" || fail "R4b under a star brief the lock holder names the project"
+printf '%s\n' "$gates_row" | grep -qF 'without a `star:` brief, leave out `--progress` and use `--holder "<item>"`' && pass "R4c without a star brief it stays the item" || fail "R4c without a star brief it stays the item"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
