@@ -29,7 +29,8 @@
 # and its time is updated_at, so each edit that names the head is new feedback once. An edit that
 # names an older head stays a plain comment, timed by its creation: not new.
 # <pr> is a number, a PR URL (STAR's ledger holds one), a branch name or #<n>; the REST paths use its number.
-# Always exits 0. Per gh call timeout: BABYSIT_GH_TIMEOUT seconds (default 60); under
+# Exits 0, except a usage error in the reviewer flags (64, below). Per gh call timeout:
+# BABYSIT_GH_TIMEOUT seconds (default 60); under
 # --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
 # happens: feedback | conflict ("merge" is dirty; it wakes even under --hold-approval) |
@@ -40,6 +41,12 @@
 # --hold-approval turns the approved and draft wakes off: use it while this run still holds
 # deferred replies or a deferred "gh pr ready", so an approved PR waits out the quiet window
 # instead of waking at once on every call.
+# --as-reviewer <login> --reviewed-head <sha> [--settle-minutes <n>] [--head-seen <sha>@<iso>]
+# watch a PR that <login> reviewed and someone else authored (babysit-pr's reviewer mode).
+# --settle-minutes defaults to 30. The other three flags without --as-reviewer, an empty
+# --as-reviewer, --as-reviewer without a --reviewed-head of 7 to 40 hex, a negative
+# --settle-minutes, or a --head-seen that is not <sha>@<iso> print the reason on stderr and exit
+# 64, before any gh call.
 BABYSIT_DIR=$(cd "$(dirname "$0")" && pwd)
 export BABYSIT_DIR
 exec python3 - "$@" <<'PY'
@@ -389,6 +396,41 @@ def emit(obj):
     print(json.dumps(obj, separators=(",", ":")))
 
 
+SHA = re.compile(r"[0-9a-fA-F]{7,40}")
+
+
+def usage(msg):
+    print(f"pr-state.sh: {msg}", file=sys.stderr)
+    sys.exit(64)
+
+
+def reviewer_args(a):
+    """None without --as-reviewer; else {login, reviewed_head, settle (minutes), head_seen}. Half given: exit 64."""
+    if a.as_reviewer is None:
+        for flag, value in (("--reviewed-head", a.reviewed_head), ("--settle-minutes", a.settle_minutes),
+                            ("--head-seen", a.head_seen)):
+            if value is not None:
+                usage(f"{flag} needs --as-reviewer")
+        return None
+    login = a.as_reviewer.strip()
+    if not login:
+        usage("--as-reviewer needs a login")
+    if not a.reviewed_head or not SHA.fullmatch(a.reviewed_head):
+        usage("--as-reviewer needs --reviewed-head <sha> (7 to 40 hex)")
+    settle = 30.0 if a.settle_minutes is None else a.settle_minutes
+    if settle < 0:
+        usage("--settle-minutes must be 0 or more")
+    if a.head_seen is not None:
+        sha, _, at = a.head_seen.partition("@")
+        try:
+            ok = bool(SHA.fullmatch(sha)) and bool(at) and ts(at) is not None
+        except ValueError:
+            ok = False
+        if not ok:
+            usage("--head-seen must be <sha>@<iso time>")
+    return {"login": login, "reviewed_head": a.reviewed_head.lower(), "settle": settle, "head_seen": a.head_seen}
+
+
 def main(argv):
     p = argparse.ArgumentParser(prog="pr-state.sh")
     p.add_argument("pr")
@@ -402,9 +444,14 @@ def main(argv):
     p.add_argument("--hold-approval", action="store_true")
     p.add_argument("--review-bots", default="")
     p.add_argument("--hosted", default="")
+    p.add_argument("--as-reviewer")
+    p.add_argument("--reviewed-head")
+    p.add_argument("--settle-minutes", type=float)
+    p.add_argument("--head-seen")
     a = p.parse_args(argv)
     a.bots = [b.strip() for b in a.review_bots.split(",") if b.strip()]
     a.hosted = a.hosted.strip()
+    a.reviewer = reviewer_args(a)
     for flag, value in (("--since", split_cursor(a.since)[0]), ("--quiet-since", a.quiet_since)):
         try:
             if value:
