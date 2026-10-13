@@ -145,5 +145,31 @@ out=$(U); rc=$?
 [ $rc -eq 1 ] && [ "$out" = "conflict m.md edited on both sides" ] && pass "an insertion inside the other's block is edited on both sides (exit 1)" || fail "mid-block: exit $rc ($out)"
 [ -n "$(git -C "$R" ls-files -u m.md)" ] && pass "an insertion inside the other's block stays conflicted" || fail "mid-block: staged ($(cat "$R/m.md"))"
 
+# 10. one in-line insertion that contains the other's text is edited on both sides, never
+# "node a && node x && node x && node y" (#85), whichever side is the longer
+for longer in main feat; do
+  repo "contain-$longer"
+  put chain.txt 'run: node a\n'; commit base; git -C "$R" branch feat
+  if [ "$longer" = main ]; then put chain.txt 'run: node a && node x && node y\n'; else put chain.txt 'run: node a && node x\n'; fi
+  commit main
+  git -C "$R" switch -q feat
+  if [ "$longer" = main ]; then put chain.txt 'run: node a && node x\n'; else put chain.txt 'run: node a && node x && node y\n'; fi
+  commit feat
+  merge
+  out=$(U); rc=$?
+  [ $rc -eq 1 ] && [ "$out" = "conflict chain.txt edited on both sides" ] && pass "contain-$longer: an insertion inside the other is edited on both sides (exit 1)" || fail "contain-$longer: exit $rc ($out)"
+  [ -n "$(git -C "$R" ls-files -u chain.txt)" ] && pass "contain-$longer: nothing is staged" || fail "contain-$longer: staged ($(cat "$R/chain.txt"))"
+done
+
+# 11. both sides only added lines, at more than one point: every insertion is kept, in order (#92)
+repo points
+put reg.txt 'a\nb\nc\n'; commit base; git -C "$R" branch feat
+put reg.txt 'a\nx\nb\ny\nc\n'; commit main
+git -C "$R" switch -q feat; put reg.txt 'a\nz\nb\nc\nw\n'; commit feat
+merge
+out=$(U); rc=$?
+[ $rc -eq 0 ] && [ "$out" = "resolved reg.txt" ] && pass "insertions at several points resolve (exit 0)" || fail "points: exit $rc ($out)"
+[ "$(tr '\n' ' ' < "$R/reg.txt")" = "a x z b y c w " ] && pass "insertions at several points: each point gets theirs, then ours" || fail "points ($(tr '\n' ' ' < "$R/reg.txt"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

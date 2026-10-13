@@ -13,6 +13,10 @@
 # An insertion that would join two word characters (\w), as 1 to 10 does, is not mechanical.
 # Where two different insertions meet, the whole lines of one may not appear as a run inside the
 # other, and theirs must end or ours start with whitespace or , ; |.
+# Two in-line insertions where one contains the other's text (" && node x" and " && node x && node y")
+# are edited on both sides: putting both in would repeat the shorter one (#85).
+# Insertions at different points of a file are separate hunks, each resolved as above, so a file
+# where both sides only added lines resolves to the union of both, at every point (#92).
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
 # (added on both sides), a delete or rename conflict, a mode change, a binary file, a lockfile,
 # a file whose last line has no newline. Hunks are found with
@@ -108,6 +112,9 @@ def resolve_hunk(base, ours, theirs):
     shorter, longer = sorted((t[1].splitlines(keepends=True), o[1].splitlines(keepends=True)), key=len)
     n = len(shorter)
     if n and any(longer[i:i + n] == shorter for i in range(len(longer) - n + 1)):
+        return None
+    inner, outer = sorted((t[1], o[1]), key=len)
+    if "\n" not in outer and inner and inner in outer:
         return None
     if t[1] and o[1] and t[1][-1] not in SEPARATORS and o[1][0] not in SEPARATORS:
         return None
