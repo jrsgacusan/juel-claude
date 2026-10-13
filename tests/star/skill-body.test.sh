@@ -503,5 +503,12 @@ g "G1c no receipt is written by hand (#84)" 'so none is ever written by hand'
 g "G1d an owner's ship decision is written as a carried proof (#82)" 'sh S/../babysit-pr/review-proof.sh carry --reviews HOME_DIR/reviews/<project> --item <item> --round <k>'
 g "G1e babysit gets the carried proof as --reviewed (#82)" '`<item>-r<k>-carried.md` when the owner shipped that round'
 g "G1f STAR's home lists the carried proof" 'reviews/<project>/<item>-r<k>-carried.md'
+g "G2a refreshOutsideCap is a hosted-reviewer setting (#93)" '"maxPasses": 2, "refreshOutsideCap": true }'
+g "G2b the lookup writes it too (#93)" '"maxPasses": 2, "refreshOutsideCap": true}` and says so in one line'
+g "G2c a project that counts every run escalates hosted-cap (#93)" 'comes to the owner as `reason=hosted-cap`'
+g "G2d one merge per base at a time (#75)" '**One merge per base at a time** (#75, #93)'
+g "G2e a row with no hosted pass left merges first (#93)" 'merge first a row with no hosted pass left'
+g "G2f siblings sync in the same tick (#75)" 'run the merge gate at once, in the same tick, for every other `verifying` row on that base'
+g "G2g STAR's home lists the hosted pass record" 'reviews/<project>/<item>-hosted.log'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -109,5 +109,8 @@ PY
 # lane g: the page shows STAR's changes for issues #75 to #93
 grep -qF 'with a <code>VERDICT: PASS</code> line' "$PAGE" && pass "G1 the merge gate names the receipt's VERDICT line and both carries" || fail "G1 receipt on the page"
 grep -qF 'keeps the last codex PASS, so only the regression gate runs again' "$PAGE" && pass "G1 a clean base merge keeps the PASS" || fail "G1 carried SAFE on the page"
+grep -qF 'One merge per base branch at a time' "$PAGE" && pass "G2 the page names the merge order" || fail "G2 merge order on the page"
+grep -qF '<code>refreshOutsideCap: false</code>' "$PAGE" && pass "G2 the page names refreshOutsideCap" || fail "G2 refreshOutsideCap on the page"
+grep -qF 'babysit merges the base in before asking for it' "$PAGE" && pass "G2 the last pass reviews a current head" || fail "G2 last pass on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

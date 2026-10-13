@@ -275,7 +275,7 @@ later when the repo was not registered yet), and adds the remote as `remote`: th
 `git -C <project.repo> remote` prints, else `origin`.
 It also looks for a hosted reviewer: when `greptile-apps[bot]` commented on one of the
 repository's last 20 merged PRs, it sets `hostedReviewer` to
-`{"login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2}` and says so in one line; the owner
+`{"login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2, "refreshOutsideCap": true}` and says so in one line; the owner
 can change it. The lookup is `gh pr list --state merged --limit 20 --json number --jq '.[].number'`,
 then for each `<n>`:
 `gh api "repos/{owner}/{repo}/pulls/<n>/reviews" --jq '.[].user.login'` and
@@ -309,6 +309,7 @@ reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the ver
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
+reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
@@ -343,7 +344,7 @@ Settings in `star.json`:
   "worker":   { "agent": "claude", "model": "opus", "effort": "xhigh" },   // a stage with no entry, and the fallback
   "executor": { "model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol" },   // runs every written plan
   "gate":     { "model": "latest-sol", "effort": "xhigh", "fallback": { "agent": "claude", "model": "opus", "effort": "xhigh" }, "maxRounds": 3 },   // the review gate: Sol, then Claude
-  "hostedReviewer": null,                                // or { "login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2 }
+  "hostedReviewer": null,                                // or { "login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2, "refreshOutsideCap": true }
   "hostGate": { "minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25 },
   "progressDeadlineMin": 30,                             // no progress for this long: a check-in
   "mcps":     { "mobbin": "available", "context7": "needs-sign-in" },   // null in a new folder; every start writes it from the Preflight: available, needs-sign-in or absent
@@ -374,6 +375,12 @@ reliably, so it is not the default.
 
 A model of `default` means: pass neither `--model` nor `--effort`. Model ids come from the CLIs,
 never from memory.
+
+`hostedReviewer.refreshOutsideCap` (true when absent) says whether a status refresh after the
+last pass stays outside `maxPasses`. A project whose own rule counts every run the hosted reviewer
+starts sets it to false: babysit then never asks for a run past `maxPasses`, and a head that needs
+one comes to the owner as `reason=hosted-cap` (#93). Babysit also merges the base in before it asks
+for the last pass, so that pass reviews a current head.
 
 ### The queue: `open-loops.md`
 
@@ -1250,11 +1257,22 @@ the PR's author, with nobody's latest review asking for changes. With a hosted r
 reads none of its review: the babysit worker judged it clean on this exact head, from guidelines,
 before it reported `READY` (`juel:babysit-pr`), and the head check holds the gate to that head.
 
+**One merge per base at a time** (#75, #93). `merge.sh` runs in the background, so two `PASS` rows
+on one base would race, and GitHub would refuse the second as behind. Take the `verifying` rows
+base by base (each brief's `baseBranch`): while a `merge.sh` for a base is still running, no other
+row on that base starts one, and it waits for that line. Among the rows on one base whose gate
+prints `PASS` in a tick, merge first a row with no hosted pass left
+(`grep -c ' pass ' HOME_DIR/reviews/<project>/<item>-hosted.log` prints `hostedReviewer.maxPasses`
+or more: it cannot take another review run, so it must not be the one left behind), then the oldest
+`updated`. When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, for every other `verifying` row on that base: a
+`PENDING merge state: behind the base branch` or `FAIL conflicts` there goes to the sync rule now
+("Sync after the base moved"), so its babysit run merges the new base in before any later pass.
+
 | Verdict | Then |
 |---|---|
 | `PASS …` | First close the row's open `held` item "PR #<n> waits for an approval from someone other than you" when it has one. The brief has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1): `sh S/merge.sh <pr url> --head <head> --grant <grant path> [--quiet-hours <window>]` (the window as `stage-start.sh` renders it; none when `quietHours` is null), run in the background like `stage-start.sh`; its line is the next table. No grant (a brief whose grant line was lost, since every go writes one): queue `--kind go-merge` and leave the row |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` |
-| `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. `PENDING hosted-status <check> missing on <sha>`: the hosted reviewer has no status on this head, most often after a base sync that came after its last pass. When the brief's `## Decisions` has no line "the merge gate said: no <check> status on <sha7>" yet: append "- <date> the merge gate said: no <check> status on <sha7>; refresh the hosted status on <sha7>", row → `babysit-queued` (babysit resumes with `--since <cursor>`; its Phase 1 asks the hosted reviewer for a status refresh, which is not a pass); it is not a `pending=`. When that line is there already, the refresh did not help: the Otherwise branch. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
+| `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. `PENDING hosted-status <check> missing on <sha>`: the hosted reviewer has no status on this head, most often after a base sync that came after its last pass. When the brief's `## Decisions` has no line "the merge gate said: no <check> status on <sha7>" yet: append "- <date> the merge gate said: no <check> status on <sha7>; refresh the hosted status on <sha7>", row → `babysit-queued` (babysit resumes with `--since <cursor>`; its Phase 1 asks the hosted reviewer for a status refresh, which is not a pass, unless `refreshOutsideCap` is false: then babysit escalates `reason=hosted-cap`, which the owner answers); it is not a `pending=`. When that line is there already, the refresh did not help: the Otherwise branch. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" |
 | `MERGED <sha>` | the PR is merged (by STAR's own earlier call, or by someone else): `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`; row → `done`; print the record's path |
 | `FAIL <what>` | `FAIL closed`: as the PR check's `FAIL closed` ("Fill slots"): row → `escalated`, queue `--kind escalation` "PR was closed without a merge". `FAIL conflicts`: the sync rule below. `FAIL no codex PASS for <sha7>`: append "- <date> the merge gate said: no codex PASS for <sha7>; resume the gate loop on the existing PR" to the brief's `## Decisions`, row → `queued` (the build resumes the gate loop, as for `reason=no-safe-verdict`); it spends no `mergefail=`. Otherwise: `counters` has no `mergefail=1`: write it, append "- <date> the merge gate said: <what>. Fix it on the PR." to the brief's `## Decisions`, row → `babysit-queued` (babysit resumes with `--since <cursor>`). It has: → `escalated`, queue `--kind escalation` "the merge gate failed twice: <what>" |
@@ -1263,7 +1281,7 @@ before it reported `READY` (`juel:babysit-pr`), and the head check holds the gat
 
 | Line | Then |
 |---|---|
-| `MERGED <sha>` | as the verdict `MERGED`, then print it and push one notification, "merged <item>: PR #<n>" |
+| `MERGED <sha>` | as the verdict `MERGED`, then print it and push one notification, "merged <item>: PR #<n>". Then run the merge gate for the other `verifying` rows on that base in this same tick ("One merge per base at a time") |
 | `HELD quiet hours` | put `retry=<now + 10 min>` in `verify`: the gate runs again after that, and merges at the first run outside quiet hours |
 | `FAIL head moved` | as the verdict `MOVED` |
 | `FAIL grant: …`, `FAIL merge methods: …` or `FAIL comment: …` | nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
