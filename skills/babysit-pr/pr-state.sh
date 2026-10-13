@@ -55,6 +55,11 @@
 # first saw that head; --head-seen carries the time into a new call while its sha still starts the
 # head). The timeline is read, paginated, only in this mode; a timeline that cannot be read is an
 # error, like any other gh failure.
+# --wait then wakes only: closed | rerequested ("requested" is not null) | settled (the head does
+# not start with --reviewed-head, and "head_seen" is at least --settle-minutes old; a force-pushed
+# head is a new head like any other) | errors | silence | timeout. Never feedback, conflict,
+# approved or draft: those are the author's to act on. One --wait call keeps "head_seen" across
+# its polls; the foreground form passes the last snapshot's "head_seen" back as --head-seen.
 BABYSIT_DIR=$(cd "$(dirname "$0")" && pwd)
 export BABYSIT_DIR
 exec python3 - "$@" <<'PY'
@@ -363,9 +368,24 @@ def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
             "new_feedback": items, "reviewers": sorted(reviewers), "cursor": cursor, **extra}
 
 
-def wake_reason(snap, hold_approval=False):
+def settled(snap, reviewer):
+    """The head moved off the one the reviewer last reviewed and has stayed put for --settle-minutes."""
+    head = (snap.get("head") or "").lower()
+    if not head or head.startswith(reviewer["reviewed_head"]):
+        return False
+    at = (snap.get("head_seen") or "").partition("@")[2]
+    return bool(at) and (datetime.now(timezone.utc) - ts(at)).total_seconds() >= reviewer["settle"] * 60
+
+
+def wake_reason(snap, hold_approval=False, reviewer=None):
     if snap["state"] in ("CLOSED", "MERGED"):
         return "closed"
+    if reviewer:
+        # the author's comments, a conflict, an approval or a draft are the author's to act on: only a
+        # re-request, or a head that stopped moving, asks the reviewer to look again
+        if snap.get("requested"):
+            return "rerequested"
+        return "settled" if settled(snap, reviewer) else None
     if snap["new_feedback"]:
         return "feedback"
     if snap.get("merge") == "dirty":
@@ -399,7 +419,9 @@ def wait(a):
                 return {**(last_good or {}), "error": last_error, "wake": "errors"}
         else:
             errors, last_good = 0, snap
-            reason = wake_reason(snap, a.hold_approval)
+            if a.reviewer:
+                a.reviewer["head_seen"] = snap["head_seen"]  # the next poll keeps when this head was first seen
+            reason = wake_reason(snap, a.hold_approval, a.reviewer)
             if reason:
                 return {**snap, "wake": reason}
             quiet_for = (datetime.now(timezone.utc) - quiet_since).total_seconds()

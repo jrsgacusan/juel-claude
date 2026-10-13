@@ -508,6 +508,50 @@ run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
 check "reviewer snapshot: a timeline that cannot be read is an error, never 'not requested'" 'rc == 0 and "exited 1" in d.get("error", "")'
 unset STUB_FAIL_ROUTE
 
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --wait --interval 0 --max-seconds 5
+check "reviewer wait: a re-request wakes rerequested" 'd["wake"] == "rerequested" and calls == 1'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: a new head that has stayed put long enough wakes settled" 'd["wake"] == "settled" and calls == 1'
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: a re-request wins over a settled head" 'd["wake"] == "rerequested"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --wait --interval 0 --max-seconds 0
+check "reviewer wait: a head first seen now is not settled at the default 30 minutes" 'd["wake"] == "timeout"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --head-seen "$HB@2020-01-01T00:00:00Z" --wait --interval 0 --max-seconds 5
+check "reviewer wait: --head-seen carries an old sighting, so it settles at once" 'd["wake"] == "settled" and d["head_seen"] == "'"$HB"'@2020-01-01T00:00:00Z"'
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --head-seen "$HC@2020-01-01T00:00:00Z" --wait --interval 0 --max-seconds 0
+check "reviewer wait: an old sighting of another head does not settle this one" 'd["wake"] == "timeout"'
+run r-base 40 --as-reviewer me --reviewed-head "$HB" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 0
+check "reviewer wait: the reviewed head itself never settles" 'd["wake"] == "timeout"'
+run r-base 40 --as-reviewer me --reviewed-head bbbbbbb --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 0
+check "reviewer wait: a short --reviewed-head that starts the head is that head" 'd["wake"] == "timeout"'
+
+# A force-push: the new head is no descendant of the reviewed one. The script never asks git or
+# GitHub how two heads relate, so it settles like any other new head.
+reviewer_case r-force "$(rpr fffffff9999999fffffff9999999fffffff99999)"
+run r-force 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: a force-pushed head settles like any other new head" 'd["wake"] == "settled" and not any("compare" in l for l in log)'
+
+# One --wait call keeps head_seen across its polls: poll 1 sees the reviewed head, poll 2 the new
+# one, and a later poll finds it has stayed put for 0.02 min. Losing head_seen between polls
+# would restart the clock every poll and end in timeout.
+reviewer_case r-mem "$(rpr "$HB")"
+fixture r-mem pr.1.json "$(rpr "$HA")"
+run r-mem 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0.02 --wait --interval 0.5 --max-seconds 8
+check "reviewer wait: one --wait keeps head_seen across polls, so the new head settles" 'd["wake"] == "settled" and calls >= 3'
+
+reviewer_case r-quiet "$(rpr "$HB" OPEN APPROVED true DIRTY CONFLICTING)"
+run r-quiet 40 --as-reviewer me --reviewed-head "$HB" --since 2026-10-02T09:00:00Z --wait --interval 0 --max-seconds 0
+check "reviewer wait: the author's comments, a conflict, an approval and a draft never wake it" 'd["wake"] == "timeout" and ids == [71, 802, 901] and d["merge"] == "dirty" and d["decision"] == "APPROVED"'
+reviewer_case r-closed "$(rpr "$HB" MERGED APPROVED)" "$RREQ"
+run r-closed 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --settle-minutes 0 --wait --interval 0 --max-seconds 5
+check "reviewer wait: closed wins over a re-request and a settled head" 'd["wake"] == "closed"'
+run r-quiet 40 --as-reviewer me --reviewed-head "$HB" --since 2026-10-02T09:00:00Z --wait --interval 0 --silence-hours 72 --quiet-since 2020-01-01T00:00:00Z
+check "reviewer wait: silence still fires" 'd["wake"] == "silence"'
+STUB_FAIL_ROUTE=timeline; export STUB_FAIL_ROUTE
+run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z --wait --interval 0
+check "reviewer wait: three unreadable timelines in a row wake errors" 'd["wake"] == "errors"'
+unset STUB_FAIL_ROUTE
+
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
