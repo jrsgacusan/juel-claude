@@ -13,12 +13,15 @@
 # from that merge is a hand edit, unless the file is one of the merge's conflicts; and every
 # conflicted file must hold what merge-union.sh --resolve makes of its three stages, or, for a path
 # whose merge attribute is union in the merge commit's tree, what git merge-file --union makes.
+# The file mode counts too: the three stages must have one mode, and the merge commit's mode for
+# the path (git ls-tree) must be that mode, so a resolved conflict plus "chmod +x" is NO.
 # A commit of its own, a conflict left in or settled another way, or a side that deleted or
 # renamed a conflicted file is NO. merge-tree reads attributes from the working tree, so the union
 # check covers a merge made where the attribute was in force. With --base, every P2 must be on
 # <ref> (git merge-base --is-ancestor), so only the base branch is ever carried in.
-# <ref> is the newest merge's P2 named by "git name-rev --refs=refs/remotes/*" without "remotes/"
-# or a ~n/^n suffix ("origin/main"), else its 7-character sha. merge-union.sh is
+# <ref> is the newest merge's P2 named by "git name-rev --refs=refs/remotes/*" (not the
+# refs/remotes/<remote>/HEAD alias, which a clone adds) without "remotes/" or a ~n/^n suffix
+# ("origin/main"), else its 7-character sha. merge-union.sh is
 # $CARRY_MERGE_UNION when set (the test seam), else ../babysit-pr/merge-union.sh.
 CARRY_DIR=$(cd "$(dirname "$0")" && pwd)
 export CARRY_DIR
@@ -71,6 +74,12 @@ def blob(rev):
     return data if rc == 0 else None
 
 
+def mode_in(rev, path):
+    """The file mode <rev> has for <path> (git ls-tree), or "-" when it has none."""
+    rc, out, _ = git("--literal-pathspecs", "ls-tree", "-z", "--full-tree", rev, "--", path)
+    return out.split(" ", 1)[0] if rc == 0 and out else "-"
+
+
 def mechanical(merge, path, stages, have):
     """True when the merge commit's file is what merge-union.sh --resolve makes of the conflict's
     three stages, or, for a merge=union path, what git merge-file --union makes."""
@@ -118,13 +127,14 @@ while c != G:
     if rc not in (0, 1):
         no(f"git merge-tree could not redo {c[:7]}: " + ((err.strip().splitlines() or ["failed"])[-1])[:120])
     fields = out.split(b"\0")
-    tree, stages = fields[0].decode().strip(), {}
+    tree, stages, modes = fields[0].decode().strip(), {}, {}
     for field in fields[1:]:
         if not field:
             break
         meta, _, path = field.decode("utf-8", "surrogateescape").partition("\t")
-        _, oid, stage = meta.split()
+        mode, oid, stage = meta.split()
         stages.setdefault(path, {})[int(stage)] = oid
+        modes.setdefault(path, {})[int(stage)] = mode
     _, changed, _ = git("diff-tree", "-r", "-z", "--name-only", "--no-renames", tree, c + "^{tree}")
     for path in (p for p in changed.split("\0") if p):
         if path not in stages:
@@ -132,12 +142,18 @@ while c != G:
     for path in sorted(stages):
         if sorted(stages[path]) != [1, 2, 3]:
             no(f"{c[:7]}: {path} is a conflict no mechanical rule settles (a side deleted or renamed it)")
+        sides = [modes[path][n] for n in (1, 2, 3)]
+        if len(set(sides)) != 1:
+            no(f"{c[:7]}: {path} is a conflict whose sides differ in file mode ({', '.join(sides)}): no mechanical rule settles it")
+        kept = mode_in(c, path)
+        if kept != sides[0]:
+            no(f"{c[:7]}: {path} has mode {kept} in the merge but {sides[0]} in its conflict: a mode change is a code change")
         have = blob(c + ":" + path)
         if have is None or not mechanical(c, path, stages[path], have):
             no(f"{c[:7]}: {path} is not the mechanical resolution of its conflict")
         resolved.add(path)
     c = p1
-_, named, _ = git("name-rev", "--name-only", "--refs=refs/remotes/*", newest)
+_, named, _ = git("name-rev", "--name-only", "--refs=refs/remotes/*", "--exclude=refs/remotes/*/HEAD", newest)
 ref = re.sub(r"[~^].*$", "", named.strip())
 ref = ref[len("remotes/"):] if ref.startswith("remotes/") else ref
 if not ref or ref == "undefined":
