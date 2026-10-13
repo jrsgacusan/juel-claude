@@ -44,6 +44,18 @@ printf 'VERDICT item=ITEM-1 round=3 NOT-SAFE findings=2 head=%s\n' "$HEAD" > "$H
 out=$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")
 case "$out" in "MISMATCH review: verdict: "*) pass "the newest review decides, and NOT-SAFE is a mismatch" ;; *) fail "newest review ($out)" ;; esac
 rm -f "$H/reviews/app/ITEM-1-r3.md"
+# #82: the owner's carried PASS of the newest round is proof
+printf 'VERDICT item=ITEM-1 round=3 NOT-SAFE findings=2 head=%s\n' "$HEAD" > "$H/reviews/app/ITEM-1-r3.md"
+printf 'CARRIED item=ITEM-1 round=3 head=%s from=ITEM-1-r3.md decision=N-4\nship it\nDeferred: the findings in ITEM-1-r3.md\n' "$HEAD" > "$H/reviews/app/ITEM-1-r3-carried.md"
+pr "$HEAD" "$PASSC"
+t "the newest round's carried PASS is proof (#82)" "OK" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
+printf 'CARRIED item=ITEM-1 round=3 head=%s from=ITEM-1-r3.md decision=N-4\nship it\n' fff1234def5678901234567890123456789abcde > "$H/reviews/app/ITEM-1-r3-carried.md"
+out=$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")
+case "$out" in "MISMATCH review: head: "*) pass "a carried PASS of another head is a mismatch" ;; *) fail "carried head ($out)" ;; esac
+mv "$H/reviews/app/ITEM-1-r3-carried.md" "$H/reviews/app/ITEM-1-r2-carried.md"
+out=$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")
+case "$out" in "MISMATCH review: verdict: "*) pass "a carried PASS of an older round does not stand in for the newest" ;; *) fail "older carried ($out)" ;; esac
+rm -f "$H/reviews/app/ITEM-1-r3.md" "$H/reviews/app/ITEM-1-r2-carried.md"
 t "an item with no review is a mismatch" "MISMATCH review: no review for ITEM-2 in $H/reviews/app" "$(D ITEM-2 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 touch "$TMP/gh-fail"
 t "gh failing is pending" "PENDING gh: HTTP 502: Bad Gateway" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
