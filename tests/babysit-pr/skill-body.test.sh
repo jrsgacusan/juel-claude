@@ -240,6 +240,18 @@ gates_row=$(grep -F '| gates run directly |' "$SKILL")
 [ "$(printf '%s\n' "$gates_row" | grep -c .)" -eq 1 ] && pass "R4a one table row holds the direct gate run" || fail "R4a one table row holds the direct gate run"
 printf '%s\n' "$gates_row" | grep -qF -- '--holder "<star.project>/<item>"' && pass "R4b under a star brief the lock holder names the project" || fail "R4b under a star brief the lock holder names the project"
 printf '%s\n' "$gates_row" | grep -qF 'without a `star:` brief, leave out `--progress` and use `--holder "<item>"`' && pass "R4c without a star brief it stays the item" || fail "R4c without a star brief it stays the item"
+grow "R11a the carry names the round of G's review" '`<g>` is the round of G'"'"'s review'
+grow "R11b the carried receipt posts G's round" 'post-pass --pr <url> --round <g> --head <the pushed head>'
+grow "R11c the codex round keeps its own count" 'Round `k` is 1 plus the highest `k`'
+markready_row=$(grep -F '| `--mark-ready` on a draft PR |' "$SKILL")
+[ "$(printf '%s\n' "$markready_row" | grep -c .)" -eq 1 ] && pass "R9a one table row holds the mark-ready proof" || fail "R9a one table row holds the mark-ready proof"
+mrow() { printf '%s\n' "$markready_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+mrow "R9b a NO may be a merge made after the review" 'A `NO …` is not final yet when the head is a merge of the base branch made after the review'
+mrow "R9c the newest SAFE review is the starting point" 'the newest `<star.reviews>/<item>-r<k>.md` says `SAFE`'
+mrow "R9d carry-check judges the current head" 'sh <carry-check.sh> --from <its head=> --head <the PR'"'"'s current headRefOid> --base <remote>/<base>'
+mrow "R9e a carry is proof as well" '`OK carried from …` is proof as well'
+mrow "R9f any other NO still escalates" 'Any other `NO …`'
+mrow "R9g the deferred ready re-checks the proof" 'again right before a deferred'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
