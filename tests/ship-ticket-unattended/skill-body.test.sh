@@ -189,5 +189,11 @@ g "M55d only tools your own session lists" 'only when your own session lists its
 g "EL16 the screen lock rule points to juel:verify's Electron row" "as \`juel:verify\`'s Electron row says) takes none either"
 g "EL17 Phase 6 runs hidden-window checks through juel:verify's Electron row" "\`juel:verify\`'s Electron row: a hidden dev build driven over CDP"
 grep -q 'window that paints' "$SKILL" && fail "EL18 no 'window that paints' description left" || pass "EL18 no 'window that paints' description left"
+# lane f: the worker skills carry, resume, scope, and read decisions (#77, #78, #81, #83, #89, #90)
+g "L77a the executor resumes from the shared ledger" '`<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`'
+g "L77b the ledger is git-ignored before the first dispatch" 'git rev-parse --git-path info/exclude'
+g "L77c a capacity retry needs no hand-written resume prompt" 'never write a resume prompt by hand'
+g "L78a the scope check runs after the plan" 'sh <scope-check.sh> <the plan> <that sha>'
+g "L78b out-of-scope files are restored in one commit" '`revert: out-of-scope edits in <files>`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

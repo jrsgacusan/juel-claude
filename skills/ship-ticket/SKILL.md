@@ -723,6 +723,13 @@ drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in 
 `--unattended`, a progress line and a terminal line, never a `NOTE`). `executor-model.sh` failing
 (no line, a non-zero exit, no python3) counts as `default <why>`.
 
+**The progress ledger.** The executor records each task it finishes in
+`<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`, the same ledger
+`superpowers:executing-plans` keeps: its first line names the plan, and each finished task adds a
+`Task <N>: complete` line. A second dispatch of the same line, the fallback model and this session
+all resume from it, at the first task not marked complete. Before the first dispatch, make sure git
+ignores it: `git check-ignore -q .superpowers/x || echo '.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
+
 **The executor skill.** Right before the line, check that the skill resolves:
 `test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
 a plugin version that is gone (a plugin update removes its old cache folder) fails it, even in the
@@ -747,7 +754,9 @@ codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effo
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
 fallback model (`--executor-model` from `executor.fallback`, `latest-sol` by default, resolved the
-same way); then run the plan in this session with `superpowers:executing-plans`. Each step is one
+same way); then run the plan in this session with `superpowers:executing-plans`. Each try resumes
+from the plan's ledger (above), so the same line continues at the first task not marked complete:
+never write a resume prompt by hand. Each step is one
 line to the user (under `--unattended`, a progress line and a terminal line, never a `NOTE`). Any
 other non-zero exit is the `codex-failed` escalation under `--unattended`.
 
@@ -758,6 +767,17 @@ transcript. If `spawn_agent` is unavailable (the `multi_agent` feature is off), 
 line and apply the plan in this session directly rather than falling back to `codex exec`.
 
 Do not redirect its output to a file — the user watches the executor run in the shell. Wait for it to exit, then state the exit status and files changed before marking the phase done — do not print its full output back into the conversation.
+
+**Scope check.** Note `git rev-parse HEAD` right before the first dispatch. After the plan ran
+(codex exited 0, or this session finished it), run `sh <scope-check.sh> <the plan> <that sha>`
+(`scope-check.sh` is next to this file). `ok`: carry on. Each `outside <path>` line names a file
+that no task's `**Files:**` block names: restore it, with `git checkout <that sha> -- <path>` when
+the file existed at that sha, else `git rm -q --cached --ignore-unmatch -- <path>` and
+`rm -f -- <path>`. When the executor committed its work (`git rev-parse HEAD` is no longer that
+sha), commit the restores as one commit, `revert: out-of-scope edits in <files>`; otherwise leave
+them in the working tree with the rest of its edits. Name the files in this phase's evidence (under
+`--unattended`, in a progress line with the step `executor` too). Exit 64 (an unreadable plan or
+sha): say so in one line and carry on, since Phase 5's review still reads the whole diff.
 
 **Resolve toolchain commands now, once.** Immediately after Codex finishes, resolve
 `commands.install`, `.test`, `.lint`, `.typecheck`, `.build`, `.format` and `.run` per "Toolchain
