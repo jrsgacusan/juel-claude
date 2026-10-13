@@ -184,7 +184,7 @@ g "L93f Phase 1's refresh honours the setting" 'false and every pass used'
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "L81e babysit's gate fix plan carries a Base line" '`**Base:** spec implemented at <the full head>; apply only the tasks below.`'
 grow "L78d babysit's gate fix plan names its files" 'name their files in a `**Files:**` block'
-grow "L78e babysit runs the scope check after the plan" 'sh <scope-check.sh> <the plan> <the head before the executor>'
+grow "L78e babysit runs the scope check after the plan" 'sh <scope-check.sh> <the plan> <the head before the executor> --before <that record file>'
 grow "L77d babysit's capacity retries resume from the ledger" "each try resumes from the plan's ledger"
 grow "L81f the in-session run is told the Base line wins" "The plan's Base line overrides its Spec"
 g "L88a gh cannot see reads the notes for a token rule first" 'may name a `GH_TOKEN` rule'
