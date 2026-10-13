@@ -604,6 +604,10 @@ lock is busy, `gate-lock.sh` appends a `regression-gate` progress line when it s
 another every 10 minutes, so STAR's progress check reads a worker queued for the lock as moving.
 Never put `--progress` in a plan the executor runs: its sandbox cannot write the STAR folder.
 
+The holder is `"<item>"`, except under a `star:` brief: there it is `--holder "<star.project>/<item>"`
+(the brief's `star.project`). The lock is one file per user for every project, and STAR stops a
+gate by its holder, so two projects that each have an `issue-12` must not share a label.
+
 `run-gates.sh` (next to `gate-lock.sh`) runs the manifest's gates, each in its own `cwd` taken from
 the repo root, exactly as written. Never paste a command into a quoted `sh -c '…'` string: one
 single quote in a test command (`pytest -k 'not slow'`) silently drops everything after it, and
