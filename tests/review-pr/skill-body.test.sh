@@ -26,5 +26,14 @@ srow "H1i it keeps only your unresolved threads" 1 'select(.isResolved == false 
 g "H1j babysit is a SOFT dependency in the Preflight" '| juel:babysit-pr | skill | SOFT | ships with this plugin | watch the PR by hand |'
 g "H1k and in the frontmatter" 'fallback: watch the PR by hand'
 
+# Task H2: the report path Step 5 wrote is the one Steps 6 and 7 use
+g "H2a Step 5 records the path it wrote" 'set `REPORT` to the path actually written'
+srow "H2b Step 6 appends to that file" 6 'the same `$REPORT` file Step 5 wrote'
+srow "H2c Step 7's guard reads that file" 7 '"$REPORT" | head -1'
+ng "H2d no step reads a hard-coded report name" '"${docsRoot}/findings/findings-review.md"'
+srow "H2e Posted goes into that file" 7 'section of `$REPORT`, the file Step 6 already'
+g "H2f the versioning edge case says so" 'Steps 6 and 7 then use the file actually written'
+ng "H2g no hard-coded name in Step 7's prose" 'remains in `findings-review.md`'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

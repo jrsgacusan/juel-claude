@@ -398,8 +398,11 @@ reads this line back to detect whether the PR moved since this review ran:
 Omit this line only when Step 2 recorded no `REVIEWED_COMMIT` (no `gh`, no open PR) — never write an
 empty backtick pair.
 
-Write the report to `${docsRoot}/findings/findings-review.md` with exactly four sections, in this
-order (Step 6 appends a fifth once triage runs):
+Write the report to `${docsRoot}/findings/findings-review.md`, or to the next free `-vN` name when
+that exists (above), and set `REPORT` to the path actually written. Steps 6 and 7 read and edit
+`$REPORT`, never a hard-coded `findings-review.md`: on a second run the file is
+`findings-review-v2.md`, and reading the first run's file would compare the wrong commit. It has
+exactly four sections, in this order (Step 6 appends a fifth once triage runs):
 
 1. **Requirement-alignment** — each requirement/acceptance criterion from Step 3, marked met /
    partial / unmet with evidence, plus any scope-creep beyond the work item. Omit this section
@@ -450,8 +453,7 @@ posted inline, since it is by definition unresolved. Note the count of Rejected 
 summary line (not their detail) so nothing is silently dropped from the record, without spamming
 the PR with dismissed nitpicks.
 
-Append a fifth section to the **same** `findings-review.md` written in Step 5 — do not create a
-second file:
+Append a fifth section to the same `$REPORT` file Step 5 wrote. Do not create a second file:
 
 ```markdown
 ## Verdict & posting plan
@@ -488,7 +490,7 @@ any of the following hold — check in order:
 3. This session cannot ask the user anything (no interactive user) → "SKIPPED: non-interactive session".
 
 None of these block the skill overall — Step 6's verdict and posting plan already live in
-`findings-review.md` for the user to post by hand.
+`$REPORT` for the user to post by hand.
 
 Otherwise, resolve the repo, PR number, and head commit:
 
@@ -498,11 +500,12 @@ PR=$(gh pr view --json number --jq '.number')
 COMMIT=$(gh pr view --json headRefOid --jq '.headRefOid')
 ```
 
-**Stale-head-SHA guard.** Re-read the commit this review actually reviewed from the report written
-in Step 5:
+**Stale-head-SHA guard.** Re-read the commit this review actually reviewed from `$REPORT`, the
+report Step 5 wrote:
 
 ```bash
-REVIEWED_COMMIT=$(sed -n 's/^\*\*Reviewed at commit:\*\* `\([^`]*\)`.*/\1/p' "${docsRoot}/findings/findings-review.md" | head -1)
+REPORT='<the report path Step 5 wrote>'
+REVIEWED_COMMIT=$(sed -n 's/^\*\*Reviewed at commit:\*\* `\([^`]*\)`.*/\1/p' "$REPORT" | head -1)
 ```
 
 If `REVIEWED_COMMIT` is non-empty and differs from the fresh `COMMIT` fetched above: **do not
@@ -569,7 +572,7 @@ call **once**. Never silently downgrade the verdict without saying so in the pos
 
 **Any other failure:** do not retry. Report the exact `gh api` error and the payload file's path
 in the phase's evidence line, mark the task `completed` with that evidence, and stop — the draft
-remains in `findings-review.md` for the user to post by hand or hand back to this step. This is a
+remains in `$REPORT` for the user to post by hand or hand back to this step. This is a
 GitHub API boundary; swallowing the error here would hide exactly the kind of failure (a line
 outside the diff, an expired token, a closed PR) the user needs to see.
 
@@ -579,8 +582,8 @@ outside the diff, an expired token, a closed PR) the user needs to see.
 REVIEW_URL=$(printf '%s' "$RESPONSE" | sed -n 's/.*"html_url" *: *"\([^"]*\)".*/\1/p' | head -1)
 ```
 
-Append one line to the `## Verdict & posting plan` section already written in Step 6 — edit the
-existing file, never create a second one:
+Append one line to the `## Verdict & posting plan` section of `$REPORT`, the file Step 6 already
+edited. Edit that file; never create a second one:
 
 ```markdown
 **Posted:** <REVIEW_URL>
@@ -601,7 +604,7 @@ State the review URL and verdict back to the user as the phase's evidence.
 | Zero findings from Step 2 | Confirmed / Rejected / Ambiguous sections are all empty; still write the report and say so explicitly — do not skip the report |
 | All findings rejected | Still write the report with an empty Confirmed section; do not suppress the file |
 | `${docsRoot}/findings/` does not exist yet | Create it (`mkdir -p`) before writing the report |
-| Existing `findings-review.md` from a prior run | Never overwrite it. Write `findings-review-v2.md` instead; if that exists too, `-v3`, and so on — same versioning rule as every other file under `${docsRoot}` |
+| Existing `findings-review.md` from a prior run | Never overwrite it. Write `findings-review-v2.md` instead; if that exists too, `-v3`, and so on — same versioning rule as every other file under `${docsRoot}`. Steps 6 and 7 then use the file actually written (`$REPORT`) |
 | Confirmed finding has no `file`/`line`, or references a line outside the PR's diff | Goes to the summary body, never the inline table — GitHub rejects inline comments anchored outside the diff |
 | No Confirmed or Ambiguous findings, and all graded requirements are met (or ungraded) | Verdict is `APPROVE` with an empty inline table |
 | Zero inline-worthy findings but a non-empty summary | Still post — `comments: []` with a populated `body` is valid |
