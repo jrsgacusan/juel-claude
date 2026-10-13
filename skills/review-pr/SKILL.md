@@ -578,14 +578,16 @@ any of the following hold — check in order:
 3. This session cannot ask the user anything (no interactive user) → "SKIPPED: non-interactive session".
 
 None of these block the skill overall — Step 6's verdict and posting plan already live in
-`$REPORT` for the user to post by hand.
+`$REPORT` for the user to post by hand. Under `--from-babysit`, a skip ends with the last line
+`REVIEW-PR stopped reason=<the SKIPPED reason>`.
 
 Otherwise, resolve the repo, PR number, and head commit:
 
 ```bash
 REPO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
-PR=$(gh pr view --json number --jq '.number')
-COMMIT=$(gh pr view --json headRefOid --jq '.headRefOid')
+PR_SEL='<the --pr value, or empty>'
+PR=$(gh pr view $PR_SEL --json number --jq '.number')
+COMMIT=$(gh pr view $PR_SEL --json headRefOid --jq '.headRefOid')
 ```
 
 **Stale-head-SHA guard.** Re-read the commit this review actually reviewed from `$REPORT`, the
@@ -602,29 +604,59 @@ review ran (state the commit count between them via `git rev-list --count
 $REVIEWED_COMMIT..$COMMIT` if the ref is locally available, otherwise state the two SHAs), and that
 findings may be anchored to lines that no longer exist in the new diff. Mark the task `completed`
 with that evidence and stop this step here — do not proceed to the confirmation question below.
-Re-running `review-pr` from Step 2 is the user's decision, never auto-triggered. If
+Re-running `review-pr` from Step 2 is the user's decision, never auto-triggered. Under
+`--from-babysit` the step ends instead with the last line
+`REVIEW-PR head-moved from=<REVIEWED_COMMIT> to=<COMMIT>`, and babysit runs the review again once
+the new head has settled. If
 `REVIEWED_COMMIT` is empty (Step 2 recorded none) or matches `COMMIT`, continue below unchanged.
 
-Present the full draft to the user — verdict, summary body, and the inline comment table from
-Step 6 — then ask:
+Present the full draft to the user: the Good-to-merge line, the verdict, the summary body, the
+inline comment table, and the two thread tables from Step 6. Then ask both questions in one call.
+The draft's verdict is the first option of the first question, and
+the other two follow in the order APPROVE, REQUEST_CHANGES, COMMENT:
 
 ```
-AskUserQuestion({questions: [{
-  question: "Post this review to the PR?",
-  header: "Post review",
-  options: [
-    {label: "Post now", description: "Submit the verdict, summary, and inline comments above to GitHub as-is."},
-    {label: "Edit first", description: "Revise the verdict, summary, or inline comments before posting."},
-    {label: "Don't post", description: "Leave the draft in the report; nothing is sent to GitHub."}
-  ]
-}]})
+AskUserQuestion({questions: [
+  {
+    question: "Which verdict should this review carry?",
+    header: "Verdict",
+    multiSelect: false,
+    options: [
+      {label: "<the draft verdict> (Recommended)", description: "The verdict Step 6 drew: <its one-line rule>."},
+      {label: "<the next verdict>", description: "<its description below>"},
+      {label: "<the last verdict>", description: "<its description below>"}
+    ]
+  },
+  {
+    question: "Post this review to the PR?",
+    header: "Post review",
+    multiSelect: false,
+    options: [
+      {label: "Post now", description: "Submit the review with the verdict above, then the thread replies, then resolve the threads listed."},
+      {label: "Edit first", description: "Revise the verdict, summary, comments, replies or threads to resolve before posting."},
+      {label: "Don't post", description: "Leave the draft in the report; nothing is sent to GitHub."}
+    ]
+  }
+]})
 ```
 
-- **"Edit first"** — revise the verdict/summary/inline list per the user's feedback, update the
-  `## Verdict & posting plan` section written in Step 6 to match, then re-present and ask again.
-  Never posts on this branch without a subsequent "Post now".
-- **"Don't post"** — mark the task `completed` with "SKIPPED: user declined to post". Stop.
-- **"Post now"** — continue below.
+The descriptions of the two options that are not the draft's verdict:
+
+- `APPROVE`: "Approve: nothing blocks merging; non-blocking findings go out as comments."
+- `REQUEST_CHANGES`: "Request changes: the author must address the blocking findings before merging."
+- `COMMENT`: "Comment only: neither approve nor block."
+
+The answers:
+
+- **"Edit first"**: revise what the user asks for, update the `## Verdict & posting plan` section
+  of `$REPORT` to match, then present it and ask both questions again. Never post on this branch
+  without a later "Post now".
+- **"Don't post"**: mark the task `completed` with "SKIPPED: user declined to post". Under
+  `--from-babysit`, end with the last line `REVIEW-PR not-posted head=<COMMIT>`. Stop.
+- **"Post now"**: the verdict is the one the user chose. When it is not the draft's, rewrite the
+  report's `**Verdict:**` line to it, with "(chosen by the user at post time over <the draft
+  verdict>)". Rewrite its `**Good to merge:**` line to match: yes exactly when the chosen verdict
+  is `APPROVE`. Continue below.
 
 Build the request body and write it to a temp file with the **Write tool — never a HEREDOC**
 (same rule as `ship-ticket`'s PR body: AI-generated text in a shell heredoc risks breaking on
@@ -634,7 +666,7 @@ backticks/`$`/quotes in the finding text):
 {
   "commit_id": "<COMMIT>",
   "body": "<the summary body from Step 6>",
-  "event": "<the verdict from Step 6: APPROVE | REQUEST_CHANGES | COMMENT>",
+  "event": "<the verdict chosen in the Verdict question: APPROVE | REQUEST_CHANGES | COMMENT>",
   "comments": [
     { "path": "<file>", "line": <line>, "side": "RIGHT", "body": "<finding text>" }
   ]
@@ -662,7 +694,8 @@ call **once**. Never silently downgrade the verdict without saying so in the pos
 in the phase's evidence line, mark the task `completed` with that evidence, and stop — the draft
 remains in `$REPORT` for the user to post by hand or hand back to this step. This is a
 GitHub API boundary; swallowing the error here would hide exactly the kind of failure (a line
-outside the diff, an expired token, a closed PR) the user needs to see.
+outside the diff, an expired token, a closed PR) the user needs to see. Under `--from-babysit`,
+end with the last line `REVIEW-PR stopped reason=gh api: <the error's first line>`.
 
 **On success:** extract the review URL from `$RESPONSE`:
 
@@ -678,6 +711,45 @@ edited. Edit that file; never create a second one:
 ```
 
 State the review URL and verdict back to the user as the phase's evidence.
+
+**Thread replies, then threads to resolve.** These run only after the review posted. For each row
+of the **Thread replies** table, write its body to a temp file with the Write tool, then reply on
+the thread's first comment:
+
+```bash
+gh api -X POST "repos/<REPO>/pulls/<PR>/comments/<the row's Reply to>/replies" -F body=@<tmpfile>
+```
+
+For each row of the **Threads to resolve** table:
+
+```bash
+gh api graphql -f threadId='<the row thread id>' \
+  -f query='mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { thread { isResolved } } }'
+```
+
+A reply or resolve that fails is reported with its exact error and is not retried. The rest still
+run, and the posted review stands. Append to the `## Verdict & posting plan` section of `$REPORT`:
+
+```markdown
+**Thread replies posted:** <n of m>
+**Threads resolved:** <n of m>
+```
+
+followed by one line per failure, naming the thread and the error.
+
+**Under `--from-babysit`,** the last line is
+`REVIEW-PR posted verdict=<the event that posted> commit=<COMMIT> url=<REVIEW_URL>`. The event is
+`COMMENT` when the self-approval fallback ran. The step ends there.
+
+**Otherwise, hand off to reviewer mode** when both hold:
+
+- the posted event is not `APPROVE`;
+- the PR is not yours: `PR_AUTHOR` from Step 1 is not `ME`.
+
+Mark this step `completed`, say "Watching PR #<PR> for the author's response", then
+invoke `/juel:babysit-pr <PR>`. On a PR you did not author it runs its reviewer mode: it waits for
+the author, then runs this skill again. An `APPROVE`, a review of your own PR, or "Don't post"
+hands off nothing.
 
 ## Edge cases
 
@@ -702,3 +774,11 @@ State the review URL and verdict back to the user as the phase's evidence.
 | User chooses "Don't post" | Step 7 task is completed as "SKIPPED: user declined to post"; nothing is sent to GitHub |
 | `event: APPROVE` rejected because it is the user's own PR | Retry once as `COMMENT`, with the body prefixed noting GitHub blocked self-approval |
 | Any other `gh api` failure (e.g. a line outside the diff) | Do not retry; report the exact error and the payload file path; nothing is silently swallowed |
+| `--pr` given and `HEAD` is not the PR's head | Step 1 stops with "check out the PR head first"; under `--from-babysit`, the last line is `REVIEW-PR stopped reason=<the stop message>` |
+| `--since` commit not here, or not an ancestor of `HEAD` (a force-push) | Review the whole PR diff and say so in Step 2's evidence line |
+| No prior threads, or the threads query fails | Prior threads is one line saying so; the review goes on |
+| A Confirmed finding matches a prior thread still open | Not posted again; the thread gets a `Still open at <short sha>` reply |
+| The user picks a verdict other than the draft's | The report's Verdict and Good-to-merge lines follow the chosen verdict |
+| A thread reply or resolve fails | Report its error, no retry; the rest still run and the posted review stands |
+| A posted review that is not APPROVE, on someone else's PR | Hand off to `/juel:babysit-pr <PR>` (reviewer mode), unless `--from-babysit` |
+| A moved head under `--from-babysit` | Post nothing; the last line is `REVIEW-PR head-moved from=<REVIEWED_COMMIT> to=<COMMIT>` |

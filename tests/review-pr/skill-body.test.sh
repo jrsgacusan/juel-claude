@@ -61,5 +61,21 @@ g "H4k the plan lists thread replies" '| <thread node id> | <first comment datab
 g "H4l empty thread tables keep their header" 'The two thread tables follow the same rule.'
 srow "H4m Step 6 reads Prior threads too" 6 'Confirmed, Ambiguous and Prior threads sections'
 
+# Task H5: posting, the thread replies and resolves, the result lines, the hand-off
+srow "H5a the user picks the verdict" 7 'Which verdict should this review carry?'
+srow "H5b the draft's verdict comes first" 7 'the other two follow in the order'
+srow "H5c a changed verdict is recorded" 7 'chosen by the user at post time over'
+srow "H5d the payload carries the chosen verdict" 7 'the verdict chosen in the Verdict question'
+srow "H5e a skip under babysit is a result line" 7 'REVIEW-PR stopped reason=<the SKIPPED reason>'
+srow "H5f a moved head under babysit is a result line" 7 'REVIEW-PR head-moved from=<REVIEWED_COMMIT> to=<COMMIT>'
+srow "H5g not posting under babysit is a result line" 7 'REVIEW-PR not-posted head=<COMMIT>'
+srow "H5h posting under babysit is a result line" 7 'REVIEW-PR posted verdict=<the event that posted> commit=<COMMIT> url=<REVIEW_URL>'
+srow "H5i a gh failure under babysit is a result line" 7 'REVIEW-PR stopped reason=gh api: <the error'
+srow "H5j fixed threads are resolved" 7 'resolveReviewThread(input: {threadId: $threadId})'
+srow "H5k open threads get a reply" 7 'gh api -X POST "repos/<REPO>/pulls/<PR>/comments/'
+srow "H5l a posted review hands off to babysit" 7 'invoke `/juel:babysit-pr <PR>`'
+g "H5m the edge cases say when" 'Hand off to `/juel:babysit-pr <PR>` (reviewer mode), unless `--from-babysit`'
+srow "H5n Step 7 reads the chosen PR" 7 'gh pr view $PR_SEL --json headRefOid --jq'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
