@@ -316,6 +316,7 @@ out=$(ST brief SPH-40)
 [ "$out" = "started task=task_live9 dispatch=ctx_live9" ] && ! grep -q 'worker-show' "$TMP/calls" 2>/dev/null && pass "a replay is not checked against itself" || fail "replay ($out; $(cat "$TMP/calls" 2>/dev/null))"
 
 # the gate the lock says this item holds is stopped, whatever its terminal's state; another item's is left alone
+# (the holder label is <project name>/<item>, as ship-ticket and babysit-pr pass it to gate-lock.sh)
 holder() { # holder <label>: hold the scratch gate lock the way gate-lock.sh does (its own group), until signalled
   python3 - "$JUEL_GATE_LOCK" "$1" <<'PY' &
 import fcntl, os, sys, time
@@ -330,21 +331,21 @@ PY
   i=0; while [ $i -lt 50 ] && ! grep -q "pid=$HPID " "$JUEL_GATE_LOCK" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
 }
 gone() { i=0; while [ $i -lt 30 ] && kill -0 "$1" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done; ! kill -0 "$1" 2>/dev/null; }
-holder SPH-40
+holder app/SPH-40
 reset; L set SPH-40 state=inbox dispatch=ctx_gone46 >/dev/null
 out=$(ST brief SPH-40)
 [ "$(line "$out" 1)" = "stopped previous gate pgid=$HPID" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a gate left running after its terminal closed is named and the stage starts" || fail "orphaned gate ($out)"
 gone "$HPID" && pass "its process group got the TERM" || { fail "gate left running"; kill "$HPID" 2>/dev/null; }
-holder SPH-40
+holder app/SPH-40
 reset; L set SPH-40 state=inbox dispatch=ctx_old49 >/dev/null; show ctx_old49 term_old49 owned - true
 out=$(ST brief SPH-40)
 [ "$(line "$out" 1)" = "stopped previous gate pgid=$HPID" ] && [ "$(line "$out" 2)" = "ended previous session term_old49" ] && case "$(line "$out" 3)" in "started "*) true ;; *) false ;; esac && gone "$HPID" && pass "the gate goes first, then the session, then the start" || { fail "gate then session ($out)"; kill "$HPID" 2>/dev/null; }
-holder SPH-99
+holder app/SPH-99
 reset; L set SPH-40 state=inbox dispatch=ctx_old47 >/dev/null; show ctx_old47 term_old47 owned - true
 out=$(ST brief SPH-40)
 kill -0 "$HPID" 2>/dev/null && ! printf '%s' "$out" | grep -q 'stopped previous gate' && pass "another item's gate is left alone" || fail "another item's gate was stopped ($out)"
 kill "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
-holder SPH-40
+holder app/SPH-40
 reset; L set SPH-40 state=inbox dispatch=ctx_old52 >/dev/null; show ctx_old52 term_old52 user_owned user_takeover false 1
 out=$(ST brief SPH-40)
 [ "$out" = "hold session term_old52 (user_takeover)" ] && kill -0 "$HPID" 2>/dev/null && pass "a hold leaves the gate alone: the live session may be the one running it" || fail "hold stopped the gate ($out)"
@@ -383,6 +384,15 @@ reset; terms term_wt5 claude 0; L set SPH-40 state=inbox dispatch=- >/dev/null; 
 for gone in review fix screen; do ST "$gone" SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] || fail "stage $gone still runs"; done; pass "review, fix and screen are not stages any more"
 ST --round 1 babysit SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--round is gone" || fail "--round"
 ST brief NOPE-1 >/dev/null 2>&1; [ $? -eq 4 ] && pass "an unknown item is 4" || fail "unknown item"
+
+# review fixes: the gate lock is one file per user for every project, so the holder label names the project (#76)
+for other in other-project/SPH-40 SPH-40; do
+  holder "$other"
+  reset; L set SPH-40 state=inbox dispatch=ctx_old53 >/dev/null; show ctx_old53 term_old53 owned - true
+  out=$(ST brief SPH-40)
+  kill -0 "$HPID" 2>/dev/null && ! printf '%s' "$out" | grep -q 'stopped previous gate' && pass "a gate held as $other is not this project's SPH-40" || fail "stopped a gate held as $other ($out)"
+  kill "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
+done
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

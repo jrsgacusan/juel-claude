@@ -544,5 +544,26 @@ g "G6a the settings block names tokenCmd (#91)" '"tokenCmd": null'
 g "G6b the session hook exports it in every session (#91)" 'export GH_TOKEN="$(<tokenCmd>)"'
 g "G6c the hook never writes the token (#91)" 'The hook writes the command, never the token'
 g "G6d a shell export never reaches a worker (#92)" 'A token exported in a shell never reaches Orca'"'"'s workers'
+# review fixes: the gate holder label names the project (#76), and the gone check survives an Orca that does not answer (#76)
+g "RF1 the gate stage-start stops is held under the project's label (#76)" 'under the label `<project>/<item>`'
+g "RF2 the gone check says what unknown means (#76)" 'A state of `unknown` (the line `- unknown -`) means Orca did not answer: check again on the next tick'
+# RF3 runs the gone-check command as SKILL.md prints it, against a stub orca
+RFTMP=$(mktemp -d); mkdir -p "$RFTMP/bin"
+awk '/^\*\*A stopped worker is gone\*\*/ { on = 1 } on && /^```sh$/ { grab = 1; next } on && grab && /^```$/ { exit } grab { print }' "$SKILL" | sed 's/<dispatch>/d1/' > "$RFTMP/gone-check.sh"
+printf '#!/bin/sh\ncat "$STUB_REPLY"\n' > "$RFTMP/bin/orca"
+chmod +x "$RFTMP/bin/orca"
+gone_check() { STUB_REPLY="$RFTMP/reply" PATH="$RFTMP/bin:$PATH" sh "$RFTMP/gone-check.sh" 2>"$RFTMP/err"; }
+[ -s "$RFTMP/gone-check.sh" ] && grep -q 'worker-list' "$RFTMP/gone-check.sh" && pass "RF3a the gone-check command is extracted from SKILL.md" || fail "RF3a gone-check extraction"
+printf '{"ok":true,"result":{"workers":[{"dispatchId":"d1","agentTerminalHandle":"term_9","terminalState":"running","resource":{"retainedReason":"user_takeover"}}]}}' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "term_9 running user_takeover" ] && pass "RF3b a listed worker prints its terminal, state and reason" || fail "RF3b listed worker ($out)"
+printf '{"ok":true,"result":{"workers":[]}}' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- none -" ] && pass "RF3c a worker the list does not hold prints none" || fail "RF3c unlisted worker ($out)"
+printf 'orca: command not found' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3d no JSON prints unknown, never a traceback" || fail "RF3d no JSON ($out; $(cat "$RFTMP/err"))"
+: > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3e an empty answer prints unknown" || fail "RF3e empty answer ($out; $(cat "$RFTMP/err"))"
+printf '{"ok":false,"error":{"message":"orca is not running"}}' > "$RFTMP/reply"
+out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3f an error answer prints unknown" || fail "RF3f error answer ($out; $(cat "$RFTMP/err"))"
+rm -rf "$RFTMP"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
