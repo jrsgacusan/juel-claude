@@ -58,7 +58,8 @@ printf '%s\n' "$*" >> "$STUB_DIR/gh-calls"
 case "$1 $2" in
   "pr view") n=$(($(cat "$STUB_DIR/pr-n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$STUB_DIR/pr-n"
              if [ -f "$STUB_DIR/pr-$n.json" ]; then cat "$STUB_DIR/pr-$n.json"; else cat "$STUB_DIR/pr.json"; fi ;;
-  "pr comment") echo "https://github.com/o/r/pull/5#issuecomment-1" ;;
+  "pr comment") shift 2; while [ $# -gt 0 ]; do [ "$1" = --body ] && printf '%s' "$2" > "$STUB_DIR/body"; shift; done
+                echo "https://github.com/o/r/pull/5#issuecomment-1" ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 EOF
@@ -84,7 +85,7 @@ esac
 exit "$rc"
 EOF
 chmod +x "$TMP/bin/claude"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json"; rm -rf "$H/reviews" "$H/specs"; }
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
 cplan() { printf '%s\n' "$1" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -301,6 +302,7 @@ reset
 printf '{"author":{"login":"me"},"headRefOid":"%s","url":"https://github.com/o/r/pull/5","comments":[]}\n' "$NEWHEAD" > "$TMP/pr.json"
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD")
 [ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && grep -q "pr comment https://github.com/o/r/pull/5 --body Codex gate: PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh)" "$TMP/gh-calls" && pass "post-pass posts the PASS" || fail "post-pass ($out / $(cat "$TMP/gh-calls"))"
+[ "$(cat "$TMP/body" 2>/dev/null)" = "$(printf 'Codex gate: PASS (head %s, round 2, gpt-6.1-sol xhigh)\nVERDICT: PASS' "$NEWHEAD")" ] && pass "the receipt's second line is VERDICT: PASS, the line a project's review rule reads (#84)" || fail "receipt lines ($(cat "$TMP/body" 2>/dev/null))"
 reset
 printf '{"author":{"login":"me"},"headRefOid":"%s","url":"u","comments":[{"author":{"login":"me"},"body":"Codex gate: PASS (head %s, round 1, gpt-6.1-sol xhigh)","url":"https://github.com/o/r/pull/5#issuecomment-9"}]}\n' "$NEWHEAD" "$NEWHEAD" > "$TMP/pr.json"
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD")

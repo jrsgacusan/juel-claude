@@ -61,8 +61,10 @@
 # read"), a "Review comment(s):" header with no tagged finding under it, and a bullet that ends
 # with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
 # dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
-# post-pass posts "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)" on the PR, once per
-# head; --head must be the PR's current head, all 40 characters. GitHub can show the previous head
+# post-pass posts two lines on the PR, "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)"
+# and "VERDICT: PASS", the line a project's review rule reads (#84), once per head (a comment by
+# the PR's author that starts "Codex gate: PASS (head <sha>" is already the receipt); --head must
+# be the PR's current head, all 40 characters. GitHub can show the previous head
 # for a few seconds after a push, so post-pass reads the PR's head every 5 seconds for up to 90
 # (times CODEX_GATE_SLEEP) until it is --head, and only then refuses (#62). The model and effort are
 # --model and --effort, else the "Gate: <model> <effort>" line of the --review file (the model
@@ -310,8 +312,8 @@ def post_pass(o):
     for c in comments:
         if (c.get("author") or {}).get("login") == author and str(c.get("body") or "").startswith(prefix):
             out(f"already {c.get('url') or url}")
-    posted = run(["gh", "pr", "comment", o["pr"], "--body",
-                  f"Codex gate: PASS (head {head}, round {o['round']}, {model} {effort})"], 60)
+    body = f"Codex gate: PASS (head {head}, round {o['round']}, {model} {effort})\nVERDICT: PASS"
+    posted = run(["gh", "pr", "comment", o["pr"], "--body", body], 60)
     if posted.returncode != 0:
         error("gh: " + (last_line(posted.stderr or posted.stdout) or "failed"))
     out(f"posted {last_line(posted.stdout) or url}")
