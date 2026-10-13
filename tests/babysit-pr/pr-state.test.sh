@@ -552,6 +552,14 @@ run r-req 40 --as-reviewer me --reviewed-head "$HA" --since 2026-10-02T09:00:00Z
 check "reviewer wait: three unreadable timelines in a row wake errors" 'd["wake"] == "errors"'
 unset STUB_FAIL_ROUTE
 
+# review fixes: a --settle-minutes that is not finite passed the < 0 check and never settled
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --settle-minutes nan
+check_rc "reviewer flags: --settle-minutes nan is a usage error" 64
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --settle-minutes inf
+check_rc "reviewer flags: --settle-minutes inf is a usage error" 64
+run r-base 40 --as-reviewer me --reviewed-head "$HA" --settle-minutes nan
+grep -q 'settle-minutes' "$TMP/err" && echo "ok   reviewer flags: the nan error names the flag" || { echo "FAIL reviewer flags: the nan error names the flag"; fails=$((fails + 1)); }
+
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
