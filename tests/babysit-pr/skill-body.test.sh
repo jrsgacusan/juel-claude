@@ -181,5 +181,11 @@ hrow "L93d refreshOutsideCap false escalates" 'reason=hosted-cap'
 settings_row=$(grep -F '| settings |' "$SKILL")
 printf '%s\n' "$settings_row" | grep -qF '`refreshOutsideCap`, true when absent' && pass "L93e settings name refreshOutsideCap" || fail "L93e settings name refreshOutsideCap"
 g "L93f Phase 1's refresh honours the setting" 'false and every pass used'
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "L81e babysit's gate fix plan carries a Base line" '`**Base:** spec implemented at <the full head>; apply only the tasks below.`'
+grow "L78d babysit's gate fix plan names its files" 'name their files in a `**Files:**` block'
+grow "L78e babysit runs the scope check after the plan" 'sh <scope-check.sh> <the plan> <the head before the executor>'
+grow "L77d babysit's capacity retries resume from the ledger" "each try resumes from the plan's ledger"
+grow "L81f the in-session run is told the Base line wins" "The plan's Base line overrides its Spec"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
