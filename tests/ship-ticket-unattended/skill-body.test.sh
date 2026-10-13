@@ -208,5 +208,8 @@ g "L89b never inside a plan the executor runs" 'Never put `--progress` in a plan
 g "L89c the progress row says gate-lock writes the wait" '`gate-lock.sh --progress` writes this step itself every 10 minutes'
 g "L90a a red fixed outside runtime does not count" 'A red does not count toward the two when the fix'
 g "L90b at most two refunds between green gates" 'At most two such reds are refunded between two green gates'
+# fix-1: R4 the gate lock is one file per user, so under a star: brief the holder names the project (#76)
+g "R4a a star: brief's gate-lock holder carries the project" '--holder "<star.project>/<item>"'
+g "R4b a run without a star: brief keeps the item as the holder" 'The holder is `"<item>"`, except under a `star:` brief'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
