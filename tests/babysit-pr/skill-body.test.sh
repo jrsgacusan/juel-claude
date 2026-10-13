@@ -195,5 +195,32 @@ g "L90d the Phase 4 red row counts the same way" 'counted as the row above count
 g "L89d babysit's gate lock reports its wait" '--progress <star.home>/progress/<item>.log -- sh <run-gates.sh>'
 g "L83c decisions are read after every background step" '| after every background step (an executor run, a gate round, the regression gate, a CI poll, a Phase 2 wake) |'
 g "L83d through orca's unread messages" 'orca orchestration check --unread --json'
+
+# lane h: reviewer mode
+review_mode=$(awk '/^## Reviewer mode/ { f = 1; next } /^## / { f = 0 } f' "$SKILL")
+rv() { printf '%s\n' "$review_mode" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+g "RV1 another author is reviewer mode" 'Any other author is **reviewer mode**'
+g "RV2 the description names reviewer mode" 'it runs reviewer mode instead'
+g "RV3 threads are resolved only by review-pr's gated post" 'resolved only by `juel:review-pr`'
+rv "RV4 STAR never runs it" 'STAR never runs reviewer mode'
+rv "RV5 it needs a review of yours first" 'Review it first with /juel:review-pr'
+rv "RV6 a dirty tree is never discarded" 'never discard them'
+rv "RV7 it never pushes" 'It never commits, pushes, merges, runs gates or edits the author'
+rv "RV8 it waits as a reviewer" '--as-reviewer <you> --reviewed-head <reviewed head> --settle-minutes 30'
+rv "RV9 a re-request wakes it" '`rerequested`'
+rv "RV10 a settled head wakes it" '`settled`'
+rv "RV11 it follows a force-push" 'gh pr checkout <pr> --force'
+rv "RV12 each round runs review-pr" '/juel:review-pr --pr <pr> --since <reviewed head> --from-babysit'
+rv "RV13 the cursor moves after every round" 'set the cursor to now'
+rv "RV14 an approval ends it" '`REVIEW-PR posted verdict=APPROVE'
+rv "RV15 not posted moves the reviewed head" '`REVIEW-PR not-posted head=<sha>`'
+rv "RV16 a moved head waits to settle" '`REVIEW-PR head-moved'
+rv "RV17 a stop is reported" '`REVIEW-PR stopped reason=<why>`'
+rv "RV18 Phase 4 has nothing to push" 'SKIPPED: "reviewer mode: nothing to push"'
+g "RV19 review-pr is a HARD dependency" '| juel:review-pr | skill | HARD |'
+g "RV20 an interactive user is a SOFT context" '| interactive user | context | SOFT |'
+g "RV21 --reviewed accepts the owner's carried proof" '`<item>-r<k>-carried.md` when the owner shipped'
+rv "RV22 the snapshot's cursor is never taken" 'never takes the `cursor` the snapshot prints'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
