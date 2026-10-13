@@ -83,5 +83,27 @@ reset; printf -- '---\nitems: [ITEM-1]\n---\n\n' > "$TMP/grant.md"
 out=$(M); case "$out" in "FAIL grant: no date or no words"*) pass "a grant with no words is a FAIL" ;; *) fail "empty grant ($out)" ;; esac
 PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head abc1234 --grant "$TMP/grant.md" >/dev/null 2>&1; [ $? -eq 64 ] && pass "a short head is 64" || fail "usage head"
 PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" >/dev/null 2>&1; [ $? -eq 64 ] && pass "no grant is 64" || fail "usage grant"
+# with --home and --item, a head a worker may still push to is never merged (#80)
+APP="$TMP/app"; mkdir -p "$APP"; (cd "$APP" && git init -q -b main . && git commit -q --allow-empty -m init)
+SH=$(sh "$ROOT/skills/star/star-home.sh" --cwd "$APP" init)
+LD() { sh "$ROOT/skills/star/ledger.sh" --home "$SH" "$@"; }
+LD add ITEM-1 ref=ITEM-1 project=app state=verifying >/dev/null
+MW() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item ITEM-1 "$@"; }
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "a verifying row with no dispatch merges" || fail "no dispatch ($out)"
+reset; LD set ITEM-1 state=verifying dispatch=ctx_babysit9 >/dev/null
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "a verifying row that still names its last babysit dispatch merges" || fail "verifying with a dispatch ($out)"
+bad=""
+for st in briefing building babysitting posting; do
+  reset; LD set ITEM-1 state=$st dispatch=ctx_w1 >/dev/null
+  out=$(MW); { [ "$out" = "FAIL live worker ctx_w1" ] && [ ! -f "$TMP/calls" ]; } || bad="$bad $st($out)"
+done
+[ -z "$bad" ] && pass "a row in any worker stage is refused before anything is posted" || fail "worker stages:$bad"
+reset; LD set ITEM-1 state=babysitting dispatch=ctx_w5 >/dev/null
+out=$(NOW=2026-10-09T23:00:00Z MW --quiet-hours "22:00-07:00@UTC"); [ "$out" = "FAIL live worker ctx_w5" ] && pass "the live-worker check comes before quiet hours" || fail "before quiet hours ($out)"
+reset; out=$(PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item NOPE-9)
+case "$out" in "FAIL ledger: "*) [ ! -f "$TMP/calls" ] && pass "an item with no row is a FAIL, never a merge" || fail "no row called gh" ;; *) fail "no row ($out)" ;; esac
+PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--home without --item is 64" || fail "usage home"
+PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --item ITEM-1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--item without --home is 64" || fail "usage item"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
