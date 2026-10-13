@@ -3,8 +3,9 @@
 #   done-check.sh [--home H] <item> --pr <url> --head <sha>
 # Prints one line and exits 0:
 #   OK                 the PR's head starts with <sha>, the item's newest review is SAFE for that
-#                      full head (review-proof.sh), and the PR carries "Codex gate: PASS (head
-#                      <PR head>" in a comment by the PR's author
+#                      full head (review-proof.sh), or the newest round has the owner's carried
+#                      PASS for that head (<item>-r<k>-carried.md, #82), and the PR carries
+#                      "Codex gate: PASS (head <PR head>" in a comment by the PR's author
 #   MISMATCH <what>    review: <why>, head: <why> or pass: <why>
 #   PENDING <why>      gh could not be read: ask again later
 # Exit 64 on bad usage.
@@ -62,6 +63,9 @@ rounds = [int(m.group(1)) for m in (re.fullmatch(re.escape(item) + r"-r(\d+)\.md
 if not rounds:
     out(f"MISMATCH review: no review for {item} in {reviews}")
 newest = os.path.join(reviews, f"{item}-r{max(rounds)}.md")
+carried = os.path.join(reviews, f"{item}-r{max(rounds)}-carried.md")
+if os.path.isfile(carried):  # the owner shipped the newest round's head with its findings deferred (#82)
+    newest = carried
 try:
     view = subprocess.run(["gh", "pr", "view", pr, "--json", "author,comments,headRefOid"],
                           capture_output=True, text=True, timeout=60)
