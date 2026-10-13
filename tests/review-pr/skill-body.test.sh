@@ -46,5 +46,20 @@ srow "H3g the fifth is Prior threads" 5 '5. **Prior threads**'
 srow "H3h Step 6 appends the sixth" 6 'Append a sixth section to the same `$REPORT` file'
 g "H3i the overview names the re-review" 'With `--since`, the same cycle is a re-review'
 
+# Task H4: the verdict answers "good to merge?"
+srow "H4a every finding is blocking or not" 6 '**Blocking or not.**'
+srow "H4b blocking means harm on merge" 6 'merging as it stands would cause harm'
+srow "H4c the verdict answers one question" 6 'is this PR good to merge as it stands?'
+srow "H4d an open blocking thread requests changes" 6 'thread still open with `blocking: yes`'
+srow "H4e only a would-be blocker is COMMENT" 6 'Any Ambiguous finding that would block if it were confirmed'
+ng "H4f the old ambiguous-or-partial rule is gone" 'Any Ambiguous finding remains, or any Requirement-alignment item is **partial**'
+srow "H4g the report says good to merge" 6 '**Good to merge:** yes. <one sentence>'
+srow "H4h it never disagrees with the verdict" 6 'It is yes exactly when the verdict is `APPROVE`.'
+srow "H4i a prior thread is never posted twice" 6 '**Never post a prior thread twice.**'
+g "H4j the plan lists threads to resolve" '**Threads to resolve** (resolved after the review posts, Step 7):'
+g "H4k the plan lists thread replies" '| <thread node id> | <first comment databaseId> | Still open at <short sha>: <why> |'
+g "H4l empty thread tables keep their header" 'The two thread tables follow the same rule.'
+srow "H4m Step 6 reads Prior threads too" 6 'Confirmed, Ambiguous and Prior threads sections'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

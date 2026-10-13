@@ -462,23 +462,60 @@ the same way.
 
 ### Step 6: Assess approval readiness and triage postable findings
 
-Using the Requirement-alignment, Confirmed, and Ambiguous sections written in Step 5, decide a
+Using the Requirement-alignment, Confirmed, Ambiguous and Prior threads sections written in Step 5, decide a
 **verdict** and split the postable content into an **inline** list and a **summary body**. This
 step never touches GitHub — it only produces the draft that Step 7 later posts, or that stays in
 the report for manual posting.
 
-**Verdict** — apply these rules in order, stop at the first match:
+**Blocking or not.** Mark every Confirmed finding `blocking: yes` or `blocking: no` in the report,
+the way Step 4 already marked each prior thread still open:
 
-1. Any Requirement-alignment item is **unmet** → `REQUEST_CHANGES`.
-2. Any Confirmed finding is a correctness or security defect (not a style/simplification nit) →
-   `REQUEST_CHANGES`.
-3. Any Ambiguous finding remains, or any Requirement-alignment item is **partial** → `COMMENT`.
-4. Otherwise → `APPROVE`.
+- **Blocking**: merging as it stands would cause harm. A reachable correctness defect, a security
+  issue, data loss or corruption, a broken build or test, a regression of existing behaviour, or
+  an unmet acceptance criterion.
+- **Non-blocking**: anything a follow-up can carry. Style, simplification, an edge case with no
+  realistic trigger, a missing test for behaviour that already works.
+
+**Verdict.** It answers one question: is this PR good to merge as it stands? Apply these rules in
+order, stop at the first match:
+
+1. Any blocking Confirmed finding, any Requirement-alignment item that is **unmet**, or any prior
+   thread still open with `blocking: yes` → `REQUEST_CHANGES`.
+2. Any Ambiguous finding that would block if it were confirmed → `COMMENT`.
+3. Otherwise → `APPROVE`. Non-blocking findings go out as the approval's comments, inline or in
+   the summary as triaged below.
+
+A Requirement-alignment item that is **partial** counts as unmet when what is missing is the
+criterion's own behaviour, and as non-blocking when only a detail around it is missing. Say which
+in its line.
 
 State the one-line rule that produced the verdict (e.g. "REQUEST_CHANGES: Confirmed finding at
-`src/auth.py:42` is a correctness defect").
+`src/auth.py:42` is a blocking correctness defect").
 
-**Inline vs. summary triage** — for every Confirmed finding:
+**Good to merge.** Then write the answer at the top of `$REPORT`, on the line after
+`**Reviewed at commit:**` (its first line when there is none):
+
+```markdown
+**Good to merge:** yes. <one sentence>
+```
+
+when the verdict is `APPROVE`, else:
+
+```markdown
+**Good to merge:** no. <one sentence naming what blocks, or what must be settled first>
+```
+
+It is yes exactly when the verdict is `APPROVE`. When someone asks whether the PR is good to merge,
+this line is the answer, and the verdict can never disagree with it.
+
+**Never post a prior thread twice.** A Confirmed finding that matches a prior thread still open is
+neither inline nor in the summary. A match means the same file, the thread's line inside the
+finding's range, and the same defect. Its thread goes in the **Thread replies** table instead, with
+the body `Still open at <short sha>: <why>`. A prior thread still open with no matching finding gets
+the same reply. Every prior thread Step 4 judged **fixed** or **answered** goes in the
+**Threads to resolve** table, with `fixed in <short sha>` or the accepted answer as its reason.
+
+**Inline vs. summary triage** — for every Confirmed finding the rule above did not route to a thread reply:
 
 - **Inline** when it has a concrete `file` and `line`, and that line falls within the PR's diff
   (a line that changed, or sits inside a diff hunk). GitHub's review API rejects comments anchored
@@ -509,10 +546,22 @@ findings, Ambiguous findings as open questions, one-line Rejected-count footer>
 | File | Line | Body |
 |---|---|---|
 | path/to/file.py | 42 | <finding claim + suggested fix> |
+
+**Threads to resolve** (resolved after the review posts, Step 7):
+
+| Thread | Location | Why |
+|---|---|---|
+| <thread node id> | path/to/file.py:42 | fixed in <short sha> |
+
+**Thread replies** (posted after the review, Step 7):
+
+| Thread | Reply to | Body |
+|---|---|---|
+| <thread node id> | <first comment databaseId> | Still open at <short sha>: <why> |
 ```
 
 If there are zero inline-worthy findings, the table has a header and no rows — never omit the
-table itself. If Confirmed is empty and no work item was graded, or every requirement is met with
+table itself. The two thread tables follow the same rule. If Confirmed is empty and no work item was graded, or every requirement is met with
 no blocking findings, the verdict is `APPROVE` with an empty inline table.
 
 ### Step 7: Post the review to GitHub (human-gated)
