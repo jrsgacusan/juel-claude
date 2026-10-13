@@ -482,7 +482,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td class="k">inbox</td><td>ingested; waiting for a brief slot</td></tr>
           <tr><td class="k">briefing</td><td>a brief worker is exploring the item and the code</td></tr>
           <tr><td class="k">brief-ready</td><td>brief drafted; waiting for the batch go and any person-only step</td></tr>
-          <tr><td class="k">queued</td><td>go given; waiting for a build slot, the host gate and its blockers</td></tr>
+          <tr><td class="k">queued</td><td>go given; waiting for a build slot, the host gate, its blockers and any not-before date</td></tr>
           <tr><td class="k">building</td><td>build worker running, codex gate rounds included</td></tr>
           <tr><td class="k">babysit-queued</td><td>report checked; waiting for a babysit slot</td></tr>
           <tr><td class="k">babysitting</td><td>babysit worker running: ready, hosted review or approval, fixes</td></tr>

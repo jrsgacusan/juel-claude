@@ -487,7 +487,7 @@ answer can never land on the old row.
 | `inbox` | — | ingested; waiting for a brief slot (with `rescope=`: waiting to be narrowed) |
 | `briefing` | brief | a brief worker is reading the item and the code |
 | `brief-ready` | — | brief drafted; waiting for its batch's go and its person-only steps |
-| `queued` | — | go given; waiting for a build slot, the host gate and its blockers |
+| `queued` | — | go given; waiting for a build slot, the host gate, its blockers and its `notBefore` time |
 | `building` | build | build worker running: plan, executor, checks, draft PR, the codex gate loop |
 | `babysit-queued` | — | its `DONE` checked out, or the merge gate sent it back; waiting for a babysit slot |
 | `babysitting` | babysit | babysit worker running: ready, the hosted review or an approval, gated fixes |
@@ -504,8 +504,8 @@ Brief pool (at most `maxBriefs`; 4 when `star.json` has no such key): `inbox` ro
 `updated` first. Briefs never take a build slot: they only read, and run no gate. Build pool (at
 most `maxParallel`): `post-queued` rows (only outside quiet hours: posting is outward), then
 `queued` rows whose brief is stamped (`grep -cE '^approved: [0-9]' <brief>` prints 1) and whose
-`blockedBy` items are all `done` or `dropped` (#37); within each, the oldest `updated` first. A `queued` row still waiting on a blocker
-is named in the status line: `<item> waiting on <items>`. Babysit pool (at most `maxInReview`):
+`blockedBy` items are all `done` or `dropped` (#37), and whose `notBefore` time, when the brief has one, has passed (#87); within each, the oldest `updated` first. A `queued` row still waiting on a blocker
+is named in the status line: `<item> waiting on <items>`, and one waiting for its date: `<item> waits until <date>`. Babysit pool (at most `maxInReview`):
 `babysit-queued` rows, the oldest first. A row counts against a pool exactly while its state is one
 the table marks `brief`, `build` or `babysit`.
 
@@ -840,12 +840,15 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `ended previous session <terminal>` (a line of its own, before the last line) | the previous dispatch's own terminal was still open, and `stage-start.sh` closed it (#76): say `<item>: ended previous session <terminal>` in the status line, then act on the next line |
    | `kept previous session <terminal> (<state>)` (a line of its own, before the last line) | a terminal Orca cannot place as the dispatch's (`user_takeover` or `identity_unproven`) had been quiet for 10 minutes or more, so it was left open and the start goes on (#76): say `<item>: kept previous session <terminal> (<state>)` in the status line, then act on the next line |
    | `hold session <terminal> (<state>)` | a session may still be working on this item (#76): a terminal Orca cannot place as the previous dispatch's (a person took it over, or Orca cannot prove whose it is), or another `claude` or `codex` terminal in the item's worktree, printed output in the last 10 minutes. Start nothing for this row and keep it in its waiting state; queue `--kind held` "<item>: terminal <terminal> (<state>) may still be working on it; close it or finish there, then answer done", and give the slot to the next row in line. The next tick tries again |
+   | `wait until <iso>` | the brief's `notBefore` is still ahead (#87): start nothing for this row, keep it `queued`, say `<item> waits until <date>` in the status line, and give the slot to the next row in line |
    | `failed <step>: <why>` | row → `failed`, `--kind escalation` "<stage> could not start: <step>: <why>" |
    | no line, or a non-zero exit | the script was cut off: put the row back in its stage's waiting state with its `counters` as they are (its `live=` makes the next start a replay of this one), and file an improvement issue ("Improvement issues") |
 
    A `queued` row starts only when its brief is stamped (`grep -cE '^approved: [0-9]' <brief>`
-   prints 1) and every item its brief's `blockedBy` line names
-   (`sed -n 's/^blockedBy: //p' <brief>`, one line) is `done` or `dropped` (#37). A `post-queued`
+   prints 1), every item its brief's `blockedBy` line names
+   (`sed -n 's/^blockedBy: //p' <brief>`, one line) is `done` or `dropped` (#37), and its
+   `notBefore` time (`sed -n 's/^notBefore: //p' <brief>`), when it has one, has passed (#87):
+   `stage-start.sh build` checks that itself and prints `wait until <iso>` before then. A `post-queued`
    row starts only outside quiet hours: posting is outward.
 5. **Housekeeping.**
    - Questions past their deadline: when the user is not away, it is not quiet hours and the row
@@ -922,7 +925,8 @@ starts ("Fill slots"), so two sessions never work in one worktree.
 `queued` or `post-queued` while it may start, or while `gateDown` is set, stay in the turn and tick
 again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
 `state: idle` and STAR ends its turn. It is woken by a hand-over nudge, by the user, or by the
-heartbeat, and each wake runs one tick. While a question is open in chat, STAR does not
+heartbeat, and each wake runs one tick. A `queued` row waiting for its `notBefore` date cannot
+start, so it does not keep STAR in the turn: the heartbeat's next wake tries it again. While a question is open in chat, STAR does not
 stay in the turn: each wake runs one tick, then STAR prints the open question again and ends the
 turn ("The batch summary and go").
 
@@ -1094,6 +1098,7 @@ old PR.
    existingPr: <url>       # only for an item that brings an open PR to mergeable: see below
    deliverable: pr          # or report: see below
    blockedBy: [<item>, <item>]
+   notBefore: <YYYY-MM-DD or ISO datetime>   # only when the item must not be built before then
    approved:               # stamped by STAR on the owner's go
    grant:                  # stamped by STAR with the go: the grant file's path
    star:
@@ -1200,6 +1205,12 @@ old PR.
    `<HOME_DIR>/ledger.md`). Use each item's ledger name. A blocker STAR does not track goes under
    `## Approach` instead, with what the build does until it lands. Never a cycle: when two items
    would block each other, keep the link the code needs and take a decision record.
+
+   **Not before** (#87). When the item's text, a memory note or a `## Feedback` entry says it may
+   only be built after a date or time ("after Wednesday", "not before the 15th"), set `notBefore`
+   to it: `YYYY-MM-DD` for a day, which starts at 00:00 in `star.json`'s `quietHours.tz` (the
+   machine's local zone when quiet hours are off), or an ISO datetime with an offset or `Z`. Take a
+   decision record that quotes the words it came from. Leave the key out otherwise.
 
    `deliverable` is `report` when every acceptance criterion asks only for evidence, a
    disposition or a write-up (exercise flows and record what passed, map an impact, assess a PR,
@@ -1624,7 +1635,7 @@ batch then runs without them.
 1. When no row of the batch is `inbox` or `briefing` any more, print the summary in one chat
    message, for the rows of the batch that are `brief-ready`, `escalated` or `failed`. STAR reads
    only these lines of each brief, with `sed -n`, never the whole file: the frontmatter's
-   `item.title`, `blockedBy` and `deliverable`, and the lines under `## Acceptance criteria`,
+   `item.title`, `blockedBy`, `notBefore` and `deliverable`, and the lines under `## Acceptance criteria`,
    `## Approach` and `## Person-only steps`, with the `### D<n>` headings under `## Decisions`.
 
    ```
@@ -1636,12 +1647,14 @@ batch then runs without them.
      Decisions STAR took (2): D1 CSV over XLSX · D2 a 10,000-row cap
      Blocked by: none
    ITEM-2 · ...
+     Not before: 2026-10-15
      Person-only: sign in to <app> as <account> (2FA)
    ITEM-3 · stopped: <the escalation or failure, one line>
 
    Reply go, go except <items>, drop <item>, or tell me what to change.
    ```
 
+   A `Not before:` line appears only for a brief that has `notBefore`.
    The `go-batch` item carries the same choice. The decision records are where the owner
    overrules STAR: an answer that names one is feedback for that brief.
 2. Between ticks, never inside one: ask each open `person` item of the batch in plain chat,
@@ -1824,6 +1837,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
 | The user leaves with person-only steps unanswered | Those items stay `brief-ready`; the rest of the batch builds and merges |
 | A person-only step needs a value from the owner (a host name, an id) | `(value)` on the step: the answer is recorded under `## Decisions` as `→ value: <answer>`, and the step is done |
+| An item that may only be built after a date | `notBefore` in its brief: the row stays `queued`, and the status line says `<item> waits until <date>` until then |
 | A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
 | The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |

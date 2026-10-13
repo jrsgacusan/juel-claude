@@ -532,5 +532,12 @@ g "G4d the answer is recorded as the value (#86)" '(<kind>, value): <step> → v
 g "G4e done alone is asked again for the value (#86)" '(answer with the value)'
 g "G4f the chat question asks for the value (#86)" 'Or tell me the value.'
 g "G4g the edge case" 'A person-only step needs a value from the owner'
+g "G5a the brief template has notBefore (#87)" 'notBefore: <YYYY-MM-DD or ISO datetime>'
+g "G5b the brief worker sets it from the item's words (#87)" '**Not before** (#87)'
+g "G5c a row waiting for its date is named in the status line (#87)" 'one waiting for its date: `<item> waits until <date>`'
+g "G5d Fill slots reads stage-start's wait until (#87)" '   | `wait until <iso>` |'
+g "G5e a queued row starts only after its notBefore (#87)" '`notBefore` time (`sed -n '"'"'s/^notBefore: //p'"'"' <brief>`), when it has one, has passed (#87)'
+g "G5f the batch summary shows it (#87)" '`item.title`, `blockedBy`, `notBefore` and `deliverable`'
+g "G5g the edge case" 'An item that may only be built after a date'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
