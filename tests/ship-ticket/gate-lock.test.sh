@@ -190,5 +190,40 @@ sh "$SCRIPT" --holder g2 --wait-max 10 -- sh -c "date +%s > '$TMP/g2.start'"
 sh "$SCRIPT" --holder z0 --max-seconds 0 -- sh -c "sleep 1; echo ran > '$TMP/z0.ran'"; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$TMP/z0.ran" ] && pass "--max-seconds 0 means no time limit" || fail "--max-seconds 0 killed the gate (rc=$rc)"
 
+# lane e: #89 a gate that waits for the lock says so in the worker's progress log
+# 23. A free lock writes no progress line.
+rm -f "$TMP/p.free"
+sh "$SCRIPT" --holder pf --progress "$TMP/p.free" -- true; rc=$?
+[ "$rc" -eq 0 ] && [ ! -s "$TMP/p.free" ] && pass "#89 a free lock writes no progress line" || fail "#89 free lock wrote a progress line (rc=$rc)"
+# 24. A gate that waits appends a line when the wait starts and again every interval, naming the holder.
+sh "$SCRIPT" --holder holderA -- sleep 2.5 &
+ha=$!; sleep 0.4
+JUEL_GATE_LOCK_PROGRESS_SECONDS=1 sh "$SCRIPT" --holder waiterB --progress "$TMP/p.log" --wait-max 20 -- true; rc=$?
+wait "$ha"
+n=$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z regression-gate gate-lock waiting, held by holderA$' "$TMP/p.log" 2>/dev/null)
+all=$(wc -l < "$TMP/p.log" 2>/dev/null | tr -d ' ')
+[ "$rc" -eq 0 ] && [ "${n:-0}" -ge 2 ] && [ "${all:-0}" -eq "${n:-0}" ] && pass "#89 a waiting gate writes a progress line on entry and every interval" || fail "#89 progress lines (rc=$rc n=${n:-0} all=${all:-0}: $(cat "$TMP/p.log" 2>/dev/null))"
+# 25. The line is appended: what the log already held stays.
+printf 'earlier line\n' > "$TMP/p2.log"
+sh "$SCRIPT" --holder holderC -- sleep 1 &
+hc=$!; sleep 0.4
+sh "$SCRIPT" --holder waiterD --progress "$TMP/p2.log" --wait-max 20 -- true
+wait "$hc"
+[ "$(head -1 "$TMP/p2.log")" = "earlier line" ] && grep -q 'regression-gate gate-lock waiting, held by holderC$' "$TMP/p2.log" && pass "#89 progress lines are appended" || fail "#89 progress log overwritten ($(cat "$TMP/p2.log"))"
+# 26. A progress file that cannot be written (a missing folder, a read-only folder, a directory)
+#     changes nothing: the gate waits, runs, keeps its exit status, and prints nothing about it.
+mkdir -p "$TMP/ro"; chmod 555 "$TMP/ro"
+for p in "$TMP/no/such/folder/p.log" "$TMP/ro/p.log" "$TMP"; do
+  rm -f "$TMP/f.ran"
+  sh "$SCRIPT" --holder holderE -- sleep 1 &
+  he=$!; sleep 0.4
+  sh "$SCRIPT" --holder waiterF --progress "$p" --wait-max 20 -- sh -c "echo ran > '$TMP/f.ran'; exit 3" 2> "$TMP/f.err"; rc=$?
+  wait "$he"
+  [ "$rc" -eq 3 ] && [ -f "$TMP/f.ran" ] && [ ! -s "$TMP/f.err" ] && [ ! -e "$TMP/no" ] && pass "#89 an unwritable progress path ($p) changes nothing" || fail "#89 unwritable progress path $p (rc=$rc: $(head -2 "$TMP/f.err"))"
+done
+chmod 755 "$TMP/ro"
+# 27. --progress needs a value.
+sh "$SCRIPT" --progress -- true 2>/dev/null; [ $? -eq 64 ] && pass "#89 --progress without a value is exit 64" || fail "#89 --progress usage"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

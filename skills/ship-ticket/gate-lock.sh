@@ -2,7 +2,7 @@
 # Runs one command while holding the machine-wide heavy-gate lock, so unattended workers never
 # run full test suites or builds at the same time.
 #
-# Usage: sh gate-lock.sh [--holder <label>] [--wait-max <seconds>] [--max-seconds <seconds>] -- <command> [args...]
+# Usage: sh gate-lock.sh [--holder <label>] [--progress <file>] [--wait-max <seconds>] [--max-seconds <seconds>] -- <command> [args...]
 #
 # What follows "--" is one command with its arguments, run as it is: no shell reads it. A line
 # with "&&", "cd", "VAR=value" or a redirect needs a shell of its own: put the commands in a file
@@ -37,6 +37,13 @@
 # (default 3600). Running: a command still going after --max-seconds (default 7200; 0 = no limit) is stopped
 # like a TERM, so one hung test runner cannot hold every project's gate for good.
 #
+# With --progress <file>, a gate that has to wait appends one line to <file> when the wait starts,
+# and again every JUEL_GATE_LOCK_PROGRESS_SECONDS (default 600) while it waits:
+#   <UTC time, as 2026-10-13T09:00:00Z> regression-gate gate-lock waiting, held by <holder label>
+# which is the line a STAR worker's progress log takes, so STAR's progress check reads a gate
+# queued behind other workers as alive (#89). A lock that is free at once writes nothing. A file
+# that cannot be written is skipped: the progress line never stops a gate.
+#
 # Exit status: the command's own (128+n when a signal ended it, 127 when it could not start).
 # The wrapper's own codes never mean "the gate is red": 75 with "gate-lock.sh: busy, held by ..."
 # when the lock stayed busy; 124 with "ran past" when --max-seconds ended the command; 71 when
@@ -69,12 +76,12 @@ def number(name, text, default):
     return value
 
 
-holder, wait_max, max_seconds, argv = "gate", None, None, sys.argv[1:]
+holder, wait_max, max_seconds, progress, argv = "gate", None, None, None, sys.argv[1:]
 while argv:
     arg = argv.pop(0)
     if arg == "--":
         break
-    if arg not in ("--holder", "--wait-max", "--max-seconds"):
+    if arg not in ("--holder", "--wait-max", "--max-seconds", "--progress"):
         die(64, f"unknown argument: {arg}")
     if not argv or argv[0] == "--":
         die(64, f"{arg} needs a value")
@@ -82,6 +89,8 @@ while argv:
         holder = argv.pop(0)
     elif arg == "--wait-max":
         wait_max = argv.pop(0)
+    elif arg == "--progress":
+        progress = argv.pop(0) or None
     else:
         max_seconds = argv.pop(0)
 else:
@@ -92,6 +101,7 @@ wait_max = number("--wait-max", wait_max, 3600)
 max_seconds = number("--max-seconds", max_seconds, 7200)
 poll = number("JUEL_GATE_LOCK_POLL", os.environ.get("JUEL_GATE_LOCK_POLL"), 5) or 0.01
 drain = number("JUEL_GATE_LOCK_DRAIN_SECONDS", os.environ.get("JUEL_GATE_LOCK_DRAIN_SECONDS"), 60)
+every = number("JUEL_GATE_LOCK_PROGRESS_SECONDS", os.environ.get("JUEL_GATE_LOCK_PROGRESS_SECONDS"), 600)
 holder = "_".join(holder.split()) or "gate"
 
 lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"/tmp/juel.gate.{os.getuid()}.lock")
@@ -141,8 +151,22 @@ def still_the_file(fd):
     return (there.st_dev, there.st_ino) == (mine.st_dev, mine.st_ino)
 
 
+def waiting_note(fd):
+    """One line for a STAR worker's progress log: this gate waits, and for whom (#89)."""
+    if not progress:
+        return
+    try:
+        held = os.pread(fd, 200, 0).decode("utf-8", "replace").split()
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        with open(progress, "a", encoding="utf-8") as f:
+            f.write(f"{stamp} regression-gate gate-lock waiting, held by {held[0] if held else 'another gate'}\n")
+    except OSError:
+        pass  # the progress line never stops a gate
+
+
 fd = open_lock()
 start = time.monotonic()
+next_note = None  # when the next progress line is due: None until the gate first has to wait
 while True:
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -154,10 +178,14 @@ while True:
     except OSError as e:
         if e.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
             die(71, f"cannot lock {lock}: {e.strerror}")
-        left = wait_max - (time.monotonic() - start)
+        now = time.monotonic()
+        left = wait_max - (now - start)
         if left <= 0:
             who = os.pread(fd, 200, 0).decode("utf-8", "replace").strip() or "another gate"
             die(75, f"busy, held by {who}")
+        if next_note is None or now >= next_note:
+            waiting_note(fd)
+            next_note = now + every
         time.sleep(min(poll, left))
 
 
