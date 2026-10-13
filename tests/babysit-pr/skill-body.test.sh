@@ -169,5 +169,9 @@ grow "L75c a NO line, or no SAFE round, gets the codex round" 'no SAFE round yet
 grow "L75d post-pass refusing the carry gets the codex round" '`ERROR not carried: …`'
 g "L75e Phase 4 points at the carry" 'carries the last SAFE with no codex round'
 g "L75f a conflict wake's push is gated the same way" 'the push'"'"'s gate, a carry of the last SAFE when the merge added nothing of its own'
+g "L82a an owner's carried PASS is proof" 'It prints `OK carried round=<k>` for an owner'
+g "L82b both OK forms are proof" 'Both `OK` forms are proof.'
+g "L82c its receipt is posted by post-pass in Phase 1" 'names a `<item>-r<k>-carried.md` file) | in Phase 1'
+g "L82d never a hand-written receipt" 'never write one by hand'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
