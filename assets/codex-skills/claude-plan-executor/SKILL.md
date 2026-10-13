@@ -58,6 +58,7 @@ of the two; that is normal and not a problem to report.
    - what was completed
    - any deviations from the plan
    - what remains blocked or undecidable
+   - notes: anything outside the tasks' `**Files:**` blocks that looks wrong, never fixed
 
 ## Execution Rules
 
@@ -118,11 +119,31 @@ of the two; that is normal and not a problem to report.
   ones most often violated by accident.
 - **A task marked BLOCKED BY TASK N does not start until task N is done.** If task N could not be
   completed, stop and report rather than proceeding on assumed values.
+- **Keep a ledger, and resume from it.** The ledger is
+  `<repo root>/.superpowers/sdd/<plan file name without .md>/progress.md`, where `<repo root>` is
+  `git rev-parse --show-toplevel`. It is the file `superpowers:executing-plans` keeps, in the same
+  format, so a run on the fallback model or in a Claude session resumes from the same record.
+  - At start, if the ledger's first line names this plan file, every task with a
+    `Task <N>: complete` line is done: do not redo it. Start at the first task without one.
+    Before editing, check that task's state: a run stopped by a capacity error may have left it
+    half applied. Finish it, and never apply its edits a second time.
+  - With no ledger, or one whose first line names another plan file, start a fresh one whose
+    first line is `# SDD ledger — plan: <plan file path>` (superpowers' literal, dash included).
+  - When a task's verification passes, append one line, `<a7>` and `<b7>` being `HEAD` before and
+    after the task: `Task <N>: complete (commits <a7>..<b7>, tests: <command> → <result>)`.
+    When the sandbox denies commits, append
+    `Task <N>: complete (uncommitted, tests: <command> → <result>)` instead.
+  - `<N>` is the number in the task's `### Task <N>` heading. The ledger is git-ignored scratch,
+    and the one scratch file you write: never commit it.
+- **A plan with a `**Base:**` line is a delta.** Its header says
+  `**Base:** spec implemented at <sha>; apply only the tasks below.`: the spec it names is already
+  implemented. Apply the tasks. Do not judge the spec for completeness, and never stop because the
+  spec, or the work as a whole, already looks implemented.
 
 ## Plan Translation Heuristics
 
 - Convert narrative instructions into explicit tasks with owners, artifacts, and checks.
-- Expand vague verbs like "wire up", "finish", or "support" into concrete code or design changes before editing.
+- Expand vague verbs like "wire up", "finish", or "support" into concrete changes inside the files, functions and line ranges the task's `**Files:**` block names, never into files it does not name.
 - Separate discovery tasks from write tasks.
 - Convert validation lines into actual commands, tests, screenshots, or inspections.
 - Preserve non-functional requirements such as performance, accessibility, migration safety, or multi-tenant isolation.
@@ -132,19 +153,24 @@ of the two; that is normal and not a problem to report.
 - If the plan references missing files, missing resources, or unavailable tools, say exactly what is missing.
 - If no `CLAUDE.md` files exist in scope, continue normally.
 - If the affected path is unclear, read the repo-root `CLAUDE.md` first and add deeper scoped `CLAUDE.md` files once the relevant subtree is known.
-- If the plan conflicts with the codebase or runtime reality, explain the conflict and propose the narrowest correction.
+- If the plan conflicts with the codebase or runtime reality, explain the conflict and propose the narrowest correction. Two things are not conflicts: on a resumed run, a task whose edits are already in the worktree (verify it and mark it complete, see "Progress protocol"); and, in a plan with a `**Base:**` line, a spec that is already implemented (apply the tasks anyway).
 - If the plan cannot be completed in one pass, finish the highest-value subset and state what remains.
 - If the requested execution pattern conflicts with repository instructions or available tools, call out the conflict and use the narrowest compliant alternative.
 
 ## Non-goals
 
+- **Change only what each task's `**Files:**` block names**: those files, and inside them the
+  functions or line ranges it gives. Imports, and the call sites of a symbol the task renames, are
+  part of the task. Anything else you believe is wrong, however near, goes under a `Notes:` heading
+  in your report, never into the diff. The caller reverts every changed file no block names.
 - **Do not expand scope.** Implement what the plan's acceptance criteria require and nothing else.
   A migration, a config change, or a cap that the plan did not ask for is out of scope even when it
   looks obviously needed. Propose it in the report instead.
 - **Do not re-plan.** Refine a step that is vague, technically wrong, or missing a dependency; do
   not redesign the approach because a different one seems better.
 - **Do not touch files the plan marks as out of scope**, including gitignored scratch directories
-  that hold the plan and spec themselves.
+  that hold the plan and spec themselves. The ledger (see "Progress protocol") is the one scratch
+  file you write.
 
 ## Output Style
 
