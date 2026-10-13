@@ -9,6 +9,8 @@ fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$SCRIPT" ] || { echo "FAIL stage-start.sh missing"; exit 1; }
+# the gate lock is a scratch file: a test never reads or signals the machine's real one
+export JUEL_GATE_LOCK="$TMP/gate.lock"
 
 # the project: a repo with an ignored .env, its STAR folder with schema 2 settings, rows and briefs
 APP="$TMP/app"; mkdir -p "$APP"
@@ -71,12 +73,23 @@ case "$1 $2" in
     if [ -f "$STUB_DIR/dialog-always" ] || [ "$n" -le "$(cat "$STUB_DIR/dialog-reads" 2>/dev/null || echo 0)" ]; then
       echo '{"ok":true,"result":{"screen":"Do you trust the files in this folder?  1. Yes, proceed  2. No, exit"}}'
     else echo '{"ok":true,"result":{"screen":"> ready"}}'; fi ;;
-  "terminal send"|"terminal close") echo '{"ok":true}' ;;
+  "terminal send") echo '{"ok":true}' ;;
+  "terminal close")
+    [ -f "$STUB_DIR/close-fail" ] && { echo '{"ok":false,"error":{"message":"terminal is busy"}}'; exit 1; }
+    echo '{"ok":true}' ;;
+  "orchestration worker-show")
+    id=$(printf '%s' "$*" | sed -n 's/.*--dispatch \([^ ]*\).*/\1/p')
+    if [ -f "$STUB_DIR/show-$id.json" ]; then cat "$STUB_DIR/show-$id.json"
+    else printf '{"ok":true,"result":{"dispatch":{"id":"%s"},"terminal":null,"observation":{"status":"missing","exactWorker":false},"terminalResource":null}}\n' "$id"; fi ;;
+  "terminal list")
+    if [ -f "$STUB_DIR/terminals.json" ]; then cat "$STUB_DIR/terminals.json"
+    else echo '{"ok":true,"result":{"terminals":[],"totalCount":0,"truncated":false}}'; fi ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 EOF
 chmod +x "$TMP/bin/orca"
-reset() { rm -f "$TMP/calls" "$TMP/ws" "$TMP"/ws-fail-* "$TMP/tr" "$TMP/dialog-always" "$TMP/dialog-reads" "$TMP/task-fail"; }
+reset() { rm -f "$TMP/calls" "$TMP/ws" "$TMP"/ws-fail-* "$TMP/tr" "$TMP/dialog-always" "$TMP/dialog-reads" "$TMP/task-fail" \
+                "$TMP"/show-*.json "$TMP/terminals.json" "$TMP/close-fail"; }
 ST() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca STAR_FREE_GB=${FREE:-16} \
        STAR_AGENTS=${AGENTS:-3} STAR_SWAP_GB=${SWAP:-1} STAR_DISK_GB=${DISK:-500} \
        STAR_TRUST_POLL=0.01 CLAUDE_CONFIG_DIR="$TMP/cfg" sh "$SCRIPT" --home "$H" "$@"; }
@@ -267,6 +280,105 @@ L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
 grep -q -- "--reviewed $H/reviews/app/SPH-11-r3-carried.md --item SPH-11" "$TMP/calls" && pass "a carried newest round is the proof" || fail "carried proof ($(grep task-create "$TMP/calls"))"
 reset; review SPH-11 4; L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
 grep -q -- "--reviewed $H/reviews/app/SPH-11-r4.md --item SPH-11" "$TMP/calls" && pass "a carry of an older round never stands for a newer one" || fail "older carry ($(grep task-create "$TMP/calls"))"
+# a previous session must be gone, or provably idle, before a stage starts (#76)
+ms_ago() { python3 -c 'import sys, time; print(int((time.time() - float(sys.argv[1]) * 60) * 1000))' "$1"; }
+show() { # show <dispatch> <handle> <ownershipState> <retainedReason or -> <exactWorker> [<minutes since it wrote>] [<worktree>]
+  reason=null; [ "$4" = - ] || reason="\"$4\""
+  printf '{"ok":true,"result":{"dispatch":{"id":"%s","status":"dispatched"},"terminal":{"handle":"%s","connected":true,"agentIdentity":"claude","lastOutputAt":%s,"worktreePath":"%s"},"observation":{"status":"live","exactWorker":%s},"terminalResource":{"ownershipState":"%s","releaseState":"not_requested","retainedReason":%s,"ownerDispatchId":"%s","terminalHandle":"%s"}}}\n' \
+    "$1" "$2" "$(ms_ago "${6:-0}")" "${7:-$APP}" "$5" "$3" "$reason" "$1" "$2" > "$TMP/show-$1.json"
+}
+line() { printf '%s\n' "$1" | sed -n "${2}p"; }
+L add SPH-40 ref=SPH-40 project=app state=inbox dispatch=ctx_old40 >/dev/null
+reset; show ctx_old40 term_old40 owned - true
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "ended previous session term_old40" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "the dispatch's own terminal is closed, then the stage starts" || fail "owned session ($out)"
+grep -q 'orchestration worker-show --dispatch ctx_old40 --json' "$TMP/calls" && grep -q 'terminal close --terminal term_old40' "$TMP/calls" && pass "it asks Orca, then closes that terminal" || fail "owned session calls ($(cat "$TMP/calls"))"
+# Review Focus 4: a terminal a person took over is never closed; working, it holds the start
+reset; L set SPH-40 state=inbox dispatch=ctx_old41 >/dev/null; show ctx_old41 term_old41 user_owned user_takeover false 1
+out=$(ST brief SPH-40)
+[ "$out" = "hold session term_old41 (user_takeover)" ] && pass "a taken-over terminal that just wrote holds the start" || fail "active takeover ($out)"
+! grep -q 'terminal close' "$TMP/calls" && ! grep -q task-create "$TMP/calls" && [ "$(L get SPH-40 dispatch)" = "ctx_old41" ] && [ "$(L get SPH-40 state)" = "inbox" ] && pass "nothing is closed, created or written" || fail "active takeover side effects ($(cat "$TMP/calls"))"
+# Review Focus 4: quiet, it is kept open and the stage starts, so retained terminals never hold every restart
+reset; L set SPH-40 state=inbox dispatch=ctx_old48 >/dev/null; show ctx_old48 term_old48 user_owned user_takeover false 20
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "kept previous session term_old48 (user_takeover)" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && ! grep -q 'terminal close' "$TMP/calls" && pass "a quiet taken-over terminal is kept open, and the stage starts" || fail "quiet takeover ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_old42 >/dev/null; show ctx_old42 term_old42 owned identity_unproven true 2
+out=$(ST brief SPH-40); [ "$out" = "hold session term_old42 (identity_unproven)" ] && pass "an unproven identity that just wrote holds" || fail "unproven ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_old43 >/dev/null; show ctx_old43 term_old43 owned - false 3
+out=$(ST brief SPH-40); [ "$out" = "hold session term_old43 (identity_unproven)" ] && pass "a terminal Orca cannot tie to the exact worker holds" || fail "not exact ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_old44 >/dev/null; show ctx_old44 term_old44 owned - true; touch "$TMP/close-fail"
+out=$(ST brief SPH-40); [ "$out" = "hold session term_old44 (close failed: terminal is busy)" ] && ! grep -q task-create "$TMP/calls" && pass "a close that fails holds" || fail "close failed ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_gone45 >/dev/null
+out=$(ST brief SPH-40); case "$out" in "started "*) ! grep -q 'terminal close' "$TMP/calls" && pass "a dispatch whose terminal is gone starts at once" || fail "gone closed something" ;; *) fail "gone ($out)" ;; esac
+# a replayed start never ends its own dispatch
+reset; L set SPH-40 state=inbox stage=brief counters.start=9 counters.live=9 task=task_live9 dispatch=ctx_live9 >/dev/null; show ctx_live9 term_live9 owned - true
+out=$(ST brief SPH-40)
+[ "$out" = "started task=task_live9 dispatch=ctx_live9" ] && ! grep -q 'worker-show' "$TMP/calls" 2>/dev/null && pass "a replay is not checked against itself" || fail "replay ($out; $(cat "$TMP/calls" 2>/dev/null))"
+
+# the gate the lock says this item holds is stopped, whatever its terminal's state; another item's is left alone
+holder() { # holder <label>: hold the scratch gate lock the way gate-lock.sh does (its own group), until signalled
+  python3 - "$JUEL_GATE_LOCK" "$1" <<'PY' &
+import fcntl, os, sys, time
+os.setpgrp()
+fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
+fcntl.flock(fd, fcntl.LOCK_EX)
+os.ftruncate(fd, 0)
+os.write(fd, f"{sys.argv[2]} pid={os.getpid()} pgid={os.getpgrp()} token=0123456789abcdef\n".encode())
+time.sleep(60)
+PY
+  HPID=$!
+  i=0; while [ $i -lt 50 ] && ! grep -q "pid=$HPID " "$JUEL_GATE_LOCK" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+}
+gone() { i=0; while [ $i -lt 30 ] && kill -0 "$1" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done; ! kill -0 "$1" 2>/dev/null; }
+holder SPH-40
+reset; L set SPH-40 state=inbox dispatch=ctx_gone46 >/dev/null
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "stopped previous gate pgid=$HPID" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a gate left running after its terminal closed is named and the stage starts" || fail "orphaned gate ($out)"
+gone "$HPID" && pass "its process group got the TERM" || { fail "gate left running"; kill "$HPID" 2>/dev/null; }
+holder SPH-40
+reset; L set SPH-40 state=inbox dispatch=ctx_old49 >/dev/null; show ctx_old49 term_old49 owned - true
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "stopped previous gate pgid=$HPID" ] && [ "$(line "$out" 2)" = "ended previous session term_old49" ] && case "$(line "$out" 3)" in "started "*) true ;; *) false ;; esac && gone "$HPID" && pass "the gate goes first, then the session, then the start" || { fail "gate then session ($out)"; kill "$HPID" 2>/dev/null; }
+holder SPH-99
+reset; L set SPH-40 state=inbox dispatch=ctx_old47 >/dev/null; show ctx_old47 term_old47 owned - true
+out=$(ST brief SPH-40)
+kill -0 "$HPID" 2>/dev/null && ! printf '%s' "$out" | grep -q 'stopped previous gate' && pass "another item's gate is left alone" || fail "another item's gate was stopped ($out)"
+kill "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
+holder SPH-40
+reset; L set SPH-40 state=inbox dispatch=ctx_old52 >/dev/null; show ctx_old52 term_old52 user_owned user_takeover false 1
+out=$(ST brief SPH-40)
+[ "$out" = "hold session term_old52 (user_takeover)" ] && kill -0 "$HPID" 2>/dev/null && pass "a hold leaves the gate alone: the live session may be the one running it" || fail "hold stopped the gate ($out)"
+kill "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
+reset; L set SPH-40 state=inbox dispatch=ctx_gone50 >/dev/null; printf 'SPH-40 pid=999999 pgid=999999 token=0123456789abcdef\n' > "$JUEL_GATE_LOCK"
+out=$(ST brief SPH-40); case "$out" in "started "*) pass "stale text in a lock nobody holds is ignored" ;; *) fail "stale lock text ($out)" ;; esac
+
+# for build and babysit, any other claude or codex terminal live in the worktree holds the start
+WT50="$APP/.worktrees/app/SPH-50"; git -C "$APP" worktree add -q -b feat/sph-50-x "$WT50" >/dev/null 2>&1
+L add SPH-50 ref=SPH-50 project=app state=babysit-queued pr=https://github.com/o/r/pull/50 "worktree=$WT50" >/dev/null; brief SPH-50; review SPH-50 1
+trust "$APP" "$WT50"
+terms() { # terms <handle> <agentIdentity or null> <minutes since it last wrote> [<worktree>]
+  python3 - "$TMP/terminals.json" "$1" "$2" "$3" "${4:-$WT50}" <<'PY'
+import json, sys, time
+p, h, ident, ago, path = sys.argv[1:]
+t = {"handle": h, "worktreePath": path, "agentIdentity": None if ident == "null" else ident,
+     "lastOutputAt": int((time.time() - float(ago) * 60) * 1000), "connected": True}
+json.dump({"ok": True, "result": {"terminals": [t], "totalCount": 1, "truncated": False}}, open(p, "w"))
+PY
+}
+reset; terms term_wt1 claude 1
+out=$(ST babysit SPH-50)
+[ "$out" = "hold session term_wt1 (live in the worktree)" ] && grep -q "terminal list --worktree path:$WT50 --json" "$TMP/calls" && ! grep -q task-create "$TMP/calls" && pass "a claude terminal that just wrote in the worktree holds the start" || fail "live worktree terminal ($out)"
+reset; terms term_wt2 codex 2; out=$(ST babysit SPH-50)
+[ "$out" = "hold session term_wt2 (live in the worktree)" ] && pass "so does a codex one" || fail "codex terminal ($out)"
+reset; terms term_wt3 claude 20; L set SPH-50 state=babysit-queued >/dev/null; out=$(ST babysit SPH-50)
+case "$out" in "started "*) pass "a terminal quiet for 20 minutes does not" ;; *) fail "quiet terminal ($out)" ;; esac
+reset; terms term_wt4 null 0; L set SPH-50 state=babysit-queued >/dev/null; out=$(ST babysit SPH-50)
+case "$out" in "started "*) pass "a plain shell does not" ;; *) fail "plain shell ($out)" ;; esac
+reset; L set SPH-50 state=babysit-queued dispatch=ctx_old51 >/dev/null; show ctx_old51 term_old51 owned - true 0 "$WT50"; terms term_old51 claude 0
+out=$(ST babysit SPH-50)
+[ "$(line "$out" 1)" = "ended previous session term_old51" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "the terminal just ended is not counted again" || fail "ended then listed ($out)"
+reset; terms term_wt5 claude 0; L set SPH-40 state=inbox dispatch=- >/dev/null; ST brief SPH-40 >/dev/null
+! grep -q 'terminal list' "$TMP/calls" && pass "a brief in the main checkout does not look at its terminals" || fail "brief listed terminals"
 # usage: the v1-only stages and --round are gone; unknown items
 for gone in review fix screen; do ST "$gone" SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] || fail "stage $gone still runs"; done; pass "review, fix and screen are not stages any more"
 ST --round 1 babysit SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--round is gone" || fail "--round"
