@@ -106,5 +106,15 @@ print("\n".join(problems) or "ok")
 PY
 )
 [ "$out" = ok ] && pass "stages, states and models match the skill" || { fail "drift"; echo "$out" | sed 's/^/     /'; }
+# lane g: the page shows STAR's changes for issues #75 to #93
+grep -qF 'with a <code>VERDICT: PASS</code> line' "$PAGE" && pass "G1 the merge gate names the receipt's VERDICT line and both carries" || fail "G1 receipt on the page"
+grep -qF 'keeps the last codex PASS, so only the regression gate runs again' "$PAGE" && pass "G1 a clean base merge keeps the PASS" || fail "G1 carried SAFE on the page"
+grep -qF 'One merge per base branch at a time' "$PAGE" && pass "G2 the page names the merge order" || fail "G2 merge order on the page"
+grep -qF '<code>refreshOutsideCap: false</code>' "$PAGE" && pass "G2 the page names refreshOutsideCap" || fail "G2 refreshOutsideCap on the page"
+grep -qF 'babysit merges the base in before asking for it' "$PAGE" && pass "G2 the last pass reviews a current head" || fail "G2 last pass on the page"
+grep -qF 'so two sessions never work on one item' "$PAGE" && pass "G3 the page says a stopped worker's terminal is closed" || fail "G3 stopped worker on the page"
+grep -qF 'takes your answer as that value' "$PAGE" && pass "G4 the page says a step can take a value" || fail "G4 value step on the page"
+grep -qF 'its blockers and any not-before date' "$PAGE" && pass "G5 the queued state names the not-before date" || fail "G5 notBefore on the page"
+grep -qF 'set <code>tokenCmd</code> in <code>star.json</code> once' "$PAGE" && pass "G6 the page says how a repository gh cannot see gets its token" || fail "G6 tokenCmd on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

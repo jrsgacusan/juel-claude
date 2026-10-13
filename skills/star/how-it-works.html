@@ -416,11 +416,12 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <div>
         <h3>Always</h3>
         <ul>
-          <li>Codex PASS posted on the PR for that head</li>
+          <li>Codex PASS posted on the PR for that head, with a <code>VERDICT: PASS</code> line: gated on that head, carried to it from a gated head by a base merge a script proves adds nothing of its own, or carried by your decision to ship with the findings deferred</li>
           <li>Every check SUCCESS, NEUTRAL or SKIPPED</li>
           <li>A written disposition for every unfixed finding</li>
           <li>GitHub reports it mergeable, so branch rules still apply</li>
           <li>Outside quiet hours</li>
+          <li>One merge per base branch at a time: a PR with no hosted pass left goes first, then the oldest, and the others sync with the new base in the same tick</li>
         </ul>
       </div>
       <div>
@@ -430,7 +431,8 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <li>The merge gate reads no review text: it trusts that READY came on a head the worker judged clean</li>
           <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment)</li>
           <li>Pass 2 still not clean: back to STAR to re-scope</li>
-          <li>A base sync after a clean pass gets one status refresh (<code>@greptileai</code>) on the new head; it is not a pass</li>
+          <li>A base sync after a clean pass gets one status refresh (<code>@greptileai</code>) on the new head; it is not a pass, unless the project counts every run (<code>refreshOutsideCap: false</code>): then that head comes to you</li>
+          <li>When one pass is left, babysit merges the base in before asking for it, so the last pass reviews a current head</li>
         </ul>
       </div>
       <div>
@@ -448,11 +450,12 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <h2>Where you are needed</h2>
       <ol>
         <li>Give the brief: free text, tickets, or both.</li>
-        <li>Read one batch summary, do the person-only steps, and say go.</li>
+        <li>Read one batch summary, do the person-only steps, and say go. A step that asks for a value (a host name, an id) takes your answer as that value.</li>
         <li>Approve risky calls even in scope: data migrations, billing or pricing, production credentials or data, deleting data.</li>
         <li>On a project with no hosted reviewer, have a teammate approve the PR.</li>
         <li>Accept a report item's report before STAR posts it.</li>
         <li>When the review gate is down on every model: sign in again, or wait. STAR checks it every 30 minutes.</li>
+        <li>When <code>gh</code> cannot see a repository: set <code>tokenCmd</code> in <code>star.json</code> once (a keychain lookup). Every session in the project then gets the token.</li>
         <li>Answer an escalation: a merge-gate check failing twice, NOT-SAFE again after a re-scope, or a worker stalled again after STAR restarted it.</li>
       </ol>
       <p class="aside">Any time: read the decision records in each brief and overrule a call.</p>
@@ -465,7 +468,8 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
-        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed.</li>
+        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge a script proves adds nothing of its own keeps the last codex PASS, so only the regression gate runs again.</li>
+        <li>Before a stage starts again, a gate its stopped worker left holding the lock is stopped and the worker's own terminal is closed, a terminal still printing holds the start, and a merge you order stops the worker still fixing that PR first, so two sessions never work on one item.</li>
       </ul>
     </div>
   </section>
@@ -479,7 +483,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td class="k">inbox</td><td>ingested; waiting for a brief slot</td></tr>
           <tr><td class="k">briefing</td><td>a brief worker is exploring the item and the code</td></tr>
           <tr><td class="k">brief-ready</td><td>brief drafted; waiting for the batch go and any person-only step</td></tr>
-          <tr><td class="k">queued</td><td>go given; waiting for a build slot, the host gate and its blockers</td></tr>
+          <tr><td class="k">queued</td><td>go given; waiting for a build slot, the host gate, its blockers and any not-before date</td></tr>
           <tr><td class="k">building</td><td>build worker running, codex gate rounds included</td></tr>
           <tr><td class="k">babysit-queued</td><td>report checked; waiting for a babysit slot</td></tr>
           <tr><td class="k">babysitting</td><td>babysit worker running: ready, hosted review or approval, fixes</td></tr>
