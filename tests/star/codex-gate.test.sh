@@ -369,6 +369,55 @@ rm -f "$TMP/gh-calls"; mkdir -p "$TMP/phome"; printf '{"gate": {"model": "gpt-6-
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" JUEL_STAR_HOME="$TMP/phome" sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD") )
 grep -q "PASS (head $NEWHEAD, round 2, gpt-6-sol high)" "$TMP/gh-calls" && pass "post-pass: with no flag and no review, star.json's gate block names the model" || fail "post-pass star.json ($out / $(cat "$TMP/gh-calls"))"
 
+# #75: post-pass carries a SAFE across a merge of the base, and runs carry-check.sh itself
+MAIN0=$(git -C "$APP" rev-parse main)
+(cd "$APP" && git checkout -q main && printf 'other\n' > g && git add g && git -c user.email=t@t -c user.name=t commit -qm "main moves" \
+  && git update-ref refs/remotes/origin/main main && git checkout -q feat/item-1 \
+  && git -c user.email=t@t -c user.name=t merge -q --no-edit origin/main)
+MERGED=$(git -C "$APP" rev-parse HEAD)
+carried_pr() { printf '{"author":{"login":"me"},"baseRefName":"main","headRefOid":"%s","url":"https://github.com/o/r/pull/5","comments":[]}\n' "$1" > "$TMP/pr.json"; }
+RG="$H/reviews/app/ITEM-1-r2.md"
+reset; mkdir -p "$H/reviews/app"; review_file "$RG" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$NEWHEAD"; carried_pr "$MERGED"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$MERGED" --review "$RG" --carried-from "$NEWHEAD" --reason "merge of origin/main with no conflicts")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && [ "$(cat "$TMP/body" 2>/dev/null)" = "$(printf 'Codex gate: PASS (head %s, round 2, gpt-6.1-sol xhigh, carried from %s: merge of origin/main with no conflicts)\nVERDICT: PASS' "$MERGED" "$NEWHEAD")" ] && pass "post-pass --carried-from posts the carried receipt on the merge head (#75)" || fail "carried-from ($out / $(cat "$TMP/body" 2>/dev/null))"
+rm -f "$TMP/gh-calls" "$TMP/body" "$TMP/pr-n"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$MERGED" --review "$RG" --carried-from "$(printf '%.7s' "$NEWHEAD")" --reason "merge of origin/main with no conflicts")
+grep -q "carried from $NEWHEAD: merge of origin/main with no conflicts)" "$TMP/body" 2>/dev/null && pass "a short --carried-from is named by its full sha in the receipt" || fail "short carried-from ($out)"
+(cd "$APP" && printf 'sneaky\n' >> f && git -c user.email=t@t -c user.name=t commit -qam "more work")
+SNEAKY=$(git -C "$APP" rev-parse HEAD)
+reset; mkdir -p "$H/reviews/app"; review_file "$RG" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$NEWHEAD"; carried_pr "$SNEAKY"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$SNEAKY" --review "$RG" --carried-from "$NEWHEAD" --reason "merge of origin/main with no conflicts"); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR not carried: $(printf '%.7s' "$SNEAKY") is not a merge: a commit of its own is a code change" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "post-pass never carries past a commit of its own, and posts nothing (Review Focus 1)" || fail "sneaky carry ($rc $out)"
+git -C "$APP" reset -q --hard "$MERGED"
+reset; mkdir -p "$H/reviews/app"; review_file "$RG" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$MERGED"; carried_pr "$MERGED"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$MERGED" --review "$RG" --carried-from "$NEWHEAD" --reason x); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR the review is of $(printf '%.7s' "$MERGED"), not $(printf '%.7s' "$NEWHEAD")" ] && pass "with --carried-from, the review must be the gated head's" || fail "carried review head ($rc $out)"
+reset; mkdir -p "$H/reviews/app"; review_file "$RG" "VERDICT item=ITEM-1 round=2 SAFE findings=0 head=$NEWHEAD"
+printf '{"author":{"login":"me"},"headRefOid":"%s","url":"u","comments":[]}\n' "$MERGED" > "$TMP/pr.json"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$MERGED" --review "$RG" --carried-from "$NEWHEAD" --reason x); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR not carried: the PR's base branch is unknown" ] && pass "a PR whose base gh does not name is never carried" || fail "no base ($rc $out)"
+G post-pass --pr x --round 2 --head "$MERGED" --reason x >/dev/null 2>&1; [ $? -eq 64 ] && pass "--reason without --carried-from is bad usage" || fail "usage reason"
+G post-pass --pr x --round 2 --head "$MERGED" --carried-from "$NEWHEAD" --reason x >/dev/null 2>&1; [ $? -eq 64 ] && pass "--carried-from needs --review" || fail "usage carried review"
+G post-pass --pr x --round 2 --head "$MERGED" --carried-from "$NEWHEAD" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--carried-from without --reason is bad usage" || fail "usage carried reason"
+git -C "$APP" reset -q --hard "$NEWHEAD"; git -C "$APP" update-ref refs/heads/main "$MAIN0"; git -C "$APP" update-ref -d refs/remotes/origin/main
+
+# #82: the owner's carried PASS posts its own receipt, once review-proof.sh accepts it
+RN="$H/reviews/app/ITEM-1-r3.md"; RC="$H/reviews/app/ITEM-1-r3-carried.md"
+reset; mkdir -p "$H/reviews/app"; review_file "$RN" "VERDICT item=ITEM-1 round=3 NOT-SAFE findings=1 head=$NEWHEAD"
+printf 'CARRIED item=ITEM-1 round=3 head=%s from=ITEM-1-r3.md decision=N-12\nship it\nDeferred: the findings in ITEM-1-r3.md\n' "$NEWHEAD" > "$RC"
+carried_pr "$NEWHEAD"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD" --review "$RC")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && [ "$(cat "$TMP/body" 2>/dev/null)" = "$(printf 'Codex gate: PASS (head %s, round 3, gpt-6.1-sol xhigh, carried by owner decision N-12: findings deferred)\nVERDICT: PASS (owner decision N-12)' "$NEWHEAD")" ] && pass "an owner's carried PASS posts its receipt, naming the decision (#82)" || fail "owner carry ($out / $(cat "$TMP/body" 2>/dev/null))"
+rm -f "$TMP/gh-calls"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD" --review "$RC"); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR the carried review is of round 3, not round 2" ] && pass "a carried PASS posts only for its own round" || fail "owner carry round ($rc $out)"
+printf 'CARRIED item=ITEM-1 round=3 head=%s from=ITEM-1-r3.md decision=N-12\nship it\n' 0000000000000000000000000000000000000000 > "$RC"
+rm -f "$TMP/gh-calls"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD" --review "$RC"); rc=$?
+case "$out" in "ERROR the carried review is not proof for this head: head: "*) [ "$rc" -eq 69 ] && ! grep -q 'pr comment' "$TMP/gh-calls" 2>/dev/null && pass "a carried PASS of another head is refused, and nothing is posted" || fail "owner carry head rc ($rc)" ;; *) fail "owner carry head ($rc $out)" ;; esac
+G post-pass --pr x --round 3 --head "$NEWHEAD" --review "$RC" --carried-from "$NEWHEAD" --reason x >/dev/null 2>&1; [ $? -eq 64 ] && pass "--carried-from does not go with a carried review" || fail "usage carried file"
+reset
+
 # #65: a latest-<family> name never reaches codex as written
 reset; plan "0 safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-sol >/dev/null
