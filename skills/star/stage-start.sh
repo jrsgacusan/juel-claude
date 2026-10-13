@@ -29,7 +29,8 @@
 # A brief with existingPr: <url> and no local branch yet gets its branch fetched from the
 # project's remote and checked out tracking it (an open PR's head), instead of a renamed branch.
 # The brief stage gets --rescope <reviews>/<file> when the row's counters hold rescope=<file>; the
-# babysit stage gets --reviewed <the item's newest review>. The executor, gate and hosted-reviewer
+# babysit stage gets --reviewed <the newest round's <item>-r<k>-carried.md when the owner carried
+# that round (#82), else its <item>-r<k>.md>. The executor, gate and hosted-reviewer
 # settings are not in any prompt: workers read them from star.json through their brief.
 # --quiet-hours is star.json's quietHours, or nothing; being away does not change it.
 # Every spec sent is one line. A failed worker-start is retried once: with --retry-of, one effort
@@ -460,9 +461,13 @@ def has_feedback(path):
 
 
 def newest_review():
+    """The newest round's proof: its carried file when the owner carried that round (#82), else its review."""
     names = os.listdir(reviews) if os.path.isdir(reviews) else []
     rounds = [int(m.group(1)) for m in (re.fullmatch(re.escape(item) + r"-r(\d+)\.md", n) for n in names) if m]
-    return os.path.join(reviews, f"{item}-r{max(rounds)}.md") if rounds else None
+    if not rounds:
+        return None
+    carried = os.path.join(reviews, f"{item}-r{max(rounds)}-carried.md")
+    return carried if os.path.isfile(carried) else os.path.join(reviews, f"{item}-r{max(rounds)}.md")
 
 
 def prompt():

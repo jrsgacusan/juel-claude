@@ -261,6 +261,12 @@ reset; nb SPH-60 "next week"; out=$(ST build SPH-60)
 case "$out" in "failed brief: notBefore next week is not a date"*) pass "words are refused" ;; *) fail "words ($out)" ;; esac
 reset; nb SPH-60 2000-01-01; out=$(ST build SPH-60)
 case "$out" in "started "*) pass "a date already past starts the build" ;; *) fail "past date ($out)" ;; esac
+# the babysit proof is the newest round's carried file when the owner carried that round (#82)
+reset; printf 'CARRIED item=SPH-11 round=3 head=%s from=SPH-11-r3.md decision=N-7\nship it\nDeferred: the findings in SPH-11-r3.md\n' abc1234abc1234abc1234abc1234abc1234abc12 > "$H/reviews/app/SPH-11-r3-carried.md"
+L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
+grep -q -- "--reviewed $H/reviews/app/SPH-11-r3-carried.md --item SPH-11" "$TMP/calls" && pass "a carried newest round is the proof" || fail "carried proof ($(grep task-create "$TMP/calls"))"
+reset; review SPH-11 4; L set SPH-11 state=babysit-queued >/dev/null; ST babysit SPH-11 >/dev/null
+grep -q -- "--reviewed $H/reviews/app/SPH-11-r4.md --item SPH-11" "$TMP/calls" && pass "a carry of an older round never stands for a newer one" || fail "older carry ($(grep task-create "$TMP/calls"))"
 # usage: the v1-only stages and --round are gone; unknown items
 for gone in review fix screen; do ST "$gone" SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] || fail "stage $gone still runs"; done; pass "review, fix and screen are not stages any more"
 ST --round 1 babysit SPH-11 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--round is gone" || fail "--round"
