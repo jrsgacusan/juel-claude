@@ -44,5 +44,19 @@ grep -qF '**Base:** spec implemented at <sha>; apply only the tasks below.' "$EX
 grep -qF '**Base:** spec implemented at <full sha>; apply only the tasks below.' "$PC" && pass "#81 the contract documents the Base line" || fail "#81 Base line in the contract"
 grep -qF '`**Files:**` block per task' "$PC" && pass "#78 the contract requires a Files block per task" || fail "#78 Files block in the contract"
 
+# lane e: #77 #78 #81 the three dispatching skills ignore the ledger folder, resume, scope-check and pass on Base
+for s in execute review-and-execute receive-review-and-execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'git check-ignore -q .superpowers/x' "$F" && grep -qF 'BASE_SHA=$(git rev-parse HEAD)' "$F" && pass "#77 $s: ignores the ledger folder and notes the start commit" || fail "#77 $s: ledger folder or start commit"
+  grep -qF 'ledger: the tasks a stopped run finished are not done again' "$F" && pass "#77 $s: a capacity retry resumes from the ledger" || fail "#77 $s: capacity resume"
+  grep -qF 'sh <scope-check.sh> <the plan'"'"'s path> "$BASE_SHA"' "$F" && grep -qF 'revert: out-of-scope edits in <files>' "$F" && pass "#78 $s: the scope check runs after the executor" || fail "#78 $s: scope check"
+  grep -qF "The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness." "$F" && pass "#81 $s: the session fallback honours Base" || fail "#81 $s: Base sentence"
+done
+for s in review-and-execute receive-review-and-execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF '**Base:** spec implemented at <full sha>; apply only the tasks below.' "$F" && pass "#81 $s: its fix plans carry the Base line" || fail "#81 $s: Base line in its plans"
+  grep -qF 'Give every task a `**Files:**` block' "$F" && pass "#78 $s: its plans name each task's files" || fail "#78 $s: Files block in its plans"
+done
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
