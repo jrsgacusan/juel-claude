@@ -222,5 +222,14 @@ g "RV20 an interactive user is a SOFT context" '| interactive user | context | S
 g "RV21 --reviewed accepts the owner's carried proof" '`<item>-r<k>-carried.md` when the owner shipped'
 rv "RV22 the snapshot's cursor is never taken" 'never takes the `cursor` the snapshot prints'
 
+# review fixes: reviewer-mode waits and stops (R10, R12, R13), the gate fix plan's scope check (#78), the gate lock's holder (#76), carried proof and the carry round (#75)
+review_mode=$(awk '/^## Reviewer mode/ { f = 1; next } /^## / { f = 0 } f' "$SKILL")
+rv "R10a every reviewer-mode wait after the first passes the settle sighting" 'Every wait after the first passes `--head-seen <the last snapshot'"'"'s head_seen>`, in both forms'
+rv "R10b that covers the waits after errors and silence" 'after `errors`, `silence` or `timeout`'
+printf '%s\n' "$review_mode" | grep -qF 'and `--head-seen <the last snapshot'"'"'s head_seen>` on every repeat' && fail "R10c the Codex-only head-seen wording is gone" || pass "R10c the Codex-only head-seen wording is gone"
+rv "R12a silence names what the wait is for" 'no re-request or settled push for 72 h, still waiting'
+printf '%s\n' "$review_mode" | grep -qF 'no response from the author for 72 h' && fail "R12b the author-response wording is gone" || pass "R12b the author-response wording is gone"
+rv "R13a an unattended run prints the stop as an escalation" 'ESCALATION item=<item> phase=8 reason=preflight needs=the PR'"'"'s author is <login>: reviewer mode runs only interactively'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
