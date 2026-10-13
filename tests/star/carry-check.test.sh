@@ -98,5 +98,31 @@ t "when merge-tree does not apply the union attribute, git merge-file --union se
 C --from "$GATED" >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --head is 64" || fail "usage head"
 C --from nope --head "$M1" >/dev/null 2>&1; [ $? -eq 64 ] && pass "a commit git does not know is 64" || fail "usage commit"
 C --from "$GATED" --head "$M1" --what x >/dev/null 2>&1; [ $? -eq 64 ] && pass "an unknown flag is 64" || fail "usage flag"
+# review fixes: the base is named origin/main, not origin/HEAD (#75), and a mode change in the merge never carries (#75)
+g symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
+t "a clone's origin/HEAD does not name the base" "OK carried from $GATED: merge of origin/main with no conflicts" "$(C --from "$GATED" --head "$M1")"
+g symbolic-ref --delete refs/remotes/origin/HEAD
+
+g checkout -q main; printf 'a\nb\n' > "$R/tool.sh"; printf 'a\nb\n' > "$R/tool2.sh"; g add tool.sh tool2.sh; g commit -qm "add tools"
+g checkout -q -b modeside; printf 'a\nb\nfeat-line\n' > "$R/tool.sh"; g commit -qam "feat tool"; G4=$(g rev-parse HEAD)
+g checkout -q -b modecontrol "$G4"
+g checkout -q main; printf 'a\nb\nmain-line\n' > "$R/tool.sh"; g commit -qam "main tool"; g update-ref refs/remotes/origin/main main
+printf 'a\nb\nmain-line\nfeat-line\n' > "$TMP/union-out"; echo 0 > "$TMP/union-rc"
+g checkout -q modecontrol; g merge -q --no-edit origin/main >/dev/null 2>&1
+printf 'a\nb\nmain-line\nfeat-line\n' > "$R/tool.sh"; g add tool.sh; g commit -qm "Merge origin/main; mechanical conflicts resolved in tool.sh"; MK=$(g rev-parse HEAD)
+t "control: the same conflict resolved with its mode kept carries" "OK carried from $G4: merge of origin/main, mechanical conflicts resolved in tool.sh" "$(C --from "$G4" --head "$MK")"
+g checkout -q modeside; g merge -q --no-edit origin/main >/dev/null 2>&1
+printf 'a\nb\nmain-line\nfeat-line\n' > "$R/tool.sh"; chmod +x "$R/tool.sh"; g add tool.sh; g commit -qm "Merge origin/main; mechanical conflicts resolved in tool.sh"; MX=$(g rev-parse HEAD)
+out=$(C --from "$G4" --head "$MX"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "NO $(s7 "$MX"): tool.sh has mode 100755 in the merge but 100644 in its conflict: a mode change is a code change" ] && pass "a resolved conflict plus chmod +x in the merge commit never carries" || fail "chmod in the merge ($rc $out)"
+
+# a conflict whose sides disagree on the mode is no mechanical conflict either
+g checkout -q -b modediff main; chmod +x "$R/tool2.sh"; printf 'a\nb\nfeat-line\n' > "$R/tool2.sh"; g commit -qam "feat tool2, executable"; G5=$(g rev-parse HEAD)
+g checkout -q main; printf 'a\nb\nmain-line\n' > "$R/tool2.sh"; g commit -qam "main tool2"; g update-ref refs/remotes/origin/main main
+g checkout -q modediff; g merge -q --no-edit origin/main >/dev/null 2>&1
+printf 'a\nb\nmain-line\nfeat-line\n' > "$R/tool2.sh"; g add tool2.sh; g commit -qm "Merge origin/main; mechanical conflicts resolved in tool2.sh"; MD=$(g rev-parse HEAD)
+out=$(C --from "$G5" --head "$MD"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "NO $(s7 "$MD"): tool2.sh is a conflict whose sides differ in file mode (100644, 100755, 100644): no mechanical rule settles it" ] && pass "a conflict whose sides differ in file mode never carries" || fail "mode differs between sides ($rc $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

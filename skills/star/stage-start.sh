@@ -22,10 +22,12 @@
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
 # Before that one line it may print, in this order, each on a line of its own, whatever line
 # follows (#76):
-#   stopped previous gate pgid=<n>    the gate lock is held under this item's name: TERM to its
-#                                     recorded group, whatever the state of its terminal, but only
-#                                     once no "hold session" was printed (a live session may be the
-#                                     one running it)
+#   stopped previous gate pgid=<n>    the gate lock is held under this item's label, <project name>/<item>
+#                                     (project.name from star.json; the lock is one file per user for
+#                                     every project, so a bare item id would also match another
+#                                     project's item of the same id): TERM to its recorded group,
+#                                     whatever the state of its terminal, but only once no "hold
+#                                     session" was printed (a live session may be the one running it)
 #   ended previous session <terminal> the previous dispatch's own terminal was open: closed
 #   kept previous session <terminal> (<state>)
 #                                     an open terminal Orca does not prove is the dispatch's, quiet
@@ -549,7 +551,8 @@ def stop_gate():
     """A gate the lock says this item holds stops before a new stage of it starts, whatever its terminal (#76).
     Called only once no "hold session" was printed: a live session may be the one running it."""
     held = lock_holder()
-    if not held or held[0] != "_".join(item.split()):
+    # the label ship-ticket and babysit-pr give gate-lock.sh under a star: brief, whitespace folded as it folds it
+    if not held or held[0] != "_".join(f"{name}/{item}".split()):
         return
     _, pid, pgid = held
     if pgid <= 1 or pgid == os.getpgrp():

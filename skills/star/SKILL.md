@@ -671,14 +671,20 @@ makes (a drop, an early merge, a closed PR, a restart, the capacity rule, a stuc
 the owner orders), check the dispatch's terminal:
 
 ```sh
-orca orchestration worker-list --json | python3 -c 'import json, sys; ws = [w for w in json.load(sys.stdin)["result"]["workers"] if w.get("dispatchId") == sys.argv[1]]; w = ws[0] if ws else {}; print(" ".join([w.get("agentTerminalHandle") or "-", w.get("terminalState") or "none", (w.get("resource") or {}).get("retainedReason") or "-"]))' <dispatch>
+orca orchestration worker-list --json | python3 -c 'import json, sys
+try:
+    ws = [w for w in json.load(sys.stdin)["result"]["workers"] if w.get("dispatchId") == sys.argv[1]]
+except (ValueError, KeyError, TypeError):
+    print("- unknown -"); sys.exit()
+w = ws[0] if ws else {}; print(" ".join([w.get("agentTerminalHandle") or "-", w.get("terminalState") or "none", (w.get("resource") or {}).get("retainedReason") or "-"]))' <dispatch>
 ```
 
-It prints `<terminal> <state> <reason>`. A state of `released` or `none` is gone: nothing more. A
-reason of `user_takeover` or `identity_unproven` means a person may be at that terminal, or Orca
-cannot tell whose it is: never close it; queue `--kind held` "<item>: terminal <terminal>
-(<reason>) outlived its stopped worker; close it or finish there, then answer done". Any other
-state: `orca terminal close --terminal <terminal> --json`, and say `closed <terminal> for <item>`
+It prints `<terminal> <state> <reason>`. A state of `released` or `none` is gone: nothing more.
+A state of `unknown` (the line `- unknown -`) means Orca did not answer: check again on the next tick,
+and close nothing now. A reason of `user_takeover` or `identity_unproven` means a person may be at
+that terminal, or Orca cannot tell whose it is: never close it; queue `--kind held` "<item>: terminal
+<terminal> (<reason>) outlived its stopped worker; close it or finish there, then answer done". Any
+other state: `orca terminal close --terminal <terminal> --json`, and say `closed <terminal> for <item>`
 in the status line. `stage-start.sh` checks the row's previous dispatch again before its stage
 starts ("Fill slots"), so two sessions never work in one worktree.
 
@@ -844,7 +850,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `started task=… dispatch=…` | nothing more. A ` fallback <model>: <why>` suffix → `--kind held` "<stage> for <item> ran on <model>: <why>" |
    | `hold <what> <value>` (`memory`, `agents`, `swap` or `disk`) | the host gate held it: start nothing else this tick; `counters.hold=+1` on that row; at `hold=3`, `--kind held` "the host gate held every start for 3 ticks: <what> <value>" (for memory: "memory below 3 GB: nothing can start") and notify. The next start that succeeds clears `hold=` and closes that item |
    | `hold trust <path>` | `--kind held` "trust <path> for Claude Code once: run `claude` there and accept, then answer done"; the row keeps waiting and the next tick tries again |
-   | `stopped previous gate pgid=<n>` (a line of its own, before the last line) | the item's earlier session still held the gate lock, and `stage-start.sh` sent TERM to that gate (#76): say `<item>: stopped previous gate pgid=<n>` in the status line, then act on the next line |
+   | `stopped previous gate pgid=<n>` (a line of its own, before the last line) | the item's earlier session still held the gate lock under the label `<project>/<item>`, and `stage-start.sh` sent TERM to that gate (#76): say `<item>: stopped previous gate pgid=<n>` in the status line, then act on the next line |
    | `ended previous session <terminal>` (a line of its own, before the last line) | the previous dispatch's own terminal was still open, and `stage-start.sh` closed it (#76): say `<item>: ended previous session <terminal>` in the status line, then act on the next line |
    | `kept previous session <terminal> (<state>)` (a line of its own, before the last line) | a terminal Orca cannot place as the dispatch's (`user_takeover` or `identity_unproven`) had been quiet for 10 minutes or more, so it was left open and the start goes on (#76): say `<item>: kept previous session <terminal> (<state>)` in the status line, then act on the next line |
    | `hold session <terminal> (<state>)` | a session may still be working on this item (#76): a terminal Orca cannot place as the previous dispatch's (a person took it over, or Orca cannot prove whose it is), or another `claude` or `codex` terminal in the item's worktree, printed output in the last 10 minutes. Start nothing for this row and keep it in its waiting state; queue `--kind held` "<item>: terminal <terminal> (<state>) may still be working on it; close it or finish there, then answer done", and give the slot to the next row in line. The next tick tries again |
