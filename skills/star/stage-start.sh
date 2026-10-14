@@ -45,7 +45,10 @@
 # hold session, the previous dispatch's gate; for build, the
 # worktree (reuse one already on the brief's branch, else orca worktree create, then put it on the
 # brief's branch, copy the main checkout's git-ignored environment files, and add a
-# .git/info/exclude line when the worktree sits inside the repository); for babysit, a review a v1
+# .git/info/exclude line when the worktree sits inside the repository; the copy (#98) skips a
+# directory entry, anything under .claude/worktrees/ and anything that is not a regular file, and a
+# file it cannot copy prints "stage-start.sh: could not copy <name> (<why>)" on stderr while the
+# start goes on); for babysit, a review a v1
 # reviewer left inside the worktree moves into the STAR folder (#35); for a claude worker whose
 # path Claude Code's config does not list as trusted, the first-run dialogs, cleared in a
 # throwaway terminal the way orca-ship-tickets does (only while "No, exit" is on screen, Down then
@@ -364,11 +367,19 @@ def copy_env(wt):
     copied = []
     for f in names:
         target = os.path.join(wt, f)
-        # an untracked file that is not ignored is someone's work in progress, not environment
-        if not f or os.path.exists(target) or git("check-ignore", "-q", f).returncode != 0:
+        # git lists a nested worktree as one "<dir>/" entry (#98): only regular files are environment
+        if (not f or f.endswith("/") or f.startswith(".claude/worktrees/")
+                or not os.path.isfile(os.path.join(repo, f))):
             continue
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copy2(os.path.join(repo, f), target)
+        # an untracked file that is not ignored is someone's work in progress, not environment
+        if os.path.exists(target) or git("check-ignore", "-q", f).returncode != 0:
+            continue
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(os.path.join(repo, f), target)
+        except OSError as e:
+            print(f"stage-start.sh: could not copy {f} ({e.strerror or e})", file=sys.stderr)
+            continue
         copied.append(target)
     if git("status", "--porcelain", cwd=wt).stdout.strip():
         for t in copied:

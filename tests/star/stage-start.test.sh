@@ -412,5 +412,26 @@ reset; L set SPH-50 state=babysit-queued dispatch=ctx_rel85 >/dev/null; show ctx
 out=$(ST babysit SPH-50)
 [ "$(line "$out" 1)" = "ended previous session term_rel85" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a released terminal still listed in the worktree does not hold" || fail "released then listed ($out)"
 
+# lane a: the .claude copy skips a nested worktree and anything that is not a regular file, and goes on past a file it cannot read (#98)
+# the ignore rules go in .git/info/exclude, so the committed .gitignore is untouched
+mkdir -p "$APP/.claude/worktrees/loose"
+printf '/.claude/settings.local.json\n/.claude/locked.json\n/.claude/dirlink\n/.claude/worktrees/\n' >> "$APP/.git/info/exclude"
+echo '{}' > "$APP/.claude/settings.local.json"
+echo 'secret' > "$APP/.claude/locked.json"
+echo 'notes' > "$APP/.claude/worktrees/loose/notes.txt"
+ln -s worktrees "$APP/.claude/dirlink"
+git -C "$APP" worktree add -q --detach "$APP/.claude/worktrees/side" >/dev/null 2>&1
+[ "$(id -u)" -eq 0 ] || chmod 000 "$APP/.claude/locked.json"
+L add SPH-70 ref=SPH-70 project=app state=queued >/dev/null; brief SPH-70
+WT70="$APP/.worktrees/app/SPH-70"; trust "$APP" "$WT70"
+reset; out=$(ST build SPH-70 2>"$TMP/err70")
+case "$out" in "started "*) pass "a nested .claude worktree does not stop a build" ;; *) fail "nested .claude worktree ($out; $(tail -1 "$TMP/err70"))" ;; esac
+[ -f "$WT70/.claude/settings.local.json" ] && pass "the ignored .claude settings file is still copied" || fail ".claude settings not copied"
+[ ! -e "$WT70/.claude/worktrees" ] && [ ! -e "$WT70/.claude/dirlink" ] && [ ! -L "$WT70/.claude/dirlink" ] && pass "nothing under .claude/worktrees/ and no link to a folder is copied" || fail "copied a worktree or a link ($(ls -A "$WT70/.claude" 2>&1))"
+if [ "$(id -u)" -ne 0 ]; then
+  grep -qx 'stage-start.sh: could not copy .claude/locked.json (Permission denied)' "$TMP/err70" && [ ! -e "$WT70/.claude/locked.json" ] && pass "a file it cannot read is named on stderr, and the start goes on" || fail "unreadable file ($(tail -1 "$TMP/err70"))"
+fi
+chmod 644 "$APP/.claude/locked.json"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
