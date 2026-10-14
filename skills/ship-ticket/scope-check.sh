@@ -4,6 +4,7 @@
 #   scope-check.sh --record <file> [--repo-dir <dir>]
 # Prints, sorted, one line per changed file that no task's **Files:** block names, then exits 1:
 #   outside <path>
+#   outside-merged <path>    in its place when a merge commit in <base sha>..HEAD also changed it
 # or, when every changed file is named, one line and exit 0:
 #   ok
 # or, when no line of the plan is a **Files:** entry at all, one line and exit 0, so the caller
@@ -31,10 +32,11 @@
 # the executor ran, so it is the user's or the skill's own work, and the caller must not restore
 # or delete it. A --before file that cannot be read is exit 64.
 # The caller restores each outside file from <base sha>, or deletes it when it is new, and says so.
+# It never restores an outside-merged file: restoring it from <base sha> would drop the base's change.
 # Paths are relative to the repository's top level, whatever --repo-dir (default: here) points at.
-# Exit: 0 ok, unchecked or recorded; 1 outside lines; 64 bad usage, a plan or --before file that
-# cannot be read, a --record file that cannot be written, a <base sha> that is not a commit, or a
-# --repo-dir that is not in a git repository.
+# Exit: 0 ok, unchecked or recorded; 1 outside or outside-merged lines; 64 bad usage, a plan or
+# --before file that cannot be read, a --record file that cannot be written, a <base sha> that is
+# not a commit, or a --repo-dir that is not in a git repository.
 exec python3 - "$@" <<'PY'
 import os
 import re
@@ -187,11 +189,14 @@ if merges:
                                              "--format=", "--name-only", "-z", f"{base}..HEAD")
 else:
     changed = changed_since(base)
+merged = set()
+for m in merges:  # what each merge brought in: its changes against its first parent
+    merged |= listed("diff", "--no-renames", "--name-only", "-z", f"{m}^1", m)
 outside = sorted(p for p in changed
                  if p not in skip_files and not any(p.startswith(d) for d in skip_folders)
                  and p not in files and not any(p.startswith(d) for d in folders))
 for p in outside:
-    print(f"outside {p}")
+    print(f"outside-merged {p}" if p in merged else f"outside {p}")
 if outside:
     sys.exit(1)
 print("ok")

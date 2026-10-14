@@ -230,5 +230,24 @@ out=$(check3); rc=$?
 want=$(printf 'outside src/c.sh\noutside src/e.sh\noutside src/e2.sh')
 [ "$rc" -eq 1 ] && [ "$out" = "$want" ] && pass "#106 the branch's own commits still count across base merges; an earlier round's do not" || fail "#106 own commits across merges (rc=$rc: $out)"
 
+# lane e: #106 a file the executor changed that a base merge also changed prints outside-merged
+# 14. A committed and an uncommitted change to files a merge also changed print outside-merged, sorted
+#     by path among the outside lines; src/m.sh and src/n.sh, which only the merges changed, stay unlisted.
+printf 'b-mine\n' > "$R3/src/b.sh"; k commit -qam "b touched"
+printf 'd-mine\n' > "$R3/src/d.sh"
+out=$(check3); rc=$?
+want=$(printf 'outside-merged src/b.sh\noutside src/c.sh\noutside-merged src/d.sh\noutside src/e.sh\noutside src/e2.sh')
+[ "$rc" -eq 1 ] && [ "$out" = "$want" ] && pass "#106 a change to a file a merge also changed prints outside-merged" || fail "#106 outside-merged (rc=$rc: $out)"
+# 15. outside-merged lines alone still exit 1, like outside.
+cat > "$R3/docs/plans/m2.md" <<'EOF'
+**Files:**
+- Modify: `src/a.sh`, `src/c.sh`
+- Delete: `src/e.sh`
+- Create: `src/e2.sh`
+EOF
+out=$(cd "$TMP" && sh "$SCRIPT" "$R3/docs/plans/m2.md" "$BASE3" --repo-dir "$R3"); rc=$?
+want=$(printf 'outside-merged src/b.sh\noutside-merged src/d.sh')
+[ "$rc" -eq 1 ] && [ "$out" = "$want" ] && pass "#106 outside-merged lines alone exit 1" || fail "#106 outside-merged alone (rc=$rc: $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
