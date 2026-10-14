@@ -282,10 +282,10 @@ reset; review SPH-11 4; L set SPH-11 state=babysit-queued >/dev/null; ST babysit
 grep -q -- "--reviewed $H/reviews/app/SPH-11-r4.md --item SPH-11" "$TMP/calls" && pass "a carry of an older round never stands for a newer one" || fail "older carry ($(grep task-create "$TMP/calls"))"
 # a previous session must be gone, or provably idle, before a stage starts (#76)
 ms_ago() { python3 -c 'import sys, time; print(int((time.time() - float(sys.argv[1]) * 60) * 1000))' "$1"; }
-show() { # show <dispatch> <handle> <ownershipState> <retainedReason or -> <exactWorker> [<minutes since it wrote>] [<worktree>]
+show() { # show <dispatch> <handle> <ownershipState> <retainedReason or -> <exactWorker> [<minutes since it wrote>] [<worktree>] [<releaseState>]
   reason=null; [ "$4" = - ] || reason="\"$4\""
-  printf '{"ok":true,"result":{"dispatch":{"id":"%s","status":"dispatched"},"terminal":{"handle":"%s","connected":true,"agentIdentity":"claude","lastOutputAt":%s,"worktreePath":"%s"},"observation":{"status":"live","exactWorker":%s},"terminalResource":{"ownershipState":"%s","releaseState":"not_requested","retainedReason":%s,"ownerDispatchId":"%s","terminalHandle":"%s"}}}\n' \
-    "$1" "$2" "$(ms_ago "${6:-0}")" "${7:-$APP}" "$5" "$3" "$reason" "$1" "$2" > "$TMP/show-$1.json"
+  printf '{"ok":true,"result":{"dispatch":{"id":"%s","status":"dispatched"},"terminal":{"handle":"%s","connected":true,"agentIdentity":"claude","lastOutputAt":%s,"worktreePath":"%s"},"observation":{"status":"live","exactWorker":%s},"terminalResource":{"ownershipState":"%s","releaseState":"%s","retainedReason":%s,"ownerDispatchId":"%s","terminalHandle":"%s"}}}\n' \
+    "$1" "$2" "$(ms_ago "${6:-0}")" "${7:-$APP}" "$5" "$3" "${8:-not_requested}" "$reason" "$1" "$2" > "$TMP/show-$1.json"
 }
 line() { printf '%s\n' "$1" | sed -n "${2}p"; }
 L add SPH-40 ref=SPH-40 project=app state=inbox dispatch=ctx_old40 >/dev/null
@@ -317,8 +317,8 @@ out=$(ST brief SPH-40)
 
 # the gate the lock says this item holds is stopped, whatever its terminal's state; another item's is left alone
 # (the holder label is <project name>/<item>, as ship-ticket and babysit-pr pass it to gate-lock.sh)
-holder() { # holder <label>: hold the scratch gate lock the way gate-lock.sh does (its own group), until signalled
-  python3 - "$JUEL_GATE_LOCK" "$1" <<'PY' &
+holder() { # holder <label> [<lock file>]: hold the scratch gate lock, or that slot file, the way gate-lock.sh does (its own group), until signalled
+  python3 - "${2:-$JUEL_GATE_LOCK}" "$1" <<'PY' &
 import fcntl, os, sys, time
 os.setpgrp()
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
@@ -328,7 +328,7 @@ os.write(fd, f"{sys.argv[2]} pid={os.getpid()} pgid={os.getpgrp()} token=0123456
 time.sleep(60)
 PY
   HPID=$!
-  i=0; while [ $i -lt 50 ] && ! grep -q "pid=$HPID " "$JUEL_GATE_LOCK" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  i=0; while [ $i -lt 50 ] && ! grep -q "pid=$HPID " "${2:-$JUEL_GATE_LOCK}" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
 }
 gone() { i=0; while [ $i -lt 30 ] && kill -0 "$1" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done; ! kill -0 "$1" 2>/dev/null; }
 holder app/SPH-40
@@ -393,6 +393,55 @@ for other in other-project/SPH-40 SPH-40; do
   kill -0 "$HPID" 2>/dev/null && ! printf '%s' "$out" | grep -q 'stopped previous gate' && pass "a gate held as $other is not this project's SPH-40" || fail "stopped a gate held as $other ($out)"
   kill "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
 done
+
+# lane a: a released previous dispatch is gone: its terminal is closed best-effort and the stage starts (#95)
+reset; L set SPH-40 state=inbox dispatch=ctx_rel80 >/dev/null; show ctx_rel80 term_rel80 released - false 1 "$APP" released
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "ended previous session term_rel80" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && grep -q 'terminal close --terminal term_rel80 --json' "$TMP/calls" && pass "a released dispatch that just wrote is ended, and the stage starts" || fail "released ($out)"
+# Review Focus 2: closing a terminal Orca already closed fails, and the start still goes on
+reset; L set SPH-40 state=inbox dispatch=ctx_rel81 >/dev/null; show ctx_rel81 term_rel81 released - false 1 "$APP" released; touch "$TMP/close-fail"
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "ended previous session term_rel81" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && ! printf '%s\n' "$out" | grep -q 'hold session' && pass "a released dispatch whose close fails still starts" || fail "released close failed ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_rel82 >/dev/null; show ctx_rel82 term_rel82 owned - false 1 "$APP" released
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_rel82" ] && pass "releaseState released alone ends it" || fail "releaseState only ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_rel83 >/dev/null; show ctx_rel83 term_rel83 released - false 1
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_rel83" ] && pass "ownershipState released alone ends it" || fail "ownershipState only ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_rel84 >/dev/null; show ctx_rel84 term_rel84 user_owned user_takeover false 1 "$APP" released
+out=$(ST brief SPH-40); [ "$out" = "hold session term_rel84 (user_takeover)" ] && ! grep -q 'terminal close' "$TMP/calls" && pass "a released dispatch whose terminal a person took over still holds, and is not closed" || fail "released takeover ($out)"
+reset; L set SPH-50 state=babysit-queued dispatch=ctx_rel85 >/dev/null; show ctx_rel85 term_rel85 released - false 0 "$WT50" released; terms term_rel85 claude 0
+out=$(ST babysit SPH-50)
+[ "$(line "$out" 1)" = "ended previous session term_rel85" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a released terminal still listed in the worktree does not hold" || fail "released then listed ($out)"
+
+# lane a: the .claude copy skips a nested worktree and anything that is not a regular file, and goes on past a file it cannot read (#98)
+# the ignore rules go in .git/info/exclude, so the committed .gitignore is untouched
+mkdir -p "$APP/.claude/worktrees/loose"
+printf '/.claude/settings.local.json\n/.claude/locked.json\n/.claude/dirlink\n/.claude/worktrees/\n' >> "$APP/.git/info/exclude"
+echo '{}' > "$APP/.claude/settings.local.json"
+echo 'secret' > "$APP/.claude/locked.json"
+echo 'notes' > "$APP/.claude/worktrees/loose/notes.txt"
+ln -s worktrees "$APP/.claude/dirlink"
+git -C "$APP" worktree add -q --detach "$APP/.claude/worktrees/side" >/dev/null 2>&1
+[ "$(id -u)" -eq 0 ] || chmod 000 "$APP/.claude/locked.json"
+L add SPH-70 ref=SPH-70 project=app state=queued >/dev/null; brief SPH-70
+WT70="$APP/.worktrees/app/SPH-70"; trust "$APP" "$WT70"
+reset; out=$(ST build SPH-70 2>"$TMP/err70")
+case "$out" in "started "*) pass "a nested .claude worktree does not stop a build" ;; *) fail "nested .claude worktree ($out; $(tail -1 "$TMP/err70"))" ;; esac
+[ -f "$WT70/.claude/settings.local.json" ] && pass "the ignored .claude settings file is still copied" || fail ".claude settings not copied"
+[ ! -e "$WT70/.claude/worktrees" ] && [ ! -e "$WT70/.claude/dirlink" ] && [ ! -L "$WT70/.claude/dirlink" ] && pass "nothing under .claude/worktrees/ and no link to a folder is copied" || fail "copied a worktree or a link ($(ls -A "$WT70/.claude" 2>&1))"
+if [ "$(id -u)" -ne 0 ]; then
+  grep -qx 'stage-start.sh: could not copy .claude/locked.json (Permission denied)' "$TMP/err70" && [ ! -e "$WT70/.claude/locked.json" ] && pass "a file it cannot read is named on stderr, and the start goes on" || fail "unreadable file ($(tail -1 "$TMP/err70"))"
+fi
+chmod 644 "$APP/.claude/locked.json"
+
+# lane a: a gate held in a gate-lock slot file is stopped, whatever the slot count says (#97)
+printf '1\n' > "$JUEL_GATE_LOCK.slots"
+holder app/SPH-40 "$JUEL_GATE_LOCK.2"
+reset; L set SPH-40 state=inbox dispatch=ctx_gone90 >/dev/null
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "stopped previous gate pgid=$HPID" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a gate held in slot 2 is named and the stage starts, though the slot count is 1" || fail "slot 2 gate ($out)"
+gone "$HPID" && pass "the slot 2 gate's process group got the TERM" || { fail "slot 2 gate left running"; kill "$HPID" 2>/dev/null; }
+wait "$HPID" 2>/dev/null
+rm -f "$JUEL_GATE_LOCK.2" "$JUEL_GATE_LOCK.slots"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
