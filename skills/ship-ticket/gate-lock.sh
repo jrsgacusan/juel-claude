@@ -23,17 +23,21 @@
 # while gates run: a gate started after that would not see the one still running.
 #
 # Queue (#97): a gate that cannot start at once takes a ticket, a file in <lock>.q/ named by its
-# arrival time, and the waiters start in arrival order, whatever their poll interval. A newcomer
-# that finds anyone queued takes a ticket behind them, even at an instant the lock is free. A
-# waiter holds its ticket's lock from before the ticket appears until after it deletes it, so a
-# ticket whose lock can be taken has no live waiter (one killed with kill -9 holds nothing): the
-# next poll deletes it, and it blocks no one. A waiter keeps the lock file it opened while it
-# waits, so a file replaced meanwhile never lets it run beside the gate that holds the old one.
+# arrival time on the monotonic clock (nanoseconds, 20 digits, system-wide on macOS and Linux, so
+# a wall clock stepped back cannot sort a newcomer ahead of earlier waiters). With one slot (the
+# default) the waiters start in strict arrival order, whatever their poll interval. With more
+# slots the first <slots> waiters in the queue race for a freed slot, so those start in no fixed
+# order. A newcomer that finds anyone queued takes a ticket behind them, even at an instant the
+# lock is free. A waiter holds its ticket's lock from before the ticket appears until after it
+# deletes it, so a ticket whose lock can be taken has no live waiter (one killed with kill -9
+# holds nothing): the next poll deletes it, and it blocks no one. A waiter keeps the lock file it
+# opened while it waits, so a file replaced meanwhile never lets it run beside the gate that
+# holds the old one.
 #
 # Slots (#97): <lock> is slot 1. "sh gate-lock.sh --slots <n>" (n is 1 to 4, with nothing else)
 # writes n to <lock>.slots through a temp file and a rename, and prints "slots <n>". Up to n
 # gates then run at once, in <lock>, <lock>.2, <lock>.3 and <lock>.4, each file holding its own
-# gate's holder line, and the first n tickets in the queue may take a slot that frees. A missing,
+# gate's holder line, and the first n tickets in the queue race for a slot that frees. A missing,
 # unreadable or out-of-range <lock>.slots reads as 1. --slots exits 64 on bad usage and 71 when
 # it cannot write the file. Heavy gates side by side can take the machine down: raise the count
 # only when free memory allows.
@@ -150,7 +154,7 @@ def code(rc):
     return rc if rc >= 0 else 128 - rc
 
 
-QUEUE = f"{lock}.q"  # one ticket per waiter, named "<time_ns, 20 digits>-<pid>"
+QUEUE = f"{lock}.q"  # one ticket per waiter, named "<monotonic_ns, 20 digits>-<pid>"
 TICKET = re.compile(r"[0-9]{20}-[0-9]+")
 SLOT_MAX = 4  # slots live in <lock>, <lock>.2, <lock>.3 and <lock>.4
 
@@ -308,7 +312,7 @@ def take_ticket():
         tmp = os.path.join(QUEUE, f".tmp-{os.getpid()}-{secrets.token_hex(4)}")
         f = os.open(tmp, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
         fcntl.flock(f, fcntl.LOCK_EX)  # never contended: no poll opens a .tmp- file younger than 60 s
-        name = f"{time.time_ns():020d}-{os.getpid()}"
+        name = f"{time.monotonic_ns():020d}-{os.getpid()}"
         os.rename(tmp, os.path.join(QUEUE, name))
     except OSError as e:
         die(71, f"cannot join the queue in {QUEUE}: {e.strerror}")
