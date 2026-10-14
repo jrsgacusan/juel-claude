@@ -595,5 +595,7 @@ g "LH4e gate waiters are served in arrival order (#97)" 'Waiters are served in a
 g "LH4f STAR never raises the gate slots unasked (#97)" 'STAR never raises the slots unasked: heavy runs side by side can take the machine down.'
 g "LH4g the owner may ask for a second slot (#97)" 'The owner may ask for `sh S/../ship-ticket/gate-lock.sh --slots 2` once free memory allows it.'
 g "LH4h the shared gate lock's order, in the edge cases (#97)" 'the gate lock (its waiters served in arrival order, one gate at a time unless the owner asked for more)'
+g "LH5a a missing CI run is the owner's to look at (#102)" '`reason=ci-missing` (babysit found no CI run on the PR'"'"'s head while the PR does not conflict with its base, #102) is the owner'"'"'s to look at'
+g "LH5b missing checks are never a pass (#102)" 'missing checks are never a pass, so STAR neither answers it nor restarts the stage on its own'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
