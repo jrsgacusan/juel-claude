@@ -587,5 +587,13 @@ g "LH3b with no rule it names no form (#107)" 'when it finds none, it names no f
 g "LH3c a standing rule STAR sends is on record (#99)" 'So is every rule STAR sends a worker unasked'
 g "LH3d it goes into the brief before the send (#99)" '`- <date> STAR to the <stage> worker (<subject>): <body>` to the brief'"'"'s `## Decisions` before the'
 g "LH3e a one-time nudge is not a rule (#99)" 'A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.'
+g "LH4a a released dispatch is ended (#95)" 'or Orca reports that dispatch `released` (#95), and `stage-start.sh` closed it'
+g "LH4b a failed close still ends it (#95)" 'a released dispatch whose close fails is ended all the same'
+g "LH4c a released dispatch is never kept (#95)" 'A dispatch Orca reports `released` is never kept: it is ended (#95)'
+g "LH4d a released dispatch is never held (#95)" 'never a dispatch Orca reports `released`, which is ended, #95'
+g "LH4e gate waiters are served in arrival order (#97)" 'Waiters are served in arrival order'
+g "LH4f STAR never raises the gate slots unasked (#97)" 'STAR never raises the slots unasked: heavy runs side by side can take the machine down.'
+g "LH4g the owner may ask for a second slot (#97)" 'The owner may ask for `sh S/../ship-ticket/gate-lock.sh --slots 2` once free memory allows it.'
+g "LH4h the shared gate lock's order, in the edge cases (#97)" 'the gate lock (its waiters served in arrival order, one gate at a time unless the owner asked for more)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

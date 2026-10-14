@@ -851,9 +851,9 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `hold <what> <value>` (`memory`, `agents`, `swap` or `disk`) | the host gate held it: start nothing else this tick; `counters.hold=+1` on that row; at `hold=3`, `--kind held` "the host gate held every start for 3 ticks: <what> <value>" (for memory: "memory below 3 GB: nothing can start") and notify. The next start that succeeds clears `hold=` and closes that item |
    | `hold trust <path>` | `--kind held` "trust <path> for Claude Code once: run `claude` there and accept, then answer done"; the row keeps waiting and the next tick tries again |
    | `stopped previous gate pgid=<n>` (a line of its own, before the last line) | the item's earlier session still held the gate lock under the label `<project>/<item>`, and `stage-start.sh` sent TERM to that gate (#76): say `<item>: stopped previous gate pgid=<n>` in the status line, then act on the next line |
-   | `ended previous session <terminal>` (a line of its own, before the last line) | the previous dispatch's own terminal was still open, and `stage-start.sh` closed it (#76): say `<item>: ended previous session <terminal>` in the status line, then act on the next line |
-   | `kept previous session <terminal> (<state>)` (a line of its own, before the last line) | a terminal Orca cannot place as the dispatch's (`user_takeover` or `identity_unproven`) had been quiet for 10 minutes or more, so it was left open and the start goes on (#76): say `<item>: kept previous session <terminal> (<state>)` in the status line, then act on the next line |
-   | `hold session <terminal> (<state>)` | a session may still be working on this item (#76): a terminal Orca cannot place as the previous dispatch's (a person took it over, or Orca cannot prove whose it is), or another `claude` or `codex` terminal in the item's worktree, printed output in the last 10 minutes. Start nothing for this row and keep it in its waiting state; queue `--kind held` "<item>: terminal <terminal> (<state>) may still be working on it; close it or finish there, then answer done", and give the slot to the next row in line. The next tick tries again |
+   | `ended previous session <terminal>` (a line of its own, before the last line) | the previous dispatch's own terminal was still open, or Orca reports that dispatch `released` (#95), and `stage-start.sh` closed it (#76; a released dispatch whose close fails is ended all the same): say `<item>: ended previous session <terminal>` in the status line, then act on the next line |
+   | `kept previous session <terminal> (<state>)` (a line of its own, before the last line) | a terminal Orca cannot place as the dispatch's (`user_takeover` or `identity_unproven`) had been quiet for 10 minutes or more, so it was left open and the start goes on (#76): say `<item>: kept previous session <terminal> (<state>)` in the status line, then act on the next line. A dispatch Orca reports `released` is never kept: it is ended (#95) |
+   | `hold session <terminal> (<state>)` | a session may still be working on this item (#76): a terminal Orca cannot place as the previous dispatch's (a person took it over, or Orca cannot prove whose it is; never a dispatch Orca reports `released`, which is ended, #95), or another `claude` or `codex` terminal in the item's worktree, printed output in the last 10 minutes. Start nothing for this row and keep it in its waiting state; queue `--kind held` "<item>: terminal <terminal> (<state>) may still be working on it; close it or finish there, then answer done", and give the slot to the next row in line. The next tick tries again |
    | `wait until <iso>` | the brief's `notBefore` is still ahead (#87): start nothing for this row, keep it `queued`, say `<item> waits until <date>` in the status line, and give the slot to the next row in line |
    | `failed <step>: <why>` | row → `failed`, `--kind escalation` "<stage> could not start: <step>: <why>" |
    | no line, or a non-zero exit | the script was cut off: put the row back in its stage's waiting state with its `counters` as they are (its `live=` makes the next start a replay of this one), and file an improvement issue ("Improvement issues") |
@@ -1429,8 +1429,11 @@ is the free space on the volume that holds STAR's folder. The first limit that f
 and at `hold=3` the queue gets one held item until a start succeeds). Heavy test and build gates
 inside workers take turns through `juel:ship-ticket`'s `gate-lock.sh`, which uses one lock per user
 for the whole machine (`/tmp/juel.gate.<uid>.lock`), so workers in different projects wait for each
-other too, and no worker needs to be told where STAR's home is. `caffeinate` is a macOS tool; on
-Linux skip it.
+other too, and no worker needs to be told where STAR's home is. Waiters are served in arrival order
+(#97), one gate at a time unless the lock's slots file says more (at most 4).
+STAR never raises the slots unasked: heavy runs side by side can take the machine down.
+The owner may ask for `sh S/../ship-ticket/gate-lock.sh --slots 2` once free memory allows it.
+`caffeinate` is a macOS tool; on Linux skip it.
 
 ## Looking after the workers
 
@@ -1867,7 +1870,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A finding that is already an open issue | `star-issue.sh comment` adds the new evidence to it |
 | A finished item's worktree still holds uncommitted or unpushed work | It stays; the queue says why, and `done` there makes STAR try again |
 | The STAR folder was deleted | That project's state is gone; the next `/juel:star` starts fresh. Stop STAR first: workers still running would report to nobody |
-| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock and the host gate are shared by the machine |
+| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock (its waiters served in arrival order, one gate at a time unless the owner asked for more) and the host gate are shared by the machine |
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
 | The user leaves with person-only steps unanswered | Those items stay `brief-ready`; the rest of the batch builds and merges |
 | A person-only step needs a value from the owner (a host name, an id) | `(value)` on the step: the answer is recorded under `## Decisions` as `→ value: <answer>`, and the step is done |

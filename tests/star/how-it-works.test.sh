@@ -120,5 +120,6 @@ grep -qF 'set <code>tokenCmd</code> in <code>star.json</code> once' "$PAGE" && p
 grep -qF 'once any person-only step the narrowed brief adds is done, even under your go' "$PAGE" && pass "LH2 the re-scope waits for its person-only steps (#101)" || fail "LH2 re-scope steps on the page"
 grep -qF 'A file-name or id form is named only by quoting the check that enforces it' "$PAGE" && pass "LH3 a brief names a form only from the repo's own check (#107)" || fail "LH3 name forms on the page"
 grep -qF 'goes into the brief'"'"'s decisions before it is sent' "$PAGE" && pass "LH3 a standing rule is logged before it is sent (#99)" || fail "LH3 standing rules on the page"
+grep -qF '(a session Orca reports released is ended, never held)' "$PAGE" && pass "LH4 a released session is ended (#95)" || fail "LH4 released session on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
