@@ -478,8 +478,8 @@ work, commit the restores as `revert: out-of-scope edits in <files>`; otherwise 
 working tree. Name the files in this phase's evidence line. A file the plan needed but did not name
 is the plan's defect: the next plan names it. An `outside-merged <path>` line is never restored:
 a base merge also changed that path, and restoring it would drop the base's change. Leave it as it
-is. Under `--unattended`, end your output with one `NOTE: scope outside-merged <path>` line per
-path. Run interactively, name it in the run's summary.
+is. Under `--unattended`, end your output with one line naming every such path,
+`NOTE: scope outside-merged <path>[, <path> ...]`. Run interactively, name it in the run's summary.
 
 **A plan with a `**Base:**` line** changes a spec that is already implemented. Whenever this skill
 runs a plan in this session with `superpowers:executing-plans` and the plan has that line, tell it:

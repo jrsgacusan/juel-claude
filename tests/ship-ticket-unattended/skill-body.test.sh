@@ -249,8 +249,8 @@ g "L99c a consumed body is read back with --all --json" 'run `orca orchestration
 grep -oE 'orchestration check( --?[a-z-]+)+' "$SKILL" | grep -vqF -- '--json' && fail "L99d every orchestration check with flags carries --json" || pass "L99d every orchestration check with flags carries --json"
 g "L106a an outside-merged path is never restored" 'An `outside-merged <path>` line is never restored'
 g "L106b restoring it would drop the base's change" 'restoring it from that sha would drop the base'"'"'s'
-g "L106c it is reported with a fixed NOTE" 'report it with the fixed line `NOTE: scope outside-merged <path>`'
-g "L106d the NOTE is in the fixed list" '`NOTE: scope outside-merged <path>` per path Phase 4'"'"'s scope check did not restore'
+g "L106c it is reported with a fixed NOTE" 'report every such path in one fixed line, `NOTE: scope outside-merged <path>[, <path> ...]`'
+g "L106d the NOTE is in the fixed list" '`NOTE: scope outside-merged <path>[, <path> ...]` line naming every path Phase 4'"'"'s scope check did not restore'
 g "L106e run interactively it goes in the checkpoint" 'run interactively, name it in this phase'"'"'s checkpoint'
 g "L107a a task creating a checked name names the check" 'names that check as its verification command. The check runs before the task'"'"'s commit.'
 g "L107b the checker wins over a brief's name form" 'project'"'"'s own checker rejects (a pretest checker, a lint rule), the checker wins.'
@@ -264,5 +264,9 @@ grep -qF 'with no `node_modules` folder and no `.pnp.cjs`' "$SKILL" && fail "F10
 g "F97a ship-ticket: strict arrival order is for one slot, the default" 'Waiters take a ticket. With one slot (the default), they are served in strict arrival'
 g "F97b ship-ticket: with more slots the first waiters race for a freed slot" 'With more slots, the first waiters in the queue race for a freed slot.'
 grep -qF 'Waiters take a ticket and are served in arrival order' "$SKILL" && fail "F97c ship-ticket: arrival order is no longer unqualified" || pass "F97c ship-ticket: arrival order is no longer unqualified"
+# fix: one NOTE line names every outside-merged path (#106)
+g "F106a the fixed NOTE list has one outside-merged line naming every path" '`NOTE: scope outside-merged <path>[, <path> ...]` line naming every path Phase 4'"'"'s scope check did not restore'
+g "F106b Phase 4 reports every such path in one fixed line" 'report every such path in one fixed line, `NOTE: scope outside-merged <path>[, <path> ...]`;'
+grep -qF 'NOTE: scope outside-merged <path>`' "$SKILL" && fail "F106c no outside-merged NOTE is per path any more" || pass "F106c no outside-merged NOTE is per path any more"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
