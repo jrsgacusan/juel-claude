@@ -542,9 +542,11 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 9. `gate-busy` — `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
    `needs=` quotes its "busy, held by …" line.
 10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
-    exited 71 (a lock file, manifest or directory problem), or 124 (the command ran past its time
-    limit and was stopped). Neither is a red gate: do not start fixing code. `needs=` quotes the
-    script's message.
+    exited 71 (a lock file, manifest or directory problem, or dependencies still missing after one
+    install), or 124 (the command ran past its time limit and was stopped), or the
+    dependency install failed (Phase 4's "Dependencies"). None of these is a red gate: do not start
+    fixing code. `needs=` quotes the script's message; for a failed install it is
+    `dependencies did not install: <one line>`.
 11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
@@ -629,7 +631,9 @@ runs first. The machine has one slot by default, so one gate runs at a time;
 machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
 "busy, held by …" on stderr, means the queue ahead of it did not move for its whole
 `--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
-escalation. Exit 71 or 124 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
+escalation. Exit 71 or 124 is `gate-unavailable`, except an exit 71 whose message says
+`dependencies are not installed`: run the resolved `commands.install` once (Phase 4's
+"Dependencies"), then the same line again; a second 71 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
 is red, and `run-gates.sh` names the gate that failed. Never remove the lock file by hand. Before
 starting the Phase 6 stack, check memory the way `juel:star` does (free + inactive at least
 3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
@@ -775,6 +779,18 @@ Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-
 drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in one line (under
 `--unattended`, a progress line and a terminal line, never a `NOTE`). `executor-model.sh` failing
 (no line, a non-zero exit, no python3) counts as `default <why>`.
+
+**Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check
+for missing dependencies with the commands resolved earlier (see "Resolve once"): a `package.json`
+at the repo root, or in a manifest gate's `cwd`, with no `node_modules` folder and no `.pnp.cjs`
+file in that folder or any folder above it up to the repo root (the check `run-gates.sh` makes).
+When one is missing, run the resolved `commands.install` once, from the folder it was resolved
+for, in the background like `codex exec` (`run_in_background: true`, wait for the completion
+notification, never poll it) and not through `gate-lock.sh`. An install that exits non-zero, or
+no install command resolved, ends the run with
+`ESCALATION item=<item> phase=4 reason=gate-unavailable needs=dependencies did not install: <one line>`
+(`<one line>` its last error line). This is not part of resolving the commands:
+resolution still installs and runs nothing.
 
 **The progress ledger.** The executor records each task it finishes in
 `<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`, the same ledger

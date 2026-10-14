@@ -234,5 +234,14 @@ g "L102m the gate loop follows the rule" 'then gate it as "Gate once per PR" say
 grep -qF 'run the tests for the files it changed, then Phase 6' "$SKILL" && fail "L102n the gate loop no longer runs Phase 6 again" || pass "L102n the gate loop no longer runs Phase 6 again"
 g "L102o an UNKNOWN merge state is read again" 'is read again up to 3 times, 10 seconds apart.'
 g "L102p a merge state still UNKNOWN adds no NOTE" 'Still `UNKNOWN`, it cannot tell: add no NOTE.'
+g "L105a missing dependencies are checked before the first dispatch" '**Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check'
+g "L105b the check is run-gates.sh's own rule" 'file in that folder or any folder above it up to the repo root (the check `run-gates.sh` makes).'
+g "L105c the install runs in the background, outside the gate lock" 'and not through `gate-lock.sh`'
+g "L105d a failed install is gate-unavailable" 'reason=gate-unavailable needs=dependencies did not install: <one line>'
+g "L105e resolution still installs and runs nothing" 'resolution still installs and runs nothing'
+g "L105f the resolution sentence is unchanged" 'it must not install or run'
+g "L105g exit 71 for missing dependencies installs once, then reruns" '`dependencies are not installed`: run the resolved `commands.install` once (Phase 4'"'"'s'
+g "L105h a second 71 is gate-unavailable" 'a second 71 is `gate-unavailable`'
+g "L105i the escalation list names the failed install" 'dependency install failed (Phase 4'"'"'s "Dependencies")'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
