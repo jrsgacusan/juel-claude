@@ -267,5 +267,8 @@ gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "#108a NOT-SAFE rounds count from the newest SAFE round or the last push" 'NOT-SAFE rounds are counted since the newest SAFE round or the last push, whichever is later.'
 grow "#108b an unpushed SAFE round starts a fresh count" 'A SAFE round that could not be pushed, because the PR needed a base merge first, starts a fresh count.'
 printf '%s\n' "$gate_row" | grep -qF 'NOT-SAFE round for this push' && fail "#108c the per-push count is gone" || pass "#108c the per-push count is gone"
+g "#99a messages are read only with --json" 'Read messages only with `--unread --json` (or `--peek --json` to look without consuming them).'
+g "#99b a body a plain check consumed is read back" 'if that happened, run `orca orchestration check --all --json` and read the bodies'
+grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--json' && fail "#99c every orchestration check carries --json" || pass "#99c every orchestration check carries --json"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
