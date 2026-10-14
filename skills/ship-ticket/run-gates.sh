@@ -8,9 +8,14 @@
 # With no gate names, every gate that is not null runs, in the order test, lint, typecheck, build.
 # sweep (each test file once, no E2E) runs only when named; a null or missing sweep runs the test
 # entry in its place (#102). The first red gate stops the run.
-# Every gate about to run is checked before any runs (#105). One whose cwd has a package.json, with
-# no node_modules folder and no .pnp.cjs file in that cwd or any folder above it up to the root,
-# stops the run with exit 71 and this line on stderr (<cwd> is the manifest's own cwd):
+# Every gate about to run is checked before any runs (#105). The check applies to a gate only when
+# all three hold. Its command runs a JS tool: the first word, after any NAME=value words, has the
+# basename npm, npx, pnpm, pnpx, yarn, bun, bunx, node or corepack (a command that does not split
+# into words counts as JS). Its cwd has a package.json that declares dependencies: a non-empty
+# dependencies, devDependencies, optionalDependencies or peerDependencies object, or a workspaces
+# key (a package.json that does not parse counts as declaring). And no node_modules folder, no
+# .pnp.cjs file and no .pnp.js file exists in that cwd or any folder above it up to the root. Such
+# a gate stops the run with exit 71 and this line on stderr (<cwd> is the manifest's own cwd):
 #   run-gates.sh: <gate>: dependencies are not installed (no node_modules for <cwd>/package.json)
 # Exit: 0 all green (or nothing to run); the failing gate's own code, with "<gate> failed (exit N)"
 # on stderr; 71 when a gate could not be run at all (manifest missing or unreadable, a cwd that
@@ -21,6 +26,8 @@
 exec python3 - "$@" <<'PY'
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 
@@ -63,14 +70,43 @@ if not isinstance(gates, dict):
     die(71, f"the gate manifest {manifest} is not an object")
 
 
-def deps_missing(cwd):
-    """True when cwd has a package.json and no node_modules folder or .pnp.cjs file exists in cwd
-    or in any folder above it, up to and including the root (npm workspaces install at the root)."""
-    if not os.path.isfile(os.path.join(cwd, "package.json")):
+JS_TOOLS = ("npm", "npx", "pnpm", "pnpx", "yarn", "bun", "bunx", "node", "corepack")
+DEP_KEYS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
+
+
+def runs_js_tool(cmd):
+    """True when the first word of cmd, after any NAME=value words, is a JS tool. A cmd that does
+    not split keeps the check."""
+    try:
+        words = shlex.split(cmd)
+    except ValueError:
+        return True
+    while words and re.match(r"[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+        words.pop(0)
+    return bool(words) and os.path.basename(words[0]) in JS_TOOLS
+
+
+def declares_deps(path):
+    """True when the package.json at path is an object with a non-empty dependency object or a
+    workspaces key. One that does not parse counts as declaring."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            pkg = json.load(f)
+    except (OSError, ValueError, RecursionError):
+        return True
+    return isinstance(pkg, dict) and ("workspaces" in pkg or any(isinstance(pkg.get(k), dict) and pkg[k] for k in DEP_KEYS))
+
+
+def deps_missing(cwd, cmd):
+    """True when cmd runs a JS tool, cwd has a package.json that declares dependencies, and no
+    node_modules folder, .pnp.cjs file or .pnp.js file exists in cwd or in any folder above it, up
+    to and including the root (npm workspaces install at the root)."""
+    pkg = os.path.join(cwd, "package.json")
+    if not os.path.isfile(pkg) or not runs_js_tool(cmd) or not declares_deps(pkg):
         return False
     d = cwd
     while True:
-        if os.path.isdir(os.path.join(d, "node_modules")) or os.path.isfile(os.path.join(d, ".pnp.cjs")):
+        if os.path.isdir(os.path.join(d, "node_modules")) or any(os.path.isfile(os.path.join(d, f)) for f in (".pnp.cjs", ".pnp.js")):
             return False
         if d == root or os.path.dirname(d) == d:
             return True
@@ -93,7 +129,7 @@ for key in (names or ORDER):
         die(71, f"gate {key}: cwd {gate.get('cwd')!r} leaves the root {root}")
     if not os.path.isdir(cwd):
         die(71, f"gate {key}: cwd {cwd} does not exist")
-    if deps_missing(cwd):
+    if deps_missing(cwd, gate["cmd"]):
         die(71, f"{key}: dependencies are not installed (no node_modules for {gate.get('cwd') or '.'}/package.json)")
     plan.append((key, gate["cmd"], cwd))
 for key, cmd, cwd in plan:
