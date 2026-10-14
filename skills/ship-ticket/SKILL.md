@@ -327,7 +327,7 @@ line:
 | PR opened | `PR item=<item> url=<url> draft` |
 | an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
+| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`, `sweep`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
@@ -341,7 +341,8 @@ first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `
 from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` of your
 own, a fact the next worker in this project should know (a required env var, a flaky test, a
 naming rule), never a status update, plus the fixed `NOTE:` lines this file names
-(`NOTE: executor skill missing, the plan ran in this session`; after a `DONE`, one
+(`NOTE: executor skill missing, the plan ran in this session`;
+`NOTE: no CI ran on head <sha7> (PR DIRTY)` (see "Gate once per PR"); after a `DONE`, one
 `NOTE: accepted residual <criterion>: <follow-up path>` per `ACCEPTED-RESIDUAL` item, and with
 more than two of them one `NOTE: accepted residuals: <n>, listed in <path>`, the file beside the
 gate manifest). With more than two `HELD` lines, write them all to a file beside the
@@ -634,6 +635,29 @@ starting the Phase 6 stack, check memory the way `juel:star` does (free + inacti
 3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
 `stack-unavailable`.
 
+**Gate once per PR.** The full regression gate (every gate in the manifest) and every Phase 6 live
+check run once per PR, on the worker's own changes, before the first draft push: that is Phase 6.
+Each later push runs less, unless the project's own rule (its `CLAUDE.md` or `AGENTS.md`) asks for
+more, which then wins:
+
+1. A push that carries the worker's own changes (a codex gate fix round, a babysit review fix, a
+   fix for a red gate) runs the tests for the files changed since the last push, then the sweep
+   through the gate lock, with the holder and `--progress` as above:
+   `sh <gate-lock.sh> --holder "<item>" [--progress <star.home>/progress/<item>.log] -- sh <run-gates.sh> <gate manifest> --root <repo root> sweep`.
+   A `null` sweep runs `test` in its place. The sweep is that push's one regression gate: a red
+   sweep is a red gate.
+   A Phase 6 live check runs again only for a criterion whose runtime code the change touched.
+2. A push that only merges the base branch in runs the tests for the files the conflict resolution
+   changed, and none after a clean merge: CI carries the full suite.
+
+After every push to the PR (right after Phase 7 opens the draft, and after each push of the codex
+gate loop), read `gh pr view <pr> --json mergeable,mergeStateStatus`. A `mergeable` of `UNKNOWN`
+(GitHub is still computing it) is read again up to 3 times, 10 seconds apart.
+Still `UNKNOWN`, it cannot tell: add no NOTE. `DIRTY` or `CONFLICTING`
+means GitHub runs no CI on that head: add the fixed line
+`NOTE: no CI ran on head <sha7> (PR DIRTY)` (`<sha7>` the head's first 7 hex) to the report.
+Missing checks are never read as a pass.
+
 **Status writes without a connector.** When the resolved provider supports `update_status` but this
 host cannot reach it, print a `HELD` line instead of failing. The coordinator records it as an open
 loop for the human.
@@ -835,7 +859,9 @@ on, since Phase 5's review still reads the whole diff.
 
 **Resolve toolchain commands now, once.** Immediately after Codex finishes, resolve
 `commands.install`, `.test`, `.lint`, `.typecheck`, `.build`, `.format` and `.run` per "Toolchain
-commands" above. This step is side-effect-free detection only — it must not install or run
+commands" above, then `.sweep`: a command that runs each test file the resolved `test` registers
+once, with no E2E (say, the `test` script's chain without its E2E step), in `test`'s `cwd`.
+`.sweep` is `null` when `test` already is that. This step is side-effect-free detection only — it must not install or run
 anything. Report
 the resolved set in this phase's checkpoint (one line per key: command + source tier, or `null —
 skipped`). Phases 5 and 6 reuse this exact set; see "Toolchain commands" for why re-resolving
@@ -882,7 +908,7 @@ After it returns, run only the tests for the files remediation changed (`git dif
 maps to the changed source files (`foo.py` → `test_foo.py`, `Foo.tsx` → `Foo.test.tsx`), through
 the runner of the `test` command resolved in Phase 4, given those paths. Lint those files the same
 way when the resolved `lint` command accepts paths. The one full run of every gate is Phase 6
-step 5, before the PR; there is never a second full run here. No file changed, or no test found
+step 5, before the PR (see "Gate once per PR"); there is never a second full run here. No file changed, or no test found
 for them: say so in one line and continue. When the project's own instructions (CLAUDE.md,
 AGENTS.md) say something else about test scope, they win. Under `--unattended`, these runs go
 through `gate-lock.sh` too (see "Gate lock").
@@ -1121,11 +1147,14 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries
    `**Base:** spec implemented at <the full head>; apply only the tasks below.` and whose tasks each
    name their files in a `**Files:**` block, run it with the executor
-   (Phase 4's line, its capacity rule and its scope check), run the tests for the files it changed, then Phase 6
-   again: its step 5 is the one regression gate of the round, run through the gate lock, and when
-   every file changed since the evidence head is outside the runtime, as its step 6 defines it, the
-   evidence is reused and only that gate runs; any other change gets its live checks again. Commit,
-   push (never force), write the `-fix.md`, then run the next round from step 1. `[P2]` and `[P3]`
+   (Phase 4's line, its capacity rule and its scope check), then gate it as "Gate once per PR" says
+   for a push of the worker's own changes: the tests for the files it changed, then the sweep,
+   the one regression gate of the round, run through the gate lock. When every file changed since
+   the evidence head is outside the runtime, as its step 6 defines it, the evidence is reused as
+   that step records it and no live check runs again; otherwise only the live checks of the
+   criteria whose runtime code the fix touched run again, recorded in the same `report.md`. Commit,
+   push (never force), read the PR's merge state as "Gate once per PR" says, write the `-fix.md`,
+   then run the next round from step 1. `[P2]` and `[P3]`
    findings never block: fix them when cheap, otherwise leave them in the review.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the

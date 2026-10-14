@@ -218,5 +218,21 @@ g "L97c only the owner changes the slots" 'Only the owner changes it: never run 
 g "L97d exit 75 means the queue did not move" 'means the queue ahead of it did not move for its whole'
 grep -qF '`/tmp/juel.gate.<uid>.lock`; nothing to' "$SKILL" && fail "L97e the lock is no longer nothing to configure" || pass "L97e the lock is no longer nothing to configure"
 g "L97f gates overlap only when the owner raised the slots" 'so two workers never run heavy test or build gates at once unless the owner raised'
+g "L102a the gate-once paragraph" '**Gate once per PR.** The full regression gate (every gate in the manifest) and every Phase 6 live'
+g "L102b a later push runs the sweep through the gate lock" '-- sh <run-gates.sh> <gate manifest> --root <repo root> sweep`.'
+g "L102c the sweep is that push's one regression gate" 'The sweep is that push'"'"'s one regression gate: a red'
+g "L102d a live check runs again only for touched runtime code" 'A Phase 6 live check runs again only for a criterion whose runtime code the change touched.'
+g "L102e a base-only merge push tests only the conflict resolution" 'runs the tests for the files the conflict resolution'
+g "L102f a project rule that asks for more wins" "unless the project's own rule (its \`CLAUDE.md\` or \`AGENTS.md\`) asks"
+g "L102g the merge state is read after every push" 'read `gh pr view <pr> --json mergeable,mergeStateStatus`'
+g "L102h missing checks are never a pass" 'Missing checks are never read as a pass.'
+g "L102i no CI on a DIRTY head is a fixed NOTE" '`NOTE: no CI ran on head <sha7> (PR DIRTY)` (see "Gate once per PR")'
+g "L102j the gate manifest carries sweep" '(`test`, `lint`, `typecheck`, `build`, `sweep`;'
+g "L102k Phase 4 resolves the sweep" 'then `.sweep`: a command that runs each test file the resolved `test` registers'
+g "L102l Phase 5 points to the rule" 'step 5, before the PR (see "Gate once per PR")'
+g "L102m the gate loop follows the rule" 'then gate it as "Gate once per PR" says'
+grep -qF 'run the tests for the files it changed, then Phase 6' "$SKILL" && fail "L102n the gate loop no longer runs Phase 6 again" || pass "L102n the gate loop no longer runs Phase 6 again"
+g "L102o an UNKNOWN merge state is read again" 'is read again up to 3 times, 10 seconds apart.'
+g "L102p a merge state still UNKNOWN adds no NOTE" 'Still `UNKNOWN`, it cannot tell: add no NOTE.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
