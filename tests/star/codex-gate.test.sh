@@ -580,5 +580,38 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-is-error.json" "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: API Error: 529 Overloaded" ] && [ "$(cat "$TMP/claude-n")" = 1 ] && pass "a fallback failure that is not a denial is gate-down at once, with no second run (#100)" || fail "no retry without a denial ($rc $out)"
+
+# lane c: a direct post-pass is already done only over a direct receipt for the same head (#104)
+receipts_pr() { # receipts_pr <first line>...: a PR on $NEWHEAD whose author left one two-line receipt per argument, the n-th at #issuecomment-<n + 6>
+  n=6; comments=""
+  for line in "$@"; do n=$((n + 1)); comments="$comments${comments:+,}{\"author\":{\"login\":\"me\"},\"body\":\"$line\\nVERDICT: PASS\",\"url\":\"https://github.com/o/r/pull/5#issuecomment-$n\"}"; done
+  printf '{"author":{"login":"me"},"baseRefName":"main","headRefOid":"%s","url":"https://github.com/o/r/pull/5","comments":[%s]}\n' "$NEWHEAD" "$comments" > "$TMP/pr.json"
+}
+CARRIED_LINE="Codex gate: PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh, carried from 1111111111111111111111111111111111111111: merge of origin/main with no conflicts)"
+OWNER_LINE="Codex gate: PASS (head $NEWHEAD, round 3, gpt-6.1-sol xhigh, carried by owner decision N-12: findings deferred)"
+DIRECT_LINE="Codex gate: PASS (head $NEWHEAD, round 3, claude:opus xhigh)"
+reset; receipts_pr "$CARRIED_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && [ "$(cat "$TMP/body" 2>/dev/null)" = "$(printf 'Codex gate: PASS (head %s, round 4, gpt-6.1-sol xhigh)\nVERDICT: PASS' "$NEWHEAD")" ] && pass "a direct post-pass posts its receipt over a carried one: a direct verdict supersedes a carry (#104)" || fail "direct over carried ($out)"
+reset; receipts_pr "$OWNER_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && pass "an owner-decision carry does not stop a direct receipt on the same head (#104)" || fail "direct over owner carry ($out)"
+reset; receipts_pr "$DIRECT_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "a direct receipt for the head is already there, whatever its round and model (#104)" || fail "direct over direct ($out)"
+reset; receipts_pr "$CARRIED_LINE" "$OWNER_LINE" "$DIRECT_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "already https://github.com/o/r/pull/5#issuecomment-9" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "with carried and direct receipts on the head, a direct post-pass is already done, naming the direct one (Review Focus 5)" || fail "carried and direct ($out)"
+reset; receipts_pr "Codex gate: PASS (head 0000000000000000000000000000000000000000, round 3, gpt-6.1-sol xhigh)" "Codex gate: PASS (head $(printf '%.7s' "$NEWHEAD"), round 3, gpt-6.1-sol xhigh)" "$CARRIED_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && pass "a direct receipt on another head, or on this head's short form, does not count (Review Focus 5)" || fail "direct receipt on another head ($out)"
+reset; mkdir -p "$H/reviews/app"; review_file "$RN" "VERDICT item=ITEM-1 round=3 NOT-SAFE findings=1 head=$NEWHEAD"
+printf 'CARRIED item=ITEM-1 round=3 head=%s from=ITEM-1-r3.md decision=N-12\nship it\nDeferred: the findings in ITEM-1-r3.md\n' "$NEWHEAD" > "$RC"
+receipts_pr "$DIRECT_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD" --review "$RC")
+receipts_pr "$CARRIED_LINE"
+out2=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD" --review "$RC")
+[ "$out" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && [ "$out2" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "a carried post-pass keeps today's rule: any receipt on the head is already there (#104)" || fail "carried post-pass ($out / $out2)"
+reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

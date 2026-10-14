@@ -69,8 +69,11 @@
 # with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
 # dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
 # post-pass posts two lines on the PR, "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)"
-# and "VERDICT: PASS", the line a project's review rule reads (#84), once per head (a comment by
-# the PR's author that starts "Codex gate: PASS (head <sha>" is already the receipt); --head must
+# and "VERDICT: PASS", the line a project's review rule reads (#84), once per head. A direct call
+# (no --carried-from, and a --review that is not -carried.md) prints already only over a comment by
+# the PR's author whose first line is "Codex gate: PASS (head <sha>, round <n>, <model> <effort>)"
+# for this full head: a direct verdict supersedes a carry (#104). A carried call prints already over
+# any comment by the PR's author that starts "Codex gate: PASS (head <sha>". --head must
 # be the PR's current head, all 40 characters. GitHub can show the previous head
 # for a few seconds after a push, so post-pass reads the PR's head every 5 seconds for up to 90
 # (times CODEX_GATE_SLEEP) until it is --head, and only then refuses (#62). The model and effort are
@@ -399,8 +402,13 @@ def post_pass(o):
         reason = " ".join(o["reason"].split())
         clause = f", carried from {gated}: {reason}"
     prefix = f"Codex gate: PASS (head {head}"
+    # a direct verdict supersedes a carry (#104): a direct call counts only a direct receipt for this head, a
+    # carried call (both carry forms set clause) any receipt for it
+    direct = re.compile(re.escape(prefix) + r", round \d+, \S+ \S+\)")
     for c in comments:
-        if (c.get("author") or {}).get("login") == author and str(c.get("body") or "").startswith(prefix):
+        body = str(c.get("body") or "")
+        done = body.startswith(prefix) if clause else direct.fullmatch((body.splitlines() or [""])[0])
+        if (c.get("author") or {}).get("login") == author and done:
             out(f"already {c.get('url') or url}")
     body = f"Codex gate: PASS (head {head}, round {o['round']}, {model} {effort}{clause})\n{verdict}"
     posted = run(["gh", "pr", "comment", o["pr"], "--body", body], 60)
