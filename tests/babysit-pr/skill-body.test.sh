@@ -253,5 +253,7 @@ mrow "R9e a carry is proof as well" '`OK carried from …` is proof as well'
 mrow "R9f any other NO still escalates" 'Any other `NO …`'
 mrow "R9g the deferred ready re-checks the proof" 'again right before a deferred'
 
+# lane g: step 0a, the hosted log, the round count, messages, gate once per PR, CI and dependencies (#109, #96, #108, #99, #97, #102, #105)
+g "#109i babysit's Phase 3 merges the base only when the PR conflicts" 'It merges the base branch in only when the PR conflicts with it (a `behind` PR is synced in Phase 4)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

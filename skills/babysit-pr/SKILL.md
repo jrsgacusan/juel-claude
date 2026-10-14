@@ -313,7 +313,7 @@ the repository requires an up-to-date branch.
 
 In reviewer mode, this phase is the re-review in "Reviewer mode"; the steps below are author mode's.
 
-1. Invoke `/juel:receive-review-and-execute <pr>` (under `--unattended`: `/juel:receive-review-and-execute <pr> --unattended --only <ids> [--brief <path>] [--executor session]`, see "Unattended mode"; `--executor` is passed on exactly as this skill received it). It merges the base branch, reads every
+1. Invoke `/juel:receive-review-and-execute <pr>` (under `--unattended`: `/juel:receive-review-and-execute <pr> --unattended --only <ids> [--brief <path>] [--executor session]`, see "Unattended mode"; `--executor` is passed on exactly as this skill received it). It merges the base branch in only when the PR conflicts with it (a `behind` PR is synced in Phase 4), reads every
    thread, validates findings into actionable / rejected / ambiguous, asks the user about
    ambiguous ones, writes a plan and runs the executor. Keep its final per-finding outcome: it
    is the source for every reply below.
