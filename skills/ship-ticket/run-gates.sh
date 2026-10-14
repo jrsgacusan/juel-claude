@@ -1,12 +1,13 @@
 #!/bin/sh
 # Runs the gates of a gate manifest, each in its own directory, exactly as they are written.
-#   run-gates.sh <manifest.json> [--root <repo root>] [test|lint|typecheck|build ...]
+#   run-gates.sh <manifest.json> [--root <repo root>] [test|lint|typecheck|build|sweep ...]
 # The manifest is what ship-ticket writes: {"test": {"cmd": "...", "cwd": "..."} | null, "lint": ...,
-# "typecheck": ..., "build": ...}. No command is ever pasted into a quoted shell string, so quotes,
-# "&&", "VAR=value" and spaces in a path all survive. cwd is relative to --root (default: the git
-# top level, else the current directory) whatever directory the caller is in.
-# With no gate names, every gate that is not null runs, in the order above. The first red gate
-# stops the run.
+# "typecheck": ..., "build": ..., "sweep": ...}. No command is ever pasted into a quoted shell
+# string, so quotes, "&&", "VAR=value" and spaces in a path all survive. cwd is relative to --root
+# (default: the git top level, else the current directory) whatever directory the caller is in.
+# With no gate names, every gate that is not null runs, in the order test, lint, typecheck, build.
+# sweep (each test file once, no E2E) runs only when named; a null or missing sweep runs the test
+# entry in its place (#102). The first red gate stops the run.
 # Exit: 0 all green (or nothing to run); the failing gate's own code, with "<gate> failed (exit N)"
 # on stderr; 71 when a gate could not be run at all (manifest missing or unreadable, a cwd that
 # does not exist or leaves the root); 64 bad usage. A gate whose own code is 64, 71, 75 or 124
@@ -20,6 +21,7 @@ import subprocess
 import sys
 
 ORDER = ("test", "lint", "typecheck", "build")
+KNOWN = ORDER + ("sweep",)  # sweep runs only when named
 
 
 def die(code, msg):
@@ -41,10 +43,10 @@ while argv:
     else:
         names.append(arg)
 if manifest is None:
-    die(64, "usage: run-gates.sh <manifest.json> [--root <dir>] [test|lint|typecheck|build ...]")
+    die(64, "usage: run-gates.sh <manifest.json> [--root <dir>] [test|lint|typecheck|build|sweep ...]")
 for n in names:
-    if n not in ORDER:
-        die(64, f"unknown gate: {n} (known: {', '.join(ORDER)})")
+    if n not in KNOWN:
+        die(64, f"unknown gate: {n} (known: {', '.join(KNOWN)})")
 if root is None:
     top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     root = top.stdout.strip() if top.returncode == 0 and top.stdout.strip() else os.getcwd()
@@ -59,6 +61,8 @@ if not isinstance(gates, dict):
 ran = 0
 for key in (names or ORDER):
     gate = gates.get(key)
+    if gate is None and key == "sweep":
+        gate = gates.get("test")  # a null or missing sweep runs the test entry in its place
     if gate is None:
         continue
     if not isinstance(gate, dict) or not isinstance(gate.get("cmd"), str) or not gate["cmd"].strip():

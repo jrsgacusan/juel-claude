@@ -44,5 +44,26 @@ for c in 64 71 75 124; do
 done
 m '{"test":{"cmd":"true","cwd":7},"lint":null,"typecheck":null,"build":null}'; run >/dev/null 2>&1; [ $? -eq 71 ] && pass "a cwd that is not text is exit 71, not a crash" || fail "non-string cwd"
 
+# lane b: #102 the sweep gate runs only when named; #105 a gate without its dependencies fails fast
+rm -f "$TMP/sw.test" "$TMP/sw.sweep"
+m '{"test":{"cmd":"touch '"$TMP"'/sw.test","cwd":"."},"lint":null,"typecheck":null,"build":null,"sweep":{"cmd":"touch '"$TMP"'/sw.sweep","cwd":"packages/api"}}'
+run >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.test" ] && [ ! -e "$TMP/sw.sweep" ] && pass "#102 the default run never runs sweep" || fail "#102 default run and sweep (rc=$rc)"
+rm -f "$TMP/sw.test"
+run sweep >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.sweep" ] && [ ! -e "$TMP/sw.test" ] && pass "#102 sweep runs when named, and only it" || fail "#102 named sweep (rc=$rc)"
+rm -f "$TMP/sw.test"
+m '{"test":{"cmd":"touch '"$TMP"'/sw.test","cwd":"."},"lint":null,"typecheck":null,"build":null,"sweep":null}'
+run sweep >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.test" ] && pass "#102 a null sweep runs the test entry" || fail "#102 null sweep (rc=$rc)"
+rm -f "$TMP/sw.test"
+m '{"test":{"cmd":"touch '"$TMP"'/sw.test","cwd":"."},"lint":null,"typecheck":null,"build":null}'
+run sweep >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.test" ] && pass "#102 a missing sweep runs the test entry" || fail "#102 missing sweep (rc=$rc)"
+m '{"test":null,"lint":null,"typecheck":null,"build":null,"sweep":null}'
+out=$(run sweep 2>&1); rc=$?
+[ "$rc" -eq 0 ] && case "$out" in *"no gates"*) true ;; *) false ;; esac && pass "#102 sweep and test both null: nothing to run, exit 0" || fail "#102 nothing to sweep (rc=$rc: $out)"
+err=$(run nosuch 2>&1); case "$err" in *"known: test, lint, typecheck, build, sweep"*) pass "#102 the usage names sweep" ;; *) fail "#102 usage ($err)" ;; esac
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
