@@ -271,7 +271,7 @@ git status --porcelain
      (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
      with `git commit --no-edit` before any later phase runs, so remediation commits never land
      inside an unfinished merge. One evidence line: the merge commit's short SHA.
-6. Do not push here. The merge commit is pushed with the remediation commits.
+6. Do not push here. The merge commit, when step 0a made one, is pushed with the remediation commits.
 
 ### Step 1: Fetch PR review comments
 
