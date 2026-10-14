@@ -337,7 +337,7 @@ g "DB8 an unverified id is confirmed before go" '`confirm-id`'
 g "DB9 a hosted review comes after ready (#40)" 'skips draft PRs'
 g "DB10 grounding: Mobbin for user-facing changes" 'search_screens'
 g "DB11 grounding: context7 for libraries" 'context7'
-g "DB12 the re-scope report" 'BRIEF item=<name> path=<--out> rescoped=1 followup=<path>'
+g "DB12 the re-scope report" 'BRIEF item=<name> path=<--out> asks=<n> rescoped=1 followup=<path>'
 g "DB13 the split report" 'SPLIT item=<name> into=<path>,<path>'
 g "DB14 criteria are derived when the item has none" 'derive them from the item'
 # STAR closed loop: the merge gate, the batch summary, the rules
@@ -394,8 +394,8 @@ gin "FS2 reconcile names the building row whose DONE is pending" "$reconcile" 'w
 gin "FS2 reconcile does not probe it" "$reconcile" 'skip the probe for it'
 gin "FS2 reconcile runs done-check.sh for it" "$reconcile" 'run `done-check.sh` for it'
 # FS3: a re-scope BRIEF on a brief with no grant line
-g "FS3 a re-scope brief always adds its follow-up and keeps the lineage" 'in every case: `counters.rescoped=1`, clear `counters.rescope`, and add the follow-up spec as a new `inbox` row'
-g "FS3 with no grant line the row goes to brief-ready for the batch go" 'A brief with no grant line (it prints 0): row → `brief-ready`'
+g "FS3 a re-scope brief always adds its follow-up and keeps the lineage" 'in every case: `counters.rescoped=1`, clear `counters.rescope`, add the follow-up spec as a new `inbox` row'
+g "FS3 with no grant line the row goes to brief-ready for the batch go" 'A brief with no grant line (`grep -cE '"'"'^grant: [^ #]'"'"' <brief>` prints 0): row → `brief-ready`'
 grep -qF 'else treat it as the next row' "$SKILL" && fail "FS3 a re-scope brief no longer falls through to the next row" || pass "FS3 a re-scope brief no longer falls through to the next row"
 # FS4: the merge gate's FAIL no codex PASS goes back to the gate loop
 gin "FS4 a missing codex PASS resumes the gate loop on the existing PR" "$gatefail" 'no codex PASS for <sha7>; resume the gate loop on the existing PR'
@@ -575,5 +575,12 @@ g "LH1f the brief adds no person-only step for the close (#94)" 'The brief adds 
 g "LH1g STAR asks the owner to close the original once the new PR exists (#94)" '--title "close <that url>: carried on <pr url>"'
 g "LH1h STAR reads the original's URL from the brief (#94)" 'sed -n '"'"'s/^Decision: carried as a new PR: \([^ ]*\) .*/\1/p'"'"' <brief>` prints its URL'
 g "LH1i the close is asked once (#94)" '(`grep -cF '"'"'close <that url>: carried on'"'"' <brief>` prints 0)'
+g "LH2a a re-scope queues its person-only steps (#101)" 'and queue one `--kind person` per line of the brief'"'"'s `## Person-only steps`, as the next row does'
+g "LH2b a granted re-scope waits while a step is open (#101)" 'row → `queued` when none of those steps is open, else `brief-ready`'
+g "LH2c the status line says what it waits for (#101)" '"<item>: re-scope waits for <n> person-only steps" in the status line; the grant still covers it'
+g "LH2d the last answered value step queues it (#101)" 'and no other open `person` item: it → `queued` (a re-scope that waited for its person-only steps, #101)'
+g "LH2e the last answered done step queues it too (#101)" 'the row does not change, with the same exception as the row above'
+g "LH2f re-scope mode keeps step 6's person-only rules (#101)" '`## Person-only steps` follows step 6'"'"'s rules, and leaves out a step its'
+grep -qF 'The brief keeps its `approved:` and `grant:`' "$SKILL" && fail "LH2g a granted re-scope no longer goes straight to queued (#101)" || pass "LH2g a granted re-scope no longer goes straight to queued (#101)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -116,5 +116,7 @@ grep -qF 'so two sessions never work on one item' "$PAGE" && pass "G3 the page s
 grep -qF 'takes your answer as that value' "$PAGE" && pass "G4 the page says a step can take a value" || fail "G4 value step on the page"
 grep -qF 'its blockers and any not-before date' "$PAGE" && pass "G5 the queued state names the not-before date" || fail "G5 notBefore on the page"
 grep -qF 'set <code>tokenCmd</code> in <code>star.json</code> once' "$PAGE" && pass "G6 the page says how a repository gh cannot see gets its token" || fail "G6 tokenCmd on the page"
+# lane h: the page shows STAR's changes for issues #94 to #108
+grep -qF 'once any person-only step the narrowed brief adds is done, even under your go' "$PAGE" && pass "LH2 the re-scope waits for its person-only steps (#101)" || fail "LH2 re-scope steps on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
