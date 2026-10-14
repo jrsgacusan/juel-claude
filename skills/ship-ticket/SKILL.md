@@ -590,7 +590,8 @@ Pushing commits and opening a **draft** PR are not outward in this sense and pro
 remediation, the Phase 6 regression gate, and the heavy verification commands in the plan Codex
 executes (full suites, builds; targeted single-file tests are fine without it) — runs through
 `gate-lock.sh`, next to this file (`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when
-that is set), so two workers never run heavy test or build gates at once. Run the line in the
+that is set), so two workers never run heavy test or build gates at once unless the owner raised
+the slot count (below). Run the line in the
 background, like `codex exec`: Bash with `run_in_background: true`, wait for the completion
 notification, never poll it, then read its output. Waiting for the lock plus running the gate can
 take longer than the Bash tool's 600 s foreground cap.
@@ -617,11 +618,15 @@ step that is not in the manifest goes into a file (`set -e` on its first line) a
 these two forms, with the manifest's absolute path: the manifest is written before the plan
 (see "Resolve once"), so it is there when Codex runs the step.
 
-It holds a kernel lock on one file for the whole machine (`/tmp/juel.gate.<uid>.lock`; nothing to
-configure, and a sandboxed executor can write there) while the command's
+It holds a kernel lock on a slot file for the whole machine (`/tmp/juel.gate.<uid>.lock` is slot 1,
+and a sandboxed executor can write there) while the command's
 process group runs, even if the wrapper itself is killed; the kernel frees it when the last of
 those processes exits, so there is never a stale lock to clear. It stops the whole group on TERM,
-INT or HUP. Exit 75, with "busy, held by …" on stderr, means it stayed busy for its whole
+INT or HUP. Waiters take a ticket and are served in arrival order: a worker that comes later never
+runs first. The machine has one slot by default, so one gate runs at a time;
+`sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count, shared by every project on this
+machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
+"busy, held by …" on stderr, means the queue ahead of it did not move for its whole
 `--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
 escalation. Exit 71 or 124 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
 is red, and `run-gates.sh` names the gate that failed. Never remove the lock file by hand. Before

@@ -211,5 +211,12 @@ g "L90b at most two refunds between green gates" 'At most two such reds are refu
 # fix-1: R4 the gate lock is one file per user, so under a star: brief the holder names the project (#76)
 g "R4a a star: brief's gate-lock holder carries the project" '--holder "<star.project>/<item>"'
 g "R4b a run without a star: brief keeps the item as the holder" 'The holder is `"<item>"`, except under a `star:` brief'
+# lane f: gate once per PR, gate-lock slots, dependencies, messages, outside-merged, name forms (#97, #99, #102, #105, #106, #107)
+g "L97a gate-lock waiters are served in arrival order" 'Waiters take a ticket and are served in arrival order'
+g "L97b the shared slot count is set with --slots" '`sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count'
+g "L97c only the owner changes the slots" 'Only the owner changes it: never run `--slots` from this skill or a plan.'
+g "L97d exit 75 means the queue did not move" 'means the queue ahead of it did not move for its whole'
+grep -qF '`/tmp/juel.gate.<uid>.lock`; nothing to' "$SKILL" && fail "L97e the lock is no longer nothing to configure" || pass "L97e the lock is no longer nothing to configure"
+g "L97f gates overlap only when the owner raised the slots" 'so two workers never run heavy test or build gates at once unless the owner raised'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
