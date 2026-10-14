@@ -12,7 +12,7 @@
 # (like codex exec): waiting for the lock plus running the gate can take longer than the tool's
 # 600 s foreground cap. The command's stdin is /dev/null.
 #
-# The lock is a kernel lock (flock) on one file: JUEL_GATE_LOCK when set (give an absolute path),
+# The lock is a kernel lock (flock) on one file, <lock>: JUEL_GATE_LOCK when set (give an absolute path),
 # else /tmp/juel.gate.<uid>.lock, one file per user for every project on the machine. It is under
 # /tmp on purpose: every worker and every sandboxed executor can write there, no worker needs to
 # know where STAR's home is, and no "git clean" in a repo can delete it. The file stays on disk;
@@ -20,6 +20,14 @@
 # message and decides nothing. After taking the lock the wrapper checks that the path still names
 # the file it locked, and starts over when the file was replaced meanwhile. Never delete the file
 # while gates run: a gate started after that would not see the one still running.
+#
+# Queue (#97): a gate that cannot start at once takes a ticket, a file in <lock>.q/ named by its
+# arrival time, and the waiters start in arrival order, whatever their poll interval. A newcomer
+# that finds anyone queued takes a ticket behind them, even at an instant the lock is free. A
+# waiter holds its ticket's lock from before the ticket appears until after it deletes it, so a
+# ticket whose lock can be taken has no live waiter (one killed with kill -9 holds nothing): the
+# next poll deletes it, and it blocks no one. A waiter keeps the lock file it opened while it
+# waits, so a file replaced meanwhile never lets it run beside the gate that holds the old one.
 #
 # The command runs in its own process group and inherits the lock. The kernel drops the lock when
 # the last process holding it exits, so there is nothing stale to detect and a recycled pid can
@@ -47,7 +55,7 @@
 # Exit status: the command's own (128+n when a signal ended it, 127 when it could not start).
 # The wrapper's own codes never mean "the gate is red": 75 with "gate-lock.sh: busy, held by ..."
 # when the lock stayed busy; 124 with "ran past" when --max-seconds ended the command; 71 when
-# the gate could not run at all (the lock file cannot be opened or locked); 64 on bad usage.
+# the gate could not run at all (a lock file or the queue cannot be opened or locked); 64 on bad usage.
 exec python3 - "$@" <<'PY'
 import fcntl
 import re
@@ -111,6 +119,34 @@ def code(rc):
     return rc if rc >= 0 else 128 - rc
 
 
+QUEUE = f"{lock}.q"  # one ticket per waiter, named "<time_ns, 20 digits>-<pid>"
+TICKET = re.compile(r"[0-9]{20}-[0-9]+")
+
+
+def slot_path(i):
+    """Slot 1 is the lock file itself, so a gate-lock.sh from before the queue still excludes on it."""
+    return lock if i == 1 else f"{lock}.{i}"
+
+
+def slot_count():
+    """How many gates may run at once."""
+    return 1
+
+
+def head(path):
+    """The start of a small file as text; "" when it is missing or unreadable. Never blocks."""
+    try:
+        f = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return ""
+    try:
+        return os.read(f, 400).decode("utf-8", "replace")
+    except OSError:
+        return ""
+    finally:
+        os.close(f)
+
+
 def held_by_our_gate():
     """True when the gate that started us is still running on this very lock file."""
     token = os.environ.get("JUEL_GATE_LOCK_HELD") or ""
@@ -131,32 +167,32 @@ if held_by_our_gate():
         die(127 if isinstance(e, FileNotFoundError) else 126, f"cannot run {argv[0]}: {e.strerror}")
 
 
-def open_lock():
+def open_lock(path):
     try:
-        os.makedirs(os.path.dirname(lock), exist_ok=True)
-        new = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o644)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        new = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o644)
     except OSError as e:
-        die(71, f"cannot open the lock file {lock}: {e.strerror}")
+        die(71, f"cannot open the lock file {path}: {e.strerror}")
     if not stat.S_ISREG(os.fstat(new).st_mode):
-        die(71, f"the lock path {lock} is not a regular file")
+        die(71, f"the lock path {path} is not a regular file")
     return new
 
 
-def still_the_file(fd):
+def still_the_file(fd, path):
     """True when the path still names the file this descriptor has locked."""
     try:
-        there, mine = os.stat(lock, follow_symlinks=False), os.fstat(fd)
+        there, mine = os.stat(path, follow_symlinks=False), os.fstat(fd)
     except OSError:
         return False
     return (there.st_dev, there.st_ino) == (mine.st_dev, mine.st_ino)
 
 
-def waiting_note(fd):
+def waiting_note():
     """One line for a STAR worker's progress log: this gate waits, and for whom (#89)."""
     if not progress:
         return
     try:
-        held = os.pread(fd, 200, 0).decode("utf-8", "replace").split()
+        held = head(slot_path(1)).split()
         stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with open(progress, "a", encoding="utf-8") as f:
             f.write(f"{stamp} regression-gate gate-lock waiting, held by {held[0] if held else 'another gate'}\n")
@@ -164,29 +200,128 @@ def waiting_note(fd):
         pass  # the progress line never stops a gate
 
 
-fd = open_lock()
-start = time.monotonic()
-next_note = None  # when the next progress line is due: None until the gate first has to wait
-while True:
+fds = {}  # slot number -> descriptor of its lock file, kept open from one poll to the next
+
+
+def try_slots(n):
+    """Lock the first free slot of 1..n without blocking: its number, or None when all are busy.
+    A descriptor stays open between polls, so a waiter that opened a slot's file before someone
+    replaced it waits for that file's holder and never runs beside it."""
+    for i in range(1, n + 1):
+        while True:
+            if i not in fds:
+                fds[i] = open_lock(slot_path(i))
+            try:
+                fcntl.flock(fds[i], fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as e:
+                if e.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
+                    die(71, f"cannot lock {slot_path(i)}: {e.strerror}")
+                break  # busy: try the next slot
+            if still_the_file(fds[i], slot_path(i)):
+                return i
+            os.close(fds.pop(i))  # the file was deleted or replaced while we waited: lock the one there now
+    return None
+
+
+def reap(path):
+    """True when no live waiter holds the queue file at path, which is then deleted. A waiter
+    locks its ticket before the ticket appears and deletes it before letting go of the lock, so a
+    lock we can take means its waiter is dead (kill -9 included) or has just left the queue."""
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        if still_the_file(fd):
-            break
-        os.close(fd)  # the file was deleted or replaced while we waited: lock the one that is there now
-        fd = open_lock()
-        continue
+        f = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return True  # its waiter left the queue
+    except OSError:
+        return False  # cannot tell: count it as live
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False  # its waiter holds it (or another poll is deleting it: gone by the next poll)
+    else:
+        try:
+            os.unlink(path)  # names are never reused: this is the file just locked, or nothing
+        except OSError:
+            pass
+        return True
+    finally:
+        os.close(f)
+
+
+def scan(mine):
+    """The number of live tickets ahead of ours (of all tickets, when we hold none yet). Dead
+    tickets ahead are deleted on the way, and so is a .tmp- file left unlocked for over 60 s."""
+    try:
+        names = sorted(os.listdir(QUEUE))
+    except OSError:
+        return 0  # no queue folder yet: no one waits
+    ahead = 0
+    for name in names:  # ".tmp-" sorts before the digits; the tickets follow in arrival order
+        path = os.path.join(QUEUE, name)
+        if name.startswith(".tmp-"):
+            try:
+                stale = time.time() - os.lstat(path).st_mtime > 60
+            except OSError:
+                continue
+            if stale:
+                reap(path)  # its waiter died between creating it and renaming it
+        elif mine is not None and name >= mine:
+            break  # our own ticket, then the ones behind it
+        elif TICKET.fullmatch(name) and not reap(path):
+            ahead += 1
+    return ahead
+
+
+def take_ticket():
+    """Join the queue: our ticket's descriptor and name. The ticket is locked under a temporary
+    name and only then renamed into place, so no poll ever sees a ticket its waiter does not hold."""
+    try:
+        os.makedirs(QUEUE, exist_ok=True)
+        tmp = os.path.join(QUEUE, f".tmp-{os.getpid()}-{secrets.token_hex(4)}")
+        f = os.open(tmp, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        fcntl.flock(f, fcntl.LOCK_EX)  # never contended: no poll opens a .tmp- file younger than 60 s
+        name = f"{time.time_ns():020d}-{os.getpid()}"
+        os.rename(tmp, os.path.join(QUEUE, name))
     except OSError as e:
-        if e.errno not in (errno.EWOULDBLOCK, errno.EAGAIN):
-            die(71, f"cannot lock {lock}: {e.strerror}")
+        die(71, f"cannot join the queue in {QUEUE}: {e.strerror}")
+    return f, name
+
+
+def leave_queue(ticket):
+    """Delete our ticket, then let go of its lock: a poll in between finds it gone, never unlocked."""
+    f, name = ticket
+    try:
+        os.unlink(os.path.join(QUEUE, name))
+    except OSError:
+        pass
+    os.close(f)
+
+
+start = time.monotonic()
+slot = None
+if scan(None) == 0:  # no one queued: a free slot is ours at once, and nothing is written
+    slot = try_slots(slot_count())
+if slot is None:
+    ticket = take_ticket()  # anyone already queued goes first, even when a slot is free right now
+    next_note = None  # when the next progress line is due: None until the gate first has to wait
+    while True:
+        n = slot_count()
+        if scan(ticket[1]) < n:  # with n slots, the first n tickets in the queue may try
+            slot = try_slots(n)
+            if slot is not None:
+                break
         now = time.monotonic()
         left = wait_max - (now - start)
         if left <= 0:
-            who = os.pread(fd, 200, 0).decode("utf-8", "replace").strip() or "another gate"
-            die(75, f"busy, held by {who}")
+            leave_queue(ticket)
+            die(75, f"busy, held by {head(slot_path(1)).strip() or 'another gate'}")
         if next_note is None or now >= next_note:
-            waiting_note(fd)
+            waiting_note()
             next_note = now + every
         time.sleep(min(poll, left))
+    leave_queue(ticket)
+fd = fds.pop(slot)
+for other in fds.values():
+    os.close(other)  # never locked: closing them frees nothing
 
 
 def note(text):
