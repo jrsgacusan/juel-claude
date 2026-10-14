@@ -32,8 +32,12 @@
 # suffix (module.exports = { a, b };), where <names> is a comma-separated list of [A-Za-z_$][\w$]*
 # with an optional trailing comma, resolves when no side repeats a name and each side kept the
 # base's names in order and only added: the base's names in order with each side's added names at
-# the point it added them, theirs before ours at one point, a name both sides added once, joined by
-# ", " with theirs' spacing inside the braces and theirs' trailing comma (#103).
+# the point it added them, theirs before ours at one point, a name both sides added once, with
+# theirs' spacing inside the braces and theirs' trailing comma (#103). The names are joined by the
+# separator all three sides use between their names: "," or ", ". A list of one name has no
+# separator and agrees with either; ", " when every side has one name. Sides that differ, or any
+# other spacing (two spaces, a tab, a space before the comma), stay a conflict, since a brace glob
+# or a shell brace expansion ({a,b}) changes meaning with a space (#103).
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
 # (added on both sides), a delete or rename conflict, a mode change, a binary file, a lockfile,
 # a file whose last line has no newline. Hunks are found with
@@ -247,8 +251,12 @@ def resolve_names(base, ours, theirs):
     names = chain_union(b, o, t)
     if names is None:
         return None
+    # the separator is one of "," and ", ", the same on all three sides (a lone name has none)
+    seps = {sep for m in found for sep in re.findall(r"\s*,\s*", m.group(3))}
+    if len(seps) > 1 or not seps <= {",", ", "}:
+        return None
     m = found[2]
-    inside = m.group(2) + ", ".join(names) + (m.group(4) or "") + m.group(5)
+    inside = m.group(2) + (seps.pop() if seps else ", ").join(names) + (m.group(4) or "") + m.group(5)
     return m.group(1) + "{" + inside + "}" + m.group(6) + "\n"
 
 
