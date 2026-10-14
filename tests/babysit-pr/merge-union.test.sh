@@ -276,5 +276,18 @@ both_ways reorder-repeat-base package.json pkg 'node a && node b && node a' 'nod
 both_ways reorder-repeat-ours package.json pkg 'node a && node b && node c' 'node b && node c && node a' 'node a && node b && node c && node y && node y' conflict
 both_ways reorder-repeat-theirs package.json pkg 'node a && node b && node c' 'node b && node c && node a && node b' 'node a && node b && node c && node y' conflict
 
+# lane d: a one-line { a, b } list both sides only added names to, at different points, resolves to
+# the base's order with theirs' then ours' names at each point, in theirs' style; a name dropped,
+# moved or repeated, a value that is no plain name, or a changed suffix stays a conflict (#103)
+one_line() { printf '%s\n' "$1"; }
+both_ways exports x.js one_line 'module.exports = { a, b, c };' 'module.exports = { a, x, b, c, w };' 'module.exports = { a, y, b, z, c };' 'module.exports = { a, x, y, b, z, c, w };'
+both_ways exports-both x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b };' 'module.exports = { a, b, x };' 'module.exports = { a, x, b };'
+both_ways exports-style x.js one_line 'export {a, b}' 'export {a, x, b,}' 'export { a, b, y }' 'export {a, x, b, y,}'
+both_ways exports-dropped x.js one_line 'module.exports = { a, b, c };' 'module.exports = { a, x, c };' 'module.exports = { a, b, c, y };' conflict
+both_ways exports-moved x.js one_line 'module.exports = { a, b };' 'module.exports = { b, a, x };' 'module.exports = { a, b, y };' conflict
+both_ways exports-repeat x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b, x };' 'module.exports = { a, b, y };' conflict
+both_ways exports-value x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x: 1, b };' 'module.exports = { a, b, y };' conflict
+both_ways exports-suffix x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b }' 'module.exports = { a, b, y };' conflict
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

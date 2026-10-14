@@ -28,6 +28,12 @@
 # chain that comes after it in ours (#103).
 # Insertions at different points of a file are separate hunks, each resolved as above, so a file
 # where both sides only added lines resolves to the union of both, at every point (#92).
+# A hunk of one line on each side, each line <prefix>{ <names> }<suffix> with the same prefix and
+# suffix (module.exports = { a, b };), where <names> is a comma-separated list of [A-Za-z_$][\w$]*
+# with an optional trailing comma, resolves when no side repeats a name and each side kept the
+# base's names in order and only added: the base's names in order with each side's added names at
+# the point it added them, theirs before ours at one point, a name both sides added once, joined by
+# ", " with theirs' spacing inside the braces and theirs' trailing comma (#103).
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
 # (added on both sides), a delete or rename conflict, a mode change, a binary file, a lockfile,
 # a file whose last line has no newline. Hunks are found with
@@ -54,6 +60,9 @@ LOCKFILES = {"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn
 AND = " && "
 # one "key": "value" line of a JSON object, its two strings still escaped as written
 PAIR = re.compile(r'^(\s*)"((?:[^"\\]|\\.)*)"(\s*:\s*)"((?:[^"\\]|\\.)*)"(\s*,?\s*)$')
+NAME = r"[A-Za-z_$][\w$]*"
+# one line holding a list of names in braces, as module.exports = { a, b }; does
+NAMES = re.compile(r"^(.*?)\{(\s*)(" + NAME + r"(?:\s*,\s*" + NAME + r")*)(\s*,)?(\s*)\}(.*)$")
 
 
 def usage():
@@ -221,6 +230,28 @@ def resolve_chains(base, ours, theirs, scripts):
     return "".join(out)
 
 
+def resolve_names(base, ours, theirs):
+    """A hunk of one line on each side, a { a, b } list both sides only added names to, resolved;
+    else None."""
+    if any(text.count("\n") != 1 for text in (base, ours, theirs)):
+        return None
+    found = [NAMES.match(text.rstrip("\n")) for text in (base, ours, theirs)]
+    if not all(found) or len({(m.group(1), m.group(6)) for m in found}) != 1:
+        return None
+    b, o, t = ([name.strip() for name in m.group(3).split(",")] for m in found)
+    if any(len(set(side)) != len(side) for side in (b, o, t)):
+        return None
+    if any([name for name in side if name in b] != b for side in (o, t)):
+        return None
+    # both sides only added: chain_union puts each side's names where it added them, theirs first
+    names = chain_union(b, o, t)
+    if names is None:
+        return None
+    m = found[2]
+    inside = m.group(2) + ", ".join(names) + (m.group(4) or "") + m.group(5)
+    return m.group(1) + "{" + inside + "}" + m.group(6) + "\n"
+
+
 def marker(line, ch):
     body = line.rstrip("\r\n")
     return body.startswith(ch * MARK) and (len(body) == MARK or body[MARK] == " ")
@@ -264,6 +295,8 @@ def merged(texts, scripts=None):
             done = resolve_hunk(*hunk)
             if done is None and scripts:
                 done = resolve_chains(*hunk, scripts)
+            if done is None:
+                done = resolve_names(*hunk)
             if done is None:
                 return None, "edited on both sides"
             out.append(done)
