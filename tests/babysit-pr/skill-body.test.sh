@@ -255,5 +255,13 @@ mrow "R9g the deferred ready re-checks the proof" 'again right before a deferred
 
 # lane g: step 0a, the hosted log, the round count, messages, gate once per PR, CI and dependencies (#109, #96, #108, #99, #97, #102, #105)
 g "#109i babysit's Phase 3 merges the base only when the PR conflicts" 'It merges the base branch in only when the PR conflicts with it (a `behind` PR is synced in Phase 4)'
+g "#96a Phase 1 rebuilds a missing hosted log from the PR" 'sh <script> <pr> --hosted <login> --hosted-passes > <log>.tmp'
+g "#96b an error line writes no file" 'An `error` line writes no file'
+g "#96c a second error is the pr-state-errors escalation" 'A second `error` → `ESCALATION item=<item> phase=8 reason=pr-state-errors'
+g "#96d a missing log is never zero passes" 'A missing log is never read as zero passes.'
+hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
+hrow "#96e the hosted row says how the record is rebuilt" 'A missing file is rebuilt from the PR in Phase 1 step 9'
+g "#96f the hosted refresh is step 10" '10. Under a `star:` brief with a hosted reviewer: when the PR'"'"'s head has no status'
+g "#96g reviewer mode skips both steps" '9 (the hosted log) and 10 (the hosted refresh) do not apply'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
