@@ -128,5 +128,7 @@ grep -qF 'When the record of passes is missing, babysit rebuilds it from the PR'
 grep -qF '>gates · push · ≤ 3 NOT-SAFE</text>' "$PAGE" && grep -qF '>3 NOT-SAFE in a row</text>' "$PAGE" && pass "LH6 the drawing counts NOT-SAFE rounds in a row (#108)" || fail "LH6 round budget in the drawing"
 grep -qF 'after 3 NOT-SAFE rounds in a row or a second Greptile pass' "$PAGE" && pass "LH6 the drawing's label says the same (#108)" || fail "LH6 round budget in the aria-label"
 grep -qF 'In babysit the count starts over at each SAFE round and each push' "$PAGE" && pass "LH6 a base merge after a SAFE round gets a fresh budget (#108)" || fail "LH6 round budget on the page"
+grep -qF 'a direct verdict supersedes a carry' "$PAGE" && pass "LH7 a direct PASS supersedes a carried one (#104)" || fail "LH7 direct receipt on the page"
+grep -qF 'git'"'"'s read-only commands (a denied run is retried once in the same round)' "$PAGE" && pass "LH7 the fallback's git reads and its retry (#100)" || fail "LH7 fallback reads on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -600,5 +600,9 @@ g "LH5b missing checks are never a pass (#102)" 'missing checks are never a pass
 g "LH6a a missing hosted log is rebuilt by babysit (#96)" 'when it is missing, babysit rebuilds it from the PR'"'"'s reviews (`pr-state.sh --hosted-passes`)'
 g "LH6b babysit counts NOT-SAFE rounds since the newest SAFE round or push (#108)" 'A babysit run counts its NOT-SAFE rounds since the newest SAFE round or its last'
 g "LH6c an unpushed SAFE round starts a fresh count (#108)" 'that could not be pushed, because the PR needed a base merge first, starts a fresh count'
+g "LH7a a denied fallback run is retried once inside the round (#100)" 'is retried once inside the round, told which call was denied'
+g "LH7b a second denial is gate-down (#100)" 'When the fallback fails too, or a second denial follows, the gate prints'
+grep -qF 'call it made was denied so it may not have read the diff' "$SKILL" && fail "LH7c one denial is no longer gate-down (#100)" || pass "LH7c one denial is no longer gate-down (#100)"
+g "LH7d a direct receipt is posted over a carried one (#104)" 'receipt is posted even when a carried receipt already names the head, #104'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

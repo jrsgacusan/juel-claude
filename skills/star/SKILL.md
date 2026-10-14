@@ -1006,9 +1006,10 @@ one headless `codex review` of the branch against its base, read-only and with n
 `latest-<family>`). A capacity error is retried after 60 and 180 seconds. After that, or at once
 when the Codex account is out of usage, the same prompt runs through `gate.fallback`: a headless
 `claude -p` review on Opus at xhigh, with read-only tools and no MCP server. The review's `Gate:`
-line and the PASS comment then name it (`claude:opus xhigh`). When the fallback fails too, or a tool
-call it made was denied so it may not have read the diff, the gate prints `ERROR gate-down <why>`,
-never a verdict. Its prompt, `S/template/gate-prompt.md`, kept as
+line and the PASS comment then name it (`claude:opus xhigh`). A fallback run with a denied tool
+call (it may not have read the diff) is retried once inside the round, told which call was denied
+(#100). When the fallback fails too, or a second denial follows, the gate prints
+`ERROR gate-down <why>`, never a verdict. Its prompt, `S/template/gate-prompt.md`, kept as
 `HOME_DIR/specs/<project>/<item>-gate-r<k>.md`, carries the brief's criteria and `## Decisions`, the
 project's notes, the previous round's review and `-fix.md` from round 2, and the review rules from
 the base branch, so a PR cannot change its own rules. Only a `[P0]` or `[P1]` finding makes the round
@@ -1018,7 +1019,8 @@ is the verdict, `VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>` or
 Notes; `<item>-r<k>.raw.md`, Codex's own text; and `<item>-r<k>.log`, its transcript. An attempt
 that ends in `ERROR` writes none of these: its transcript goes to `<item>-r<k>-error-<n>.log`, and
 the next attempt keeps round `k`, so `gate.maxRounds` counts verdicts only. After a SAFE
-round the worker posts the receipt with `codex-gate.sh post-pass`, once per head, in two lines:
+round the worker posts the receipt with `codex-gate.sh post-pass`, once per head (a direct verdict's
+receipt is posted even when a carried receipt already names the head, #104), in two lines:
 `Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)`, then `VERDICT: PASS`. Two receipts
 carry an earlier verdict, and `post-pass` writes both, so none is ever written by hand. A merge of
 the base that `carry-check.sh` proves added no change of its own (git merged it cleanly, or every
