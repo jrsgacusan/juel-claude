@@ -289,5 +289,23 @@ both_ways exports-repeat x.js one_line 'module.exports = { a, b };' 'module.expo
 both_ways exports-value x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x: 1, b };' 'module.exports = { a, b, y };' conflict
 both_ways exports-suffix x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b }' 'module.exports = { a, b, y };' conflict
 
+# fix: #103 a brace list keeps its separator
+# A brace glob or a shell brace expansion is a list too, but a space after its comma changes what it
+# means. The merged list is joined with the separator all three sides use: "," or ", ". A list of one
+# name has no separator and agrees with either. Sides that differ, or any other spacing (two spaces,
+# a tab, a space before the comma), stay a conflict. Each case is a merge and a --resolve.
+lint() { printf '{\n  %s: "eslint"\n}\n' "$1"; }
+TAB=$(printf '\t')
+both_ways brace-glob .lintstagedrc.json lint '"*.{js,ts}"' '"*.{cjs,js,ts}"' '"*.{js,ts,tsx}"' '"*.{cjs,js,ts,tsx}"'
+both_ways brace-shell copy.sh one_line 'cp src/{a,b}.js dist/' 'cp src/{d,a,b}.js dist/' 'cp src/{a,b,c}.js dist/' 'cp src/{d,a,b,c}.js dist/'
+both_ways brace-spaced copy.sh one_line 'cp src/{a, b}.js dist/' 'cp src/{d, a, b}.js dist/' 'cp src/{a, b, c}.js dist/' 'cp src/{d, a, b, c}.js dist/'
+both_ways brace-one-name copy.sh one_line 'cp src/{a}.js dist/' 'cp src/{d,a}.js dist/' 'cp src/{a,c}.js dist/' 'cp src/{d,a,c}.js dist/'
+both_ways brace-exports-spaced x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b };' 'module.exports = { a, b, y };' 'module.exports = { a, x, b, y };'
+both_ways brace-base-spaced copy.sh one_line 'cp src/{a, b}.js dist/' 'cp src/{d,a,b}.js dist/' 'cp src/{a, b, c}.js dist/' conflict
+both_ways brace-ours-differs copy.sh one_line 'cp src/{a,b}.js dist/' 'cp src/{d,a,b}.js dist/' 'cp src/{a, b, c}.js dist/' conflict
+both_ways brace-two-spaces copy.sh one_line 'cp src/{a,  b}.js dist/' 'cp src/{d,  a,  b}.js dist/' 'cp src/{a,  b,  c}.js dist/' conflict
+both_ways brace-tab copy.sh one_line "cp src/{a,${TAB}b}.js dist/" "cp src/{d,${TAB}a,${TAB}b}.js dist/" "cp src/{a,${TAB}b,${TAB}c}.js dist/" conflict
+both_ways brace-space-before copy.sh one_line 'cp src/{a ,b}.js dist/' 'cp src/{d ,a ,b}.js dist/' 'cp src/{a ,b ,c}.js dist/' conflict
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
