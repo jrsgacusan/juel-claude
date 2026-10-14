@@ -368,7 +368,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <li>A user-facing change: the Mobbin MCP for how real apps solve it (screens, flows, sections), and the frontend-design skill for the visual and interaction choices.</li>
           <li>A library, framework, SDK, API or CLI: context7, for the version the project uses.</li>
           <li>Neither fits: a web search, official docs first.</li>
-          <li>A project convention: the code already in the repo, cited as <code>file:line</code>.</li>
+          <li>A project convention: the code already in the repo, cited as <code>file:line</code>. A file-name or id form is named only by quoting the check that enforces it; with none, the brief names no form and the build follows the repo.</li>
         </ul>
       </div>
       <div>
@@ -377,6 +377,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <li>Each decision is a short record in the brief: context, decision, consequences, source.</li>
           <li>A decision with no source is not taken. The worker researches first, or brings STAR sourced options.</li>
           <li>STAR picks among the options a worker brings. It does no research in its own session.</li>
+          <li>A rule STAR sends a worker to keep following (a gate policy, how to log progress) goes into the brief's decisions before it is sent, so a restarted worker keeps it too.</li>
           <li>STAR records at every start which of Mobbin and context7 its session has, and every worker reads that list. A worker uses one only when its own session has it too; otherwise it searches the web and says so in the record.</li>
         </ul>
       </div>

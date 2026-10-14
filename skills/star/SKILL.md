@@ -1196,6 +1196,9 @@ old PR.
    tools. When it does not, or `mcps` says `needs-sign-in` or `absent`, search the web instead and
    say so in `Source:`. A decision no source can settle, and that only the owner
    can make (money, a policy, a legal question), is a `risky` person-only step instead.
+   A brief names a file-name, path or id form only by quoting the rule the repository enforces it
+   with (a checker, lint or pretest script, `file:line`); when it finds none, it names no form and
+   the build follows the repository (#107).
 
    **External ids are checked live** (#42). Every service slug, project id, DSN, hostname or
    account name the brief carries is checked where a CLI or API can reach it (`gh api`, the
@@ -1477,7 +1480,10 @@ the Mac use 60. At the deadline STAR reminds once (Housekeeping) before it gives
 
 Every answer STAR gives is on record: append `- <date> STAR answered (<message id>): <question> → <answer>` to
 the brief's `## Decisions` (later workers read it as binding, and the user can overrule it there
-or in chat), and name it in the next status line.
+or in chat), and name it in the next status line. So is every rule STAR sends a worker unasked (a
+gate policy, how to write progress lines, any instruction it must keep following): append
+`- <date> STAR to the <stage> worker (<subject>): <body>` to the brief's `## Decisions` before the
+`send` (#99). A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.
 
 **Checking in.** Each tick, Housekeeping runs `step-check.sh` for every worker the probe found
 running (`ok`, `quiet …` or `stale …`). It reads the worker's activity (progress lines, commits

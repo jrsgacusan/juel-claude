@@ -582,5 +582,10 @@ g "LH2d the last answered value step queues it (#101)" 'and no other open `perso
 g "LH2e the last answered done step queues it too (#101)" 'the row does not change, with the same exception as the row above'
 g "LH2f re-scope mode keeps step 6's person-only rules (#101)" '`## Person-only steps` follows step 6'"'"'s rules, and leaves out a step its'
 grep -qF 'The brief keeps its `approved:` and `grant:`' "$SKILL" && fail "LH2g a granted re-scope no longer goes straight to queued (#101)" || pass "LH2g a granted re-scope no longer goes straight to queued (#101)"
+g "LH3a a brief names a form only by quoting the repo's rule (#107)" 'A brief names a file-name, path or id form only by quoting the rule the repository enforces it'
+g "LH3b with no rule it names no form (#107)" 'when it finds none, it names no form and'
+g "LH3c a standing rule STAR sends is on record (#99)" 'So is every rule STAR sends a worker unasked'
+g "LH3d it goes into the brief before the send (#99)" '`- <date> STAR to the <stage> worker (<subject>): <body>` to the brief'"'"'s `## Decisions` before the'
+g "LH3e a one-time nudge is not a rule (#99)" 'A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
