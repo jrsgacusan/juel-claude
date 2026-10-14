@@ -309,7 +309,7 @@ reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the ver
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
-reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`
+reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`; when it is missing, babysit rebuilds it from the PR's reviews (`pr-state.sh --hosted-passes`) before it counts a pass
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
@@ -743,8 +743,8 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `go-batch` | `drop <item>` | that row → `dropped`; add the `go-batch` item again for the rest |
    | `go-batch` | anything else, including "go, but …" | it is feedback for the item it names (it names none and the batch has more than one item: ask which, one question), never a conditional go: append it to that brief under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `go-batch` item again, showing the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line there, since the summary does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix until the go. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
    | `person`, a `(value)` step (the kind line of its body ends in `(value)`) | exactly `done` | no value came with it: close the answered item and add it again with the title "<the step> (answer with the value)" and the same body. The step stays open, so the row stays out of the go |
-   | `person`, a `(value)` step | anything but `done`, `can't now` or `no` | the answer is the value (#86): append `- <date> person-only step #<n> (<kind>, value): <step> → value: <answer>` to the brief's `## Decisions` (the step is the title without a trailing " (answer with the value)", and the answer exactly as `loops.sh answers` printed it). The step is done; the row does not change |
-   | `person` | `done` or `approve` | append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title); the row does not change. A `(value)` step never takes this row: `done` alone is asked again, and any other answer but `can't now` or `no` is its value (the two rows above) |
+   | `person`, a `(value)` step | anything but `done`, `can't now` or `no` | the answer is the value (#86): append `- <date> person-only step #<n> (<kind>, value): <step> → value: <answer>` to the brief's `## Decisions` (the step is the title without a trailing " (answer with the value)", and the answer exactly as `loops.sh answers` printed it). The step is done. The row does not change, except a `brief-ready` row whose brief has a grant line (`grep -cE '^grant: [^ #]' <brief>` prints 1) and no other open `person` item: it → `queued` (a re-scope that waited for its person-only steps, #101) |
+   | `person` | `done` or `approve` | append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title); the row does not change, with the same exception as the row above. A `(value)` step never takes this row: `done` alone is asked again, and any other answer but `can't now` or `no` is its value (the two rows above) |
    | `person` | `can't now` or `no` | the same record, then close the answered item and add the same `person` item again (`loops.sh add` returns an item that is still in the queue, answered or not, and adds nothing): the open item keeps the row from starting on a go, and the next batch summary asks it again. A `risky` step answered `no`: append "risky call refused: <step>" under `## Feedback`, row → `inbox`, and do not add the item again: the brief stage plans without it |
    | `person` | anything else | record it under `## Decisions` as feedback on that step (the same line, ending `→ feedback: <answer>`), then close the answered item and add the same `person` item again: the step is asked again, and the row stays out of the go |
    | `go-merge` | exactly `go`, `yes` or `ok` | write a grant for that item as for `go-batch`, and stamp `grant:` in its brief; the row stays `verifying`, and the next merge-gate check may merge it |
@@ -792,14 +792,14 @@ starts ("Fill slots"), so two sessions never work in one worktree.
 
    | First line of the report | Action |
    |---|---|
-   | `BRIEF item=… path=… … rescoped=1 followup=<path>` (a re-scope's brief) | in every case: `counters.rescoped=1`, clear `counters.rescope`, and add the follow-up spec as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`). The brief keeps its `approved:` and `grant:` (`grep -cE '^grant: [^ #]' <brief>` prints 1): row → `queued`. A brief with no grant line (it prints 0): row → `brief-ready`, finished as the next row does (its person-only steps, the batch summary, the `go-batch` item), so the batch's go writes the grant |
+   | `BRIEF item=… path=… … rescoped=1 followup=<path>` (a re-scope's brief) | in every case: `counters.rescoped=1`, clear `counters.rescope`, add the follow-up spec as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`), and queue one `--kind person` per line of the brief's `## Person-only steps`, as the next row does. A brief with no grant line (`grep -cE '^grant: [^ #]' <brief>` prints 0): row → `brief-ready`, finished as the next row does. A brief that keeps its grant (it prints 1): row → `queued` when none of those steps is open, else `brief-ready`, with "<item>: re-scope waits for <n> person-only steps" in the status line; the grant still covers it |
    | `BRIEF item=… path=… [asks=<n>] [followup=<path>]` | row → `brief-ready`; queue one `--kind person` per line of the brief's `## Person-only steps` section (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief). When the line carries `followup=<path>`, also add that path as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`), as the re-scope row does. A row with `counters.parent=` (a follow-up) and no person-only step, whose parent's brief has a grant (`grep -cE '^grant: [^ #]' <the parent's brief>` prints 1): stamp `approved: <iso>` and its parent's `grant:` in its brief, and `rescopedFrom: <parent>` when the parent was re-scoped (its `counters.rescoped=1`); row → `queued`, and say "covered by <parent>'s go" in the status line. A follow-up whose parent has no grant yet stays `brief-ready` and goes with its batch's go. When no row of its batch is `inbox` or `briefing` any more, print the batch summary and queue the `go-batch` item ("The batch summary and go") |
    | `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `counters.batch`); the row → `dropped`, and the status line says "split into <names>" |
-   | `DONE item=… pr=<url> head=<sha> review=<path>` | first `sh S/done-check.sh <item> --pr <url> --head <sha>`. `OK` → record the PR and head, free the build slot, row → `babysit-queued`, clear `mismatch=`. `MISMATCH <what>` → record the PR and head; with no `mismatch=` yet: write `mismatch=1`, append to the brief's `## Decisions` "- <date> the report did not check out: <what>; resume the gate loop on the existing PR", row → `queued`. With `mismatch=1` already: → `escalated`, queue `--kind escalation` "the report did not check out twice: <what>" (`reason=mismatch`). `PENDING <why>`, no line, or a non-zero exit → process and ack the message as for any report, record the PR and head, and keep the row `building` with `verify` = `retry=<now + 2 min>`: it has reported, so neither the reconcile step nor Housekeeping's probe treats it as a lost worker, and Housekeeping runs `done-check.sh` again once that time has passed. Exit 64 (`done-check.sh` refused its arguments) also files an improvement issue |
+   | `DONE item=… pr=<url> head=<sha> review=<path>` | first `sh S/done-check.sh <item> --pr <url> --head <sha>`. `OK` → record the PR and head, free the build slot, row → `babysit-queued`, clear `mismatch=`. When the brief carries another author's PR (#94: `sed -n 's/^Decision: carried as a new PR: \([^ ]*\) .*/\1/p' <brief>` prints its URL) and its `## Decisions` has no record of closing it (`grep -cF 'close <that url>: carried on' <brief>` prints 0), also `loops.sh add --kind person --project <p> --item <item> --title "close <that url>: carried on <pr url>" --body "brief: <brief path>\nstep: -\nkind: account\nOptions: done / can't now"`: the owner closes the original now that its new PR is open, and the `person` rows record the answer. `MISMATCH <what>` → record the PR and head; with no `mismatch=` yet: write `mismatch=1`, append to the brief's `## Decisions` "- <date> the report did not check out: <what>; resume the gate loop on the existing PR", row → `queued`. With `mismatch=1` already: → `escalated`, queue `--kind escalation` "the report did not check out twice: <what>" (`reason=mismatch`). `PENDING <why>`, no line, or a non-zero exit → process and ack the message as for any report, record the PR and head, and keep the row `building` with `verify` = `retry=<now + 2 min>`: it has reported, so neither the reconcile step nor Housekeeping's probe treats it as a lost worker, and Housekeeping runs `done-check.sh` again once that time has passed. Exit 64 (`done-check.sh` refused its arguments) also files an improvement issue |
    | `RESCOPE item=… reason=<gate or hosted-review> review=<path>` | free the slot. When the row has `counters.rescoped=1` or its brief has `rescopedFrom:` → `escalated`, queue `--kind escalation` "NOT-SAFE again after a re-scope" with the review's path. Otherwise row → `inbox` with `counters.rescope=<the review file's name>`: its next brief stage narrows the item (`--rescope`) |
    | `READY item=… pr=… head=<sha> cursor=<cursor>` | record head and cursor; row → `verifying`; run the merge gate now ("The merge gate"). The cursor is an opaque string from `pr-state.sh` (a time, then `#` and the ids already seen in that second): store it and pass it back as `--since` exactly as it came |
    | `ESCALATION item=… reason=review-unavailable needs=ERROR gate-down …` in a `worker_done` | the review gate is down for every model, Sol and its Claude fallback ("Gate down", in "Stages"). Record `cursor` when given, free the slot, row → its stage's waiting state (`queued` for a build, `babysit-queued` for a babysit, which resumes with `--since <cursor>`), and append "- <date> the review gate is down: <why>; parked until it is back" to the brief's `## Decisions`. When `gateDown` in `star.json` is null or absent: set it to `{"since": "<now>", "why": "<why>", "checked": "<now>"}`, queue `--kind held` "the review gate is down since <since>: <why>. Answer retry to check it now", and notify. When it is set already: nothing more, so one held item stands for every parked row |
-   | `ESCALATION item=… phase=… reason=… [cursor=<cursor>] needs=…` in a `worker_done` | record `cursor` when given; row → `escalated`; queue `--kind escalation` (and `--kind draft` with it when the report has a `DRAFT <path>` line); notify; free the slot |
+   | `ESCALATION item=… phase=… reason=… [cursor=<cursor>] needs=…` in a `worker_done` | record `cursor` when given; row → `escalated`; queue `--kind escalation` (and `--kind draft` with it when the report has a `DRAFT <path>` line); notify; free the slot. `reason=ci-missing` (babysit found no CI run on the PR's head while the PR does not conflict with its base, #102) is the owner's to look at: missing checks are never a pass, so STAR neither answers it nor restarts the stage on its own |
    | `MERGED item=… pr=<url>` (a babysit worker saw the PR merged) | handle it as `pr-verify.sh` printing `MERGED`: release record, row → `done` |
    | `REPORTED item=… path=<path>` | row → `reported`; queue `--kind accept-report` with the path; free the build slot. STAR never opens the report |
    | `POSTED item=… url=<url>` | row → `done`; free the build slot (its `SENT` line goes to `sent.log` as for any report) |
@@ -851,9 +851,9 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `hold <what> <value>` (`memory`, `agents`, `swap` or `disk`) | the host gate held it: start nothing else this tick; `counters.hold=+1` on that row; at `hold=3`, `--kind held` "the host gate held every start for 3 ticks: <what> <value>" (for memory: "memory below 3 GB: nothing can start") and notify. The next start that succeeds clears `hold=` and closes that item |
    | `hold trust <path>` | `--kind held` "trust <path> for Claude Code once: run `claude` there and accept, then answer done"; the row keeps waiting and the next tick tries again |
    | `stopped previous gate pgid=<n>` (a line of its own, before the last line) | the item's earlier session still held the gate lock under the label `<project>/<item>`, and `stage-start.sh` sent TERM to that gate (#76): say `<item>: stopped previous gate pgid=<n>` in the status line, then act on the next line |
-   | `ended previous session <terminal>` (a line of its own, before the last line) | the previous dispatch's own terminal was still open, and `stage-start.sh` closed it (#76): say `<item>: ended previous session <terminal>` in the status line, then act on the next line |
-   | `kept previous session <terminal> (<state>)` (a line of its own, before the last line) | a terminal Orca cannot place as the dispatch's (`user_takeover` or `identity_unproven`) had been quiet for 10 minutes or more, so it was left open and the start goes on (#76): say `<item>: kept previous session <terminal> (<state>)` in the status line, then act on the next line |
-   | `hold session <terminal> (<state>)` | a session may still be working on this item (#76): a terminal Orca cannot place as the previous dispatch's (a person took it over, or Orca cannot prove whose it is), or another `claude` or `codex` terminal in the item's worktree, printed output in the last 10 minutes. Start nothing for this row and keep it in its waiting state; queue `--kind held` "<item>: terminal <terminal> (<state>) may still be working on it; close it or finish there, then answer done", and give the slot to the next row in line. The next tick tries again |
+   | `ended previous session <terminal>` (a line of its own, before the last line) | the previous dispatch's own terminal was still open, or Orca reports that dispatch `released` (#95), and `stage-start.sh` closed it (#76; a released dispatch whose close fails is ended all the same): say `<item>: ended previous session <terminal>` in the status line, then act on the next line |
+   | `kept previous session <terminal> (<state>)` (a line of its own, before the last line) | a terminal Orca cannot place as the dispatch's (`user_takeover` or `identity_unproven`) had been quiet for 10 minutes or more, so it was left open and the start goes on (#76): say `<item>: kept previous session <terminal> (<state>)` in the status line, then act on the next line. A dispatch Orca reports `released` is never kept: it is ended (#95) |
+   | `hold session <terminal> (<state>)` | a session may still be working on this item (#76): a terminal Orca cannot place as the previous dispatch's (a person took it over, or Orca cannot prove whose it is; never a dispatch Orca reports `released`, which is ended, #95), or another `claude` or `codex` terminal in the item's worktree, printed output in the last 10 minutes. Start nothing for this row and keep it in its waiting state; queue `--kind held` "<item>: terminal <terminal> (<state>) may still be working on it; close it or finish there, then answer done", and give the slot to the next row in line. The next tick tries again |
    | `wait until <iso>` | the brief's `notBefore` is still ahead (#87): start nothing for this row, keep it `queued`, say `<item> waits until <date>` in the status line, and give the slot to the next row in line |
    | `failed <step>: <why>` | row → `failed`, `--kind escalation` "<stage> could not start: <step>: <why>" |
    | no line, or a non-zero exit | the script was cut off: put the row back in its stage's waiting state with its `counters` as they are (its `live=` makes the next start a replay of this one), and file an improvement issue ("Improvement issues") |
@@ -1006,9 +1006,10 @@ one headless `codex review` of the branch against its base, read-only and with n
 `latest-<family>`). A capacity error is retried after 60 and 180 seconds. After that, or at once
 when the Codex account is out of usage, the same prompt runs through `gate.fallback`: a headless
 `claude -p` review on Opus at xhigh, with read-only tools and no MCP server. The review's `Gate:`
-line and the PASS comment then name it (`claude:opus xhigh`). When the fallback fails too, or a tool
-call it made was denied so it may not have read the diff, the gate prints `ERROR gate-down <why>`,
-never a verdict. Its prompt, `S/template/gate-prompt.md`, kept as
+line and the PASS comment then name it (`claude:opus xhigh`). A fallback run with a denied tool
+call (it may not have read the diff) is retried once inside the round, told which call was denied
+(#100). When the fallback fails too, or a second denial follows, the gate prints
+`ERROR gate-down <why>`, never a verdict. Its prompt, `S/template/gate-prompt.md`, kept as
 `HOME_DIR/specs/<project>/<item>-gate-r<k>.md`, carries the brief's criteria and `## Decisions`, the
 project's notes, the previous round's review and `-fix.md` from round 2, and the review rules from
 the base branch, so a PR cannot change its own rules. Only a `[P0]` or `[P1]` finding makes the round
@@ -1018,7 +1019,8 @@ is the verdict, `VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>` or
 Notes; `<item>-r<k>.raw.md`, Codex's own text; and `<item>-r<k>.log`, its transcript. An attempt
 that ends in `ERROR` writes none of these: its transcript goes to `<item>-r<k>-error-<n>.log`, and
 the next attempt keeps round `k`, so `gate.maxRounds` counts verdicts only. After a SAFE
-round the worker posts the receipt with `codex-gate.sh post-pass`, once per head, in two lines:
+round the worker posts the receipt with `codex-gate.sh post-pass`, once per head (a direct verdict's
+receipt is posted even when a carried receipt already names the head, #104), in two lines:
 `Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)`, then `VERDICT: PASS`. Two receipts
 carry an earlier verdict, and `post-pass` writes both, so none is ever written by hand. A merge of
 the base that `carry-check.sh` proves added no change of its own (git merged it cleanly, or every
@@ -1027,7 +1029,10 @@ conflict is one `merge-union.sh` resolves) carries the last SAFE to the merge he
 the owner shipped with a round's findings deferred carries `, carried by owner decision <id>:
 findings deferred` there, and `VERDICT: PASS (owner decision <id>)` (#82; the Answers row for a ship
 decision writes its proof). A build still NOT SAFE after `gate.maxRounds` (3) rounds
-reports `RESCOPE`. STAR opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
+reports `RESCOPE`. A babysit run counts its NOT-SAFE rounds since the newest SAFE round or its last
+push, whichever is later, and reports `RESCOPE` at the `gate.maxRounds`-th (#108). A SAFE round
+that could not be pushed, because the PR needed a base merge first, starts a fresh count. STAR
+opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
 read them and print one line. Luna writes the code and Sol gates it, so the independent review is
 the build's fresh Claude review, before the gate. While the fallback runs, the gate is a second
 Claude review, not a second model.
@@ -1196,6 +1201,9 @@ old PR.
    tools. When it does not, or `mcps` says `needs-sign-in` or `absent`, search the web instead and
    say so in `Source:`. A decision no source can settle, and that only the owner
    can make (money, a policy, a legal question), is a `risky` person-only step instead.
+   A brief names a file-name, path or id form only by quoting the rule the repository enforces it
+   with (a checker, lint or pretest script, `file:line`); when it finds none, it names no form and
+   the build follows the repository (#107).
 
    **External ids are checked live** (#42). Every service slug, project id, DSN, hostname or
    account name the brief carries is checked where a CLI or API can reach it (`gh api`, the
@@ -1233,12 +1241,21 @@ old PR.
 
    `existingPr` is set only when the item's outcome is to bring an open PR to mergeable (the item
    links an open PR and asks to finish, update or merge it, rather than to build something new):
-   `gh pr view <url> --json url,headRefName,baseRefName,isCrossRepository,state`, and
+   `gh pr view <url> --json url,headRefName,baseRefName,isCrossRepository,state,author`, and
    only when `state` is `OPEN`; otherwise leave `existingPr` out and take a decision record that
    the item is built as a new PR. Then `branch` is its `headRefName` and `baseBranch` its
    `baseRefName`, and step 5's naming rule does not apply. A PR whose `isCrossRepository` is
    true comes from a fork, which cannot be pushed to: leave `existingPr` out and take a decision
    record that `<url> comes from a fork`, so the build opens a new PR from a copy of its branch.
+   A PR whose `author.login` is not the `gh` user (`gh api user --jq .login`) is handled like a fork
+   (#94): every gate binds its receipt to the PR's author, while STAR acts as the `gh` user. Leave
+   `existingPr` out, name `branch` by step 5's rule (never the original's `headRefName`), take
+   `baseBranch` from its `baseRefName`, and take a decision record that
+   `<url>` is `<login>`'s PR, carried as a new PR, with the `Decision:` line exactly
+   `Decision: carried as a new PR: <url> (<login>'s PR)`. The build opens a new PR from the
+   original's head, so the commits keep their author, and
+   the PR body links `<url>` and credits `@<login>`. The brief adds no person-only step for the
+   original: STAR asks the owner to close it once the new PR is open (the `DONE` row in Messages).
 7. Report, as the `worker_done` body: `BRIEF item=<name> path=<--out> asks=<n> [followup=<path>]`
    (`<n>` is the number of lines under `## Person-only steps`, 0 for `none`). Add `followup=` when
    a `## Feedback` entry made part of the item impossible as written and you moved that part to a
@@ -1264,7 +1281,9 @@ can ship safely: move each part the findings show cannot be done safely in this 
 `Out:`, drop or reword the criteria that belonged to it, and take a decision record that says what
 moved and why, with the findings file as its source. Keep `approved:`, `grant:`, `branch`,
 `baseBranch` and `existingPr` as they are: the narrowed item builds on the same branch and PR,
-under the same go. Write what moved as a follow-up spec item,
+under the same go. `## Person-only steps` follows step 6's rules, and leaves out a step its
+`## Decisions` already records as answered: STAR asks the rest before the build runs again, under
+the grant or not (#101). Write what moved as a follow-up spec item,
 `<HOME_DIR>/items/<project>/<name>-followup.md` (frontmatter `status: todo` and `title:`, then what
 is left to do and the findings that sent it there). When `<file>` is a codex gate review
 (`<item>-r<k>.md`) and no `<item>-r<k>-fix.md` lies beside it, write that file: one line per
@@ -1272,8 +1291,9 @@ finding of the review, in its order, `Disposition: moved to <follow-up path> (de
 `Disposition: kept, <why> (decision D<n>)`, citing the decision record that moved or kept it. The
 next gate round reads it as the dispositions of those findings, so it does not raise settled
 findings again. A hosted review file gets none: the gate never saw its findings. Report
-`BRIEF item=<name> path=<--out> rescoped=1 followup=<path>`. When narrowing cannot leave anything
-safe to ship, report `ESCALATION item=<name> phase=0 reason=rescope-impossible needs=<why>`.
+`BRIEF item=<name> path=<--out> asks=<n> rescoped=1 followup=<path>` (`<n>` as in step 7). When
+narrowing cannot leave anything safe to ship, report
+`ESCALATION item=<name> phase=0 reason=rescope-impossible needs=<why>`.
 
 ## Post worker mode: `post-report`
 
@@ -1414,8 +1434,11 @@ is the free space on the volume that holds STAR's folder. The first limit that f
 and at `hold=3` the queue gets one held item until a start succeeds). Heavy test and build gates
 inside workers take turns through `juel:ship-ticket`'s `gate-lock.sh`, which uses one lock per user
 for the whole machine (`/tmp/juel.gate.<uid>.lock`), so workers in different projects wait for each
-other too, and no worker needs to be told where STAR's home is. `caffeinate` is a macOS tool; on
-Linux skip it.
+other too, and no worker needs to be told where STAR's home is. Waiters are served in arrival order
+(#97), one gate at a time unless the lock's slots file says more (at most 4).
+STAR never raises the slots unasked: heavy runs side by side can take the machine down.
+The owner may ask for `sh S/../ship-ticket/gate-lock.sh --slots 2` once free memory allows it.
+`caffeinate` is a macOS tool; on Linux skip it.
 
 ## Looking after the workers
 
@@ -1465,7 +1488,10 @@ the Mac use 60. At the deadline STAR reminds once (Housekeeping) before it gives
 
 Every answer STAR gives is on record: append `- <date> STAR answered (<message id>): <question> → <answer>` to
 the brief's `## Decisions` (later workers read it as binding, and the user can overrule it there
-or in chat), and name it in the next status line.
+or in chat), and name it in the next status line. So is every rule STAR sends a worker unasked (a
+gate policy, how to write progress lines, any instruction it must keep following): append
+`- <date> STAR to the <stage> worker (<subject>): <body>` to the brief's `## Decisions` before the
+`send` (#99). A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.
 
 **Checking in.** Each tick, Housekeeping runs `step-check.sh` for every worker the probe found
 running (`ok`, `quiet …` or `stale …`). It reads the worker's activity (progress lines, commits
@@ -1849,7 +1875,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A finding that is already an open issue | `star-issue.sh comment` adds the new evidence to it |
 | A finished item's worktree still holds uncommitted or unpushed work | It stays; the queue says why, and `done` there makes STAR try again |
 | The STAR folder was deleted | That project's state is gone; the next `/juel:star` starts fresh. Stop STAR first: workers still running would report to nobody |
-| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock and the host gate are shared by the machine |
+| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock (its waiters served in arrival order, one gate at a time unless the owner asked for more) and the host gate are shared by the machine |
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
 | The user leaves with person-only steps unanswered | Those items stay `brief-ready`; the rest of the batch builds and merges |
 | A person-only step needs a value from the owner (a host name, an id) | `(value)` on the step: the answer is recorded under `## Decisions` as `→ value: <answer>`, and the step is done |
