@@ -41,5 +41,13 @@ grep -qF 'Base not merged: the PR is <MERGEABLE|UNKNOWN>' "$SKILL" && pass "#109
 grep -qF "merges the PR's base branch in first when the PR conflicts with its base, or with --sync, then fetches" "$SKILL" && pass "#109f the description says when it merges" || fail "#109f the description says when it merges"
 grep -qF -e "merge the PR's base branch in before reading anything" -e 'why: phase 2 merges the base branch and must not merge' -e "Step 0a merges the PR's base branch first;" -e '0a. Merge PR base branch\n(git' "$SKILL" && fail "#109g no reference still merges on every run" || pass "#109g no reference still merges on every run"
 grep -qF 'when the PR conflicts with its base (or with `--sync`)' "$ROOT/README.md" && pass "#109h the README says when it merges" || fail "#109h the README says when it merges"
+for s in execute review-and-execute receive-review-and-execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'An `outside-merged <path>` line is never restored' "$F" && pass "#106a $s: an outside-merged path is never restored" || fail "#106a $s: an outside-merged path is never restored"
+  grep -qF "in the run's summary" "$F" && pass "#106b $s: run interactively, it goes in the summary" || fail "#106b $s: run interactively, it goes in the summary"
+done
+for s in review-and-execute receive-review-and-execute; do
+  grep -qF 'NOTE: scope outside-merged <path>' "$ROOT/skills/$s/SKILL.md" && pass "#106c $s: unattended, it is a fixed NOTE" || fail "#106c $s: unattended, it is a fixed NOTE"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

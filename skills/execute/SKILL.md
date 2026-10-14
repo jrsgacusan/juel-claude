@@ -240,7 +240,9 @@ restore it with `git checkout "$BASE_SHA" -- <path>`, or delete it when it did n
 executor ran): never restore or delete a file the record lists. When the executor committed its
 work, commit the restores as `revert: out-of-scope edits in <files>`; otherwise leave them in the
 working tree. Name the files in this phase's evidence line. A file the plan needed but did not name
-is the plan's defect: the next plan names it.
+is the plan's defect: the next plan names it. An `outside-merged <path>` line is never restored:
+a base merge also changed that path, and restoring it would drop the base's change. Leave it as it
+is, and name it in this phase's evidence line and in the run's summary.
 
 **A plan with a `**Base:**` line** changes a spec that is already implemented. Whenever this skill
 runs a plan in this session with `superpowers:executing-plans` and the plan has that line, tell it:
