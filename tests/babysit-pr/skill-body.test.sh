@@ -124,7 +124,7 @@ done
 grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is gone" || pass "P2b the free-form step field is gone"
 # Issue #60: the executor fallback reaches STAR through the report
 g "N60c babysit carries the executor fallback NOTE" 'NOTE: executor skill missing, the plan ran in this session'
-g "N60d the report line count includes it" 'That is 9 lines at most'
+g "N60d the report line count includes it" 'That is 10 lines at most'
 # Issues #63, #66, #71: the gate round from the worker's side
 grow "G66c babysit counts verdict files only" 'error logs, raw files and run files never count'
 grow "G66d babysit reruns the same round after an ERROR" 'run the same round once more'
@@ -253,5 +253,51 @@ mrow "R9e a carry is proof as well" '`OK carried from …` is proof as well'
 mrow "R9f any other NO still escalates" 'Any other `NO …`'
 mrow "R9g the deferred ready re-checks the proof" 'again right before a deferred'
 
+# lane g: step 0a, the hosted log, the round count, messages, gate once per PR, CI and dependencies (#109, #96, #108, #99, #97, #102, #105)
+g "#109i babysit's Phase 3 merges the base only when the PR conflicts" 'It merges the base branch in only when the PR conflicts with it (a `behind` PR is synced in Phase 4)'
+g "#96a Phase 1 rebuilds a missing hosted log from the PR" 'sh <script> <pr> --hosted <login> --hosted-passes > <log>.tmp'
+g "#96b an error line writes no file" 'An `error` line writes no file'
+g "#96c a second error is the pr-state-errors escalation" 'A second `error` → `ESCALATION item=<item> phase=8 reason=pr-state-errors'
+g "#96d a missing log is never zero passes" 'A missing log is never read as zero passes.'
+hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
+hrow "#96e the hosted row says how the record is rebuilt" 'A missing file is rebuilt from the PR in Phase 1 step 9'
+g "#96f the hosted refresh is step 10" '10. Under a `star:` brief with a hosted reviewer: when the PR'"'"'s head has no status'
+g "#96g reviewer mode skips both steps" '9 (the hosted log) and 10 (the hosted refresh) do not apply'
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "#108a NOT-SAFE rounds count from the newest SAFE round or the last push" 'NOT-SAFE rounds are counted since the newest SAFE round or the last push, whichever is later.'
+grow "#108b an unpushed SAFE round starts a fresh count" 'A SAFE round that could not be pushed, because the PR needed a base merge first, starts a fresh count.'
+printf '%s\n' "$gate_row" | grep -qF 'NOT-SAFE round for this push' && fail "#108c the per-push count is gone" || pass "#108c the per-push count is gone"
+g "#99a messages are read only with --json" 'Read messages only with `--unread --json` (or `--peek --json` to look without consuming them).'
+g "#99b a body a plain check consumed is read back" 'if that happened, run `orca orchestration check --all --json` and read the bodies'
+grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--json' && fail "#99c every orchestration check carries --json" || pass "#99c every orchestration check carries --json"
+phase() { awk -v h="## Phase $1:" 'index($0, h) == 1 { f = 1; next } /^## / { f = 0 } f' "$SKILL"; }
+phase 3 | grep -qF 'Gate the round as `juel:ship-ticket`'"'"'s "Gate once per PR" says' && pass "#97a Phase 3 gates a round once per PR" || fail "#97a Phase 3 gates a round once per PR"
+phase 3 | grep -qF -- '--root <repo root> sweep' && pass "#97b a round runs the sweep" || fail "#97b a round runs the sweep"
+phase 4 | grep -qF 'Gate the push as `juel:ship-ticket`'"'"'s "Gate once per PR" says' && pass "#97c Phase 4 gates the push once per PR" || fail "#97c Phase 4 gates the push once per PR"
+phase 4 | grep -qF 'and none after a clean merge' && pass "#97d a clean base merge runs no tests" || fail "#97d a clean base merge runs no tests"
+grep -qF 'Run every gate' "$SKILL" && fail "#97e no step runs every gate on every push" || pass "#97e no step runs every gate on every push"
+g "#97f the conflict wake runs only the merge's tests" 'the tests step 3 asks of a push that only merges the base'
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "#97g a carried merge runs only the merge's tests" 'no codex round: run the tests Phase 4 step 3 asks of a push that only merges the base branch in'
+grow "#97h a gate fix round runs its tests and the sweep" 'Then run the tests for the files the plan changed and the sweep through the gate lock'
+printf '%s\n' "$gate_row" | grep -qF 'the regression gate through the gate lock' && fail "#97i no full gate on a carry or a fix round" || pass "#97i no full gate on a carry or a fix round"
+gates_row=$(grep -F '| gates run directly |' "$SKILL")
+printf '%s\n' "$gates_row" | grep -qF 'The sweep is the same `run-gates.sh` line with `sweep` after `--root <repo root>`' && pass "#102a the sweep runs through the gate lock" || fail "#102a the sweep runs through the gate lock"
+ci_row=$(grep -F 'wait for CI and the approval' "$SKILL")
+crow() { printf '%s\n' "$ci_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+crow "#102b no CI only when the base head has none either" "only when the base branch's head has no check runs either"
+crow "#102c it reads the base head's check runs" 'commits/<base>/check-runs --jq .total_count'
+crow "#102d a PR that is not DIRTY escalates ci-missing" 'reason=ci-missing cursor=<last cursor> needs=no CI ran on head <sha> (PR <mergeStateStatus>)'
+crow "#102e a DIRTY PR is the conflict wake first" 'On a `DIRTY` PR the `conflict` wake acts first'
+crow "#102f and the report carries the NOTE" 'NOTE: no CI ran on head <sha7> (PR DIRTY)'
+printf '%s\n' "$ci_row" | grep -qF 'and "this repo has no CI" after that' && fail "#102g a head with no checks is no longer read as no CI" || pass "#102g a head with no checks is no longer read as no CI"
+report_row=$(grep -F '| Phase 5 report |' "$SKILL")
+printf '%s\n' "$report_row" | grep -qF '`NOTE: no CI ran on head <sha7> (PR DIRTY)` once' && pass "#102h the report lists the NOTE" || fail "#102h the report lists the NOTE"
+g "#105a Phase 1 checks for missing dependencies before any gate" 'Then, before any gate runs, check for missing dependencies'
+g "#105b it runs the install once" 'When one is missing, run the install command once'
+g "#105c a failed install is gate-unavailable" 'reason=gate-unavailable needs=dependencies did not install: <one line>'
+gates_row=$(grep -F '| gates run directly |' "$SKILL")
+printf '%s\n' "$gates_row" | grep -qF 'Exit 71 with `dependencies are not installed` in its message: run the install command once' && pass "#105d exit 71 for missing dependencies installs once" || fail "#105d exit 71 for missing dependencies installs once"
+printf '%s\n' "$gates_row" | grep -qF 'a second 71 is the `gate-unavailable` escalation' && pass "#105e a second 71 is gate-unavailable" || fail "#105e a second 71 is gate-unavailable"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
