@@ -44,9 +44,11 @@
 # tries, at once on a usage limit, or when the model does not resolve, the same prompt runs
 # through star.json's gate.fallback, {"agent": "claude", "model": "opus", "effort": "xhigh"} by
 # default (a string there, v2.0.0's codex fallback, means that default; "agent" must be claude):
-# claude -p --output-format json with read-only tools (Read, Grep, Glob, and git diff, git show
-# and git log, also as git -C <this worktree's path> <command>, the path literal; --output is refused),
-# access to <home>, an appended system prompt that fixes the finding format, no MCP server and no
+# claude -p --output-format json with read-only tools (Read, Grep, Glob; git diff, git show and
+# git log, also after --no-pager or -P; git ls-tree, ls-files, rev-parse, merge-base and cat-file
+# (#100); each also as git -C <this worktree's path> <command>, the path literal; never git -c or
+# git grep; --output is refused), access to <home>, an appended system prompt that fixes the
+# finding format and says to single-quote a shell metacharacter (#100), no MCP server and no
 # saved session. The JSON's "result" is the review, read by the same rules, and the review's line is
 # "Gate: claude:<model> <effort> (fallback: <why>)". A fallback that did not review is
 # "ERROR gate-down <why>", and so is gate.fallback null: a non-zero exit, no output, output that is
@@ -115,6 +117,10 @@ PLACED = re.compile(r"^" + BULLET + r"\s+(?!(?:\*\*)?\[P[0-3]\]).*\S\s+(?:[-–�
 USAGE = re.compile(r"usage limit|hit your usage limit|try again at", re.I)
 DEFAULT_FALLBACK = {"agent": "claude", "model": "opus", "effort": "xhigh"}
 SUBCOMMANDS = ("diff", "show", "log")
+# #100: the other read-only commands a review reaches for, and diff, show and log with the pager off. Never
+# "git -c" (it sets any config, diff.external among them) and never "git grep" (its -O runs a command).
+MORE_READS = ("ls-tree", "ls-files", "rev-parse", "merge-base", "cat-file", "--no-pager diff", "--no-pager show",
+              "--no-pager log", "-P diff", "-P show", "-P log")
 
 
 def worktree_paths():
@@ -128,12 +134,14 @@ def worktree_paths():
 
 def read_only(*roots):
     """The fallback's allow rules: Read, Grep, Glob, "git diff|show|log ...", and the same as
-    "git -C <root> diff|show|log ..." for each given path. The path is literal: a "*" there would match a
-    whole subcommand ("git -C x branch diff", "git -C x -c diff.external=<script> diff"). A path with a glob
-    character gets no -C rule."""
-    forms = [f"{sub} *" for sub in SUBCOMMANDS]
-    for root in dict.fromkeys(r for r in roots if r and not any(c in r for c in "*?[")):
-        forms += [f"-C {root} {sub}{more}" for sub in SUBCOMMANDS for more in ("", " *")]
+    "git -C <root> diff|show|log ..." for each given path, then the same for MORE_READS (#100). The path is
+    literal: a "*" there would match a whole subcommand ("git -C x branch diff", "git -C x -c
+    diff.external=<script> diff"). A path with a glob character gets no -C rule."""
+    roots = list(dict.fromkeys(r for r in roots if r and not any(c in r for c in "*?[")))
+    forms = []
+    for commands in (SUBCOMMANDS, MORE_READS):
+        forms += [f"{sub} *" for sub in commands]
+        forms += [f"-C {root} {sub}{more}" for root in roots for sub in commands for more in ("", " *")]
     return ["Read", "Grep", "Glob"] + [f"Bash(git {form})" for form in forms]
 
 
@@ -142,9 +150,11 @@ NO_WRITE = ["Bash(git * --output*)"]
 # codex review has its own output shape; the fallback is told the shape the parser below reads
 FORMAT = ("Write the review as plain text: first one short paragraph with your overall verdict, then each "
           "finding as one bullet line, \"- [P<n>] <title> — <path>:<line>\", with any detail indented on the "
-          "lines below it. Use only Read, Grep, Glob, git diff, git show and git log, one command per call "
-          "with no pipe, redirect, && or ||: any other command is refused, and a refused command fails the "
-          "review. Write nothing else, and change nothing.")
+          "lines below it. Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, "
+          "git rev-parse, git merge-base and git cat-file, one command per call with no pipe, redirect, && or "
+          "||: any other command is refused, and a refused command fails the review. Single-quote any argument "
+          "that holds a shell metacharacter (`& | ; < > ( ) [ ] * ? $`), and never use `$(…)`. Write nothing "
+          "else, and change nothing.")
 try:
     PAUSE = float(os.environ.get("CODEX_GATE_SLEEP", "1"))
 except ValueError:

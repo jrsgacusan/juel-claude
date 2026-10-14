@@ -540,5 +540,23 @@ G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no
 G --brief "$BRIEF" --item ITEM-1 --round 0 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "round 0 is 64" || fail "usage round"
 G post-pass --pr x --round 1 --head abc >/dev/null 2>&1; [ $? -eq 64 ] && pass "post-pass needs the full head" || fail "usage head"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --fallback latest-sol >/dev/null 2>&1; [ $? -eq 64 ] && pass "--fallback is gone: the fallback is star.json's gate.fallback" || fail "usage fallback"
+
+# lane c: the fallback's read rules and its quoting rule (#100)
+dash_c() { r=$1; shift; for s in "$@"; do printf ' Bash(git -C %s %s) Bash(git -C %s %s *)' "$r" "$s" "$r" "$s"; done; }
+rules() { # rules <command>...: "git <command> *" for each, then its two -C rules for the real path and, when $PWD differs, for $PWD
+  for s in "$@"; do printf ' Bash(git %s *)' "$s"; done
+  dash_c "$APPREAL" "$@"
+  [ "$APP" = "$APPREAL" ] || dash_c "$APP" "$@"
+}
+reset; plan "1 - You've hit your usage limit."; cplan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+call=$(grep -F -- '--allowedTools' "$TMP/claude-calls")
+allowed=$(printf '%s\n' "$call" | sed -e 's/.*--allowedTools //' -e 's/ --disallowedTools.*//')
+want="Read Grep Glob$(rules diff show log)$(rules ls-tree ls-files rev-parse merge-base cat-file '--no-pager diff' '--no-pager show' '--no-pager log' '-P diff' '-P show' '-P log')"
+[ "$allowed" = "$want" ] && pass "the fallback may also run git ls-tree, ls-files, rev-parse, merge-base and cat-file, and diff, show and log with the pager off, each also under -C (#100)" || fail "allow rules ($allowed)"
+! printf '%s\n' "$allowed" | grep -qE 'git (-C [^ ]+ )?(-c|grep)[ )]' && pass "no git -c rule and no git grep rule (#100)" || fail "git -c or git grep allowed ($allowed)"
+printf '%s\n' "$call" | grep -qF -- '--disallowedTools Edit Write NotebookEdit Bash(git * --output*) --output-format json' && pass "the --output deny rule stays (#100)" || fail "deny rule ($call)"
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Single-quote any argument that holds a shell metacharacter (`& | ; < > ( ) [ ] * ? $`), and never use `$(…)`.' && pass "the fallback is told to single-quote a shell metacharacter (#100)" || fail "quoting rule ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, git rev-parse, git merge-base and git cat-file, one command per call' && pass "the fallback is told it may also use git ls-tree, ls-files, rev-parse, merge-base and cat-file (#100)" || fail "tool list ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
