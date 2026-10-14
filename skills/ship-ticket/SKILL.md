@@ -327,7 +327,7 @@ line:
 | PR opened | `PR item=<item> url=<url> draft` |
 | an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
+| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`, `sweep`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
@@ -341,7 +341,9 @@ first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `
 from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` of your
 own, a fact the next worker in this project should know (a required env var, a flaky test, a
 naming rule), never a status update, plus the fixed `NOTE:` lines this file names
-(`NOTE: executor skill missing, the plan ran in this session`; after a `DONE`, one
+(`NOTE: executor skill missing, the plan ran in this session`;
+`NOTE: no CI ran on head <sha7> (PR DIRTY)` (see "Gate once per PR"); one
+`NOTE: scope outside-merged <path>` per path Phase 4's scope check did not restore; after a `DONE`, one
 `NOTE: accepted residual <criterion>: <follow-up path>` per `ACCEPTED-RESIDUAL` item, and with
 more than two of them one `NOTE: accepted residuals: <n>, listed in <path>`, the file beside the
 gate manifest). With more than two `HELD` lines, write them all to a file beside the
@@ -359,7 +361,9 @@ before Phase 1: notes left by earlier workers in this project and by the human.
 worker or STAR, and the human's dated answers to earlier escalations on this item. Read it before
 anything else in the brief. A decision overrides the Approach where they differ and settles the
 question it answers: apply it, and do not escalate the same question again. Where two decisions
-disagree, the later one wins.
+disagree, the later one wins. One exception: when a file-name or id form the brief names is one the
+project's own checker rejects (a pretest checker, a lint rule), the checker wins. Follow it, and
+say so in your one `NOTE: <one line>`.
 
 **Shared ids.** Under a `star:` block, before you add an entry with a sequential id to a file that
 other branches also append to (a decision register, an ADR index, numbered migrations), reserve
@@ -404,7 +408,9 @@ answer to the brief's `## Decisions`, then sends it as a message this session on
 steps. So after every background step returns, before choosing the next step, re-read the brief's
 `## Decisions` and run `orca orchestration check --unread --json`. A decision that is new since the
 last check overrides the next step this file prescribes: apply it, say so in one terminal line, and
-never escalate what it settles.
+never escalate what it settles. Read messages only with `--unread --json` (or `--peek --json` to
+look without consuming them). A plain `orca orchestration check` prints only the subjects and still
+marks them read; if that happened, run `orca orchestration check --all --json` and read the bodies.
 
 **Resume on an existing draft PR.** A build whose branch already carries the item's draft PR (a
 re-scope, a report STAR could not check, an item STAR moved from v1 in the middle of its review)
@@ -541,9 +547,11 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 9. `gate-busy` — `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
    `needs=` quotes its "busy, held by …" line.
 10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
-    exited 71 (a lock file, manifest or directory problem), or 124 (the command ran past its time
-    limit and was stopped). Neither is a red gate: do not start fixing code. `needs=` quotes the
-    script's message.
+    exited 71 (a lock file, manifest or directory problem, or dependencies still missing after one
+    install), or 124 (the command ran past its time limit and was stopped), or the
+    dependency install failed (Phase 4's "Dependencies"). None of these is a red gate: do not start
+    fixing code. `needs=` quotes the script's message; for a failed install it is
+    `dependencies did not install: <one line>`.
 11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
@@ -590,7 +598,8 @@ Pushing commits and opening a **draft** PR are not outward in this sense and pro
 remediation, the Phase 6 regression gate, and the heavy verification commands in the plan Codex
 executes (full suites, builds; targeted single-file tests are fine without it) — runs through
 `gate-lock.sh`, next to this file (`${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/gate-lock.sh` when
-that is set), so two workers never run heavy test or build gates at once. Run the line in the
+that is set), so two workers never run heavy test or build gates at once unless the owner raised
+the slot count (below). Run the line in the
 background, like `codex exec`: Bash with `run_in_background: true`, wait for the completion
 notification, never poll it, then read its output. Waiting for the lock plus running the gate can
 take longer than the Bash tool's 600 s foreground cap.
@@ -617,17 +626,46 @@ step that is not in the manifest goes into a file (`set -e` on its first line) a
 these two forms, with the manifest's absolute path: the manifest is written before the plan
 (see "Resolve once"), so it is there when Codex runs the step.
 
-It holds a kernel lock on one file for the whole machine (`/tmp/juel.gate.<uid>.lock`; nothing to
-configure, and a sandboxed executor can write there) while the command's
+It holds a kernel lock on a slot file for the whole machine (`/tmp/juel.gate.<uid>.lock` is slot 1,
+and a sandboxed executor can write there) while the command's
 process group runs, even if the wrapper itself is killed; the kernel frees it when the last of
 those processes exits, so there is never a stale lock to clear. It stops the whole group on TERM,
-INT or HUP. Exit 75, with "busy, held by …" on stderr, means it stayed busy for its whole
+INT or HUP. Waiters take a ticket and are served in arrival order: a worker that comes later never
+runs first. The machine has one slot by default, so one gate runs at a time;
+`sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count, shared by every project on this
+machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
+"busy, held by …" on stderr, means the queue ahead of it did not move for its whole
 `--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
-escalation. Exit 71 or 124 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
+escalation. Exit 71 or 124 is `gate-unavailable`, except an exit 71 whose message says
+`dependencies are not installed`: run the resolved `commands.install` once (Phase 4's
+"Dependencies"), then the same line again; a second 71 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
 is red, and `run-gates.sh` names the gate that failed. Never remove the lock file by hand. Before
 starting the Phase 6 stack, check memory the way `juel:star` does (free + inactive at least
 3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
 `stack-unavailable`.
+
+**Gate once per PR.** The full regression gate (every gate in the manifest) and every Phase 6 live
+check run once per PR, on the worker's own changes, before the first draft push: that is Phase 6.
+Each later push runs less, unless the project's own rule (its `CLAUDE.md` or `AGENTS.md`) asks for
+more, which then wins:
+
+1. A push that carries the worker's own changes (a codex gate fix round, a babysit review fix, a
+   fix for a red gate) runs the tests for the files changed since the last push, then the sweep
+   through the gate lock, with the holder and `--progress` as above:
+   `sh <gate-lock.sh> --holder "<item>" [--progress <star.home>/progress/<item>.log] -- sh <run-gates.sh> <gate manifest> --root <repo root> sweep`.
+   A `null` sweep runs `test` in its place. The sweep is that push's one regression gate: a red
+   sweep is a red gate.
+   A Phase 6 live check runs again only for a criterion whose runtime code the change touched.
+2. A push that only merges the base branch in runs the tests for the files the conflict resolution
+   changed, and none after a clean merge: CI carries the full suite.
+
+After every push to the PR (right after Phase 7 opens the draft, and after each push of the codex
+gate loop), read `gh pr view <pr> --json mergeable,mergeStateStatus`. A `mergeable` of `UNKNOWN`
+(GitHub is still computing it) is read again up to 3 times, 10 seconds apart.
+Still `UNKNOWN`, it cannot tell: add no NOTE. `DIRTY` or `CONFLICTING`
+means GitHub runs no CI on that head: add the fixed line
+`NOTE: no CI ran on head <sha7> (PR DIRTY)` (`<sha7>` the head's first 7 hex) to the report.
+Missing checks are never read as a pass.
 
 **Status writes without a connector.** When the resolved provider supports `update_status` but this
 host cannot reach it, print a `HELD` line instead of failing. The coordinator records it as an open
@@ -722,6 +760,7 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 - **If that path already exists, never overwrite it.** Write `-v2` instead; if `-v2` exists too, `-v3`, and so on — same rule as the spec path in Phase 2, and distinct from `review-plan.md`'s own `-vN` versioning in Phase 5 below.
 - Each step must include file paths, line refs where applicable, and a verification command.
 - Every task has a `**Files:**` block naming each file it changes, with the function or line range (``Modify: `path/to/file.py:120-145` ``, ``Create: `path/to/new.py` ``, ``Test: `tests/test_file.py` ``). The executor changes nothing a task does not name, and Phase 4's scope check restores any file no task names.
+- A task that creates a file whose name or id a project check enforces (a pretest checker, a lint rule) names that check as its verification command. The check runs before the task's commit.
 - On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
 **Checkpoint:** show plan path, ask to proceed.
@@ -746,6 +785,18 @@ Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-
 drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in one line (under
 `--unattended`, a progress line and a terminal line, never a `NOTE`). `executor-model.sh` failing
 (no line, a non-zero exit, no python3) counts as `default <why>`.
+
+**Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check
+for missing dependencies with the commands resolved earlier (see "Resolve once"): a `package.json`
+at the repo root, or in a manifest gate's `cwd`, with no `node_modules` folder and no `.pnp.cjs`
+file in that folder or any folder above it up to the repo root (the check `run-gates.sh` makes).
+When one is missing, run the resolved `commands.install` once, from the folder it was resolved
+for, in the background like `codex exec` (`run_in_background: true`, wait for the completion
+notification, never poll it) and not through `gate-lock.sh`. An install that exits non-zero, or
+no install command resolved, ends the run with
+`ESCALATION item=<item> phase=4 reason=gate-unavailable needs=dependencies did not install: <one line>`
+(`<one line>` its last error line). This is not part of resolving the commands:
+resolution still installs and runs nothing.
 
 **The progress ledger.** The executor records each task it finishes in
 `<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`, the same ledger
@@ -821,7 +872,10 @@ evidence and carry on. Each `outside <path>` line names a file that no task's `*
 names: restore it, with `git checkout <that sha> -- <path>` when the file existed at that sha, else
 `git rm -q --cached --ignore-unmatch -- <path>` and `rm -f -- <path>`. The check never prints a path
 the record lists, since that work was there before the executor ran:
-never restore or delete a file the record lists. When the executor committed its work
+never restore or delete a file the record lists. An `outside-merged <path>` line is never restored
+either: a base merge also changed that path, and restoring it from that sha would drop the base's
+change. Under `--unattended`, report it with the fixed line `NOTE: scope outside-merged <path>`;
+run interactively, name it in this phase's checkpoint. When the executor committed its work
 (`git rev-parse HEAD` is no longer that sha), commit the restores as one commit,
 `revert: out-of-scope edits in <files>`; otherwise leave them in the working tree with the rest of
 its edits. Name the files in this phase's evidence (under `--unattended`, in a progress line with
@@ -830,7 +884,9 @@ on, since Phase 5's review still reads the whole diff.
 
 **Resolve toolchain commands now, once.** Immediately after Codex finishes, resolve
 `commands.install`, `.test`, `.lint`, `.typecheck`, `.build`, `.format` and `.run` per "Toolchain
-commands" above. This step is side-effect-free detection only — it must not install or run
+commands" above, then `.sweep`: a command that runs each test file the resolved `test` registers
+once, with no E2E (say, the `test` script's chain without its E2E step), in `test`'s `cwd`.
+`.sweep` is `null` when `test` already is that. This step is side-effect-free detection only — it must not install or run
 anything. Report
 the resolved set in this phase's checkpoint (one line per key: command + source tier, or `null —
 skipped`). Phases 5 and 6 reuse this exact set; see "Toolchain commands" for why re-resolving
@@ -877,7 +933,7 @@ After it returns, run only the tests for the files remediation changed (`git dif
 maps to the changed source files (`foo.py` → `test_foo.py`, `Foo.tsx` → `Foo.test.tsx`), through
 the runner of the `test` command resolved in Phase 4, given those paths. Lint those files the same
 way when the resolved `lint` command accepts paths. The one full run of every gate is Phase 6
-step 5, before the PR; there is never a second full run here. No file changed, or no test found
+step 5, before the PR (see "Gate once per PR"); there is never a second full run here. No file changed, or no test found
 for them: say so in one line and continue. When the project's own instructions (CLAUDE.md,
 AGENTS.md) say something else about test scope, they win. Under `--unattended`, these runs go
 through `gate-lock.sh` too (see "Gate lock").
@@ -1116,11 +1172,14 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries
    `**Base:** spec implemented at <the full head>; apply only the tasks below.` and whose tasks each
    name their files in a `**Files:**` block, run it with the executor
-   (Phase 4's line, its capacity rule and its scope check), run the tests for the files it changed, then Phase 6
-   again: its step 5 is the one regression gate of the round, run through the gate lock, and when
-   every file changed since the evidence head is outside the runtime, as its step 6 defines it, the
-   evidence is reused and only that gate runs; any other change gets its live checks again. Commit,
-   push (never force), write the `-fix.md`, then run the next round from step 1. `[P2]` and `[P3]`
+   (Phase 4's line, its capacity rule and its scope check), then gate it as "Gate once per PR" says
+   for a push of the worker's own changes: the tests for the files it changed, then the sweep,
+   the one regression gate of the round, run through the gate lock. When every file changed since
+   the evidence head is outside the runtime, as its step 6 defines it, the evidence is reused as
+   that step records it and no live check runs again; otherwise only the live checks of the
+   criteria whose runtime code the fix touched run again, recorded in the same `report.md`. Commit,
+   push (never force), read the PR's merge state as "Gate once per PR" says, write the `-fix.md`,
+   then run the next round from step 1. `[P2]` and `[P3]`
    findings never block: fix them when cheap, otherwise leave them in the review.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
