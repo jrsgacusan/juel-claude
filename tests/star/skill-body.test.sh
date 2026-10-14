@@ -270,7 +270,7 @@ g "Z2 a bare number is refused only where options are numbered" 'On a question w
 grep -qF 'so a change to either is answered in chat' "$SKILL" && grep -qF 'A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR' "$SKILL" && ! grep -qF 'a change to either is feedback for the brief worker' "$SKILL" && pass "Z6 an existing PR's branches are changed on GitHub, not by a re-draft" || fail "Z6 an existing PR's branches are changed on GitHub, not by a re-draft"
 grep -qF 'it makes sure the brief has `- [ ] NEEDS CRITERIA`' "$SKILL" && ! grep -qF 'it writes `- [ ] NEEDS CRITERIA`' "$SKILL" && pass "Z7 an edit that leaves no criterion never adds a second marker" || fail "Z7 an edit that leaves no criterion never adds a second marker"
 grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL" && ! grep -qF '`PROPOSED-CRITERIA` (case 3)' "$SKILL" && pass "Z8 PROPOSED-CRITERIA whenever a criterion is proposed" || fail "Z8 PROPOSED-CRITERIA whenever a criterion is proposed"
-grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
+grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state,author' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
 grep -qF '`ls-remote` failing: the Otherwise branch of the cell that sent it here.' "$SKILL" && ! grep -qF "the table's own rule for that verdict" "$SKILL" && pass "Z13 an ls-remote failure goes to the Otherwise branch of its own cell" || fail "Z13 an ls-remote failure goes to the Otherwise branch of its own cell"
 grep -qF 'Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title' "$SKILL" && grep -qF 'except a `branch` or `baseBranch` change on a brief with `existingPr` (below)' "$SKILL" && ! grep -qF 'Nothing is recorded, and the approve question is printed again' "$SKILL" && pass "Z14 an existingPr branch answer re-asks the approve question" || fail "Z14 an existingPr branch answer re-asks the approve question"
 # STAR closed loop: intake and home
@@ -565,5 +565,15 @@ out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "
 printf '{"ok":false,"error":{"message":"orca is not running"}}' > "$RFTMP/reply"
 out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3f an error answer prints unknown" || fail "RF3f error answer ($out; $(cat "$RFTMP/err"))"
 rm -rf "$RFTMP"
+# lane h: STAR's contract for issues #94 to #108
+g "LH1a another author's PR is checked against the gh user (#94)" 'A PR whose `author.login` is not the `gh` user (`gh api user --jq .login`) is handled like a fork'
+g "LH1b it is carried as a new PR (#94)" '`<url>` is `<login>`'"'"'s PR, carried as a new PR'
+g "LH1c the new PR never shares the original's branch (#94)" 'name `branch` by step 5'"'"'s rule (never the original'"'"'s `headRefName`)'
+g "LH1d the new PR credits the original's author (#94)" 'the PR body links `<url>` and credits `@<login>`'
+g "LH1e the decision record has a line STAR can read (#94)" '`Decision: carried as a new PR: <url> (<login>'"'"'s PR)`'
+g "LH1f the brief adds no person-only step for the close (#94)" 'The brief adds no person-only step for the'
+g "LH1g STAR asks the owner to close the original once the new PR exists (#94)" '--title "close <that url>: carried on <pr url>"'
+g "LH1h STAR reads the original's URL from the brief (#94)" 'sed -n '"'"'s/^Decision: carried as a new PR: \([^ ]*\) .*/\1/p'"'"' <brief>` prints its URL'
+g "LH1i the close is asked once (#94)" '(`grep -cF '"'"'close <that url>: carried on'"'"' <brief>` prints 0)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
