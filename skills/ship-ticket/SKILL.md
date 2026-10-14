@@ -342,7 +342,8 @@ from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one 
 own, a fact the next worker in this project should know (a required env var, a flaky test, a
 naming rule), never a status update, plus the fixed `NOTE:` lines this file names
 (`NOTE: executor skill missing, the plan ran in this session`;
-`NOTE: no CI ran on head <sha7> (PR DIRTY)` (see "Gate once per PR"); after a `DONE`, one
+`NOTE: no CI ran on head <sha7> (PR DIRTY)` (see "Gate once per PR"); one
+`NOTE: scope outside-merged <path>` per path Phase 4's scope check did not restore; after a `DONE`, one
 `NOTE: accepted residual <criterion>: <follow-up path>` per `ACCEPTED-RESIDUAL` item, and with
 more than two of them one `NOTE: accepted residuals: <n>, listed in <path>`, the file beside the
 gate manifest). With more than two `HELD` lines, write them all to a file beside the
@@ -868,7 +869,10 @@ evidence and carry on. Each `outside <path>` line names a file that no task's `*
 names: restore it, with `git checkout <that sha> -- <path>` when the file existed at that sha, else
 `git rm -q --cached --ignore-unmatch -- <path>` and `rm -f -- <path>`. The check never prints a path
 the record lists, since that work was there before the executor ran:
-never restore or delete a file the record lists. When the executor committed its work
+never restore or delete a file the record lists. An `outside-merged <path>` line is never restored
+either: a base merge also changed that path, and restoring it from that sha would drop the base's
+change. Under `--unattended`, report it with the fixed line `NOTE: scope outside-merged <path>`;
+run interactively, name it in this phase's checkpoint. When the executor committed its work
 (`git rev-parse HEAD` is no longer that sha), commit the restores as one commit,
 `revert: out-of-scope edits in <files>`; otherwise leave them in the working tree with the rest of
 its edits. Name the files in this phase's evidence (under `--unattended`, in a progress line with

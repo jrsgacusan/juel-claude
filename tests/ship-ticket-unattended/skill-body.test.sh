@@ -247,5 +247,10 @@ g "L99a messages are read only with --unread --json or --peek --json" 'Read mess
 g "L99b a plain check prints only subjects and marks them read" 'A plain `orca orchestration check` prints only the subjects and still'
 g "L99c a consumed body is read back with --all --json" 'run `orca orchestration check --all --json` and read the bodies.'
 grep -oE 'orchestration check( --?[a-z-]+)+' "$SKILL" | grep -vqF -- '--json' && fail "L99d every orchestration check with flags carries --json" || pass "L99d every orchestration check with flags carries --json"
+g "L106a an outside-merged path is never restored" 'An `outside-merged <path>` line is never restored'
+g "L106b restoring it would drop the base's change" 'restoring it from that sha would drop the base'"'"'s'
+g "L106c it is reported with a fixed NOTE" 'report it with the fixed line `NOTE: scope outside-merged <path>`'
+g "L106d the NOTE is in the fixed list" '`NOTE: scope outside-merged <path>` per path Phase 4'"'"'s scope check did not restore'
+g "L106e run interactively it goes in the checkpoint" 'run interactively, name it in this phase'"'"'s checkpoint'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
