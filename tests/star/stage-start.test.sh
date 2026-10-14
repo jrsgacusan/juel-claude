@@ -282,10 +282,10 @@ reset; review SPH-11 4; L set SPH-11 state=babysit-queued >/dev/null; ST babysit
 grep -q -- "--reviewed $H/reviews/app/SPH-11-r4.md --item SPH-11" "$TMP/calls" && pass "a carry of an older round never stands for a newer one" || fail "older carry ($(grep task-create "$TMP/calls"))"
 # a previous session must be gone, or provably idle, before a stage starts (#76)
 ms_ago() { python3 -c 'import sys, time; print(int((time.time() - float(sys.argv[1]) * 60) * 1000))' "$1"; }
-show() { # show <dispatch> <handle> <ownershipState> <retainedReason or -> <exactWorker> [<minutes since it wrote>] [<worktree>]
+show() { # show <dispatch> <handle> <ownershipState> <retainedReason or -> <exactWorker> [<minutes since it wrote>] [<worktree>] [<releaseState>]
   reason=null; [ "$4" = - ] || reason="\"$4\""
-  printf '{"ok":true,"result":{"dispatch":{"id":"%s","status":"dispatched"},"terminal":{"handle":"%s","connected":true,"agentIdentity":"claude","lastOutputAt":%s,"worktreePath":"%s"},"observation":{"status":"live","exactWorker":%s},"terminalResource":{"ownershipState":"%s","releaseState":"not_requested","retainedReason":%s,"ownerDispatchId":"%s","terminalHandle":"%s"}}}\n' \
-    "$1" "$2" "$(ms_ago "${6:-0}")" "${7:-$APP}" "$5" "$3" "$reason" "$1" "$2" > "$TMP/show-$1.json"
+  printf '{"ok":true,"result":{"dispatch":{"id":"%s","status":"dispatched"},"terminal":{"handle":"%s","connected":true,"agentIdentity":"claude","lastOutputAt":%s,"worktreePath":"%s"},"observation":{"status":"live","exactWorker":%s},"terminalResource":{"ownershipState":"%s","releaseState":"%s","retainedReason":%s,"ownerDispatchId":"%s","terminalHandle":"%s"}}}\n' \
+    "$1" "$2" "$(ms_ago "${6:-0}")" "${7:-$APP}" "$5" "$3" "${8:-not_requested}" "$reason" "$1" "$2" > "$TMP/show-$1.json"
 }
 line() { printf '%s\n' "$1" | sed -n "${2}p"; }
 L add SPH-40 ref=SPH-40 project=app state=inbox dispatch=ctx_old40 >/dev/null
@@ -393,6 +393,24 @@ for other in other-project/SPH-40 SPH-40; do
   kill -0 "$HPID" 2>/dev/null && ! printf '%s' "$out" | grep -q 'stopped previous gate' && pass "a gate held as $other is not this project's SPH-40" || fail "stopped a gate held as $other ($out)"
   kill "$HPID" 2>/dev/null; wait "$HPID" 2>/dev/null
 done
+
+# lane a: a released previous dispatch is gone: its terminal is closed best-effort and the stage starts (#95)
+reset; L set SPH-40 state=inbox dispatch=ctx_rel80 >/dev/null; show ctx_rel80 term_rel80 released - false 1 "$APP" released
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "ended previous session term_rel80" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && grep -q 'terminal close --terminal term_rel80 --json' "$TMP/calls" && pass "a released dispatch that just wrote is ended, and the stage starts" || fail "released ($out)"
+# Review Focus 2: closing a terminal Orca already closed fails, and the start still goes on
+reset; L set SPH-40 state=inbox dispatch=ctx_rel81 >/dev/null; show ctx_rel81 term_rel81 released - false 1 "$APP" released; touch "$TMP/close-fail"
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "ended previous session term_rel81" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && ! printf '%s\n' "$out" | grep -q 'hold session' && pass "a released dispatch whose close fails still starts" || fail "released close failed ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_rel82 >/dev/null; show ctx_rel82 term_rel82 owned - false 1 "$APP" released
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_rel82" ] && pass "releaseState released alone ends it" || fail "releaseState only ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_rel83 >/dev/null; show ctx_rel83 term_rel83 released - false 1
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_rel83" ] && pass "ownershipState released alone ends it" || fail "ownershipState only ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_rel84 >/dev/null; show ctx_rel84 term_rel84 user_owned user_takeover false 1 "$APP" released
+out=$(ST brief SPH-40); [ "$out" = "hold session term_rel84 (user_takeover)" ] && ! grep -q 'terminal close' "$TMP/calls" && pass "a released dispatch whose terminal a person took over still holds, and is not closed" || fail "released takeover ($out)"
+reset; L set SPH-50 state=babysit-queued dispatch=ctx_rel85 >/dev/null; show ctx_rel85 term_rel85 released - false 0 "$WT50" released; terms term_rel85 claude 0
+out=$(ST babysit SPH-50)
+[ "$(line "$out" 1)" = "ended previous session term_rel85" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a released terminal still listed in the worktree does not hold" || fail "released then listed ($out)"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
