@@ -235,7 +235,7 @@ grep -qF 'run the tests for the files it changed, then Phase 6' "$SKILL" && fail
 g "L102o an UNKNOWN merge state is read again" 'is read again up to 3 times, 10 seconds apart.'
 g "L102p a merge state still UNKNOWN adds no NOTE" 'Still `UNKNOWN`, it cannot tell: add no NOTE.'
 g "L105a missing dependencies are checked before the first dispatch" '**Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check'
-g "L105b the check is run-gates.sh's own rule" 'file in that folder or any folder above it up to the repo root (the check `run-gates.sh` makes).'
+g "L105b the check is run-gates.sh's own rule" 'folder above it up to the repo root (`run-gates.sh` makes the same check for a gate that runs a JS'
 g "L105c the install runs in the background, outside the gate lock" 'and not through `gate-lock.sh`'
 g "L105d a failed install is gate-unavailable" 'reason=gate-unavailable needs=dependencies did not install: <one line>'
 g "L105e resolution still installs and runs nothing" 'resolution still installs and runs nothing'
@@ -255,5 +255,10 @@ g "L106e run interactively it goes in the checkpoint" 'run interactively, name i
 g "L107a a task creating a checked name names the check" 'names that check as its verification command. The check runs before the task'"'"'s commit.'
 g "L107b the checker wins over a brief's name form" 'project'"'"'s own checker rejects (a pretest checker, a lint rule), the checker wins.'
 g "L107c the worker says so in its one NOTE" 'say so in your one `NOTE: <one line>`.'
+# fix: the install step names a package.json that declares dependencies (#105)
+g "F105a the install step is for a package.json that declares dependencies" 'at the repo root, or in a manifest gate'"'"'s `cwd`, that declares dependencies (a non-empty'
+g "F105b it names the four dependency keys and workspaces" '`dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces`'
+g "F105c it counts node_modules, .pnp.cjs and .pnp.js as installed" 'key), with no `node_modules` folder, no `.pnp.cjs` and no `.pnp.js` file in that folder or any'
+grep -qF 'with no `node_modules` folder and no `.pnp.cjs`' "$SKILL" && fail "F105d the old condition (any package.json) is gone" || pass "F105d the old condition (any package.json) is gone"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -260,8 +260,9 @@ Each row overrides the phase it names:
    (`../ship-ticket/SKILL.md`, relative to this file), and reuse that set for every round. A
    key that resolves to nothing is skipped with a one-line note.
    Then, before any gate runs, check for missing dependencies as `juel:ship-ticket` Phase 4 does:
-   a `package.json` at the repo root, or in a gate's `cwd`, with no `node_modules` folder and no
-   `.pnp.cjs` there or in any folder above it up to the repo root.
+   a `package.json` at the repo root, or in a gate's `cwd`, that declares dependencies (a non-empty
+   `dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces` key)
+   with no `node_modules` folder, `.pnp.cjs` or `.pnp.js` file there or in any folder above it up to the repo root.
    When one is missing, run the install command once (`install`, resolved by the same section), in
    the background and not under the gate lock. An install that fails, or no install command
    resolved, stops the run with one line saying why. Under `--unattended` it ends with

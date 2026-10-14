@@ -788,9 +788,11 @@ drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in 
 
 **Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check
 for missing dependencies with the commands resolved earlier (see "Resolve once"): a `package.json`
-at the repo root, or in a manifest gate's `cwd`, with no `node_modules` folder and no `.pnp.cjs`
-file in that folder or any folder above it up to the repo root (the check `run-gates.sh` makes).
-When one is missing, run the resolved `commands.install` once, from the folder it was resolved
+at the repo root, or in a manifest gate's `cwd`, that declares dependencies (a non-empty
+`dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces`
+key), with no `node_modules` folder, no `.pnp.cjs` and no `.pnp.js` file in that folder or any
+folder above it up to the repo root (`run-gates.sh` makes the same check for a gate that runs a JS
+tool). When one is missing, run the resolved `commands.install` once, from the folder it was resolved
 for, in the background like `codex exec` (`run_in_background: true`, wait for the completion
 notification, never poll it) and not through `gate-lock.sh`. An install that exits non-zero, or
 no install command resolved, ends the run with
