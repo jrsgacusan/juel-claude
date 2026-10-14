@@ -309,7 +309,7 @@ reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the ver
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
-reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`
+reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`; when it is missing, babysit rebuilds it from the PR's reviews (`pr-state.sh --hosted-passes`) before it counts a pass
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
@@ -1027,7 +1027,10 @@ conflict is one `merge-union.sh` resolves) carries the last SAFE to the merge he
 the owner shipped with a round's findings deferred carries `, carried by owner decision <id>:
 findings deferred` there, and `VERDICT: PASS (owner decision <id>)` (#82; the Answers row for a ship
 decision writes its proof). A build still NOT SAFE after `gate.maxRounds` (3) rounds
-reports `RESCOPE`. STAR opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
+reports `RESCOPE`. A babysit run counts its NOT-SAFE rounds since the newest SAFE round or its last
+push, whichever is later, and reports `RESCOPE` at the `gate.maxRounds`-th (#108). A SAFE round
+that could not be pushed, because the PR needed a base merge first, starts a fresh count. STAR
+opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
 read them and print one line. Luna writes the code and Sol gates it, so the independent review is
 the build's fresh Claude review, before the gate. While the fallback runs, the gate is a second
 Claude review, not a second model.

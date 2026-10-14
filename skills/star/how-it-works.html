@@ -118,7 +118,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
 
   <figure>
     <div class="scroll">
-      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 rounds or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
+      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 NOT-SAFE rounds in a row or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
         <defs>
           <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -237,7 +237,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <text class="tag tg-work" x="708" y="1032" text-anchor="end">OPUS + LUNA</text>
         <text class="t" x="486" y="1038">Fix round</text>
         <text class="s" x="486" y="1056">Opus plans · luna fixes</text>
-        <text class="s" x="486" y="1073">gates · push · ≤ 3 rounds</text>
+        <text class="s" x="486" y="1073">gates · push · ≤ 3 NOT-SAFE</text>
         <line class="edge" x1="400" y1="1034" x2="468" y2="1034" marker-end="url(#ah1)"/>
         <text class="lbl" x="434" y="1027" text-anchor="middle">P0/P1</text>
         <line class="edge" x1="470" y1="1062" x2="402" y2="1062" marker-end="url(#ah1)"/>
@@ -247,7 +247,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <line class="edge" x1="230" y1="1072" x2="230" y2="1158" marker-end="url(#ah1)"/>
         <text class="lbl" x="242" y="1136">PASS posted · marked ready · DONE</text>
         <line class="edge" x1="595" y1="1080" x2="595" y2="1158" marker-end="url(#ah1)"/>
-        <text class="lbl" x="605" y="1136">after 3 rounds</text>
+        <text class="lbl" x="605" y="1136">3 NOT-SAFE in a row</text>
 
         <!-- check report -->
         <rect class="star" x="40" y="1160" width="380" height="56" rx="8"/>
@@ -430,7 +430,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <ul>
           <li>Before READY, the babysit worker judges Greptile's review from guidelines: it reviewed the head commit, scores 4/5 or better, and has no open P0/P1 and nothing advising against merging</li>
           <li>The merge gate reads no review text: it trusts that READY came on a head the worker judged clean</li>
-          <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment)</li>
+          <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment). When the record of passes is missing, babysit rebuilds it from the PR's reviews first, so a pass already made still counts</li>
           <li>Pass 2 still not clean: back to STAR to re-scope</li>
           <li>A base sync after a clean pass gets one status refresh (<code>@greptileai</code>) on the new head; it is not a pass, unless the project counts every run (<code>refreshOutsideCap: false</code>): then that head comes to you</li>
           <li>When one pass is left, babysit merges the base in before asking for it, so the last pass reviews a current head</li>
@@ -466,7 +466,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <ul>
         <li>Workers are judged by progress: their progress log, their latest commit and the files changed in their worktree. Each tick STAR also reads the step a worker is on and the PR itself, sends a concrete instruction when the step stalls, and restarts the stage on its own when the evidence is plain or two instructions go unanswered. A second stall at the same step comes to you.</li>
         <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself. The codex gate retries Sol, then runs the same review on Claude. With both down, STAR parks builds and babysits, asks you once, and checks the gate every 30 minutes until it is back.</li>
-        <li>A codex gate still failing after 3 rounds, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again.</li>
+        <li>A codex gate still NOT SAFE after 3 rounds in a row, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again. In babysit the count starts over at each SAFE round and each push, so a base merge after a SAFE round gets a fresh budget.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
         <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge a script proves adds nothing of its own keeps the last codex PASS, so no codex round runs for it. The full regression gate and every live check run once per PR, before the first draft push. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the tests for the files its conflicts changed. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
