@@ -141,9 +141,11 @@ bash "$SCRIPT" --holder z -- true && pass "runs under bash" || fail "bash"
 #     must not run on it, and the default lock lives where git clean and a sandbox cannot break it.
 sh "$SCRIPT" --holder n1 -- sh -c "sh '$SCRIPT' --holder n2 --wait-max 2 -- sh -c 'echo inner > $TMP/nest.ran'"; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$TMP/nest.ran" ] && pass "a gate inside a gate on the same lock runs, it does not wait for itself" || fail "nested gate (rc=$rc)"
-# (the default lock is the real machine-wide one: never wait for it here; busy means a real gate runs)
-d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc-probe --wait-max 0 -- sh -c "cut -d' ' -f1 /tmp/juel.gate.$(id -u).lock" 2>/dev/null); rc=$?
-case "$rc:$d" in 0:loc-probe) pass "the default lock is one file per user under /tmp, in or out of a git repo" ;; 75:*) pass "default lock path (skipped: a real gate is running)" ;; *) fail "default lock path (rc=$rc $d)" ;; esac
+# (the default lock is the real machine-wide one: never wait for it here; busy means a real gate runs.
+# The probe may land in any real slot, so it looks for its own token in the default lock's slot files.)
+DL="/tmp/juel.gate.$(id -u).lock"
+d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc-probe --wait-max 0 -- sh -c 'for f in "$@"; do grep -q "^loc-probe .*token=$JUEL_GATE_LOCK_HELD" "$f" 2>/dev/null && { echo "$f"; exit 0; }; done; exit 1' sh "$DL" "$DL.2" "$DL.3" "$DL.4" 2>/dev/null); rc=$?
+case "$rc:$d" in "0:$DL"|"0:$DL.2"|"0:$DL.3"|"0:$DL.4") pass "the default lock is one file per user under /tmp, in or out of a git repo" ;; 75:*) pass "default lock path (skipped: a real gate is running)" ;; *) fail "default lock path (rc=$rc $d)" ;; esac
 now() { python3 -c 'import time; print(time.time())'; }
 # A holds the lock; B waits on that file; the file is deleted; C arrives and queues behind B (#97).
 # When A ends, B gets the old file's lock, must notice the path no longer names it, and only then
