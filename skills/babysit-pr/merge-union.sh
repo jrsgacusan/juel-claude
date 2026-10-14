@@ -21,6 +21,11 @@
 # points, resolves to the ordered union of the chain: the base's commands in order, and before each
 # one the commands theirs added there, then those ours added there; a command already in the chain
 # is not added again (#85, #92). Every other line of such a hunk must be the same on all three sides.
+# A chain theirs also reordered resolves when no side holds a command twice, neither side dropped a
+# base command, and ours kept the base's commands in order and only added (commands are compared
+# with outer spaces trimmed): theirs' chain, with each command only ours added right after the base
+# command before it in ours, or, with none before it, right before the earliest command of theirs'
+# chain that comes after it in ours (#103).
 # Insertions at different points of a file are separate hunks, each resolved as above, so a file
 # where both sides only added lines resolves to the union of both, at every point (#92).
 # Never mechanical: any other hunk shape (edited on both sides), a file with no base version
@@ -157,6 +162,31 @@ def chain_union(base, ours, theirs):
     return out
 
 
+def chain_reorder(base, ours, theirs):
+    """Theirs' chain, which reordered the base's commands, with the commands only ours added put in;
+    None unless no side repeats a command, both sides kept every base command and ours only added."""
+    b, o, t = ([command.strip() for command in side] for side in (base, ours, theirs))
+    if any(len(set(side)) != len(side) for side in (b, o, t)):
+        return None
+    if not set(b) <= set(t) or [command for command in o if command in b] != b:
+        return None
+    before, after, anchor = {}, {}, None
+    for i, command in enumerate(o):
+        if command in b:
+            anchor = command
+        elif command in t:
+            continue  # both sides added it: it stays where theirs put it
+        elif anchor is not None:
+            after.setdefault(anchor, []).append(command)
+        else:  # no base command before it in ours
+            first = min(t.index(c) for c in o[i + 1:] if c in t)
+            before.setdefault(t[first], []).append(command)
+    out = []
+    for command in t:
+        out += before.get(command, []) + [command] + after.get(command, [])
+    return out
+
+
 def unescape(raw):
     return json.loads(f'"{raw}"')
 
@@ -180,7 +210,10 @@ def resolve_chains(base, ours, theirs, scripts):
             return None
         if any(value != scripts[label].get(key) for value, label in zip(values, ("base", "ours", "theirs"))):
             return None
-        chain = chain_union(*(m.group(4).split(AND) for m in found))
+        chains = [m.group(4).split(AND) for m in found]
+        chain = chain_union(*chains)
+        if chain is None:
+            chain = chain_reorder(*chains)
         if chain is None:
             return None
         m = found[0]
