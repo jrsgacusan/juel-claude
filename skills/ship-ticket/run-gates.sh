@@ -8,11 +8,15 @@
 # With no gate names, every gate that is not null runs, in the order test, lint, typecheck, build.
 # sweep (each test file once, no E2E) runs only when named; a null or missing sweep runs the test
 # entry in its place (#102). The first red gate stops the run.
+# Every gate about to run is checked before any runs (#105). One whose cwd has a package.json, with
+# no node_modules folder and no .pnp.cjs file in that cwd or any folder above it up to the root,
+# stops the run with exit 71 and this line on stderr (<cwd> is the manifest's own cwd):
+#   run-gates.sh: <gate>: dependencies are not installed (no node_modules for <cwd>/package.json)
 # Exit: 0 all green (or nothing to run); the failing gate's own code, with "<gate> failed (exit N)"
 # on stderr; 71 when a gate could not be run at all (manifest missing or unreadable, a cwd that
-# does not exist or leaves the root); 64 bad usage. A gate whose own code is 64, 71, 75 or 124
-# comes out as 1 (its real code stays in the message): those four belong to this script and to
-# gate-lock.sh, and a red gate must never read as "busy" or "could not run".
+# does not exist or leaves the root, dependencies not installed); 64 bad usage. A gate whose own
+# code is 64, 71, 75 or 124 comes out as 1 (its real code stays in the message): those four belong
+# to this script and to gate-lock.sh, and a red gate must never read as "busy" or "could not run".
 # Use it inside the gate lock:  sh gate-lock.sh --holder <item> -- sh run-gates.sh <manifest> --root <root>
 exec python3 - "$@" <<'PY'
 import json
@@ -58,7 +62,22 @@ except (OSError, ValueError) as e:
 if not isinstance(gates, dict):
     die(71, f"the gate manifest {manifest} is not an object")
 
-ran = 0
+
+def deps_missing(cwd):
+    """True when cwd has a package.json and no node_modules folder or .pnp.cjs file exists in cwd
+    or in any folder above it, up to and including the root (npm workspaces install at the root)."""
+    if not os.path.isfile(os.path.join(cwd, "package.json")):
+        return False
+    d = cwd
+    while True:
+        if os.path.isdir(os.path.join(d, "node_modules")) or os.path.isfile(os.path.join(d, ".pnp.cjs")):
+            return False
+        if d == root or os.path.dirname(d) == d:
+            return True
+        d = os.path.dirname(d)
+
+
+plan = []  # every gate is checked before any of them runs
 for key in (names or ORDER):
     gate = gates.get(key)
     if gate is None and key == "sweep":
@@ -74,13 +93,16 @@ for key in (names or ORDER):
         die(71, f"gate {key}: cwd {gate.get('cwd')!r} leaves the root {root}")
     if not os.path.isdir(cwd):
         die(71, f"gate {key}: cwd {cwd} does not exist")
-    print(f"run-gates.sh: {key}: {gate['cmd']}  (in {cwd})", file=sys.stderr, flush=True)
-    rc = subprocess.run(["sh", "-c", gate["cmd"]], cwd=cwd).returncode
-    ran += 1
+    if deps_missing(cwd):
+        die(71, f"{key}: dependencies are not installed (no node_modules for {gate.get('cwd') or '.'}/package.json)")
+    plan.append((key, gate["cmd"], cwd))
+for key, cmd, cwd in plan:
+    print(f"run-gates.sh: {key}: {cmd}  (in {cwd})", file=sys.stderr, flush=True)
+    rc = subprocess.run(["sh", "-c", cmd], cwd=cwd).returncode
     if rc != 0:
         rc = rc if rc > 0 else 128 - rc
         print(f"run-gates.sh: {key} failed (exit {rc})", file=sys.stderr)
         sys.exit(1 if rc in (64, 71, 75, 124) else rc)
-if not ran:
+if not plan:
     print("run-gates.sh: no gates to run", file=sys.stderr)
 PY

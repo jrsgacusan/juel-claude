@@ -64,6 +64,29 @@ m '{"test":null,"lint":null,"typecheck":null,"build":null,"sweep":null}'
 out=$(run sweep 2>&1); rc=$?
 [ "$rc" -eq 0 ] && case "$out" in *"no gates"*) true ;; *) false ;; esac && pass "#102 sweep and test both null: nothing to run, exit 0" || fail "#102 nothing to sweep (rc=$rc: $out)"
 err=$(run nosuch 2>&1); case "$err" in *"known: test, lint, typecheck, build, sweep"*) pass "#102 the usage names sweep" ;; *) fail "#102 usage ($err)" ;; esac
+# a gate whose cwd has a package.json and no node_modules or .pnp.cjs up to the root: exit 71, one
+# line, and no gate runs, not even an earlier one that has no package.json
+mkdir -p "$TMP/deps/packages/web" "$TMP/deps/docs"; D=$(cd "$TMP/deps" && pwd -P)
+printf '{}\n' > "$D/package.json"; printf '{}\n' > "$D/packages/web/package.json"
+drun() { (cd "$D" && sh "$SCRIPT" "$TMP/gates.json" --root "$D" "$@"); }
+rm -f "$TMP/d.test" "$TMP/d.lint"
+m '{"test":{"cmd":"touch '"$TMP"'/d.test","cwd":"docs"},"lint":{"cmd":"touch '"$TMP"'/d.lint","cwd":"packages/web"},"typecheck":null,"build":null}'
+err=$(drun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "run-gates.sh: lint: dependencies are not installed (no node_modules for packages/web/package.json)" ] && [ ! -e "$TMP/d.test" ] && [ ! -e "$TMP/d.lint" ] && pass "#105 missing dependencies are exit 71 with one line, before any gate runs" || fail "#105 missing dependencies (rc=$rc: $err)"
+m '{"test":{"cmd":"true","cwd":"."},"lint":null,"typecheck":null,"build":null}'
+err=$(drun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "run-gates.sh: test: dependencies are not installed (no node_modules for ./package.json)" ] && pass "#105 the root's own package.json is checked too" || fail "#105 root package.json (rc=$rc: $err)"
+# node_modules at the root covers a sub-package (npm workspaces install there), and so does .pnp.cjs
+m '{"test":{"cmd":"touch '"$TMP"'/d.test","cwd":"docs"},"lint":{"cmd":"touch '"$TMP"'/d.lint","cwd":"packages/web"},"typecheck":null,"build":null}'
+mkdir "$D/node_modules"; rm -f "$TMP/d.test" "$TMP/d.lint"
+drun >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/d.test" ] && [ -e "$TMP/d.lint" ] && pass "#105 node_modules at the root covers a sub-package" || fail "#105 root node_modules (rc=$rc)"
+rmdir "$D/node_modules"; : > "$D/.pnp.cjs"
+drun >/dev/null 2>&1; [ $? -eq 0 ] && pass "#105 a .pnp.cjs at the root counts as installed" || fail "#105 .pnp.cjs"
+rm -f "$D/.pnp.cjs"
+# a cwd with no package.json is never checked, even when the root has one and nothing is installed
+m '{"test":{"cmd":"true","cwd":"docs"},"lint":null,"typecheck":null,"build":null}'
+drun >/dev/null 2>&1; [ $? -eq 0 ] && pass "#105 a gate whose cwd has no package.json is not checked" || fail "#105 cwd without package.json"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
