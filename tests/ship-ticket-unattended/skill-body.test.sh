@@ -252,5 +252,8 @@ g "L106b restoring it would drop the base's change" 'restoring it from that sha 
 g "L106c it is reported with a fixed NOTE" 'report it with the fixed line `NOTE: scope outside-merged <path>`'
 g "L106d the NOTE is in the fixed list" '`NOTE: scope outside-merged <path>` per path Phase 4'"'"'s scope check did not restore'
 g "L106e run interactively it goes in the checkpoint" 'run interactively, name it in this phase'"'"'s checkpoint'
+g "L107a a task creating a checked name names the check" 'names that check as its verification command. The check runs before the task'"'"'s commit.'
+g "L107b the checker wins over a brief's name form" 'project'"'"'s own checker rejects (a pretest checker, a lint rule), the checker wins.'
+g "L107c the worker says so in its one NOTE" 'say so in your one `NOTE: <one line>`.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

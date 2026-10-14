@@ -361,7 +361,9 @@ before Phase 1: notes left by earlier workers in this project and by the human.
 worker or STAR, and the human's dated answers to earlier escalations on this item. Read it before
 anything else in the brief. A decision overrides the Approach where they differ and settles the
 question it answers: apply it, and do not escalate the same question again. Where two decisions
-disagree, the later one wins.
+disagree, the later one wins. One exception: when a file-name or id form the brief names is one the
+project's own checker rejects (a pretest checker, a lint rule), the checker wins. Follow it, and
+say so in your one `NOTE: <one line>`.
 
 **Shared ids.** Under a `star:` block, before you add an entry with a sequential id to a file that
 other branches also append to (a decision register, an ADR index, numbered migrations), reserve
@@ -758,6 +760,7 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 - **If that path already exists, never overwrite it.** Write `-v2` instead; if `-v2` exists too, `-v3`, and so on — same rule as the spec path in Phase 2, and distinct from `review-plan.md`'s own `-vN` versioning in Phase 5 below.
 - Each step must include file paths, line refs where applicable, and a verification command.
 - Every task has a `**Files:**` block naming each file it changes, with the function or line range (``Modify: `path/to/file.py:120-145` ``, ``Create: `path/to/new.py` ``, ``Test: `tests/test_file.py` ``). The executor changes nothing a task does not name, and Phase 4's scope check restores any file no task names.
+- A task that creates a file whose name or id a project check enforces (a pretest checker, a lint rule) names that check as its verification command. The check runs before the task's commit.
 - On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
 **Checkpoint:** show plan path, ask to proceed.
