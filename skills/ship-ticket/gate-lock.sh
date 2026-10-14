@@ -3,6 +3,7 @@
 # run full test suites or builds at the same time.
 #
 # Usage: sh gate-lock.sh [--holder <label>] [--progress <file>] [--wait-max <seconds>] [--max-seconds <seconds>] -- <command> [args...]
+#        sh gate-lock.sh --slots <n>
 #
 # What follows "--" is one command with its arguments, run as it is: no shell reads it. A line
 # with "&&", "cd", "VAR=value" or a redirect needs a shell of its own: put the commands in a file
@@ -29,6 +30,14 @@
 # next poll deletes it, and it blocks no one. A waiter keeps the lock file it opened while it
 # waits, so a file replaced meanwhile never lets it run beside the gate that holds the old one.
 #
+# Slots (#97): <lock> is slot 1. "sh gate-lock.sh --slots <n>" (n is 1 to 4, with nothing else)
+# writes n to <lock>.slots through a temp file and a rename, and prints "slots <n>". Up to n
+# gates then run at once, in <lock>, <lock>.2, <lock>.3 and <lock>.4, each file holding its own
+# gate's holder line, and the first n tickets in the queue may take a slot that frees. A missing,
+# unreadable or out-of-range <lock>.slots reads as 1. --slots exits 64 on bad usage and 71 when
+# it cannot write the file. Heavy gates side by side can take the machine down: raise the count
+# only when free memory allows.
+#
 # The command runs in its own process group and inherits the lock. The kernel drops the lock when
 # the last process holding it exits, so there is nothing stale to detect and a recycled pid can
 # never keep it busy: if this wrapper is SIGKILLed, the lock stays held exactly as long as the
@@ -38,7 +47,7 @@
 # the lock. A child that detached into its own session (a daemon) is not part of the gate.
 # A gate started from inside a gate on the same lock (a wrapped script calling a wrapped step)
 # runs at once: the outer gate already holds the lock. The proof is a token: the command gets it
-# in JUEL_GATE_LOCK_HELD and the lock file holds it for as long as that gate runs, so a value a
+# in JUEL_GATE_LOCK_HELD and its slot's file holds it for as long as that gate runs, so a value a
 # process kept after its gate ended, or carried into another lock, proves nothing and is ignored.
 #
 # Waiting: polls every JUEL_GATE_LOCK_POLL seconds (default 5) for at most --wait-max seconds
@@ -84,6 +93,27 @@ def number(name, text, default):
     return value
 
 
+lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"/tmp/juel.gate.{os.getuid()}.lock")
+
+if sys.argv[1:2] == ["--slots"]:  # sh gate-lock.sh --slots <n>: how many gates may run at once
+    if len(sys.argv) != 3 or sys.argv[2] not in ("1", "2", "3", "4"):
+        die(64, "usage: gate-lock.sh --slots <n>, with n from 1 to 4 and nothing else")
+    tmp = f"{lock}.slots.tmp-{secrets.token_hex(4)}"
+    try:
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        f = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        os.write(f, f"{sys.argv[2]}\n".encode())
+        os.close(f)
+        os.replace(tmp, f"{lock}.slots")  # a reader sees the old count or the new one, never half a file
+    except OSError as e:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        die(71, f"cannot write {lock}.slots: {e.strerror}")
+    print(f"slots {sys.argv[2]}")
+    sys.exit(0)
+
 holder, wait_max, max_seconds, progress, argv = "gate", None, None, None, sys.argv[1:]
 while argv:
     arg = argv.pop(0)
@@ -112,8 +142,6 @@ drain = number("JUEL_GATE_LOCK_DRAIN_SECONDS", os.environ.get("JUEL_GATE_LOCK_DR
 every = number("JUEL_GATE_LOCK_PROGRESS_SECONDS", os.environ.get("JUEL_GATE_LOCK_PROGRESS_SECONDS"), 600)
 holder = "_".join(holder.split()) or "gate"
 
-lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"/tmp/juel.gate.{os.getuid()}.lock")
-
 
 def code(rc):
     return rc if rc >= 0 else 128 - rc
@@ -121,6 +149,7 @@ def code(rc):
 
 QUEUE = f"{lock}.q"  # one ticket per waiter, named "<time_ns, 20 digits>-<pid>"
 TICKET = re.compile(r"[0-9]{20}-[0-9]+")
+SLOT_MAX = 4  # slots live in <lock>, <lock>.2, <lock>.3 and <lock>.4
 
 
 def slot_path(i):
@@ -129,8 +158,9 @@ def slot_path(i):
 
 
 def slot_count():
-    """How many gates may run at once."""
-    return 1
+    """How many gates may run at once: <lock>.slots, read as 1 when missing, unreadable or not 1 to 4."""
+    text = head(f"{lock}.slots").strip()
+    return int(text) if text in ("1", "2", "3", "4") else 1
 
 
 def head(path):
@@ -148,15 +178,11 @@ def head(path):
 
 
 def held_by_our_gate():
-    """True when the gate that started us is still running on this very lock file."""
+    """True when the gate that started us is still running in one of this lock's slots."""
     token = os.environ.get("JUEL_GATE_LOCK_HELD") or ""
     if not re.fullmatch(r"[0-9a-f]{16}", token):
         return False
-    try:
-        with open(lock, encoding="utf-8", errors="replace") as f:
-            return f"token={token}" in f.read(400).split()
-    except OSError:
-        return False
+    return any(f"token={token}" in head(slot_path(i)).split() for i in range(1, SLOT_MAX + 1))
 
 
 if held_by_our_gate():

@@ -270,6 +270,42 @@ kill -9 "$kk"; wait "$kk" 2>/dev/null
 wait "$ka"; wait "$kw"; rc=$?
 python3 -c 'import sys; a, w = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if 0 <= w - a <= 1 else 1)' "$TMP/k.a.end" "$TMP/k.w.start" 2>/dev/null; late=$?
 [ "$rc" -eq 0 ] && [ "$late" -eq 0 ] && [ ! -e "$TMP/k.k.start" ] && [ "$(tickets)" -eq 0 ] && pass "#97 a waiter killed with kill -9 blocks no one" || fail "#97 killed waiter (rc=$rc late=$late tickets=$(tickets))"
+# 30. --slots 2 lets two gates run side by side, in <lock> and <lock>.2; a third waits for one of them.
+sh "$SCRIPT" --slots 2 > "$TMP/s.out"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$TMP/s.out")" = "slots 2" ] && [ "$(cat "$LOCK.slots" 2>/dev/null)" = "2" ] && pass "#97 --slots 2 writes the slot count and says so" || fail "#97 --slots 2 (rc=$rc: $(cat "$TMP/s.out"))"
+sh "$SCRIPT" --holder S1 -- sh -c "sh '$TMP/at' '$TMP/s1.start'; sleep 1.5; sh '$TMP/at' '$TMP/s1.end'" &
+s1=$!
+sh "$SCRIPT" --holder S2 -- sh -c "sh '$TMP/at' '$TMP/s2.start'; sleep 1.5; sh '$TMP/at' '$TMP/s2.end'" &
+s2=$!
+until_ok test -s "$TMP/s1.start"; until_ok test -s "$TMP/s2.start"
+held=$(cut -d' ' -f1 "$LOCK" "$LOCK.2" 2>/dev/null | sort | tr '\n' ' ')
+sh "$SCRIPT" --holder S3 --wait-max 20 -- sh "$TMP/at" "$TMP/s3.start"; rc=$?
+wait "$s1" "$s2"
+[ "$held" = "S1 S2 " ] && pass "#97 two gates hold slot 1 and slot 2 at once" || fail "#97 slot holders ($held)"
+python3 -c 'import sys; a, b, c, d, e = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if a < d and c < b and e >= min(b, d) else 1)' "$TMP/s1.start" "$TMP/s1.end" "$TMP/s2.start" "$TMP/s2.end" "$TMP/s3.start" 2>/dev/null && [ "$rc" -eq 0 ] && pass "#97 with two slots, two gates overlap and a third waits for one to end" || fail "#97 two slots (rc=$rc)"
+# 31. A gate inside a gate held in slot 2 runs at once: the token is looked for in every slot.
+sh "$SCRIPT" --holder N1 -- sleep 2 &
+n1=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder outer2 --wait-max 0 -- sh -c "sh '$SCRIPT' --holder inner2 --wait-max 0 -- sh -c 'echo inner > $TMP/slot2.nest'" 2>/dev/null; rc=$?
+wait "$n1"
+[ "$rc" -eq 0 ] && [ -f "$TMP/slot2.nest" ] && pass "#97 a gate inside a gate held in slot 2 runs at once" || fail "#97 nested gate in slot 2 (rc=$rc)"
+# 32. --slots takes one number from 1 to 4 and nothing else; a refused call leaves the count as it
+#     was. A count outside 1 to 4 in the file reads as 1.
+sh "$SCRIPT" --slots 1 >/dev/null
+for args in "--slots 5" "--slots 0" "--slots two" "--slots" "--slots 2 -- true" "--holder x --slots 2 -- true"; do
+  # shellcheck disable=SC2086
+  sh "$SCRIPT" $args > "$TMP/s.bad" 2>/dev/null; rc=$?
+  [ "$rc" -eq 64 ] && [ ! -s "$TMP/s.bad" ] && [ "$(cat "$LOCK.slots" 2>/dev/null)" = "1" ] && pass "#97 bad --slots usage ($args) is exit 64" || fail "#97 --slots usage ($args) gave $rc"
+done
+printf '9\n' > "$LOCK.slots"
+sh "$SCRIPT" --holder S9 -- sleep 1 &
+s9=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder S10 --wait-max 0 -- true 2>/dev/null; rc=$?
+wait "$s9"
+rm -f "$LOCK.slots"
+[ "$rc" -eq 75 ] && pass "#97 a slot count outside 1 to 4 reads as 1" || fail "#97 out-of-range slot count (rc=$rc)"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
