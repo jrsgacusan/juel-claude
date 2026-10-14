@@ -23,12 +23,15 @@
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
 # Before that one line it may print, in this order, each on a line of its own, whatever line
 # follows (#76):
-#   stopped previous gate pgid=<n>    the gate lock is held under this item's label, <project name>/<item>
+#   stopped previous gate pgid=<n>    the gate lock, or one of its slot files <lock>.2 to <lock>.4
+#                                     (#97; each one that exists, whatever <lock>.slots says), is held
+#                                     under this item's label, <project name>/<item>
 #                                     (project.name from star.json; the lock is one file per user for
 #                                     every project, so a bare item id would also match another
 #                                     project's item of the same id): TERM to its recorded group,
 #                                     whatever the state of its terminal, but only once no "hold
-#                                     session" was printed (a live session may be the one running it)
+#                                     session" was printed (a live session may be the one running it);
+#                                     one line per slot so held, in slot order
 #   ended previous session <terminal> the previous dispatch's own terminal was open: closed. A
 #                                     dispatch Orca reports released (releaseState or ownershipState
 #                                     "released", with no retainedReason) is gone (#95): its terminal
@@ -540,45 +543,49 @@ def prompt():
 
 
 def lock_holder():
-    """The gate lock's holder as (label, pid, pgid) while someone holds the lock, else None."""
+    """Each held gate-lock slot's holder as (label, pid, pgid), in slot order: <lock> and each of
+    <lock>.2 to <lock>.4 that exists, whatever <lock>.slots says (#97). Empty when no slot is held."""
     lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"/tmp/juel.gate.{os.getuid()}.lock")
-    try:
-        fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        return None
-    try:
+    held = []
+    for path in (lock, f"{lock}.2", f"{lock}.3", f"{lock}.4"):
         try:
-            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            return None  # nobody holds it: whatever the file says is stale
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         except OSError:
+            continue
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                continue  # nobody holds it: whatever the file says is stale
+            except OSError:
+                pass
+            words = os.pread(fd, 400, 0).decode("utf-8", "replace").split()
+        finally:
+            os.close(fd)
+        fields = dict(w.split("=", 1) for w in words[1:] if "=" in w)
+        try:
+            held.append((words[0], int(fields.get("pid", "0")), int(fields.get("pgid", "0"))))
+        except (IndexError, ValueError):
             pass
-        words = os.pread(fd, 400, 0).decode("utf-8", "replace").split()
-    finally:
-        os.close(fd)
-    fields = dict(w.split("=", 1) for w in words[1:] if "=" in w)
-    try:
-        return words[0], int(fields.get("pid", "0")), int(fields.get("pgid", "0"))
-    except (IndexError, ValueError):
-        return None
+    return held
 
 
 def stop_gate():
-    """A gate the lock says this item holds stops before a new stage of it starts, whatever its terminal (#76).
+    """A gate any lock slot says this item holds stops before a new stage of it starts, whatever its terminal (#76, #97).
     Called only once no "hold session" was printed: a live session may be the one running it."""
-    held = lock_holder()
     # the label ship-ticket and babysit-pr give gate-lock.sh under a star: brief, whitespace folded as it folds it
-    if not held or held[0] != "_".join(f"{name}/{item}".split()):
-        return
-    _, pid, pgid = held
-    if pgid <= 1 or pgid == os.getpgrp():
-        return
-    for kill, target in ((os.killpg, pgid), (os.kill, pid)):
-        if target > 1 and target != os.getpid():
-            try:
-                kill(target, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-    NOTES.insert(0, f"stopped previous gate pgid={pgid}")  # first, before the session lines
+    label = "_".join(f"{name}/{item}".split())
+    stopped = []
+    for held_label, pid, pgid in lock_holder():
+        if held_label != label or pgid <= 1 or pgid == os.getpgrp():
+            continue
+        for kill, target in ((os.killpg, pgid), (os.kill, pid)):
+            if target > 1 and target != os.getpid():
+                try:
+                    kill(target, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        stopped.append(f"stopped previous gate pgid={pgid}")
+    NOTES[:0] = stopped  # first, before the session lines
 
 
 def recent(last):

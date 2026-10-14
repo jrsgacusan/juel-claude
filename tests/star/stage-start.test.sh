@@ -317,8 +317,8 @@ out=$(ST brief SPH-40)
 
 # the gate the lock says this item holds is stopped, whatever its terminal's state; another item's is left alone
 # (the holder label is <project name>/<item>, as ship-ticket and babysit-pr pass it to gate-lock.sh)
-holder() { # holder <label>: hold the scratch gate lock the way gate-lock.sh does (its own group), until signalled
-  python3 - "$JUEL_GATE_LOCK" "$1" <<'PY' &
+holder() { # holder <label> [<lock file>]: hold the scratch gate lock, or that slot file, the way gate-lock.sh does (its own group), until signalled
+  python3 - "${2:-$JUEL_GATE_LOCK}" "$1" <<'PY' &
 import fcntl, os, sys, time
 os.setpgrp()
 fd = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o644)
@@ -328,7 +328,7 @@ os.write(fd, f"{sys.argv[2]} pid={os.getpid()} pgid={os.getpgrp()} token=0123456
 time.sleep(60)
 PY
   HPID=$!
-  i=0; while [ $i -lt 50 ] && ! grep -q "pid=$HPID " "$JUEL_GATE_LOCK" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
+  i=0; while [ $i -lt 50 ] && ! grep -q "pid=$HPID " "${2:-$JUEL_GATE_LOCK}" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done
 }
 gone() { i=0; while [ $i -lt 30 ] && kill -0 "$1" 2>/dev/null; do sleep 0.1; i=$((i + 1)); done; ! kill -0 "$1" 2>/dev/null; }
 holder app/SPH-40
@@ -432,6 +432,16 @@ if [ "$(id -u)" -ne 0 ]; then
   grep -qx 'stage-start.sh: could not copy .claude/locked.json (Permission denied)' "$TMP/err70" && [ ! -e "$WT70/.claude/locked.json" ] && pass "a file it cannot read is named on stderr, and the start goes on" || fail "unreadable file ($(tail -1 "$TMP/err70"))"
 fi
 chmod 644 "$APP/.claude/locked.json"
+
+# lane a: a gate held in a gate-lock slot file is stopped, whatever the slot count says (#97)
+printf '1\n' > "$JUEL_GATE_LOCK.slots"
+holder app/SPH-40 "$JUEL_GATE_LOCK.2"
+reset; L set SPH-40 state=inbox dispatch=ctx_gone90 >/dev/null
+out=$(ST brief SPH-40)
+[ "$(line "$out" 1)" = "stopped previous gate pgid=$HPID" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a gate held in slot 2 is named and the stage starts, though the slot count is 1" || fail "slot 2 gate ($out)"
+gone "$HPID" && pass "the slot 2 gate's process group got the TERM" || { fail "slot 2 gate left running"; kill "$HPID" 2>/dev/null; }
+wait "$HPID" 2>/dev/null
+rm -f "$JUEL_GATE_LOCK.2" "$JUEL_GATE_LOCK.slots"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
