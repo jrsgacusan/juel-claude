@@ -243,5 +243,9 @@ g "L105f the resolution sentence is unchanged" 'it must not install or run'
 g "L105g exit 71 for missing dependencies installs once, then reruns" '`dependencies are not installed`: run the resolved `commands.install` once (Phase 4'"'"'s'
 g "L105h a second 71 is gate-unavailable" 'a second 71 is `gate-unavailable`'
 g "L105i the escalation list names the failed install" 'dependency install failed (Phase 4'"'"'s "Dependencies")'
+g "L99a messages are read only with --unread --json or --peek --json" 'Read messages only with `--unread --json` (or `--peek --json` to'
+g "L99b a plain check prints only subjects and marks them read" 'A plain `orca orchestration check` prints only the subjects and still'
+g "L99c a consumed body is read back with --all --json" 'run `orca orchestration check --all --json` and read the bodies.'
+grep -oE 'orchestration check( --?[a-z-]+)+' "$SKILL" | grep -vqF -- '--json' && fail "L99d every orchestration check with flags carries --json" || pass "L99d every orchestration check with flags carries --json"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

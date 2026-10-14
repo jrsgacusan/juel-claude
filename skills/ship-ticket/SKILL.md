@@ -405,7 +405,9 @@ answer to the brief's `## Decisions`, then sends it as a message this session on
 steps. So after every background step returns, before choosing the next step, re-read the brief's
 `## Decisions` and run `orca orchestration check --unread --json`. A decision that is new since the
 last check overrides the next step this file prescribes: apply it, say so in one terminal line, and
-never escalate what it settles.
+never escalate what it settles. Read messages only with `--unread --json` (or `--peek --json` to
+look without consuming them). A plain `orca orchestration check` prints only the subjects and still
+marks them read; if that happened, run `orca orchestration check --all --json` and read the bodies.
 
 **Resume on an existing draft PR.** A build whose branch already carries the item's draft PR (a
 re-scope, a report STAR could not check, an item STAR moved from v1 in the middle of its review)
