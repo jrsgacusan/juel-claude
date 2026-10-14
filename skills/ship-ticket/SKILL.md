@@ -343,7 +343,7 @@ own, a fact the next worker in this project should know (a required env var, a f
 naming rule), never a status update, plus the fixed `NOTE:` lines this file names
 (`NOTE: executor skill missing, the plan ran in this session`;
 `NOTE: no CI ran on head <sha7> (PR DIRTY)` (see "Gate once per PR"); one
-`NOTE: scope outside-merged <path>` per path Phase 4's scope check did not restore; after a `DONE`, one
+`NOTE: scope outside-merged <path>[, <path> ...]` line naming every path Phase 4's scope check did not restore; after a `DONE`, one
 `NOTE: accepted residual <criterion>: <follow-up path>` per `ACCEPTED-RESIDUAL` item, and with
 more than two of them one `NOTE: accepted residuals: <n>, listed in <path>`, the file beside the
 gate manifest). With more than two `HELD` lines, write them all to a file beside the
@@ -630,8 +630,9 @@ It holds a kernel lock on a slot file for the whole machine (`/tmp/juel.gate.<ui
 and a sandboxed executor can write there) while the command's
 process group runs, even if the wrapper itself is killed; the kernel frees it when the last of
 those processes exits, so there is never a stale lock to clear. It stops the whole group on TERM,
-INT or HUP. Waiters take a ticket and are served in arrival order: a worker that comes later never
-runs first. The machine has one slot by default, so one gate runs at a time;
+INT or HUP. Waiters take a ticket. With one slot (the default), they are served in strict arrival
+order: a worker that comes later never runs first, and one gate runs at a time.
+With more slots, the first waiters in the queue race for a freed slot.
 `sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count, shared by every project on this
 machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
 "busy, held by …" on stderr, means the queue ahead of it did not move for its whole
@@ -788,9 +789,11 @@ drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in 
 
 **Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check
 for missing dependencies with the commands resolved earlier (see "Resolve once"): a `package.json`
-at the repo root, or in a manifest gate's `cwd`, with no `node_modules` folder and no `.pnp.cjs`
-file in that folder or any folder above it up to the repo root (the check `run-gates.sh` makes).
-When one is missing, run the resolved `commands.install` once, from the folder it was resolved
+at the repo root, or in a manifest gate's `cwd`, that declares dependencies (a non-empty
+`dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces`
+key), with no `node_modules` folder, no `.pnp.cjs` and no `.pnp.js` file in that folder or any
+folder above it up to the repo root (`run-gates.sh` makes the same check for a gate that runs a JS
+tool). When one is missing, run the resolved `commands.install` once, from the folder it was resolved
 for, in the background like `codex exec` (`run_in_background: true`, wait for the completion
 notification, never poll it) and not through `gate-lock.sh`. An install that exits non-zero, or
 no install command resolved, ends the run with
@@ -874,7 +877,7 @@ names: restore it, with `git checkout <that sha> -- <path>` when the file existe
 the record lists, since that work was there before the executor ran:
 never restore or delete a file the record lists. An `outside-merged <path>` line is never restored
 either: a base merge also changed that path, and restoring it from that sha would drop the base's
-change. Under `--unattended`, report it with the fixed line `NOTE: scope outside-merged <path>`;
+change. Under `--unattended`, report every such path in one fixed line, `NOTE: scope outside-merged <path>[, <path> ...]`;
 run interactively, name it in this phase's checkpoint. When the executor committed its work
 (`git rev-parse HEAD` is no longer that sha), commit the restores as one commit,
 `revert: out-of-scope edits in <files>`; otherwise leave them in the working tree with the rest of

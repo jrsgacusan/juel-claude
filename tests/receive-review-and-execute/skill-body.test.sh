@@ -49,5 +49,14 @@ done
 for s in review-and-execute receive-review-and-execute; do
   grep -qF 'NOTE: scope outside-merged <path>' "$ROOT/skills/$s/SKILL.md" && pass "#106c $s: unattended, it is a fixed NOTE" || fail "#106c $s: unattended, it is a fixed NOTE"
 done
+# fix: one NOTE line names every outside-merged path (#106)
+for s in review-and-execute receive-review-and-execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'end your output with one line naming every such path,' "$F" && grep -qF '`NOTE: scope outside-merged <path>[, <path> ...]`' "$F" && pass "F106a $s: unattended, one NOTE line names every path" || fail "F106a $s: unattended, one NOTE line names every path"
+  grep -qF 'NOTE: scope outside-merged <path>`' "$F" && fail "F106b $s: the NOTE is no longer per path" || pass "F106b $s: the NOTE is no longer per path"
+done
+# fix: step 6 pushes a merge commit only when step 0a made one (#109)
+grep -qF '6. Do not push here. The merge commit, when step 0a made one, is pushed with the remediation commits.' "$SKILL" && pass "F109a step 6 pushes a merge commit only when step 0a made one" || fail "F109a step 6 pushes a merge commit only when step 0a made one"
+grep -qF '6. Do not push here. The merge commit is pushed' "$SKILL" && fail "F109b step 6 no longer assumes a merge commit" || pass "F109b step 6 no longer assumes a merge commit"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

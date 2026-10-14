@@ -271,7 +271,7 @@ git status --porcelain
      (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
      with `git commit --no-edit` before any later phase runs, so remediation commits never land
      inside an unfinished merge. One evidence line: the merge commit's short SHA.
-6. Do not push here. The merge commit is pushed with the remediation commits.
+6. Do not push here. The merge commit, when step 0a made one, is pushed with the remediation commits.
 
 ### Step 1: Fetch PR review comments
 
@@ -478,8 +478,8 @@ work, commit the restores as `revert: out-of-scope edits in <files>`; otherwise 
 working tree. Name the files in this phase's evidence line. A file the plan needed but did not name
 is the plan's defect: the next plan names it. An `outside-merged <path>` line is never restored:
 a base merge also changed that path, and restoring it would drop the base's change. Leave it as it
-is. Under `--unattended`, end your output with one `NOTE: scope outside-merged <path>` line per
-path. Run interactively, name it in the run's summary.
+is. Under `--unattended`, end your output with one line naming every such path,
+`NOTE: scope outside-merged <path>[, <path> ...]`. Run interactively, name it in the run's summary.
 
 **A plan with a `**Base:**` line** changes a spec that is already implemented. Whenever this skill
 runs a plan in this session with `superpowers:executing-plans` and the plan has that line, tell it:

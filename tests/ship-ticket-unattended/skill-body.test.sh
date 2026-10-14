@@ -212,7 +212,7 @@ g "L90b at most two refunds between green gates" 'At most two such reds are refu
 g "R4a a star: brief's gate-lock holder carries the project" '--holder "<star.project>/<item>"'
 g "R4b a run without a star: brief keeps the item as the holder" 'The holder is `"<item>"`, except under a `star:` brief'
 # lane f: gate once per PR, gate-lock slots, dependencies, messages, outside-merged, name forms (#97, #99, #102, #105, #106, #107)
-g "L97a gate-lock waiters are served in arrival order" 'Waiters take a ticket and are served in arrival order'
+g "L97a gate-lock waiters take a ticket" 'Waiters take a ticket. With one slot'
 g "L97b the shared slot count is set with --slots" '`sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count'
 g "L97c only the owner changes the slots" 'Only the owner changes it: never run `--slots` from this skill or a plan.'
 g "L97d exit 75 means the queue did not move" 'means the queue ahead of it did not move for its whole'
@@ -235,7 +235,7 @@ grep -qF 'run the tests for the files it changed, then Phase 6' "$SKILL" && fail
 g "L102o an UNKNOWN merge state is read again" 'is read again up to 3 times, 10 seconds apart.'
 g "L102p a merge state still UNKNOWN adds no NOTE" 'Still `UNKNOWN`, it cannot tell: add no NOTE.'
 g "L105a missing dependencies are checked before the first dispatch" '**Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check'
-g "L105b the check is run-gates.sh's own rule" 'file in that folder or any folder above it up to the repo root (the check `run-gates.sh` makes).'
+g "L105b the check is run-gates.sh's own rule" 'folder above it up to the repo root (`run-gates.sh` makes the same check for a gate that runs a JS'
 g "L105c the install runs in the background, outside the gate lock" 'and not through `gate-lock.sh`'
 g "L105d a failed install is gate-unavailable" 'reason=gate-unavailable needs=dependencies did not install: <one line>'
 g "L105e resolution still installs and runs nothing" 'resolution still installs and runs nothing'
@@ -249,11 +249,24 @@ g "L99c a consumed body is read back with --all --json" 'run `orca orchestration
 grep -oE 'orchestration check( --?[a-z-]+)+' "$SKILL" | grep -vqF -- '--json' && fail "L99d every orchestration check with flags carries --json" || pass "L99d every orchestration check with flags carries --json"
 g "L106a an outside-merged path is never restored" 'An `outside-merged <path>` line is never restored'
 g "L106b restoring it would drop the base's change" 'restoring it from that sha would drop the base'"'"'s'
-g "L106c it is reported with a fixed NOTE" 'report it with the fixed line `NOTE: scope outside-merged <path>`'
-g "L106d the NOTE is in the fixed list" '`NOTE: scope outside-merged <path>` per path Phase 4'"'"'s scope check did not restore'
+g "L106c it is reported with a fixed NOTE" 'report every such path in one fixed line, `NOTE: scope outside-merged <path>[, <path> ...]`'
+g "L106d the NOTE is in the fixed list" '`NOTE: scope outside-merged <path>[, <path> ...]` line naming every path Phase 4'"'"'s scope check did not restore'
 g "L106e run interactively it goes in the checkpoint" 'run interactively, name it in this phase'"'"'s checkpoint'
 g "L107a a task creating a checked name names the check" 'names that check as its verification command. The check runs before the task'"'"'s commit.'
 g "L107b the checker wins over a brief's name form" 'project'"'"'s own checker rejects (a pretest checker, a lint rule), the checker wins.'
 g "L107c the worker says so in its one NOTE" 'say so in your one `NOTE: <one line>`.'
+# fix: the install step names a package.json that declares dependencies (#105)
+g "F105a the install step is for a package.json that declares dependencies" 'at the repo root, or in a manifest gate'"'"'s `cwd`, that declares dependencies (a non-empty'
+g "F105b it names the four dependency keys and workspaces" '`dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces`'
+g "F105c it counts node_modules, .pnp.cjs and .pnp.js as installed" 'key), with no `node_modules` folder, no `.pnp.cjs` and no `.pnp.js` file in that folder or any'
+grep -qF 'with no `node_modules` folder and no `.pnp.cjs`' "$SKILL" && fail "F105d the old condition (any package.json) is gone" || pass "F105d the old condition (any package.json) is gone"
+# fix: strict arrival order holds with one gate slot only (#97)
+g "F97a ship-ticket: strict arrival order is for one slot, the default" 'Waiters take a ticket. With one slot (the default), they are served in strict arrival'
+g "F97b ship-ticket: with more slots the first waiters race for a freed slot" 'With more slots, the first waiters in the queue race for a freed slot.'
+grep -qF 'Waiters take a ticket and are served in arrival order' "$SKILL" && fail "F97c ship-ticket: arrival order is no longer unqualified" || pass "F97c ship-ticket: arrival order is no longer unqualified"
+# fix: one NOTE line names every outside-merged path (#106)
+g "F106a the fixed NOTE list has one outside-merged line naming every path" '`NOTE: scope outside-merged <path>[, <path> ...]` line naming every path Phase 4'"'"'s scope check did not restore'
+g "F106b Phase 4 reports every such path in one fixed line" 'report every such path in one fixed line, `NOTE: scope outside-merged <path>[, <path> ...]`;'
+grep -qF 'NOTE: scope outside-merged <path>`' "$SKILL" && fail "F106c no outside-merged NOTE is per path any more" || pass "F106c no outside-merged NOTE is per path any more"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

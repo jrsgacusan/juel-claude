@@ -124,7 +124,7 @@ done
 grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is gone" || pass "P2b the free-form step field is gone"
 # Issue #60: the executor fallback reaches STAR through the report
 g "N60c babysit carries the executor fallback NOTE" 'NOTE: executor skill missing, the plan ran in this session'
-g "N60d the report line count includes it" 'That is 10 lines at most'
+g "N60d the report line count includes it" 'That is 11 lines at most'
 # Issues #63, #66, #71: the gate round from the worker's side
 grow "G66c babysit counts verdict files only" 'error logs, raw files and run files never count'
 grow "G66d babysit reruns the same round after an ERROR" 'run the same round once more'
@@ -299,5 +299,14 @@ g "#105c a failed install is gate-unavailable" 'reason=gate-unavailable needs=de
 gates_row=$(grep -F '| gates run directly |' "$SKILL")
 printf '%s\n' "$gates_row" | grep -qF 'Exit 71 with `dependencies are not installed` in its message: run the install command once' && pass "#105d exit 71 for missing dependencies installs once" || fail "#105d exit 71 for missing dependencies installs once"
 printf '%s\n' "$gates_row" | grep -qF 'a second 71 is the `gate-unavailable` escalation' && pass "#105e a second 71 is gate-unavailable" || fail "#105e a second 71 is gate-unavailable"
+# fix: the install step names a package.json that declares dependencies (#105)
+g "F105a Phase 1 installs for a package.json that declares dependencies" 'a `package.json` at the repo root, or in a gate'"'"'s `cwd`, that declares dependencies (a non-empty'
+g "F105b it names the four dependency keys and workspaces" '`dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces` key)'
+g "F105c it counts node_modules, .pnp.cjs and .pnp.js as installed" 'with no `node_modules` folder, `.pnp.cjs` or `.pnp.js` file there or in any folder above it up to the repo root.'
+grep -qF 'with no `node_modules` folder and no' "$SKILL" && fail "F105d the old condition (any package.json) is gone" || pass "F105d the old condition (any package.json) is gone"
+# fix: one NOTE line names every outside-merged path (#106)
+report_row=$(grep -F '| Phase 5 report |' "$SKILL")
+printf '%s\n' "$report_row" | grep -qF '`NOTE: scope outside-merged <path>[, <path> ...]` once, relayed from `receive-review-and-execute`' && pass "F106a the report carries the outside-merged NOTE, relayed once" || fail "F106a the report carries the outside-merged NOTE, relayed once"
+printf '%s\n' "$report_row" | grep -qF 'That is 11 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

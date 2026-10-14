@@ -587,14 +587,14 @@ g "LH3b with no rule it names no form (#107)" 'when it finds none, it names no f
 g "LH3c a standing rule STAR sends is on record (#99)" 'So is every rule STAR sends a worker unasked'
 g "LH3d it goes into the brief before the send (#99)" '`- <date> STAR to the <stage> worker (<subject>): <body>` to the brief'"'"'s `## Decisions` before the'
 g "LH3e a one-time nudge is not a rule (#99)" 'A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.'
-g "LH4a a released dispatch is ended (#95)" 'or Orca reports that dispatch `released` (#95), and `stage-start.sh` closed it'
+g "LH4a a released dispatch is ended (#95)" 'or Orca reports that dispatch `released` with no retained reason (#95), and `stage-start.sh` closed it'
 g "LH4b a failed close still ends it (#95)" 'a released dispatch whose close fails is ended all the same'
-g "LH4c a released dispatch is never kept (#95)" 'A dispatch Orca reports `released` is never kept: it is ended (#95)'
-g "LH4d a released dispatch is never held (#95)" 'never a dispatch Orca reports `released`, which is ended, #95'
-g "LH4e gate waiters are served in arrival order (#97)" 'Waiters are served in arrival order'
+g "LH4c a released dispatch with no retained reason is ended, not kept (#95)" 'A dispatch Orca reports `released` with no retained reason is ended, not kept (#95)'
+g "LH4d a released dispatch with no retained reason is not held (#95)" 'a session Orca reports `released` with no retained reason is ended, #95)'
+g "LH4e gate waiters are served in arrival order (#97)" 'Waiters are served in strict arrival order'
 g "LH4f STAR never raises the gate slots unasked (#97)" 'STAR never raises the slots unasked: heavy runs side by side can take the machine down.'
 g "LH4g the owner may ask for a second slot (#97)" 'The owner may ask for `sh S/../ship-ticket/gate-lock.sh --slots 2` once free memory allows it.'
-g "LH4h the shared gate lock's order, in the edge cases (#97)" 'the gate lock (its waiters served in arrival order, one gate at a time unless the owner asked for more)'
+g "LH4h the shared gate lock's order, in the edge cases (#97)" 'the gate lock (strict arrival order with one slot, the default;'
 g "LH5a a missing CI run is the owner's to look at (#102)" '`reason=ci-missing` (babysit found no CI run on the PR'"'"'s head while the PR does not conflict with its base, #102) is the owner'"'"'s to look at'
 g "LH5b missing checks are never a pass (#102)" 'missing checks are never a pass, so STAR neither answers it nor restarts the stage on its own'
 g "LH6a a missing hosted log is rebuilt by babysit (#96)" 'when it is missing, babysit rebuilds it from the PR'"'"'s reviews (`pr-state.sh --hosted-passes`)'
@@ -604,5 +604,15 @@ g "LH7a a denied fallback run is retried once inside the round (#100)" 'is retri
 g "LH7b a second denial is gate-down (#100)" 'When the fallback fails too, or a second denial follows, the gate prints'
 grep -qF 'call it made was denied so it may not have read the diff' "$SKILL" && fail "LH7c one denial is no longer gate-down (#100)" || pass "LH7c one denial is no longer gate-down (#100)"
 g "LH7d a direct receipt is posted over a carried one (#104)" 'receipt is posted even when a carried receipt already names the head, #104'
+# fix: strict arrival order holds with one gate slot only (#97)
+g "F97a STAR: strict arrival order is for one slot, the default" 'Waiters are served in strict arrival order with one slot (the default), one gate at a time (#97);'
+g "F97b STAR: with more slots the first waiters race for a freed slot" 'with more slots (the slots file says up to 4), the first waiters in the queue race for a freed slot.'
+g "F97c STAR: the edge-case row says the same" 'the gate lock (strict arrival order with one slot, the default; with more slots the first waiters race for a freed slot)'
+grep -qF 'Waiters are served in arrival order' "$SKILL" && fail "F97d STAR: arrival order is no longer unqualified" || pass "F97d STAR: arrival order is no longer unqualified"
+# fix: a released session a person kept is still kept or held (#95)
+g "F95a the kept row: a released one a person kept follows the row" 'one a person kept (`retainedReason` set, for example `user_takeover`) follows this row as before'
+g "F95b the hold row: a released one a person kept is held" 'including a `released` one a person kept (`retainedReason` set);'
+grep -qF 'is never kept' "$SKILL" && fail "F95c a released dispatch is no longer never kept" || pass "F95c a released dispatch is no longer never kept"
+grep -qF 'never a dispatch Orca reports `released`' "$SKILL" && fail "F95d a released dispatch is no longer never held" || pass "F95d a released dispatch is no longer never held"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
