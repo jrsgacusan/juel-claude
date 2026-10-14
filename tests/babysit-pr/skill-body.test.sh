@@ -263,5 +263,9 @@ hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
 hrow "#96e the hosted row says how the record is rebuilt" 'A missing file is rebuilt from the PR in Phase 1 step 9'
 g "#96f the hosted refresh is step 10" '10. Under a `star:` brief with a hosted reviewer: when the PR'"'"'s head has no status'
 g "#96g reviewer mode skips both steps" '9 (the hosted log) and 10 (the hosted refresh) do not apply'
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "#108a NOT-SAFE rounds count from the newest SAFE round or the last push" 'NOT-SAFE rounds are counted since the newest SAFE round or the last push, whichever is later.'
+grow "#108b an unpushed SAFE round starts a fresh count" 'A SAFE round that could not be pushed, because the PR needed a base merge first, starts a fresh count.'
+printf '%s\n' "$gate_row" | grep -qF 'NOT-SAFE round for this push' && fail "#108c the per-push count is gone" || pass "#108c the per-push count is gone"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
