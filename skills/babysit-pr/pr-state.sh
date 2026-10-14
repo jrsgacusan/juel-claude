@@ -29,8 +29,17 @@
 # while its "Last reviewed commit" names the PR's head: the item's id is <comment id>@<updated_at>
 # and its time is updated_at, so each edit that names the head is new feedback once. An edit that
 # names an older head stays a plain comment, timed by its creation: not new.
+# --hosted <login> --hosted-passes prints, in place of the snapshot, the hosted reviewer's past
+# passes in the <item>-hosted.log form (#96), one line per distinct commit_id, oldest first:
+#   <submitted_at> pass <n> head=<full commit_id>
+# It reads pulls/<n>/reviews, paginated, keeps the reviews by <login> (compared without case, as
+# --hosted matches it) that are not PENDING, and sorts them by submitted_at; a review of a head
+# already listed adds no line. No review by <login> prints nothing (exit 0). GitHub that cannot be
+# read prints one line, "error <why>" (exit 1). No --hosted, or --wait or --as-reviewer with it,
+# is a usage error (exit 64).
 # <pr> is a number, a PR URL (STAR's ledger holds one), a branch name or #<n>; the REST paths use its number.
-# Exits 0, except a usage error in the reviewer flags (64, below). Per gh call timeout:
+# Exits 0, except a usage error in --hosted-passes (above) or the reviewer flags (below), which is
+# 64, and a --hosted-passes "error" line, which is 1. Per gh call timeout:
 # BABYSIT_GH_TIMEOUT seconds (default 60); under
 # --wait --max-seconds no call may run past the budget (with a floor of 1 s per call).
 # --wait polls every --interval seconds and prints the snapshot plus "wake" when something
@@ -230,6 +239,26 @@ def pr_number(pr, view):
         return pr
     in_url = re.search(r"/pull/(\d+)", pr)
     return in_url.group(1) if in_url else str(view["number"])
+
+
+def hosted_passes(pr, repo, login):
+    """The hosted reviewer's past passes as <item>-hosted.log lines: one per distinct head its reviews
+    name, oldest first. A PENDING review is no pass; a second review of a head adds no line."""
+    view_args = ["pr", "view", pr, "--json", "url,number"]
+    if repo:
+        view_args += ["-R", repo]
+    view = json.loads(gh(view_args))
+    repo = repo or "/".join(view["url"].split("/")[3:5])
+    reviews = [r for r in gh_list(f"repos/{repo}/pulls/{pr_number(pr, view)}/reviews")
+               if ((r.get("user") or {}).get("login") or "").lower() == login.lower()
+               and r.get("state") != "PENDING" and r.get("submitted_at") and r.get("commit_id")]
+    lines, seen = [], set()
+    for r in sorted(reviews, key=lambda r: ts(r["submitted_at"])):
+        head = r["commit_id"].lower()
+        if head not in seen:
+            seen.add(head)
+            lines.append(f"{r['submitted_at']} pass {len(lines) + 1} head={head}")
+    return lines
 
 
 def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
@@ -497,9 +526,24 @@ def main(argv):
     p.add_argument("--reviewed-head")
     p.add_argument("--settle-minutes", type=float)
     p.add_argument("--head-seen")
+    p.add_argument("--hosted-passes", action="store_true")
     a = p.parse_args(argv)
     a.bots = [b.strip() for b in a.review_bots.split(",") if b.strip()]
     a.hosted = a.hosted.strip()
+    if a.hosted_passes:
+        if not a.hosted:
+            usage("--hosted-passes needs --hosted <login>")
+        if a.wait or a.as_reviewer is not None:
+            usage("--hosted-passes takes no --wait or --as-reviewer")
+        try:
+            lines = hosted_passes(a.pr, a.repo, a.hosted)
+        except Exception as e:  # GitHub could not be read, or gh's output drifted; never a traceback
+            why = str(e) if isinstance(e, GhError) else f"unexpected gh output: {type(e).__name__}: {e}"
+            print("error " + " ".join(why.split()))
+            sys.exit(1)
+        for line in lines:
+            print(line)
+        return
     a.reviewer = reviewer_args(a)
     for flag, value in (("--since", split_cursor(a.since)[0]), ("--quiet-since", a.quiet_since)):
         try:
