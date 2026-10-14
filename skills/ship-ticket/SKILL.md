@@ -630,8 +630,9 @@ It holds a kernel lock on a slot file for the whole machine (`/tmp/juel.gate.<ui
 and a sandboxed executor can write there) while the command's
 process group runs, even if the wrapper itself is killed; the kernel frees it when the last of
 those processes exits, so there is never a stale lock to clear. It stops the whole group on TERM,
-INT or HUP. Waiters take a ticket and are served in arrival order: a worker that comes later never
-runs first. The machine has one slot by default, so one gate runs at a time;
+INT or HUP. Waiters take a ticket. With one slot (the default), they are served in strict arrival
+order: a worker that comes later never runs first, and one gate runs at a time.
+With more slots, the first waiters in the queue race for a freed slot.
 `sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count, shared by every project on this
 machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
 "busy, held by …" on stderr, means the queue ahead of it did not move for its whole

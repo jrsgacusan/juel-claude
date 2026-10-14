@@ -1434,8 +1434,9 @@ is the free space on the volume that holds STAR's folder. The first limit that f
 and at `hold=3` the queue gets one held item until a start succeeds). Heavy test and build gates
 inside workers take turns through `juel:ship-ticket`'s `gate-lock.sh`, which uses one lock per user
 for the whole machine (`/tmp/juel.gate.<uid>.lock`), so workers in different projects wait for each
-other too, and no worker needs to be told where STAR's home is. Waiters are served in arrival order
-(#97), one gate at a time unless the lock's slots file says more (at most 4).
+other too, and no worker needs to be told where STAR's home is.
+Waiters are served in strict arrival order with one slot (the default), one gate at a time (#97);
+with more slots (the slots file says up to 4), the first waiters in the queue race for a freed slot.
 STAR never raises the slots unasked: heavy runs side by side can take the machine down.
 The owner may ask for `sh S/../ship-ticket/gate-lock.sh --slots 2` once free memory allows it.
 `caffeinate` is a macOS tool; on Linux skip it.
@@ -1875,7 +1876,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A finding that is already an open issue | `star-issue.sh comment` adds the new evidence to it |
 | A finished item's worktree still holds uncommitted or unpushed work | It stays; the queue says why, and `done` there makes STAR try again |
 | The STAR folder was deleted | That project's state is gone; the next `/juel:star` starts fresh. Stop STAR first: workers still running would report to nobody |
-| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock (its waiters served in arrival order, one gate at a time unless the owner asked for more) and the host gate are shared by the machine |
+| Two projects each run a STAR | Each has its own queue and its own 4 + 3 + 3 slots; the gate lock (strict arrival order with one slot, the default; with more slots the first waiters race for a freed slot) and the host gate are shared by the machine |
 | A worker asks again while its first question is still open | The old item is closed and its message answered "Superseded by your newer question." |
 | The user leaves with person-only steps unanswered | Those items stay `brief-ready`; the rest of the batch builds and merges |
 | A person-only step needs a value from the owner (a host name, an id) | `(value)` on the step: the answer is recorded under `## Decisions` as `→ value: <answer>`, and the step is done |

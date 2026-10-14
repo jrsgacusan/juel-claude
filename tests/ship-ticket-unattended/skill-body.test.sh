@@ -212,7 +212,7 @@ g "L90b at most two refunds between green gates" 'At most two such reds are refu
 g "R4a a star: brief's gate-lock holder carries the project" '--holder "<star.project>/<item>"'
 g "R4b a run without a star: brief keeps the item as the holder" 'The holder is `"<item>"`, except under a `star:` brief'
 # lane f: gate once per PR, gate-lock slots, dependencies, messages, outside-merged, name forms (#97, #99, #102, #105, #106, #107)
-g "L97a gate-lock waiters are served in arrival order" 'Waiters take a ticket and are served in arrival order'
+g "L97a gate-lock waiters take a ticket" 'Waiters take a ticket. With one slot'
 g "L97b the shared slot count is set with --slots" '`sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count'
 g "L97c only the owner changes the slots" 'Only the owner changes it: never run `--slots` from this skill or a plan.'
 g "L97d exit 75 means the queue did not move" 'means the queue ahead of it did not move for its whole'
@@ -260,5 +260,9 @@ g "F105a the install step is for a package.json that declares dependencies" 'at 
 g "F105b it names the four dependency keys and workspaces" '`dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces`'
 g "F105c it counts node_modules, .pnp.cjs and .pnp.js as installed" 'key), with no `node_modules` folder, no `.pnp.cjs` and no `.pnp.js` file in that folder or any'
 grep -qF 'with no `node_modules` folder and no `.pnp.cjs`' "$SKILL" && fail "F105d the old condition (any package.json) is gone" || pass "F105d the old condition (any package.json) is gone"
+# fix: strict arrival order holds with one gate slot only (#97)
+g "F97a ship-ticket: strict arrival order is for one slot, the default" 'Waiters take a ticket. With one slot (the default), they are served in strict arrival'
+g "F97b ship-ticket: with more slots the first waiters race for a freed slot" 'With more slots, the first waiters in the queue race for a freed slot.'
+grep -qF 'Waiters take a ticket and are served in arrival order' "$SKILL" && fail "F97c ship-ticket: arrival order is no longer unqualified" || pass "F97c ship-ticket: arrival order is no longer unqualified"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
