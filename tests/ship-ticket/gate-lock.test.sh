@@ -145,17 +145,18 @@ sh "$SCRIPT" --holder n1 -- sh -c "sh '$SCRIPT' --holder n2 --wait-max 2 -- sh -
 d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc-probe --wait-max 0 -- sh -c "cut -d' ' -f1 /tmp/juel.gate.$(id -u).lock" 2>/dev/null); rc=$?
 case "$rc:$d" in 0:loc-probe) pass "the default lock is one file per user under /tmp, in or out of a git repo" ;; 75:*) pass "default lock path (skipped: a real gate is running)" ;; *) fail "default lock path (rc=$rc $d)" ;; esac
 now() { python3 -c 'import time; print(time.time())'; }
-# A holds the lock; B waits on that file; the file is deleted; C then locks the new file. When A
-# ends, B gets the old file's lock, must notice the path no longer names it, and wait for C.
-sh "$SCRIPT" --holder A -- sleep 1.5 &
+# A holds the lock; B waits on that file; the file is deleted; C arrives and queues behind B (#97).
+# When A ends, B gets the old file's lock, must notice the path no longer names it, and only then
+# run, on the new file: never beside A. C runs after B.
+sh "$SCRIPT" --holder A -- sh -c "sleep 1.5; python3 -c 'import time; print(time.time())' > '$TMP/a.end2'" &
 pa=$!; sleep 0.4
 sh "$SCRIPT" --holder B --wait-max 20 -- sh -c "python3 -c 'import time; print(time.time())' > '$TMP/b.start2'" &
 pb=$!; sleep 0.4
 rm -f "$LOCK"
-sh "$SCRIPT" --holder C --wait-max 20 -- sh -c "sleep 2.5; python3 -c 'import time; print(time.time())' > '$TMP/c.end2'" &
+sh "$SCRIPT" --holder C --wait-max 20 -- sh -c "python3 -c 'import time; print(time.time())' > '$TMP/c.start2'" &
 pc=$!
 wait "$pa" "$pb" "$pc"
-python3 -c 'import sys; b, c = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if b >= c else 1)' "$TMP/b.start2" "$TMP/c.end2" && pass "a waiter on a deleted lock file moves to the new one and waits its turn" || fail "waiter ran on the deleted lock file while another gate held the new one"
+python3 -c 'import sys; a, b, c = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if a <= b <= c else 1)' "$TMP/a.end2" "$TMP/b.start2" "$TMP/c.start2" && pass "a waiter on a deleted lock file waits for the gate on the old file, then runs before the gate queued behind it" || fail "waiter ran beside the gate on the deleted lock file, or out of turn"
 free && pass "the lock still works after its file was deleted" || fail "lock unusable after its file was deleted"
 
 # Final pass
@@ -224,6 +225,111 @@ done
 chmod 755 "$TMP/ro"
 # 27. --progress needs a value.
 sh "$SCRIPT" --progress -- true 2>/dev/null; [ $? -eq 64 ] && pass "#89 --progress without a value is exit 64" || fail "#89 --progress usage"
+
+# lane b: #97 waiters start in arrival order, in up to 4 slots, and --wait-max counts from the last move
+# until_ok <test...>: retry a check every 50 ms for up to 5 s (a barrier, never a fixed sleep)
+until_ok() { _u=0; until "$@"; do _u=$((_u + 1)); [ "$_u" -ge 100 ] && return 1; sleep 0.05; done; }
+tickets() { ls "$LOCK.q" 2>/dev/null | grep -c '^[0-9]'; }
+cat > "$TMP/at" <<'EOF'
+python3 -c 'import sys, time; open(sys.argv[1], "w").write("%r\n" % time.time())' "$1"
+EOF
+# in_order <file>...: the times the files hold never go down
+in_order() { python3 -c 'import sys; t = [float(open(p).read()) for p in sys.argv[1:]]; sys.exit(0 if t == sorted(t) else 1)' "$@" 2>/dev/null; }
+# 28. B queues first and polls every 1.5 s; C queues second and polls every 20 ms. When A ends,
+#     B still starts first. D arrives while the slot is free and B has not polled yet: it queues
+#     behind B and C instead of taking the slot. (A waiter's first progress line is the barrier:
+#     it is written once the waiter holds its ticket.)
+sh "$SCRIPT" --holder A -- sh -c "sleep 1; sh '$TMP/at' '$TMP/q.a.end'" &
+qa=$!
+until_ok test -s "$LOCK"
+JUEL_GATE_LOCK_POLL=1.5 sh "$SCRIPT" --holder B --progress "$TMP/q.b.wait" --wait-max 20 -- sh "$TMP/at" "$TMP/q.b.start" &
+qb=$!
+until_ok test -s "$TMP/q.b.wait"
+JUEL_GATE_LOCK_POLL=0.02 sh "$SCRIPT" --holder C --progress "$TMP/q.c.wait" --wait-max 20 -- sh "$TMP/at" "$TMP/q.c.start" &
+qc=$!
+until_ok test -s "$TMP/q.c.wait"
+until_ok test -s "$TMP/q.a.end"
+until_ok test ! -s "$LOCK"
+JUEL_GATE_LOCK_POLL=0.02 sh "$SCRIPT" --holder D --wait-max 20 -- sh "$TMP/at" "$TMP/q.d.start" &
+qd=$!
+wait "$qa" "$qb" "$qc" "$qd"
+in_order "$TMP/q.a.end" "$TMP/q.b.start" "$TMP/q.c.start" "$TMP/q.d.start" && pass "#97 waiters start in arrival order, whatever their poll interval" || fail "#97 arrival order (A end, B, C, D: $(cat "$TMP/q.a.end" "$TMP/q.b.start" "$TMP/q.c.start" "$TMP/q.d.start" 2>/dev/null | tr '\n' ' '))"
+[ "$(tickets)" -eq 0 ] && pass "#97 every ticket is gone once its waiter ran" || fail "#97 tickets left: $(ls "$LOCK.q")"
+# 29. A waiter killed with kill -9 while queued blocks no one: the waiter behind it deletes its
+#     ticket and starts as soon as the slot is free.
+sh "$SCRIPT" --holder A -- sh -c "sleep 1; sh '$TMP/at' '$TMP/k.a.end'" &
+ka=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder K --progress "$TMP/k.k.wait" --wait-max 20 -- sh "$TMP/at" "$TMP/k.k.start" &
+kk=$!
+until_ok test -s "$TMP/k.k.wait"
+sh "$SCRIPT" --holder W --progress "$TMP/k.w.wait" --wait-max 20 -- sh "$TMP/at" "$TMP/k.w.start" &
+kw=$!
+until_ok test -s "$TMP/k.w.wait"
+kill -9 "$kk"; wait "$kk" 2>/dev/null
+wait "$ka"; wait "$kw"; rc=$?
+python3 -c 'import sys; a, w = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if 0 <= w - a <= 1 else 1)' "$TMP/k.a.end" "$TMP/k.w.start" 2>/dev/null; late=$?
+[ "$rc" -eq 0 ] && [ "$late" -eq 0 ] && [ ! -e "$TMP/k.k.start" ] && [ "$(tickets)" -eq 0 ] && pass "#97 a waiter killed with kill -9 blocks no one" || fail "#97 killed waiter (rc=$rc late=$late tickets=$(tickets))"
+# 30. --slots 2 lets two gates run side by side, in <lock> and <lock>.2; a third waits for one of them.
+sh "$SCRIPT" --slots 2 > "$TMP/s.out"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$TMP/s.out")" = "slots 2" ] && [ "$(cat "$LOCK.slots" 2>/dev/null)" = "2" ] && pass "#97 --slots 2 writes the slot count and says so" || fail "#97 --slots 2 (rc=$rc: $(cat "$TMP/s.out"))"
+sh "$SCRIPT" --holder S1 -- sh -c "sh '$TMP/at' '$TMP/s1.start'; sleep 1.5; sh '$TMP/at' '$TMP/s1.end'" &
+s1=$!
+sh "$SCRIPT" --holder S2 -- sh -c "sh '$TMP/at' '$TMP/s2.start'; sleep 1.5; sh '$TMP/at' '$TMP/s2.end'" &
+s2=$!
+until_ok test -s "$TMP/s1.start"; until_ok test -s "$TMP/s2.start"
+held=$(cut -d' ' -f1 "$LOCK" "$LOCK.2" 2>/dev/null | sort | tr '\n' ' ')
+sh "$SCRIPT" --holder S3 --wait-max 20 -- sh "$TMP/at" "$TMP/s3.start"; rc=$?
+wait "$s1" "$s2"
+[ "$held" = "S1 S2 " ] && pass "#97 two gates hold slot 1 and slot 2 at once" || fail "#97 slot holders ($held)"
+python3 -c 'import sys; a, b, c, d, e = (float(open(p).read()) for p in sys.argv[1:]); sys.exit(0 if a < d and c < b and e >= min(b, d) else 1)' "$TMP/s1.start" "$TMP/s1.end" "$TMP/s2.start" "$TMP/s2.end" "$TMP/s3.start" 2>/dev/null && [ "$rc" -eq 0 ] && pass "#97 with two slots, two gates overlap and a third waits for one to end" || fail "#97 two slots (rc=$rc)"
+# 31. A gate inside a gate held in slot 2 runs at once: the token is looked for in every slot.
+sh "$SCRIPT" --holder N1 -- sleep 2 &
+n1=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder outer2 --wait-max 0 -- sh -c "sh '$SCRIPT' --holder inner2 --wait-max 0 -- sh -c 'echo inner > $TMP/slot2.nest'" 2>/dev/null; rc=$?
+wait "$n1"
+[ "$rc" -eq 0 ] && [ -f "$TMP/slot2.nest" ] && pass "#97 a gate inside a gate held in slot 2 runs at once" || fail "#97 nested gate in slot 2 (rc=$rc)"
+# 32. --slots takes one number from 1 to 4 and nothing else; a refused call leaves the count as it
+#     was. A count outside 1 to 4 in the file reads as 1.
+sh "$SCRIPT" --slots 1 >/dev/null
+for args in "--slots 5" "--slots 0" "--slots two" "--slots" "--slots 2 -- true" "--holder x --slots 2 -- true"; do
+  # shellcheck disable=SC2086
+  sh "$SCRIPT" $args > "$TMP/s.bad" 2>/dev/null; rc=$?
+  [ "$rc" -eq 64 ] && [ ! -s "$TMP/s.bad" ] && [ "$(cat "$LOCK.slots" 2>/dev/null)" = "1" ] && pass "#97 bad --slots usage ($args) is exit 64" || fail "#97 --slots usage ($args) gave $rc"
+done
+printf '9\n' > "$LOCK.slots"
+sh "$SCRIPT" --holder S9 -- sleep 1 &
+s9=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder S10 --wait-max 0 -- true 2>/dev/null; rc=$?
+wait "$s9"
+rm -f "$LOCK.slots"
+[ "$rc" -eq 75 ] && pass "#97 a slot count outside 1 to 4 reads as 1" || fail "#97 out-of-range slot count (rc=$rc)"
+# 33. --wait-max counts from the last time the queue ahead moved: W2 waits about 2.8 s behind H and
+#     W1, longer than its --wait-max 2.2, but the queue moves every 1.4 s, so W2 runs.
+sh "$SCRIPT" --holder H -- sleep 1.4 &
+mh=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder W1 --progress "$TMP/m1.wait" --wait-max 20 -- sleep 1.4 &
+m1=$!
+until_ok test -s "$TMP/m1.wait"
+JUEL_GATE_LOCK_POLL=0.05 sh "$SCRIPT" --holder W2 --wait-max 2.2 -- sh -c "echo ran > '$TMP/m2.ran'" 2>/dev/null; rc=$?
+wait "$mh" "$m1"
+[ "$rc" -eq 0 ] && [ -f "$TMP/m2.ran" ] && pass "#97 a waiter whose queue keeps moving outlives --wait-max" || fail "#97 a moving queue timed out (rc=$rc)"
+# 34. A queue that never moves still gives up: H2 runs 3 s, W3 waits behind it, and W4, behind W3
+#     with --wait-max 1, exits 75 naming H2 and leaves no ticket.
+sh "$SCRIPT" --holder H2 -- sleep 3 &
+mh2=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder W3 --progress "$TMP/m3.wait" --wait-max 20 -- true &
+m3=$!
+until_ok test -s "$TMP/m3.wait"
+t0=$(date +%s)
+sh "$SCRIPT" --holder W4 --wait-max 1 -- sh -c "echo ran > '$TMP/m4.ran'" 2> "$TMP/m4.err"; rc=$?
+t1=$(date +%s)
+wait "$mh2" "$m3"
+[ "$rc" -eq 75 ] && [ ! -e "$TMP/m4.ran" ] && [ $((t1 - t0)) -le 3 ] && grep -q 'busy, held by H2' "$TMP/m4.err" && [ "$(tickets)" -eq 0 ] && pass "#97 a queue that never moves still gives up after --wait-max" || fail "#97 a stuck queue (rc=$rc, $((t1 - t0))s: $(cat "$TMP/m4.err"))"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
