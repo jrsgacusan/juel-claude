@@ -53,8 +53,13 @@
 # "Gate: claude:<model> <effort> (fallback: <why>)". A fallback that did not review is
 # "ERROR gate-down <why>", and so is gate.fallback null: a non-zero exit, no output, output that is
 # not JSON, "is_error" true, a "subtype" other than success, an empty result, or any entry in
-# "permission_denials". claude -p exits 0 and answers in prose when a tool is denied, and that
-# prose has no tag to read, so a denial is never taken for a clean review. An ERROR reason is one
+# "permission_denials" on the second try. claude -p exits 0 and answers in prose when a tool is
+# denied, and that prose has no tag to read, so a denial is never taken for a clean review. A run
+# whose only failure is a denial runs once more in the same round (#100), its prompt ending with
+# one line per denied command: "Your previous run was denied: <command>. Run it again as one plain
+# command, single-quoting any argument that holds a shell metacharacter, or read the file with
+# Read." The second run's result is the one read, and the first run's output stays in
+# <item>-r<k>.log under "--- stdout", beside the second's. An ERROR reason is one
 # line: its whitespace is collapsed, since it can quote model text. Anything else is ERROR,
 # so a review the gate cannot read is never SAFE: any other codex failure, an empty review, an
 # output whose first line starts with "error" (any case) or "⚠" (codex printed a failure and still
@@ -155,6 +160,9 @@ FORMAT = ("Write the review as plain text: first one short paragraph with your o
           "||: any other command is refused, and a refused command fails the review. Single-quote any argument "
           "that holds a shell metacharacter (`& | ; < > ( ) [ ] * ? $`), and never use `$(…)`. Write nothing "
           "else, and change nothing.")
+# the line a fallback run's prompt gets for each command its previous run was denied (#100)
+DENIED = ("Your previous run was denied: {}. Run it again as one plain command, single-quoting any argument that "
+          "holds a shell metacharacter, or read the file with Read.")
 try:
     PAUSE = float(os.environ.get("CODEX_GATE_SLEEP", "1"))
 except ValueError:
@@ -556,8 +564,10 @@ def codex_cmd(m, e):
             "-c", 'sandbox_mode="read-only"', "-c", "mcp_servers={}"]
 
 
-def claude_cmd(m, e):
-    return ["claude", "-p", prompt, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
+def claude_cmd(m, e, denied=()):
+    """claude -p on the round's prompt; after a denial, the prompt ends with one line per denied command (#100)."""
+    asked = prompt.rstrip("\n") + "\n\n" + "\n".join(DENIED.format(d) for d in denied) + "\n" if denied else prompt
+    return ["claude", "-p", asked, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
             "--add-dir", home, *([o["evidence"]] if o.get("evidence") else []),
             "--allowedTools", *read_only(*worktree_paths()),
             "--disallowedTools", "Edit", "Write", "NotebookEdit", *NO_WRITE,
@@ -622,6 +632,12 @@ def attempt(cmd, label, agent, model_):
     return rc, open(raw_path, encoding="utf-8", errors="replace").read(), tail
 
 
+def keep_output(text):
+    """Appends a run's stdout to the round's log under "--- stdout", before the round runs the agent again (#100)."""
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write("--- stdout\n" + text + ("" if not text or text.endswith("\n") else "\n"))
+
+
 def refusal(text):
     """The first line, when it reports a failure although the run exited 0 ("error…", "API Error…", "⚠")."""
     first = next((l.strip() for l in text.splitlines() if l.strip()), "")
@@ -629,9 +645,10 @@ def refusal(text):
 
 
 def claude_review(rc, text, tail):
-    """(review, None) when claude -p reviewed, else (None, why) (#64). claude -p exits 0 and answers in
-    prose when a tool is denied, so the JSON result decides: an error, a denial or output that is not
-    JSON is a fallback that did not review, whatever the prose says."""
+    """(review, None, []) when claude -p reviewed, else (None, why, denied) (#64). claude -p exits 0 and
+    answers in prose when a tool is denied, so the JSON result decides: an error, a denial or output that
+    is not JSON is a fallback that did not review, whatever the prose says. denied names what each
+    permission denial asked for, one line each, when a denial is the run's only failure (#100)."""
     try:
         d = json.loads(text)
     except ValueError:
@@ -639,22 +656,27 @@ def claude_review(rc, text, tail):
     if not isinstance(d, dict):
         first = next((l.strip() for l in text.splitlines() if l.strip()), "")
         return None, ("unreadable output: " + first[:120] if first and rc == 0
-                      else last_line(tail) or ("empty review" if rc == 0 else f"exit {rc}"))
+                      else last_line(tail) or ("empty review" if rc == 0 else f"exit {rc}")), []
     result = d.get("result") if isinstance(d.get("result"), str) else ""
     denied = d.get("permission_denials")
     if rc != 0 or d.get("is_error") or d.get("subtype") != "success":
-        return None, last_line(result) or last_line(tail) or str(d.get("subtype") or f"exit {rc}")
+        return None, last_line(result) or last_line(tail) or str(d.get("subtype") or f"exit {rc}"), []
     if not isinstance(denied, list):
-        return None, "unreadable output: no permission_denials"
+        return None, "unreadable output: no permission_denials", []
     if denied:
-        first = denied[0] if isinstance(denied[0], dict) else {}
-        asked_for = first.get("tool_input") if isinstance(first.get("tool_input"), dict) else {}
-        what = " ".join(str(asked_for.get("command") or asked_for.get("file_path") or asked_for.get("pattern")
-                            or "").split())
-        return None, f"{first.get('tool_name') or 'a tool'} was denied" + (f": {what}" if what else "")
+        named = []
+        for entry in denied:
+            entry = entry if isinstance(entry, dict) else {}
+            asked_for = entry.get("tool_input") if isinstance(entry.get("tool_input"), dict) else {}
+            what = " ".join(str(asked_for.get("command") or asked_for.get("file_path") or asked_for.get("pattern")
+                                or "").split())
+            named.append((entry.get("tool_name") or "a tool", what))
+        tool, what = named[0]
+        why = f"{tool} was denied" + (f": {what}" if what else "")
+        return None, why, list(dict.fromkeys(w or t for t, w in named))
     if not result.strip():
-        return None, "empty review"
-    return result, None
+        return None, "empty review", []
+    return result, None, []
 
 
 def write_run(pid, agent, model_):
@@ -718,11 +740,18 @@ if model is not None:
 if used is None:
     if fb is None:
         error(f"gate-down {short}: {why}; no fallback is set")
-    rc, text, tail = attempt(claude_cmd(fb["model"], fb["effort"]), f"claude {fb['model']} {fb['effort']}",
-                             "claude", fb["model"])
+    label = f"claude {fb['model']} {fb['effort']}"
+    rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"]), label, "claude", fb["model"])
     if rc < 0:
         error(f"claude review stopped by signal {-rc}")
-    text, failed = claude_review(rc, text, tail)
+    text, failed, denied = claude_review(rc, output, tail)
+    if denied:  # once more in the same round, told what was denied; a second denial is gate-down (#100)
+        keep_output(output)
+        rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"], denied), label + " (again, after a denial)",
+                                   "claude", fb["model"])
+        if rc < 0:
+            error(f"claude review stopped by signal {-rc}")
+        text, failed, _ = claude_review(rc, output, tail)
     if failed:
         error(f"gate-down {short}: {why}; claude: {failed[:160]}")
     with open(raw_path, "w", encoding="utf-8") as f:  # the raw file holds the review, not the JSON around it

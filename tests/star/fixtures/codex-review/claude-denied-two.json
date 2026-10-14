@@ -1,0 +1,30 @@
+{
+ "type": "result",
+ "subtype": "success",
+ "is_error": false,
+ "duration_ms": 41873,
+ "num_turns": 3,
+ "result": "Two commands were refused, so I could not compare package.json or list docs/decisions.",
+ "stop_reason": "end_turn",
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "total_cost_usd": 0.31,
+ "permission_denials": [
+  {
+   "tool_name": "Bash",
+   "tool_use_id": "toolu_04",
+   "tool_input": {
+    "command": "git diff --word-diff=porcelain --word-diff-regex=[^[:space:]&]+ origin/main...HEAD -- package.json",
+    "description": "Word diff of package.json"
+   }
+  },
+  {
+   "tool_name": "Bash",
+   "tool_use_id": "toolu_05",
+   "tool_input": {
+    "command": "git ls-tree --name-only origin/dev docs/decisions/",
+    "description": "List the decision records"
+   }
+  }
+ ],
+ "terminal_reason": "completed"
+}
