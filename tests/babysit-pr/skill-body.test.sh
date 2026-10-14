@@ -293,5 +293,11 @@ crow "#102f and the report carries the NOTE" 'NOTE: no CI ran on head <sha7> (PR
 printf '%s\n' "$ci_row" | grep -qF 'and "this repo has no CI" after that' && fail "#102g a head with no checks is no longer read as no CI" || pass "#102g a head with no checks is no longer read as no CI"
 report_row=$(grep -F '| Phase 5 report |' "$SKILL")
 printf '%s\n' "$report_row" | grep -qF '`NOTE: no CI ran on head <sha7> (PR DIRTY)` once' && pass "#102h the report lists the NOTE" || fail "#102h the report lists the NOTE"
+g "#105a Phase 1 checks for missing dependencies before any gate" 'Then, before any gate runs, check for missing dependencies'
+g "#105b it runs the install once" 'When one is missing, run the install command once'
+g "#105c a failed install is gate-unavailable" 'reason=gate-unavailable needs=dependencies did not install: <one line>'
+gates_row=$(grep -F '| gates run directly |' "$SKILL")
+printf '%s\n' "$gates_row" | grep -qF 'Exit 71 with `dependencies are not installed` in its message: run the install command once' && pass "#105d exit 71 for missing dependencies installs once" || fail "#105d exit 71 for missing dependencies installs once"
+printf '%s\n' "$gates_row" | grep -qF 'a second 71 is the `gate-unavailable` escalation' && pass "#105e a second 71 is gate-unavailable" || fail "#105e a second 71 is gate-unavailable"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
