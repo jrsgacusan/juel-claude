@@ -11,7 +11,12 @@
 #   unchecked the plan names no files
 # "Changed" is every path that differs between <base sha> and the working tree, committed or not,
 # deletions included (git diff --no-renames --name-only <base>), plus untracked files git does not
-# ignore. A **Files:** entry is a line that starts with Create:, Modify:, Test: or Delete: (after
+# ignore. When a merge commit sits on HEAD's first-parent line since <base sha> (the base branch
+# merged in mid-build), "changed" is only what the branch did itself (#106): the paths its own
+# non-merge commits touched (git log --first-parent --no-merges --no-renames --name-only
+# <base>..HEAD), every path that differs from HEAD, and the untracked files; a path only a merge
+# changed is never listed.
+# A **Files:** entry is a line that starts with Create:, Modify:, Test: or Delete: (after
 # an optional list marker). Its paths are the backticked ones; a line with no backticks names the
 # first whitespace-delimited token after the keyword. A ":<lines>" suffix is dropped, and so is a
 # "::<anything>" suffix (a pytest node id such as tests/test_b.py::test_foo). A path ending in "/"
@@ -102,16 +107,18 @@ if record is None and git(top, "rev-parse", "--verify", "--quiet", f"{base}^{{co
     die(64, f"{base} is not a commit")
 
 
+def listed(*cmd):
+    """The NUL-separated paths one git command prints."""
+    rc, out = git(top, *cmd)
+    if rc != 0:
+        die(64, f"git {cmd[0]} failed in {top}")
+    return {p for p in out.split("\0") if p}
+
+
 def changed_since(rev):
     """Every path that differs from <rev> in the working tree, plus the untracked files git does not ignore."""
-    paths = set()
-    for cmd in (("diff", "--no-renames", "--name-only", "-z", rev),
-                ("ls-files", "--others", "--exclude-standard", "-z")):
-        rc, out = git(top, *cmd)
-        if rc != 0:
-            die(64, f"git {cmd[0]} failed in {top}")
-        paths.update(p for p in out.split("\0") if p)
-    return paths
+    return (listed("diff", "--no-renames", "--name-only", "-z", rev)
+            | listed("ls-files", "--others", "--exclude-standard", "-z"))
 
 
 if record is not None:
@@ -170,7 +177,17 @@ if where == "":
 elif where is not None:
     skip_folders.append(where + "/")
 
-outside = sorted(p for p in changed_since(base)
+rc, out = git(top, "rev-list", "--first-parent", "--merges", f"{base}..HEAD")
+if rc != 0:
+    die(64, f"git rev-list failed in {top}")
+merges = out.split()
+if merges:
+    # the base was merged in since <base>: count only what the branch did itself (#106)
+    changed = changed_since("HEAD") | listed("log", "--first-parent", "--no-merges", "--no-renames",
+                                             "--format=", "--name-only", "-z", f"{base}..HEAD")
+else:
+    changed = changed_since(base)
+outside = sorted(p for p in changed
                  if p not in skip_files and not any(p.startswith(d) for d in skip_folders)
                  and p not in files and not any(p.startswith(d) for d in folders))
 for p in outside:

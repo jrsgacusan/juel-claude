@@ -185,5 +185,50 @@ EOF
 out=$(cd "$TMP" && sh "$SCRIPT" "$R2/docs/plans/node.md" "$BASE2" --before "$BEFORE" --repo-dir "$R2"); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "ok" ] && pass "#78 a ::<node id> suffix is dropped, backticked or bare" || fail "#78 :: suffix (rc=$rc: $out)"
 
+# lane e: #106 a base merged in mid-build is not the executor's work; what the branch did itself still counts
+R3="$TMP/repo3"
+k() { git -C "$R3" "$@"; }
+mkdir -p "$R3/src" "$R3/docs/plans"
+git -c init.defaultBranch=main init -q "$R3"
+k config user.email t@example.com; k config user.name t; k config commit.gpgsign false
+for f in a b c d e early; do printf '%s\n' "$f" > "$R3/src/$f.sh"; done
+cat > "$R3/docs/plans/m.md" <<'EOF'
+### Task 1: one
+
+**Files:**
+- Modify: `src/a.sh`
+EOF
+k add -A; k commit -qm base
+k switch -q -c feat
+# An earlier fix round's commit, made before this plan's base was recorded: never this plan's to check.
+printf 'early2\n' > "$R3/src/early.sh"; k commit -qam "earlier fix round"
+BASE3=$(k rev-parse HEAD)
+check3() { (cd "$TMP" && sh "$SCRIPT" "$R3/docs/plans/m.md" "$BASE3" --repo-dir "$R3"); }
+# 11. No merge in the range: the output is today's, so a change one commit made and a later one put
+#     back is not listed (on a throwaway branch, so feat stays clean).
+k switch -q -c undo
+printf 'c2\n' > "$R3/src/c.sh"; k commit -qam "c changed"
+printf 'c\n' > "$R3/src/c.sh"; k commit -qam "c put back"
+out=$(check3); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "ok" ] && pass "#106 no merge in the range: a change put back is not listed, as today" || fail "#106 no merge, put back (rc=$rc: $out)"
+k switch -q feat
+# 12. A branch commit, then the base moves and is merged in: the files only the base changed are not listed.
+printf 'a2\n' > "$R3/src/a.sh"; k commit -qam "task 1"
+k switch -q main
+printf 'b-main\n' > "$R3/src/b.sh"; printf 'd-main\n' > "$R3/src/d.sh"; printf 'm\n' > "$R3/src/m.sh"
+k add -A; k commit -qm "the base moves"
+k switch -q feat; k merge -q --no-ff --no-edit main
+out=$(check3); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "ok" ] && pass "#106 a branch commit, then the base merged in: ok" || fail "#106 base merged in (rc=$rc: $out)"
+# 13. What the branch did itself still counts (Review Focus 4): an unnamed commit and a rename (both
+#     names, as today), made between two base merges. The earlier round's src/early.sh is not listed.
+printf 'c2\n' > "$R3/src/c.sh"; k commit -qam "widened"
+k mv src/e.sh src/e2.sh; k commit -qm "renamed"
+k switch -q main; printf 'n\n' > "$R3/src/n.sh"; k add -A; k commit -qm "the base moves again"
+k switch -q feat; k merge -q --no-ff --no-edit main
+out=$(check3); rc=$?
+want=$(printf 'outside src/c.sh\noutside src/e.sh\noutside src/e2.sh')
+[ "$rc" -eq 1 ] && [ "$out" = "$want" ] && pass "#106 the branch's own commits still count across base merges; an earlier round's do not" || fail "#106 own commits across merges (rc=$rc: $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
