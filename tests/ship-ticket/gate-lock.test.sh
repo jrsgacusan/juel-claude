@@ -306,6 +306,30 @@ sh "$SCRIPT" --holder S10 --wait-max 0 -- true 2>/dev/null; rc=$?
 wait "$s9"
 rm -f "$LOCK.slots"
 [ "$rc" -eq 75 ] && pass "#97 a slot count outside 1 to 4 reads as 1" || fail "#97 out-of-range slot count (rc=$rc)"
+# 33. --wait-max counts from the last time the queue ahead moved: W2 waits about 2.8 s behind H and
+#     W1, longer than its --wait-max 2.2, but the queue moves every 1.4 s, so W2 runs.
+sh "$SCRIPT" --holder H -- sleep 1.4 &
+mh=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder W1 --progress "$TMP/m1.wait" --wait-max 20 -- sleep 1.4 &
+m1=$!
+until_ok test -s "$TMP/m1.wait"
+JUEL_GATE_LOCK_POLL=0.05 sh "$SCRIPT" --holder W2 --wait-max 2.2 -- sh -c "echo ran > '$TMP/m2.ran'" 2>/dev/null; rc=$?
+wait "$mh" "$m1"
+[ "$rc" -eq 0 ] && [ -f "$TMP/m2.ran" ] && pass "#97 a waiter whose queue keeps moving outlives --wait-max" || fail "#97 a moving queue timed out (rc=$rc)"
+# 34. A queue that never moves still gives up: H2 runs 3 s, W3 waits behind it, and W4, behind W3
+#     with --wait-max 1, exits 75 naming H2 and leaves no ticket.
+sh "$SCRIPT" --holder H2 -- sleep 3 &
+mh2=$!
+until_ok test -s "$LOCK"
+sh "$SCRIPT" --holder W3 --progress "$TMP/m3.wait" --wait-max 20 -- true &
+m3=$!
+until_ok test -s "$TMP/m3.wait"
+t0=$(date +%s)
+sh "$SCRIPT" --holder W4 --wait-max 1 -- sh -c "echo ran > '$TMP/m4.ran'" 2> "$TMP/m4.err"; rc=$?
+t1=$(date +%s)
+wait "$mh2" "$m3"
+[ "$rc" -eq 75 ] && [ ! -e "$TMP/m4.ran" ] && [ $((t1 - t0)) -le 3 ] && grep -q 'busy, held by H2' "$TMP/m4.err" && [ "$(tickets)" -eq 0 ] && pass "#97 a queue that never moves still gives up after --wait-max" || fail "#97 a stuck queue (rc=$rc, $((t1 - t0))s: $(cat "$TMP/m4.err"))"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -50,8 +50,10 @@
 # in JUEL_GATE_LOCK_HELD and its slot's file holds it for as long as that gate runs, so a value a
 # process kept after its gate ended, or carried into another lock, proves nothing and is ignored.
 #
-# Waiting: polls every JUEL_GATE_LOCK_POLL seconds (default 5) for at most --wait-max seconds
-# (default 3600). Running: a command still going after --max-seconds (default 7200; 0 = no limit) is stopped
+# Waiting: polls every JUEL_GATE_LOCK_POLL seconds (default 5), and gives up when the queue ahead
+# has not moved for --wait-max seconds (default 3600). Moving means a ticket ahead left the queue
+# or a slot's holder line changed, so a long queue that keeps moving never times out (#97).
+# Running: a command still going after --max-seconds (default 7200; 0 = no limit) is stopped
 # like a TERM, so one hung test runner cannot hold every project's gate for good.
 #
 # With --progress <file>, a gate that has to wait appends one line to <file> when the wait starts,
@@ -62,9 +64,10 @@
 # that cannot be written is skipped: the progress line never stops a gate.
 #
 # Exit status: the command's own (128+n when a signal ended it, 127 when it could not start).
-# The wrapper's own codes never mean "the gate is red": 75 with "gate-lock.sh: busy, held by ..."
-# when the lock stayed busy; 124 with "ran past" when --max-seconds ended the command; 71 when
-# the gate could not run at all (a lock file or the queue cannot be opened or locked); 64 on bad usage.
+# The wrapper's own codes never mean "the gate is red": 75 with "gate-lock.sh: busy, held by
+# <slot 1's holder>" when the queue ahead did not move for --wait-max seconds; 124 with "ran past"
+# when --max-seconds ended the command; 71 when the gate could not run at all (a lock file or the
+# queue cannot be opened or locked); 64 on bad usage.
 exec python3 - "$@" <<'PY'
 import fcntl
 import re
@@ -329,14 +332,20 @@ if scan(None) == 0:  # no one queued: a free slot is ours at once, and nothing i
 if slot is None:
     ticket = take_ticket()  # anyone already queued goes first, even when a slot is free right now
     next_note = None  # when the next progress line is due: None until the gate first has to wait
+    moved, last = start, None  # when the queue ahead last moved, and what the previous poll saw
     while True:
         n = slot_count()
-        if scan(ticket[1]) < n:  # with n slots, the first n tickets in the queue may try
+        ahead = scan(ticket[1])
+        if ahead < n:  # with n slots, the first n tickets in the queue may try
             slot = try_slots(n)
             if slot is not None:
                 break
         now = time.monotonic()
-        left = wait_max - (now - start)
+        holders = [head(slot_path(i)) for i in range(1, SLOT_MAX + 1)]
+        if last is not None and (ahead < last[0] or holders != last[1]):
+            moved = now  # a ticket ahead left, or a slot changed hands: the queue is moving
+        last = (ahead, holders)
+        left = wait_max - (now - moved)
         if left <= 0:
             leave_queue(ticket)
             die(75, f"busy, held by {head(slot_path(1)).strip() or 'another gate'}")
