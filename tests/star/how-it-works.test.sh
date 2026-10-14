@@ -120,7 +120,7 @@ grep -qF 'set <code>tokenCmd</code> in <code>star.json</code> once' "$PAGE" && p
 grep -qF 'once any person-only step the narrowed brief adds is done, even under your go' "$PAGE" && pass "LH2 the re-scope waits for its person-only steps (#101)" || fail "LH2 re-scope steps on the page"
 grep -qF 'A file-name or id form is named only by quoting the check that enforces it' "$PAGE" && pass "LH3 a brief names a form only from the repo's own check (#107)" || fail "LH3 name forms on the page"
 grep -qF 'goes into the brief'"'"'s decisions before it is sent' "$PAGE" && pass "LH3 a standing rule is logged before it is sent (#99)" || fail "LH3 standing rules on the page"
-grep -qF '(a session Orca reports released is ended, never held)' "$PAGE" && pass "LH4 a released session is ended (#95)" || fail "LH4 released session on the page"
+grep -qF '(a session Orca reports released with no retained reason is ended; one a person kept is still kept or held)' "$PAGE" && pass "LH4 a released session is ended (#95)" || fail "LH4 released session on the page"
 grep -qF 'The full regression gate and every live check run once per PR, before the first draft push.' "$PAGE" && pass "LH5 the full gate runs once per PR (#102)" || fail "LH5 gate once on the page"
 grep -qF 'plus a sweep that runs every test file once' "$PAGE" && pass "LH5 later pushes run the sweep (#102)" || fail "LH5 sweep on the page"
 grep -qF 'A head GitHub ran no CI on, while the PR does not conflict, comes to you.' "$PAGE" && pass "LH5 a head with no CI comes to you (#102)" || fail "LH5 ci-missing on the page"
@@ -130,5 +130,8 @@ grep -qF 'after 3 NOT-SAFE rounds in a row or a second Greptile pass' "$PAGE" &&
 grep -qF 'In babysit the count starts over at each SAFE round and each push' "$PAGE" && pass "LH6 a base merge after a SAFE round gets a fresh budget (#108)" || fail "LH6 round budget on the page"
 grep -qF 'a direct verdict supersedes a carry' "$PAGE" && pass "LH7 a direct PASS supersedes a carried one (#104)" || fail "LH7 direct receipt on the page"
 grep -qF 'git'"'"'s read-only commands (a denied run is retried once in the same round)' "$PAGE" && pass "LH7 the fallback's git reads and its retry (#100)" || fail "LH7 fallback reads on the page"
+# fix: a released session a person kept is still kept or held (#95)
+grep -qF 'ended, never held' "$PAGE" && fail "F95 the page no longer says a released session is never held" || pass "F95 the page no longer says a released session is never held"
+grep -qF 'one a person kept is still kept or held' "$PAGE" && pass "F95 the page says a released session a person kept is still kept or held" || fail "F95 released session a person kept on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
