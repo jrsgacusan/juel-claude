@@ -67,7 +67,10 @@ chmod +x "$TMP/bin/codex" "$TMP/bin/gh"
 cat > "$TMP/bin/claude" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUB_DIR/claude-calls"
-line=$(sed -n 1p "$STUB_DIR/claude-plan" 2>/dev/null)
+# the plan's line n serves the n-th call since reset; past its end, its last line serves again
+n=$(($(cat "$STUB_DIR/claude-n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$STUB_DIR/claude-n"
+line=$(sed -n "${n}p" "$STUB_DIR/claude-plan" 2>/dev/null)
+[ -n "$line" ] || line=$(sed -n '$p' "$STUB_DIR/claude-plan" 2>/dev/null)
 [ -n "$line" ] || { echo "no claude plan" >&2; exit 9; }
 rc=${line%% *}; rest=${line#* }; fixture=${rest%% *}; err=${rest#"$fixture"}
 # claude -p --output-format json prints one JSON object; a <name>.txt fixture is wrapped as a clean result,
@@ -85,9 +88,9 @@ esac
 exit "$rc"
 EOF
 chmod +x "$TMP/bin/claude"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/claude-n" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
-cplan() { printf '%s\n' "$1" > "$TMP/claude-plan"; }
+cplan() { printf '%s\n' "$@" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
 # GF reads the fixtures a test writes into $TMP/fix instead of the shared ones
 GF() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -540,5 +543,75 @@ G --item ITEM-1 --round 1 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "no
 G --brief "$BRIEF" --item ITEM-1 --round 0 --base main >/dev/null 2>&1; [ $? -eq 64 ] && pass "round 0 is 64" || fail "usage round"
 G post-pass --pr x --round 1 --head abc >/dev/null 2>&1; [ $? -eq 64 ] && pass "post-pass needs the full head" || fail "usage head"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --fallback latest-sol >/dev/null 2>&1; [ $? -eq 64 ] && pass "--fallback is gone: the fallback is star.json's gate.fallback" || fail "usage fallback"
+
+# lane c: the fallback's read rules and its quoting rule (#100)
+dash_c() { r=$1; shift; for s in "$@"; do printf ' Bash(git -C %s %s) Bash(git -C %s %s *)' "$r" "$s" "$r" "$s"; done; }
+rules() { # rules <command>...: "git <command> *" for each, then its two -C rules for the real path and, when $PWD differs, for $PWD
+  for s in "$@"; do printf ' Bash(git %s *)' "$s"; done
+  dash_c "$APPREAL" "$@"
+  [ "$APP" = "$APPREAL" ] || dash_c "$APP" "$@"
+}
+reset; plan "1 - You've hit your usage limit."; cplan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+call=$(grep -F -- '--allowedTools' "$TMP/claude-calls")
+allowed=$(printf '%s\n' "$call" | sed -e 's/.*--allowedTools //' -e 's/ --disallowedTools.*//')
+want="Read Grep Glob$(rules diff show log)$(rules ls-tree ls-files rev-parse merge-base cat-file '--no-pager diff' '--no-pager show' '--no-pager log' '-P diff' '-P show' '-P log')"
+[ "$allowed" = "$want" ] && pass "the fallback may also run git ls-tree, ls-files, rev-parse, merge-base and cat-file, and diff, show and log with the pager off, each also under -C (#100)" || fail "allow rules ($allowed)"
+! printf '%s\n' "$allowed" | grep -qE 'git (-C [^ ]+ )?(-c|grep)[ )]' && pass "no git -c rule and no git grep rule (#100)" || fail "git -c or git grep allowed ($allowed)"
+printf '%s\n' "$call" | grep -qF -- '--disallowedTools Edit Write NotebookEdit Bash(git * --output*) --output-format json' && pass "the --output deny rule stays (#100)" || fail "deny rule ($call)"
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Single-quote any argument that holds a shell metacharacter (`& | ; < > ( ) [ ] * ? $`), and never use `$(…)`.' && pass "the fallback is told to single-quote a shell metacharacter (#100)" || fail "quoting rule ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, git rev-parse, git merge-base and git cat-file, one command per call' && pass "the fallback is told it may also use git ls-tree, ls-files, rev-parse, merge-base and cat-file (#100)" || fail "tool list ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
+
+# lane c: a denied fallback run is asked once more inside the round (#100)
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "one denial, then a clean run in the same round, gives a verdict (#100)" || fail "denial then clean ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
+grep -qxF 'Your previous run was denied: git diff --word-diff=porcelain --word-diff-regex=[^[:space:]&]+ origin/main...HEAD -- package.json. Run it again as one plain command, single-quoting any argument that holds a shell metacharacter, or read the file with Read.' "$TMP/claude-calls" \
+  && grep -qxF 'Your previous run was denied: git ls-tree --name-only origin/dev docs/decisions/. Run it again as one plain command, single-quoting any argument that holds a shell metacharacter, or read the file with Read.' "$TMP/claude-calls" \
+  && [ "$(grep -c '^Your previous run was denied: ' "$TMP/claude-calls")" = 2 ] \
+  && pass "the second run's prompt names each denied command on a line of its own, and the first run's names none (#100)" || fail "retry prompt ($(grep 'denied' "$TMP/claude-calls"))"
+L1="$H/reviews/app/ITEM-1-r1.log"
+[ "$(grep -c '^--- claude opus xhigh' "$L1")" = 2 ] && grep -q '^--- stdout$' "$L1" && grep -qF 'git ls-tree --name-only origin/dev docs/decisions/' "$L1" && pass "the denied run's output stays in the round's log, beside the second run's (#100)" || fail "first run's log ($(cat "$L1"))"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 claude-denied.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: Bash was denied: git -C /repo diff main...HEAD" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && [ ! -f "$R1" ] \
+  && [ "$(grep -c '^--- stdout$' "$H/reviews/app/ITEM-1-r1-error-1.log")" = 2 ] && grep -qF 'origin/dev docs/decisions/' "$H/reviews/app/ITEM-1-r1-error-1.log" \
+  && pass "a second denial is gate-down, read from the second run, with both runs kept in the error log (#100)" || fail "two denials ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-is-error.json" "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: API Error: 529 Overloaded" ] && [ "$(cat "$TMP/claude-n")" = 1 ] && pass "a fallback failure that is not a denial is gate-down at once, with no second run (#100)" || fail "no retry without a denial ($rc $out)"
+
+# lane c: a direct post-pass is already done only over a direct receipt for the same head (#104)
+receipts_pr() { # receipts_pr <first line>...: a PR on $NEWHEAD whose author left one two-line receipt per argument, the n-th at #issuecomment-<n + 6>
+  n=6; comments=""
+  for line in "$@"; do n=$((n + 1)); comments="$comments${comments:+,}{\"author\":{\"login\":\"me\"},\"body\":\"$line\\nVERDICT: PASS\",\"url\":\"https://github.com/o/r/pull/5#issuecomment-$n\"}"; done
+  printf '{"author":{"login":"me"},"baseRefName":"main","headRefOid":"%s","url":"https://github.com/o/r/pull/5","comments":[%s]}\n' "$NEWHEAD" "$comments" > "$TMP/pr.json"
+}
+CARRIED_LINE="Codex gate: PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh, carried from 1111111111111111111111111111111111111111: merge of origin/main with no conflicts)"
+OWNER_LINE="Codex gate: PASS (head $NEWHEAD, round 3, gpt-6.1-sol xhigh, carried by owner decision N-12: findings deferred)"
+DIRECT_LINE="Codex gate: PASS (head $NEWHEAD, round 3, claude:opus xhigh)"
+reset; receipts_pr "$CARRIED_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && [ "$(cat "$TMP/body" 2>/dev/null)" = "$(printf 'Codex gate: PASS (head %s, round 4, gpt-6.1-sol xhigh)\nVERDICT: PASS' "$NEWHEAD")" ] && pass "a direct post-pass posts its receipt over a carried one: a direct verdict supersedes a carry (#104)" || fail "direct over carried ($out)"
+reset; receipts_pr "$OWNER_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && pass "an owner-decision carry does not stop a direct receipt on the same head (#104)" || fail "direct over owner carry ($out)"
+reset; receipts_pr "$DIRECT_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "a direct receipt for the head is already there, whatever its round and model (#104)" || fail "direct over direct ($out)"
+reset; receipts_pr "$CARRIED_LINE" "$OWNER_LINE" "$DIRECT_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "already https://github.com/o/r/pull/5#issuecomment-9" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "with carried and direct receipts on the head, a direct post-pass is already done, naming the direct one (Review Focus 5)" || fail "carried and direct ($out)"
+reset; receipts_pr "Codex gate: PASS (head 0000000000000000000000000000000000000000, round 3, gpt-6.1-sol xhigh)" "Codex gate: PASS (head $(printf '%.7s' "$NEWHEAD"), round 3, gpt-6.1-sol xhigh)" "$CARRIED_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 4 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && pass "a direct receipt on another head, or on this head's short form, does not count (Review Focus 5)" || fail "direct receipt on another head ($out)"
+reset; mkdir -p "$H/reviews/app"; review_file "$RN" "VERDICT item=ITEM-1 round=3 NOT-SAFE findings=1 head=$NEWHEAD"
+printf 'CARRIED item=ITEM-1 round=3 head=%s from=ITEM-1-r3.md decision=N-12\nship it\nDeferred: the findings in ITEM-1-r3.md\n' "$NEWHEAD" > "$RC"
+receipts_pr "$DIRECT_LINE"
+out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD" --review "$RC")
+receipts_pr "$CARRIED_LINE"
+out2=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD" --review "$RC")
+[ "$out" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && [ "$out2" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "a carried post-pass keeps today's rule: any receipt on the head is already there (#104)" || fail "carried post-pass ($out / $out2)"
+reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

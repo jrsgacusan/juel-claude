@@ -44,15 +44,22 @@
 # tries, at once on a usage limit, or when the model does not resolve, the same prompt runs
 # through star.json's gate.fallback, {"agent": "claude", "model": "opus", "effort": "xhigh"} by
 # default (a string there, v2.0.0's codex fallback, means that default; "agent" must be claude):
-# claude -p --output-format json with read-only tools (Read, Grep, Glob, and git diff, git show
-# and git log, also as git -C <this worktree's path> <command>, the path literal; --output is refused),
-# access to <home>, an appended system prompt that fixes the finding format, no MCP server and no
+# claude -p --output-format json with read-only tools (Read, Grep, Glob; git diff, git show and
+# git log, also after --no-pager or -P; git ls-tree, ls-files, rev-parse, merge-base and cat-file
+# (#100); each also as git -C <this worktree's path> <command>, the path literal; never git -c or
+# git grep; --output is refused), access to <home>, an appended system prompt that fixes the
+# finding format and says to single-quote a shell metacharacter (#100), no MCP server and no
 # saved session. The JSON's "result" is the review, read by the same rules, and the review's line is
 # "Gate: claude:<model> <effort> (fallback: <why>)". A fallback that did not review is
 # "ERROR gate-down <why>", and so is gate.fallback null: a non-zero exit, no output, output that is
 # not JSON, "is_error" true, a "subtype" other than success, an empty result, or any entry in
-# "permission_denials". claude -p exits 0 and answers in prose when a tool is denied, and that
-# prose has no tag to read, so a denial is never taken for a clean review. An ERROR reason is one
+# "permission_denials" on the second try. claude -p exits 0 and answers in prose when a tool is
+# denied, and that prose has no tag to read, so a denial is never taken for a clean review. A run
+# whose only failure is a denial runs once more in the same round (#100), its prompt ending with
+# one line per denied command: "Your previous run was denied: <command>. Run it again as one plain
+# command, single-quoting any argument that holds a shell metacharacter, or read the file with
+# Read." The second run's result is the one read, and the first run's output stays in
+# <item>-r<k>.log under "--- stdout", beside the second's. An ERROR reason is one
 # line: its whitespace is collapsed, since it can quote model text. Anything else is ERROR,
 # so a review the gate cannot read is never SAFE: any other codex failure, an empty review, an
 # output whose first line starts with "error" (any case) or "⚠" (codex printed a failure and still
@@ -62,8 +69,11 @@
 # with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
 # dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
 # post-pass posts two lines on the PR, "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)"
-# and "VERDICT: PASS", the line a project's review rule reads (#84), once per head (a comment by
-# the PR's author that starts "Codex gate: PASS (head <sha>" is already the receipt); --head must
+# and "VERDICT: PASS", the line a project's review rule reads (#84), once per head. A direct call
+# (no --carried-from, and a --review that is not -carried.md) prints already only over a comment by
+# the PR's author whose first line is "Codex gate: PASS (head <sha>, round <n>, <model> <effort>)"
+# for this full head: a direct verdict supersedes a carry (#104). A carried call prints already over
+# any comment by the PR's author that starts "Codex gate: PASS (head <sha>". --head must
 # be the PR's current head, all 40 characters. GitHub can show the previous head
 # for a few seconds after a push, so post-pass reads the PR's head every 5 seconds for up to 90
 # (times CODEX_GATE_SLEEP) until it is --head, and only then refuses (#62). The model and effort are
@@ -115,6 +125,10 @@ PLACED = re.compile(r"^" + BULLET + r"\s+(?!(?:\*\*)?\[P[0-3]\]).*\S\s+(?:[-–�
 USAGE = re.compile(r"usage limit|hit your usage limit|try again at", re.I)
 DEFAULT_FALLBACK = {"agent": "claude", "model": "opus", "effort": "xhigh"}
 SUBCOMMANDS = ("diff", "show", "log")
+# #100: the other read-only commands a review reaches for, and diff, show and log with the pager off. Never
+# "git -c" (it sets any config, diff.external among them) and never "git grep" (its -O runs a command).
+MORE_READS = ("ls-tree", "ls-files", "rev-parse", "merge-base", "cat-file", "--no-pager diff", "--no-pager show",
+              "--no-pager log", "-P diff", "-P show", "-P log")
 
 
 def worktree_paths():
@@ -128,12 +142,14 @@ def worktree_paths():
 
 def read_only(*roots):
     """The fallback's allow rules: Read, Grep, Glob, "git diff|show|log ...", and the same as
-    "git -C <root> diff|show|log ..." for each given path. The path is literal: a "*" there would match a
-    whole subcommand ("git -C x branch diff", "git -C x -c diff.external=<script> diff"). A path with a glob
-    character gets no -C rule."""
-    forms = [f"{sub} *" for sub in SUBCOMMANDS]
-    for root in dict.fromkeys(r for r in roots if r and not any(c in r for c in "*?[")):
-        forms += [f"-C {root} {sub}{more}" for sub in SUBCOMMANDS for more in ("", " *")]
+    "git -C <root> diff|show|log ..." for each given path, then the same for MORE_READS (#100). The path is
+    literal: a "*" there would match a whole subcommand ("git -C x branch diff", "git -C x -c
+    diff.external=<script> diff"). A path with a glob character gets no -C rule."""
+    roots = list(dict.fromkeys(r for r in roots if r and not any(c in r for c in "*?[")))
+    forms = []
+    for commands in (SUBCOMMANDS, MORE_READS):
+        forms += [f"{sub} *" for sub in commands]
+        forms += [f"-C {root} {sub}{more}" for root in roots for sub in commands for more in ("", " *")]
     return ["Read", "Grep", "Glob"] + [f"Bash(git {form})" for form in forms]
 
 
@@ -142,9 +158,14 @@ NO_WRITE = ["Bash(git * --output*)"]
 # codex review has its own output shape; the fallback is told the shape the parser below reads
 FORMAT = ("Write the review as plain text: first one short paragraph with your overall verdict, then each "
           "finding as one bullet line, \"- [P<n>] <title> — <path>:<line>\", with any detail indented on the "
-          "lines below it. Use only Read, Grep, Glob, git diff, git show and git log, one command per call "
-          "with no pipe, redirect, && or ||: any other command is refused, and a refused command fails the "
-          "review. Write nothing else, and change nothing.")
+          "lines below it. Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, "
+          "git rev-parse, git merge-base and git cat-file, one command per call with no pipe, redirect, && or "
+          "||: any other command is refused, and a refused command fails the review. Single-quote any argument "
+          "that holds a shell metacharacter (`& | ; < > ( ) [ ] * ? $`), and never use `$(…)`. Write nothing "
+          "else, and change nothing.")
+# the line a fallback run's prompt gets for each command its previous run was denied (#100)
+DENIED = ("Your previous run was denied: {}. Run it again as one plain command, single-quoting any argument that "
+          "holds a shell metacharacter, or read the file with Read.")
 try:
     PAUSE = float(os.environ.get("CODEX_GATE_SLEEP", "1"))
 except ValueError:
@@ -381,8 +402,13 @@ def post_pass(o):
         reason = " ".join(o["reason"].split())
         clause = f", carried from {gated}: {reason}"
     prefix = f"Codex gate: PASS (head {head}"
+    # a direct verdict supersedes a carry (#104): a direct call counts only a direct receipt for this head, a
+    # carried call (both carry forms set clause) any receipt for it
+    direct = re.compile(re.escape(prefix) + r", round \d+, \S+ \S+\)")
     for c in comments:
-        if (c.get("author") or {}).get("login") == author and str(c.get("body") or "").startswith(prefix):
+        body = str(c.get("body") or "")
+        done = body.startswith(prefix) if clause else direct.fullmatch((body.splitlines() or [""])[0])
+        if (c.get("author") or {}).get("login") == author and done:
             out(f"already {c.get('url') or url}")
     body = f"Codex gate: PASS (head {head}, round {o['round']}, {model} {effort}{clause})\n{verdict}"
     posted = run(["gh", "pr", "comment", o["pr"], "--body", body], 60)
@@ -546,8 +572,10 @@ def codex_cmd(m, e):
             "-c", 'sandbox_mode="read-only"', "-c", "mcp_servers={}"]
 
 
-def claude_cmd(m, e):
-    return ["claude", "-p", prompt, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
+def claude_cmd(m, e, denied=()):
+    """claude -p on the round's prompt; after a denial, the prompt ends with one line per denied command (#100)."""
+    asked = prompt.rstrip("\n") + "\n\n" + "\n".join(DENIED.format(d) for d in denied) + "\n" if denied else prompt
+    return ["claude", "-p", asked, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
             "--add-dir", home, *([o["evidence"]] if o.get("evidence") else []),
             "--allowedTools", *read_only(*worktree_paths()),
             "--disallowedTools", "Edit", "Write", "NotebookEdit", *NO_WRITE,
@@ -612,6 +640,12 @@ def attempt(cmd, label, agent, model_):
     return rc, open(raw_path, encoding="utf-8", errors="replace").read(), tail
 
 
+def keep_output(text):
+    """Appends a run's stdout to the round's log under "--- stdout", before the round runs the agent again (#100)."""
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write("--- stdout\n" + text + ("" if not text or text.endswith("\n") else "\n"))
+
+
 def refusal(text):
     """The first line, when it reports a failure although the run exited 0 ("error…", "API Error…", "⚠")."""
     first = next((l.strip() for l in text.splitlines() if l.strip()), "")
@@ -619,9 +653,10 @@ def refusal(text):
 
 
 def claude_review(rc, text, tail):
-    """(review, None) when claude -p reviewed, else (None, why) (#64). claude -p exits 0 and answers in
-    prose when a tool is denied, so the JSON result decides: an error, a denial or output that is not
-    JSON is a fallback that did not review, whatever the prose says."""
+    """(review, None, []) when claude -p reviewed, else (None, why, denied) (#64). claude -p exits 0 and
+    answers in prose when a tool is denied, so the JSON result decides: an error, a denial or output that
+    is not JSON is a fallback that did not review, whatever the prose says. denied names what each
+    permission denial asked for, one line each, when a denial is the run's only failure (#100)."""
     try:
         d = json.loads(text)
     except ValueError:
@@ -629,22 +664,27 @@ def claude_review(rc, text, tail):
     if not isinstance(d, dict):
         first = next((l.strip() for l in text.splitlines() if l.strip()), "")
         return None, ("unreadable output: " + first[:120] if first and rc == 0
-                      else last_line(tail) or ("empty review" if rc == 0 else f"exit {rc}"))
+                      else last_line(tail) or ("empty review" if rc == 0 else f"exit {rc}")), []
     result = d.get("result") if isinstance(d.get("result"), str) else ""
     denied = d.get("permission_denials")
     if rc != 0 or d.get("is_error") or d.get("subtype") != "success":
-        return None, last_line(result) or last_line(tail) or str(d.get("subtype") or f"exit {rc}")
+        return None, last_line(result) or last_line(tail) or str(d.get("subtype") or f"exit {rc}"), []
     if not isinstance(denied, list):
-        return None, "unreadable output: no permission_denials"
+        return None, "unreadable output: no permission_denials", []
     if denied:
-        first = denied[0] if isinstance(denied[0], dict) else {}
-        asked_for = first.get("tool_input") if isinstance(first.get("tool_input"), dict) else {}
-        what = " ".join(str(asked_for.get("command") or asked_for.get("file_path") or asked_for.get("pattern")
-                            or "").split())
-        return None, f"{first.get('tool_name') or 'a tool'} was denied" + (f": {what}" if what else "")
+        named = []
+        for entry in denied:
+            entry = entry if isinstance(entry, dict) else {}
+            asked_for = entry.get("tool_input") if isinstance(entry.get("tool_input"), dict) else {}
+            what = " ".join(str(asked_for.get("command") or asked_for.get("file_path") or asked_for.get("pattern")
+                                or "").split())
+            named.append((entry.get("tool_name") or "a tool", what))
+        tool, what = named[0]
+        why = f"{tool} was denied" + (f": {what}" if what else "")
+        return None, why, list(dict.fromkeys(w or t for t, w in named))
     if not result.strip():
-        return None, "empty review"
-    return result, None
+        return None, "empty review", []
+    return result, None, []
 
 
 def write_run(pid, agent, model_):
@@ -708,11 +748,18 @@ if model is not None:
 if used is None:
     if fb is None:
         error(f"gate-down {short}: {why}; no fallback is set")
-    rc, text, tail = attempt(claude_cmd(fb["model"], fb["effort"]), f"claude {fb['model']} {fb['effort']}",
-                             "claude", fb["model"])
+    label = f"claude {fb['model']} {fb['effort']}"
+    rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"]), label, "claude", fb["model"])
     if rc < 0:
         error(f"claude review stopped by signal {-rc}")
-    text, failed = claude_review(rc, text, tail)
+    text, failed, denied = claude_review(rc, output, tail)
+    if denied:  # once more in the same round, told what was denied; a second denial is gate-down (#100)
+        keep_output(output)
+        rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"], denied), label + " (again, after a denial)",
+                                   "claude", fb["model"])
+        if rc < 0:
+            error(f"claude review stopped by signal {-rc}")
+        text, failed, _ = claude_review(rc, output, tail)
     if failed:
         error(f"gate-down {short}: {why}; claude: {failed[:160]}")
     with open(raw_path, "w", encoding="utf-8") as f:  # the raw file holds the review, not the JSON around it
