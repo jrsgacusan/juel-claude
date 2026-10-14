@@ -16,19 +16,26 @@
 #                             an open terminal Orca does not prove it owns (<state> is its
 #                             retainedReason, such as user_takeover or identity_unproven, or its
 #                             ownershipState) that printed output in the last 10 minutes; or closing
-#                             the dispatch's own terminal failed ("close failed: <why>"); or, for
-#                             build and babysit, another claude or codex terminal in the worktree
-#                             printed output in the last 10 minutes ("live in the worktree")
+#                             the dispatch's own terminal failed ("close failed: <why>"; never for a
+#                             released dispatch, #95); or, for build and babysit, another claude or
+#                             codex terminal in the worktree printed output in the last 10 minutes
+#                             ("live in the worktree")
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
 # Before that one line it may print, in this order, each on a line of its own, whatever line
 # follows (#76):
-#   stopped previous gate pgid=<n>    the gate lock is held under this item's label, <project name>/<item>
+#   stopped previous gate pgid=<n>    the gate lock, or one of its slot files <lock>.2 to <lock>.4
+#                                     (#97; each one that exists, whatever <lock>.slots says), is held
+#                                     under this item's label, <project name>/<item>
 #                                     (project.name from star.json; the lock is one file per user for
 #                                     every project, so a bare item id would also match another
 #                                     project's item of the same id): TERM to its recorded group,
 #                                     whatever the state of its terminal, but only once no "hold
-#                                     session" was printed (a live session may be the one running it)
-#   ended previous session <terminal> the previous dispatch's own terminal was open: closed
+#                                     session" was printed (a live session may be the one running it);
+#                                     one line per slot so held, in slot order
+#   ended previous session <terminal> the previous dispatch's own terminal was open: closed. A
+#                                     dispatch Orca reports released (releaseState or ownershipState
+#                                     "released", with no retainedReason) is gone (#95): its terminal
+#                                     is closed the same way, best-effort, and a failed close is ignored
 #   kept previous session <terminal> (<state>)
 #                                     an open terminal Orca does not prove is the dispatch's, quiet
 #                                     for 10 minutes or more: left open (a person's terminal is never
@@ -41,7 +48,10 @@
 # hold session, the previous dispatch's gate; for build, the
 # worktree (reuse one already on the brief's branch, else orca worktree create, then put it on the
 # brief's branch, copy the main checkout's git-ignored environment files, and add a
-# .git/info/exclude line when the worktree sits inside the repository); for babysit, a review a v1
+# .git/info/exclude line when the worktree sits inside the repository; the copy (#98) skips a
+# directory entry, anything under .claude/worktrees/ and anything that is not a regular file, and a
+# file it cannot copy prints "stage-start.sh: could not copy <name> (<why>)" on stderr while the
+# start goes on); for babysit, a review a v1
 # reviewer left inside the worktree moves into the STAR folder (#35); for a claude worker whose
 # path Claude Code's config does not list as trusted, the first-run dialogs, cleared in a
 # throwaway terminal the way orca-ship-tickets does (only while "No, exit" is on screen, Down then
@@ -360,11 +370,19 @@ def copy_env(wt):
     copied = []
     for f in names:
         target = os.path.join(wt, f)
-        # an untracked file that is not ignored is someone's work in progress, not environment
-        if not f or os.path.exists(target) or git("check-ignore", "-q", f).returncode != 0:
+        # git lists a nested worktree as one "<dir>/" entry (#98): only regular files are environment
+        if (not f or f.endswith("/") or f.startswith(".claude/worktrees/")
+                or not os.path.isfile(os.path.join(repo, f))):
             continue
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copy2(os.path.join(repo, f), target)
+        # an untracked file that is not ignored is someone's work in progress, not environment
+        if os.path.exists(target) or git("check-ignore", "-q", f).returncode != 0:
+            continue
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(os.path.join(repo, f), target)
+        except OSError as e:
+            print(f"stage-start.sh: could not copy {f} ({e.strerror or e})", file=sys.stderr)
+            continue
         copied.append(target)
     if git("status", "--porcelain", cwd=wt).stdout.strip():
         for t in copied:
@@ -525,45 +543,49 @@ def prompt():
 
 
 def lock_holder():
-    """The gate lock's holder as (label, pid, pgid) while someone holds the lock, else None."""
+    """Each held gate-lock slot's holder as (label, pid, pgid), in slot order: <lock> and each of
+    <lock>.2 to <lock>.4 that exists, whatever <lock>.slots says (#97). Empty when no slot is held."""
     lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"/tmp/juel.gate.{os.getuid()}.lock")
-    try:
-        fd = os.open(lock, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError:
-        return None
-    try:
+    held = []
+    for path in (lock, f"{lock}.2", f"{lock}.3", f"{lock}.4"):
         try:
-            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            return None  # nobody holds it: whatever the file says is stale
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
         except OSError:
+            continue
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                continue  # nobody holds it: whatever the file says is stale
+            except OSError:
+                pass
+            words = os.pread(fd, 400, 0).decode("utf-8", "replace").split()
+        finally:
+            os.close(fd)
+        fields = dict(w.split("=", 1) for w in words[1:] if "=" in w)
+        try:
+            held.append((words[0], int(fields.get("pid", "0")), int(fields.get("pgid", "0"))))
+        except (IndexError, ValueError):
             pass
-        words = os.pread(fd, 400, 0).decode("utf-8", "replace").split()
-    finally:
-        os.close(fd)
-    fields = dict(w.split("=", 1) for w in words[1:] if "=" in w)
-    try:
-        return words[0], int(fields.get("pid", "0")), int(fields.get("pgid", "0"))
-    except (IndexError, ValueError):
-        return None
+    return held
 
 
 def stop_gate():
-    """A gate the lock says this item holds stops before a new stage of it starts, whatever its terminal (#76).
+    """A gate any lock slot says this item holds stops before a new stage of it starts, whatever its terminal (#76, #97).
     Called only once no "hold session" was printed: a live session may be the one running it."""
-    held = lock_holder()
     # the label ship-ticket and babysit-pr give gate-lock.sh under a star: brief, whitespace folded as it folds it
-    if not held or held[0] != "_".join(f"{name}/{item}".split()):
-        return
-    _, pid, pgid = held
-    if pgid <= 1 or pgid == os.getpgrp():
-        return
-    for kill, target in ((os.killpg, pgid), (os.kill, pid)):
-        if target > 1 and target != os.getpid():
-            try:
-                kill(target, signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
-    NOTES.insert(0, f"stopped previous gate pgid={pgid}")  # first, before the session lines
+    label = "_".join(f"{name}/{item}".split())
+    stopped = []
+    for held_label, pid, pgid in lock_holder():
+        if held_label != label or pgid <= 1 or pgid == os.getpgrp():
+            continue
+        for kill, target in ((os.killpg, pgid), (os.kill, pid)):
+            if target > 1 and target != os.getpid():
+                try:
+                    kill(target, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        stopped.append(f"stopped previous gate pgid={pgid}")
+    NOTES[:0] = stopped  # first, before the session lines
 
 
 def recent(last):
@@ -577,8 +599,8 @@ def checks_previous():
 
 
 def previous_session():
-    """The row's previous dispatch's terminal (#76): close its own, keep a quiet one it cannot prove
-    is its own, and hold on a working one. Returns that terminal's handle."""
+    """The row's previous dispatch's terminal (#76): close its own, or a released one's (#95), keep a
+    quiet one it cannot prove is its own, and hold on a working one. Returns that terminal's handle."""
     if not checks_previous():
         return None
     prev = row["dispatch"]
@@ -594,6 +616,12 @@ def previous_session():
     res = result.get("terminalResource") if isinstance(result.get("terminalResource"), dict) else {}
     seen = result.get("observation") if isinstance(result.get("observation"), dict) else {}
     reason, state = res.get("retainedReason") or "", None
+    if not reason and "released" in (res.get("releaseState"), res.get("ownershipState")):
+        # Orca released the dispatch, so it is gone (#95): close its terminal best-effort and ignore
+        # the result, since Orca or the coordinator may have closed it already
+        run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
+        NOTES.append(f"ended previous session {handle}")
+        return handle
     if res.get("ownershipState") != "owned" or res.get("ownerDispatchId") != prev:
         state = reason or res.get("ownershipState") or "unowned"
     elif reason or seen.get("exactWorker") is not True:

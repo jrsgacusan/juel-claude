@@ -242,5 +242,70 @@ sh "$SCRIPT" --resolve "$D/base/t.md" "$D/ours/t.md" >/dev/null 2>&1; [ $? -eq 6
 err=$(sh "$SCRIPT" --resolve "$D/base/t.md" "$D/ours/t.md" "$D/nope.md" 2>&1 >/dev/null); rc=$?
 [ $rc -eq 64 ] && [ "$err" = "merge-union.sh: no such file: $D/nope.md" ] && pass "--resolve with a missing file is 64" || fail "--resolve missing: exit $rc ($err)"
 
+# lane d: a package.json chain the base side reordered resolves when no side drops or repeats a
+# command and ours only adds; a command both sides added, or one whose text another's contains, is
+# written once (#103, Review Focus 3). Each case runs as a merge and again under --resolve, the way
+# carry-check.sh calls it. both_ways <name> <file> <writer> <base> <main> <feat> <want>: <writer>
+# turns a text into the file, feat merges main, and <want> is what the merged file holds, or "conflict"
+both_ways() {
+  repo "$1"; "$3" "$4" > "$R/$2"; commit base; git -C "$R" branch feat
+  "$3" "$5" > "$R/$2"; commit main
+  git -C "$R" switch -q feat; "$3" "$6" > "$R/$2"; commit feat
+  merge
+  out=$(U); rc=$?
+  F="$TMP/three-$1"; mkdir -p "$F"
+  "$3" "$4" > "$F/base"; "$3" "$6" > "$F/ours"; "$3" "$5" > "$F/theirs"
+  got=$(sh "$SCRIPT" --resolve --path "$2" "$F/base" "$F/ours" "$F/theirs"); grc=$?
+  if [ "$7" = conflict ]; then
+    [ $rc -eq 1 ] && [ "$out" = "conflict $2 edited on both sides" ] && pass "$1: edited on both sides" || fail "$1: exit $rc ($out)"
+    [ $grc -eq 1 ] && [ "$got" = "conflict edited on both sides" ] && pass "$1: --resolve: a conflict too" || fail "$1: --resolve exit $grc ($(printf '%s' "$got" | tr '\n' ' '))"
+  else
+    want=$("$3" "$7")
+    [ $rc -eq 0 ] && [ "$out" = "resolved $2" ] && [ "$(cat "$R/$2")" = "$want" ] && pass "$1: resolves to $7" || fail "$1: exit $rc ($out)"
+    [ $grc -eq 0 ] && [ "$got" = "$want" ] && pass "$1: --resolve prints the same file" || fail "$1: --resolve exit $grc ($(printf '%s' "$got" | tr '\n' ' '))"
+  fi
+}
+both_ways reordered package.json pkg 'node a && node b && node c' 'node b && node c && node x && node a' 'node a && node b && node c && node y' 'node b && node c && node y && node x && node a'
+both_ways reorder-start package.json pkg 'node a && node b' 'node b && node a' 'node 0 && node a && node b' 'node 0 && node b && node a'
+both_ways reorder-both package.json pkg 'node a && node b' 'node b && node a && node x' 'node a && node b && node x && node y' 'node b && node y && node a && node x'
+both_ways reorder-bak package.json pkg 'node a && node b' 'node b && node a && node x.test.cjs' 'node a && node b && node x.test.cjs.bak' 'node b && node x.test.cjs.bak && node a && node x.test.cjs'
+both_ways reorder-theirs-drops package.json pkg 'node a && node b && node c' 'node c && node b && node x' 'node a && node b && node c && node y' conflict
+both_ways reorder-ours-drops package.json pkg 'node a && node b && node c' 'node b && node c && node a' 'node a && node c && node y' conflict
+both_ways reorder-ours-moves package.json pkg 'node a && node b && node c' 'node b && node c && node a' 'node b && node a && node c && node y' conflict
+both_ways reorder-repeat-base package.json pkg 'node a && node b && node a' 'node b && node a && node a' 'node a && node b && node a && node y' conflict
+both_ways reorder-repeat-ours package.json pkg 'node a && node b && node c' 'node b && node c && node a' 'node a && node b && node c && node y && node y' conflict
+both_ways reorder-repeat-theirs package.json pkg 'node a && node b && node c' 'node b && node c && node a && node b' 'node a && node b && node c && node y' conflict
+
+# lane d: a one-line { a, b } list both sides only added names to, at different points, resolves to
+# the base's order with theirs' then ours' names at each point, in theirs' style; a name dropped,
+# moved or repeated, a value that is no plain name, or a changed suffix stays a conflict (#103)
+one_line() { printf '%s\n' "$1"; }
+both_ways exports x.js one_line 'module.exports = { a, b, c };' 'module.exports = { a, x, b, c, w };' 'module.exports = { a, y, b, z, c };' 'module.exports = { a, x, y, b, z, c, w };'
+both_ways exports-both x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b };' 'module.exports = { a, b, x };' 'module.exports = { a, x, b };'
+both_ways exports-style x.js one_line 'export {a, b}' 'export {a, x, b,}' 'export { a, b, y }' 'export {a, x, b, y,}'
+both_ways exports-dropped x.js one_line 'module.exports = { a, b, c };' 'module.exports = { a, x, c };' 'module.exports = { a, b, c, y };' conflict
+both_ways exports-moved x.js one_line 'module.exports = { a, b };' 'module.exports = { b, a, x };' 'module.exports = { a, b, y };' conflict
+both_ways exports-repeat x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b, x };' 'module.exports = { a, b, y };' conflict
+both_ways exports-value x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x: 1, b };' 'module.exports = { a, b, y };' conflict
+both_ways exports-suffix x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b }' 'module.exports = { a, b, y };' conflict
+
+# fix: #103 a brace list keeps its separator
+# A brace glob or a shell brace expansion is a list too, but a space after its comma changes what it
+# means. The merged list is joined with the separator all three sides use: "," or ", ". A list of one
+# name has no separator and agrees with either. Sides that differ, or any other spacing (two spaces,
+# a tab, a space before the comma), stay a conflict. Each case is a merge and a --resolve.
+lint() { printf '{\n  %s: "eslint"\n}\n' "$1"; }
+TAB=$(printf '\t')
+both_ways brace-glob .lintstagedrc.json lint '"*.{js,ts}"' '"*.{cjs,js,ts}"' '"*.{js,ts,tsx}"' '"*.{cjs,js,ts,tsx}"'
+both_ways brace-shell copy.sh one_line 'cp src/{a,b}.js dist/' 'cp src/{d,a,b}.js dist/' 'cp src/{a,b,c}.js dist/' 'cp src/{d,a,b,c}.js dist/'
+both_ways brace-spaced copy.sh one_line 'cp src/{a, b}.js dist/' 'cp src/{d, a, b}.js dist/' 'cp src/{a, b, c}.js dist/' 'cp src/{d, a, b, c}.js dist/'
+both_ways brace-one-name copy.sh one_line 'cp src/{a}.js dist/' 'cp src/{d,a}.js dist/' 'cp src/{a,c}.js dist/' 'cp src/{d,a,c}.js dist/'
+both_ways brace-exports-spaced x.js one_line 'module.exports = { a, b };' 'module.exports = { a, x, b };' 'module.exports = { a, b, y };' 'module.exports = { a, x, b, y };'
+both_ways brace-base-spaced copy.sh one_line 'cp src/{a, b}.js dist/' 'cp src/{d,a,b}.js dist/' 'cp src/{a, b, c}.js dist/' conflict
+both_ways brace-ours-differs copy.sh one_line 'cp src/{a,b}.js dist/' 'cp src/{d,a,b}.js dist/' 'cp src/{a, b, c}.js dist/' conflict
+both_ways brace-two-spaces copy.sh one_line 'cp src/{a,  b}.js dist/' 'cp src/{d,  a,  b}.js dist/' 'cp src/{a,  b,  c}.js dist/' conflict
+both_ways brace-tab copy.sh one_line "cp src/{a,${TAB}b}.js dist/" "cp src/{d,${TAB}a,${TAB}b}.js dist/" "cp src/{a,${TAB}b,${TAB}c}.js dist/" conflict
+both_ways brace-space-before copy.sh one_line 'cp src/{a ,b}.js dist/' 'cp src/{d ,a ,b}.js dist/' 'cp src/{a ,b ,c}.js dist/' conflict
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -270,7 +270,7 @@ g "Z2 a bare number is refused only where options are numbered" 'On a question w
 grep -qF 'so a change to either is answered in chat' "$SKILL" && grep -qF 'A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR' "$SKILL" && ! grep -qF 'a change to either is feedback for the brief worker' "$SKILL" && pass "Z6 an existing PR's branches are changed on GitHub, not by a re-draft" || fail "Z6 an existing PR's branches are changed on GitHub, not by a re-draft"
 grep -qF 'it makes sure the brief has `- [ ] NEEDS CRITERIA`' "$SKILL" && ! grep -qF 'it writes `- [ ] NEEDS CRITERIA`' "$SKILL" && pass "Z7 an edit that leaves no criterion never adds a second marker" || fail "Z7 an edit that leaves no criterion never adds a second marker"
 grep -qF '`PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`' "$SKILL" && ! grep -qF '`PROPOSED-CRITERIA` (case 3)' "$SKILL" && pass "Z8 PROPOSED-CRITERIA whenever a criterion is proposed" || fail "Z8 PROPOSED-CRITERIA whenever a criterion is proposed"
-grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
+grep -qF -- '--json url,headRefName,baseRefName,isCrossRepository,state,author' "$SKILL" && grep -qF 'only when `state` is `OPEN`' "$SKILL" && pass "Z9 existingPr only for an open PR" || fail "Z9 existingPr only for an open PR"
 grep -qF '`ls-remote` failing: the Otherwise branch of the cell that sent it here.' "$SKILL" && ! grep -qF "the table's own rule for that verdict" "$SKILL" && pass "Z13 an ls-remote failure goes to the Otherwise branch of its own cell" || fail "Z13 an ls-remote failure goes to the Otherwise branch of its own cell"
 grep -qF 'Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title' "$SKILL" && grep -qF 'except a `branch` or `baseBranch` change on a brief with `existingPr` (below)' "$SKILL" && ! grep -qF 'Nothing is recorded, and the approve question is printed again' "$SKILL" && pass "Z14 an existingPr branch answer re-asks the approve question" || fail "Z14 an existingPr branch answer re-asks the approve question"
 # STAR closed loop: intake and home
@@ -337,7 +337,7 @@ g "DB8 an unverified id is confirmed before go" '`confirm-id`'
 g "DB9 a hosted review comes after ready (#40)" 'skips draft PRs'
 g "DB10 grounding: Mobbin for user-facing changes" 'search_screens'
 g "DB11 grounding: context7 for libraries" 'context7'
-g "DB12 the re-scope report" 'BRIEF item=<name> path=<--out> rescoped=1 followup=<path>'
+g "DB12 the re-scope report" 'BRIEF item=<name> path=<--out> asks=<n> rescoped=1 followup=<path>'
 g "DB13 the split report" 'SPLIT item=<name> into=<path>,<path>'
 g "DB14 criteria are derived when the item has none" 'derive them from the item'
 # STAR closed loop: the merge gate, the batch summary, the rules
@@ -394,8 +394,8 @@ gin "FS2 reconcile names the building row whose DONE is pending" "$reconcile" 'w
 gin "FS2 reconcile does not probe it" "$reconcile" 'skip the probe for it'
 gin "FS2 reconcile runs done-check.sh for it" "$reconcile" 'run `done-check.sh` for it'
 # FS3: a re-scope BRIEF on a brief with no grant line
-g "FS3 a re-scope brief always adds its follow-up and keeps the lineage" 'in every case: `counters.rescoped=1`, clear `counters.rescope`, and add the follow-up spec as a new `inbox` row'
-g "FS3 with no grant line the row goes to brief-ready for the batch go" 'A brief with no grant line (it prints 0): row → `brief-ready`'
+g "FS3 a re-scope brief always adds its follow-up and keeps the lineage" 'in every case: `counters.rescoped=1`, clear `counters.rescope`, add the follow-up spec as a new `inbox` row'
+g "FS3 with no grant line the row goes to brief-ready for the batch go" 'A brief with no grant line (`grep -cE '"'"'^grant: [^ #]'"'"' <brief>` prints 0): row → `brief-ready`'
 grep -qF 'else treat it as the next row' "$SKILL" && fail "FS3 a re-scope brief no longer falls through to the next row" || pass "FS3 a re-scope brief no longer falls through to the next row"
 # FS4: the merge gate's FAIL no codex PASS goes back to the gate loop
 gin "FS4 a missing codex PASS resumes the gate loop on the existing PR" "$gatefail" 'no codex PASS for <sha7>; resume the gate loop on the existing PR'
@@ -565,5 +565,54 @@ out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "
 printf '{"ok":false,"error":{"message":"orca is not running"}}' > "$RFTMP/reply"
 out=$(gone_check); [ "$out" = "- unknown -" ] && [ ! -s "$RFTMP/err" ] && pass "RF3f an error answer prints unknown" || fail "RF3f error answer ($out; $(cat "$RFTMP/err"))"
 rm -rf "$RFTMP"
+# lane h: STAR's contract for issues #94 to #108
+g "LH1a another author's PR is checked against the gh user (#94)" 'A PR whose `author.login` is not the `gh` user (`gh api user --jq .login`) is handled like a fork'
+g "LH1b it is carried as a new PR (#94)" '`<url>` is `<login>`'"'"'s PR, carried as a new PR'
+g "LH1c the new PR never shares the original's branch (#94)" 'name `branch` by step 5'"'"'s rule (never the original'"'"'s `headRefName`)'
+g "LH1d the new PR credits the original's author (#94)" 'the PR body links `<url>` and credits `@<login>`'
+g "LH1e the decision record has a line STAR can read (#94)" '`Decision: carried as a new PR: <url> (<login>'"'"'s PR)`'
+g "LH1f the brief adds no person-only step for the close (#94)" 'The brief adds no person-only step for the'
+g "LH1g STAR asks the owner to close the original once the new PR exists (#94)" '--title "close <that url>: carried on <pr url>"'
+g "LH1h STAR reads the original's URL from the brief (#94)" 'sed -n '"'"'s/^Decision: carried as a new PR: \([^ ]*\) .*/\1/p'"'"' <brief>` prints its URL'
+g "LH1i the close is asked once (#94)" '(`grep -cF '"'"'close <that url>: carried on'"'"' <brief>` prints 0)'
+g "LH2a a re-scope queues its person-only steps (#101)" 'and queue one `--kind person` per line of the brief'"'"'s `## Person-only steps`, as the next row does'
+g "LH2b a granted re-scope waits while a step is open (#101)" 'row → `queued` when none of those steps is open, else `brief-ready`'
+g "LH2c the status line says what it waits for (#101)" '"<item>: re-scope waits for <n> person-only steps" in the status line; the grant still covers it'
+g "LH2d the last answered value step queues it (#101)" 'and no other open `person` item: it → `queued` (a re-scope that waited for its person-only steps, #101)'
+g "LH2e the last answered done step queues it too (#101)" 'the row does not change, with the same exception as the row above'
+g "LH2f re-scope mode keeps step 6's person-only rules (#101)" '`## Person-only steps` follows step 6'"'"'s rules, and leaves out a step its'
+grep -qF 'The brief keeps its `approved:` and `grant:`' "$SKILL" && fail "LH2g a granted re-scope no longer goes straight to queued (#101)" || pass "LH2g a granted re-scope no longer goes straight to queued (#101)"
+g "LH3a a brief names a form only by quoting the repo's rule (#107)" 'A brief names a file-name, path or id form only by quoting the rule the repository enforces it'
+g "LH3b with no rule it names no form (#107)" 'when it finds none, it names no form and'
+g "LH3c a standing rule STAR sends is on record (#99)" 'So is every rule STAR sends a worker unasked'
+g "LH3d it goes into the brief before the send (#99)" '`- <date> STAR to the <stage> worker (<subject>): <body>` to the brief'"'"'s `## Decisions` before the'
+g "LH3e a one-time nudge is not a rule (#99)" 'A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.'
+g "LH4a a released dispatch is ended (#95)" 'or Orca reports that dispatch `released` with no retained reason (#95), and `stage-start.sh` closed it'
+g "LH4b a failed close still ends it (#95)" 'a released dispatch whose close fails is ended all the same'
+g "LH4c a released dispatch with no retained reason is ended, not kept (#95)" 'A dispatch Orca reports `released` with no retained reason is ended, not kept (#95)'
+g "LH4d a released dispatch with no retained reason is not held (#95)" 'a session Orca reports `released` with no retained reason is ended, #95)'
+g "LH4e gate waiters are served in arrival order (#97)" 'Waiters are served in strict arrival order'
+g "LH4f STAR never raises the gate slots unasked (#97)" 'STAR never raises the slots unasked: heavy runs side by side can take the machine down.'
+g "LH4g the owner may ask for a second slot (#97)" 'The owner may ask for `sh S/../ship-ticket/gate-lock.sh --slots 2` once free memory allows it.'
+g "LH4h the shared gate lock's order, in the edge cases (#97)" 'the gate lock (strict arrival order with one slot, the default;'
+g "LH5a a missing CI run is the owner's to look at (#102)" '`reason=ci-missing` (babysit found no CI run on the PR'"'"'s head while the PR does not conflict with its base, #102) is the owner'"'"'s to look at'
+g "LH5b missing checks are never a pass (#102)" 'missing checks are never a pass, so STAR neither answers it nor restarts the stage on its own'
+g "LH6a a missing hosted log is rebuilt by babysit (#96)" 'when it is missing, babysit rebuilds it from the PR'"'"'s reviews (`pr-state.sh --hosted-passes`)'
+g "LH6b babysit counts NOT-SAFE rounds since the newest SAFE round or push (#108)" 'A babysit run counts its NOT-SAFE rounds since the newest SAFE round or its last'
+g "LH6c an unpushed SAFE round starts a fresh count (#108)" 'that could not be pushed, because the PR needed a base merge first, starts a fresh count'
+g "LH7a a denied fallback run is retried once inside the round (#100)" 'is retried once inside the round, told which call was denied'
+g "LH7b a second denial is gate-down (#100)" 'When the fallback fails too, or a second denial follows, the gate prints'
+grep -qF 'call it made was denied so it may not have read the diff' "$SKILL" && fail "LH7c one denial is no longer gate-down (#100)" || pass "LH7c one denial is no longer gate-down (#100)"
+g "LH7d a direct receipt is posted over a carried one (#104)" 'receipt is posted even when a carried receipt already names the head, #104'
+# fix: strict arrival order holds with one gate slot only (#97)
+g "F97a STAR: strict arrival order is for one slot, the default" 'Waiters are served in strict arrival order with one slot (the default), one gate at a time (#97);'
+g "F97b STAR: with more slots the first waiters race for a freed slot" 'with more slots (the slots file says up to 4), the first waiters in the queue race for a freed slot.'
+g "F97c STAR: the edge-case row says the same" 'the gate lock (strict arrival order with one slot, the default; with more slots the first waiters race for a freed slot)'
+grep -qF 'Waiters are served in arrival order' "$SKILL" && fail "F97d STAR: arrival order is no longer unqualified" || pass "F97d STAR: arrival order is no longer unqualified"
+# fix: a released session a person kept is still kept or held (#95)
+g "F95a the kept row: a released one a person kept follows the row" 'one a person kept (`retainedReason` set, for example `user_takeover`) follows this row as before'
+g "F95b the hold row: a released one a person kept is held" 'including a `released` one a person kept (`retainedReason` set);'
+grep -qF 'is never kept' "$SKILL" && fail "F95c a released dispatch is no longer never kept" || pass "F95c a released dispatch is no longer never kept"
+grep -qF 'never a dispatch Orca reports `released`' "$SKILL" && fail "F95d a released dispatch is no longer never held" || pass "F95d a released dispatch is no longer never held"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

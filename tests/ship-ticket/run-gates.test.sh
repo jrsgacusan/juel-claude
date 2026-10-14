@@ -44,5 +44,99 @@ for c in 64 71 75 124; do
 done
 m '{"test":{"cmd":"true","cwd":7},"lint":null,"typecheck":null,"build":null}'; run >/dev/null 2>&1; [ $? -eq 71 ] && pass "a cwd that is not text is exit 71, not a crash" || fail "non-string cwd"
 
+# lane b: #102 the sweep gate runs only when named; #105 a gate without its dependencies fails fast
+rm -f "$TMP/sw.test" "$TMP/sw.sweep"
+m '{"test":{"cmd":"touch '"$TMP"'/sw.test","cwd":"."},"lint":null,"typecheck":null,"build":null,"sweep":{"cmd":"touch '"$TMP"'/sw.sweep","cwd":"packages/api"}}'
+run >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.test" ] && [ ! -e "$TMP/sw.sweep" ] && pass "#102 the default run never runs sweep" || fail "#102 default run and sweep (rc=$rc)"
+rm -f "$TMP/sw.test"
+run sweep >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.sweep" ] && [ ! -e "$TMP/sw.test" ] && pass "#102 sweep runs when named, and only it" || fail "#102 named sweep (rc=$rc)"
+rm -f "$TMP/sw.test"
+m '{"test":{"cmd":"touch '"$TMP"'/sw.test","cwd":"."},"lint":null,"typecheck":null,"build":null,"sweep":null}'
+run sweep >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.test" ] && pass "#102 a null sweep runs the test entry" || fail "#102 null sweep (rc=$rc)"
+rm -f "$TMP/sw.test"
+m '{"test":{"cmd":"touch '"$TMP"'/sw.test","cwd":"."},"lint":null,"typecheck":null,"build":null}'
+run sweep >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/sw.test" ] && pass "#102 a missing sweep runs the test entry" || fail "#102 missing sweep (rc=$rc)"
+m '{"test":null,"lint":null,"typecheck":null,"build":null,"sweep":null}'
+out=$(run sweep 2>&1); rc=$?
+[ "$rc" -eq 0 ] && case "$out" in *"no gates"*) true ;; *) false ;; esac && pass "#102 sweep and test both null: nothing to run, exit 0" || fail "#102 nothing to sweep (rc=$rc: $out)"
+err=$(run nosuch 2>&1); case "$err" in *"known: test, lint, typecheck, build, sweep"*) pass "#102 the usage names sweep" ;; *) fail "#102 usage ($err)" ;; esac
+# a JS gate whose cwd has a package.json with dependencies and no node_modules or .pnp.cjs up to the
+# root: exit 71, one line, and no gate runs, not even an earlier one that has no package.json.
+# npm and pytest are stubs that run their own arguments as a command, so the gates can really run
+mkdir -p "$TMP/bin"; printf '#!/bin/sh\nexec "$@"\n' > "$TMP/bin/npm"; cp "$TMP/bin/npm" "$TMP/bin/pytest"; chmod +x "$TMP/bin/npm" "$TMP/bin/pytest"
+mkdir -p "$TMP/deps/packages/web" "$TMP/deps/docs"; D=$(cd "$TMP/deps" && pwd -P)
+printf '{"devDependencies":{"left-pad":"1.3.0"}}\n' > "$D/package.json"; printf '{"dependencies":{"left-pad":"1.3.0"}}\n' > "$D/packages/web/package.json"
+drun() { (cd "$D" && PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$TMP/gates.json" --root "$D" "$@"); }
+rm -f "$TMP/d.test" "$TMP/d.lint"
+m '{"test":{"cmd":"touch '"$TMP"'/d.test","cwd":"docs"},"lint":{"cmd":"npm touch '"$TMP"'/d.lint","cwd":"packages/web"},"typecheck":null,"build":null}'
+err=$(drun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "run-gates.sh: lint: dependencies are not installed (no node_modules for packages/web/package.json)" ] && [ ! -e "$TMP/d.test" ] && [ ! -e "$TMP/d.lint" ] && pass "#105 missing dependencies are exit 71 with one line, before any gate runs" || fail "#105 missing dependencies (rc=$rc: $err)"
+m '{"test":{"cmd":"npm test","cwd":"."},"lint":null,"typecheck":null,"build":null}'
+err=$(drun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "run-gates.sh: test: dependencies are not installed (no node_modules for ./package.json)" ] && pass "#105 the root's own package.json is checked too" || fail "#105 root package.json (rc=$rc: $err)"
+# node_modules at the root covers a sub-package (npm workspaces install there), and so does .pnp.cjs
+m '{"test":{"cmd":"touch '"$TMP"'/d.test","cwd":"docs"},"lint":{"cmd":"npm touch '"$TMP"'/d.lint","cwd":"packages/web"},"typecheck":null,"build":null}'
+mkdir "$D/node_modules"; rm -f "$TMP/d.test" "$TMP/d.lint"
+drun >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/d.test" ] && [ -e "$TMP/d.lint" ] && pass "#105 node_modules at the root covers a sub-package" || fail "#105 root node_modules (rc=$rc)"
+rmdir "$D/node_modules"; : > "$D/.pnp.cjs"
+drun >/dev/null 2>&1; [ $? -eq 0 ] && pass "#105 a .pnp.cjs at the root counts as installed" || fail "#105 .pnp.cjs"
+rm -f "$D/.pnp.cjs"
+# a cwd with no package.json is never checked, even when the root has one and nothing is installed
+m '{"test":{"cmd":"npm true","cwd":"docs"},"lint":null,"typecheck":null,"build":null}'
+drun >/dev/null 2>&1; [ $? -eq 0 ] && pass "#105 a gate whose cwd has no package.json is not checked" || fail "#105 cwd without package.json"
+
+# fix: #105 the dependency check needs a JS gate and declared dependencies
+# one root with a package.json and nothing installed; each case rewrites the manifest and the package.json
+mkdir -p "$TMP/fx"; X=$(cd "$TMP/fx" && pwd -P)
+xrun() { (cd "$X" && PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$TMP/gates.json" --root "$X" "$@"); }
+xgate() { m '{"test":{"cmd":"'"$1"'","cwd":"."},"lint":null,"typecheck":null,"build":null}'; rm -f "$TMP/x.ran"; }
+BLOCK="run-gates.sh: test: dependencies are not installed (no node_modules for ./package.json)"
+# a package.json that declares no dependencies installs no node_modules, so an npm gate must run
+printf '{}\n' > "$X/package.json"; xgate "npm touch $TMP/x.ran"
+xrun >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/x.ran" ] && pass "#105 an npm gate runs when the package.json declares no dependencies" || fail "#105 empty package.json (rc=$rc)"
+printf '{"name":"t","dependencies":{},"devDependencies":{},"scripts":{"test":"true"}}\n' > "$X/package.json"; xgate "npm touch $TMP/x.ran"
+xrun >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/x.ran" ] && pass "#105 empty dependency objects declare nothing" || fail "#105 empty dependency objects (rc=$rc)"
+# a declared devDependency with nothing installed blocks an npm gate, with the exact line
+printf '{"devDependencies":{"left-pad":"1.3.0"}}\n' > "$X/package.json"; xgate "npm test"
+err=$(xrun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "$BLOCK" ] && pass "#105 a devDependency with no node_modules blocks an npm gate" || fail "#105 devDependency npm gate (rc=$rc: $err)"
+# the same package.json with a gate that is not a JS tool (the install may be uv sync) is not checked
+xgate "pytest touch $TMP/x.ran"
+xrun >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/x.ran" ] && pass "#105 a pytest gate runs even though the package.json declares dependencies" || fail "#105 pytest gate (rc=$rc)"
+# a leading NAME=value does not hide the tool, and a path to the tool still counts by its basename
+xgate "CI=1 npm test"
+err=$(xrun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "$BLOCK" ] && pass "#105 CI=1 npm test still counts as a JS gate" || fail "#105 env assignment (rc=$rc: $err)"
+xgate "A=1 B=2 /usr/local/bin/pnpm test"
+err=$(xrun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "$BLOCK" ] && pass "#105 a path to the tool counts by its basename" || fail "#105 tool path (rc=$rc: $err)"
+xgate "FOO=1 pytest touch $TMP/x.ran"
+xrun >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/x.ran" ] && pass "#105 FOO=1 pytest is not a JS gate" || fail "#105 env assignment with pytest (rc=$rc)"
+# a command that does not split keeps the check
+xgate "npm test \\\"unclosed"
+err=$(xrun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "$BLOCK" ] && pass "#105 a command that does not split keeps the check" || fail "#105 shlex error (rc=$rc: $err)"
+# workspaces count as declaring, and so does a package.json that does not parse
+printf '{"workspaces":["packages/*"]}\n' > "$X/package.json"; xgate "npm test"
+err=$(xrun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "$BLOCK" ] && pass "#105 a workspaces key counts as declaring dependencies" || fail "#105 workspaces (rc=$rc: $err)"
+printf '{"devDependencies": \n' > "$X/package.json"; xgate "npm test"
+err=$(xrun 2>&1 >/dev/null); rc=$?
+[ "$rc" -eq 71 ] && [ "$err" = "$BLOCK" ] && pass "#105 an unparseable package.json keeps the check" || fail "#105 unparseable package.json (rc=$rc: $err)"
+# .pnp.js counts as installed, beside .pnp.cjs and node_modules
+printf '{"devDependencies":{"left-pad":"1.3.0"}}\n' > "$X/package.json"; xgate "npm touch $TMP/x.ran"; : > "$X/.pnp.js"
+xrun >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/x.ran" ] && pass "#105 a .pnp.js at the root counts as installed" || fail "#105 .pnp.js (rc=$rc)"
+rm -f "$X/.pnp.js"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

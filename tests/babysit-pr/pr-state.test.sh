@@ -560,6 +560,45 @@ check_rc "reviewer flags: --settle-minutes inf is a usage error" 64
 run r-base 40 --as-reviewer me --reviewed-head "$HA" --settle-minutes nan
 grep -q 'settle-minutes' "$TMP/err" && echo "ok   reviewer flags: the nan error names the flag" || { echo "FAIL reviewer flags: the nan error names the flag"; fails=$((fails + 1)); }
 
+# lane e: #96 --hosted-passes rebuilds the hosted reviewer's pass log from the PR's reviews
+PA=aaaaaaa4444444aaaaaaa4444444aaaaaaa44444
+PB=bbbbbbb5555555bbbbbbb5555555bbbbbbb55555
+PC=ccccccc6666666ccccccc6666666ccccccc66666
+# check_lines <name> <code> <want>: exactly these stdout lines (none when <want> is empty) and this exit code
+check_lines() {
+  got=$(cat "$TMP/out")
+  if [ "$(cat "$TMP/rc")" = "$2" ] && [ "$got" = "$3" ] && { [ -n "$3" ] || [ ! -s "$TMP/out" ]; }; then echo "ok   $1"
+  else echo "FAIL $1 (rc $(cat "$TMP/rc"): $got)"; fails=$((fails + 1)); fi
+}
+# Out of order on purpose: two hosted reviews of head A, one of head B, a pending one on head C, and a human's.
+PREV='{"id":93,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"2 findings","commit_id":"'"$PB"'","submitted_at":"2026-10-13T11:00:00Z","html_url":"r93"}
+{"id":91,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"3 findings","commit_id":"'"$PA"'","submitted_at":"2026-10-13T09:00:00Z","html_url":"r91"}
+{"id":92,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"refreshed","commit_id":"'"$PA"'","submitted_at":"2026-10-13T10:00:00Z","html_url":"r92"}
+{"id":94,"user":{"login":"mstr-ezra","type":"User"},"state":"APPROVED","body":"","commit_id":"'"$PC"'","submitted_at":"2026-10-13T12:00:00Z","html_url":"r94"}
+{"id":95,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"PENDING","body":"","commit_id":"'"$PC"'","html_url":"r95"}'
+hosted_case passes
+fixture passes reviews.json "$PREV"
+PWANT=$(printf '2026-10-13T09:00:00Z pass 1 head=%s\n2026-10-13T11:00:00Z pass 2 head=%s' "$PA" "$PB")
+run passes 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "hosted-passes: one pass per distinct head, oldest first; a pending and a human review add none" 0 "$PWANT"
+grep -q -- '--paginate repos/o/r/pulls/30/reviews' "$TMP/log" && [ "$(wc -l < "$TMP/log" | tr -d ' ')" = 2 ] && echo "ok   hosted-passes: reads the PR and its reviews, paginated, and nothing else" || { echo "FAIL hosted-passes: gh calls ($(cat "$TMP/log"))"; fails=$((fails + 1)); }
+run passes https://github.com/o/r/pull/30 --hosted 'Greptile-Apps[bot]' --hosted-passes
+check_lines "hosted-passes: a PR URL and the login in another case read the same passes" 0 "$PWANT"
+hosted_case passes-none
+fixture passes-none reviews.json '{"id":96,"user":{"login":"mstr-ezra","type":"User"},"state":"COMMENTED","body":"nit","commit_id":"'"$PA"'","submitted_at":"2026-10-13T09:00:00Z","html_url":"r96"}'
+run passes-none 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "hosted-passes: no review by the hosted login prints nothing, exit 0" 0 ''
+STUB_FAIL_ROUTE=reviews; export STUB_FAIL_ROUTE
+run passes 30 --hosted 'greptile-apps[bot]' --hosted-passes
+unset STUB_FAIL_ROUTE
+check_lines "hosted-passes: reviews GitHub cannot read print one error line, exit 1" 1 'error gh exited 1: boom'
+run passes 30 --hosted-passes
+check_rc "hosted-passes: without --hosted is a usage error, before any gh call" 64
+run passes 30 --hosted 'greptile-apps[bot]' --hosted-passes --wait
+check_rc "hosted-passes: with --wait is a usage error" 64
+run passes 30 --hosted 'greptile-apps[bot]' --hosted-passes --as-reviewer me --reviewed-head "$PA"
+check_rc "hosted-passes: with --as-reviewer is a usage error" 64
+
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

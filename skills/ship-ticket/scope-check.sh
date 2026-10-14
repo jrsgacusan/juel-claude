@@ -4,6 +4,7 @@
 #   scope-check.sh --record <file> [--repo-dir <dir>]
 # Prints, sorted, one line per changed file that no task's **Files:** block names, then exits 1:
 #   outside <path>
+#   outside-merged <path>    in its place when a merge commit in <base sha>..HEAD also changed it
 # or, when every changed file is named, one line and exit 0:
 #   ok
 # or, when no line of the plan is a **Files:** entry at all, one line and exit 0, so the caller
@@ -11,7 +12,12 @@
 #   unchecked the plan names no files
 # "Changed" is every path that differs between <base sha> and the working tree, committed or not,
 # deletions included (git diff --no-renames --name-only <base>), plus untracked files git does not
-# ignore. A **Files:** entry is a line that starts with Create:, Modify:, Test: or Delete: (after
+# ignore. When a merge commit sits on HEAD's first-parent line since <base sha> (the base branch
+# merged in mid-build), "changed" is only what the branch did itself (#106): the paths its own
+# non-merge commits touched (git log --first-parent --no-merges --no-renames --name-only
+# <base>..HEAD), every path that differs from HEAD, and the untracked files; a path only a merge
+# changed is never listed.
+# A **Files:** entry is a line that starts with Create:, Modify:, Test: or Delete: (after
 # an optional list marker). Its paths are the backticked ones; a line with no backticks names the
 # first whitespace-delimited token after the keyword. A ":<lines>" suffix is dropped, and so is a
 # "::<anything>" suffix (a pytest node id such as tests/test_b.py::test_foo). A path ending in "/"
@@ -26,10 +32,11 @@
 # the executor ran, so it is the user's or the skill's own work, and the caller must not restore
 # or delete it. A --before file that cannot be read is exit 64.
 # The caller restores each outside file from <base sha>, or deletes it when it is new, and says so.
+# It never restores an outside-merged file: restoring it from <base sha> would drop the base's change.
 # Paths are relative to the repository's top level, whatever --repo-dir (default: here) points at.
-# Exit: 0 ok, unchecked or recorded; 1 outside lines; 64 bad usage, a plan or --before file that
-# cannot be read, a --record file that cannot be written, a <base sha> that is not a commit, or a
-# --repo-dir that is not in a git repository.
+# Exit: 0 ok, unchecked or recorded; 1 outside or outside-merged lines; 64 bad usage, a plan or
+# --before file that cannot be read, a --record file that cannot be written, a <base sha> that is
+# not a commit, or a --repo-dir that is not in a git repository.
 exec python3 - "$@" <<'PY'
 import os
 import re
@@ -102,16 +109,18 @@ if record is None and git(top, "rev-parse", "--verify", "--quiet", f"{base}^{{co
     die(64, f"{base} is not a commit")
 
 
+def listed(*cmd):
+    """The NUL-separated paths one git command prints."""
+    rc, out = git(top, *cmd)
+    if rc != 0:
+        die(64, f"git {cmd[0]} failed in {top}")
+    return {p for p in out.split("\0") if p}
+
+
 def changed_since(rev):
     """Every path that differs from <rev> in the working tree, plus the untracked files git does not ignore."""
-    paths = set()
-    for cmd in (("diff", "--no-renames", "--name-only", "-z", rev),
-                ("ls-files", "--others", "--exclude-standard", "-z")):
-        rc, out = git(top, *cmd)
-        if rc != 0:
-            die(64, f"git {cmd[0]} failed in {top}")
-        paths.update(p for p in out.split("\0") if p)
-    return paths
+    return (listed("diff", "--no-renames", "--name-only", "-z", rev)
+            | listed("ls-files", "--others", "--exclude-standard", "-z"))
 
 
 if record is not None:
@@ -170,11 +179,24 @@ if where == "":
 elif where is not None:
     skip_folders.append(where + "/")
 
-outside = sorted(p for p in changed_since(base)
+rc, out = git(top, "rev-list", "--first-parent", "--merges", f"{base}..HEAD")
+if rc != 0:
+    die(64, f"git rev-list failed in {top}")
+merges = out.split()
+if merges:
+    # the base was merged in since <base>: count only what the branch did itself (#106)
+    changed = changed_since("HEAD") | listed("log", "--first-parent", "--no-merges", "--no-renames",
+                                             "--format=", "--name-only", "-z", f"{base}..HEAD")
+else:
+    changed = changed_since(base)
+merged = set()
+for m in merges:  # what each merge brought in: its changes against its first parent
+    merged |= listed("diff", "--no-renames", "--name-only", "-z", f"{m}^1", m)
+outside = sorted(p for p in changed
                  if p not in skip_files and not any(p.startswith(d) for d in skip_folders)
                  and p not in files and not any(p.startswith(d) for d in folders))
 for p in outside:
-    print(f"outside {p}")
+    print(f"outside-merged {p}" if p in merged else f"outside {p}")
 if outside:
     sys.exit(1)
 print("ok")

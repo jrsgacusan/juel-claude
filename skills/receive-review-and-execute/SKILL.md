@@ -1,6 +1,6 @@
 ---
 name: receive-review-and-execute
-description: Use when a PR already has external review comments and you want them validated, planned, and executed automatically - merges the PR's base branch in first, then fetches PR review comments, validates findings, asks about ambiguous ones, writes a plan, then dispatches Codex to execute fixes
+description: Use when a PR already has external review comments and you want them validated, planned, and executed automatically - merges the PR's base branch in first when the PR conflicts with its base, or with --sync, then fetches PR review comments, validates findings, asks about ambiguous ones, writes a plan, then dispatches Codex to execute fixes
 metadata:
   requires:
     cli:
@@ -37,7 +37,7 @@ metadata:
         why: phase 6 clarifies ambiguous findings and phase 2 asks how to handle merge conflicts via AskUserQuestion; satisfied by --unattended, which reports them instead of asking
       - id: clean-tree
         hard: true
-        why: phase 2 merges the base branch and must not merge onto uncommitted changes
+        why: phase 2 merges the base branch when the PR conflicts with its base, or with --sync, and must not merge onto uncommitted changes
         check: "git status --porcelain empty"
     skills:
       - id: superpowers
@@ -109,7 +109,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
 
 1. Ensure a PR number, asking if it was not supplied
-2. Sync with the integration branch — merge the PR's base branch in before reading anything
+2. Sync with the integration branch — merge the PR's base branch in first when the PR conflicts with its base, or with `--sync`
 3. Read every review thread and deliver the summary before forming an opinion
 4. Fetch structured data — inline comments, reviews, issue comments, diff
 5. Validate findings into actionable / rejected / ambiguous
@@ -139,6 +139,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 | `--executor-model <id|latest-<family>>` | `latest-luna` | The model `codex exec` runs the plan on, resolved by `executor-model.sh` |
 | `--executor-effort <level>` | `xhigh` | Its reasoning effort |
 | `--only <ids>` | all unanswered feedback | Comma-separated comment / review ids to act on this run. Every other thread is still read as context, but is never re-classified, planned or answered |
+| `--sync` | off | Merge the PR's base branch in at Step 0a even when the PR does not conflict with it. Without it, only a conflicting PR is merged |
 
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
 
@@ -180,7 +181,7 @@ digraph flow {
     node [shape=box];
 
     ask [label="0. Ask for PR number\n(if not provided)"];
-    sync [label="0a. Merge PR base branch\n(git fetch + git merge --no-edit)"];
+    sync [label="0a. Merge PR base branch\nwhen it conflicts, or with --sync\n(git fetch + git merge --no-edit)"];
     conflict [label="Conflicts?" shape=diamond];
     stop_conflict [label="Stop: list files,\nask resolve vs abort"];
     fetch [label="1. Fetch PR review comments\n(gh api)"];
@@ -219,9 +220,11 @@ asks: `STOPPED: missing PR number`.)
 
 ### Step 0a: Sync with the integration branch
 
-Bring the PR up to date with the branch it targets **before** reading any comment, so every
-finding is validated against current code. A comment already fixed on the base branch is then
-rejected as outdated instead of fixed twice.
+When the PR conflicts with the branch it targets, or the run was given `--sync`, bring it up to
+date **before** reading any comment, so every finding is validated against current code. A comment
+already fixed on the base branch is then rejected as outdated instead of fixed twice. A PR that does
+not conflict is fixed on its own head: syncing a PR that is only behind its base is `--sync`'s job,
+or `juel:babysit-pr` Phase 4's.
 
 ```bash
 gh pr view <PR> --json headRefName,baseRefName
@@ -236,14 +239,19 @@ git status --porcelain
    elsewhere). Resolve the remote: exactly one remote, use it; one named `origin`, use that;
    otherwise ask once (under `--unattended`: print `STOPPED: cannot pick a remote among <names>`
    and stop).
-4. Merge it in:
+4. Decide whether to merge. Run `gh pr view <PR> --json mergeable --jq .mergeable`. `UNKNOWN`
+   means GitHub has not worked it out yet: read it again up to 3 times, 10 seconds apart; still
+   `UNKNOWN` after that counts as not conflicting. `CONFLICTING`, or `--sync` given: merge it in:
 
    ```bash
    git fetch <remote> <base>
    git merge --no-edit <remote>/<base>
    ```
 
-5. Outcomes, each with one evidence line:
+   Anything else: do not merge. Print the evidence line
+   `Base not merged: the PR is <MERGEABLE|UNKNOWN>` with the value read, skip step 5, and apply the
+   fixes on the PR head.
+5. Outcomes of the merge, each with one evidence line:
    - `Already up to date.`: continue.
    - Clean merge: report the merge commit's short SHA and the number of files it brought in.
    - Conflicts: first run `sh <merge-union.sh>` (`../babysit-pr/merge-union.sh` from this file, or
@@ -263,7 +271,7 @@ git status --porcelain
      (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
      with `git commit --no-edit` before any later phase runs, so remediation commits never land
      inside an unfinished merge. One evidence line: the merge commit's short SHA.
-6. Do not push here. The merge commit is pushed with the remediation commits.
+6. Do not push here. The merge commit, when step 0a made one, is pushed with the remediation commits.
 
 ### Step 1: Fetch PR review comments
 
@@ -468,7 +476,10 @@ restore it with `git checkout "$BASE_SHA" -- <path>`, or delete it when it did n
 executor ran): never restore or delete a file the record lists. When the executor committed its
 work, commit the restores as `revert: out-of-scope edits in <files>`; otherwise leave them in the
 working tree. Name the files in this phase's evidence line. A file the plan needed but did not name
-is the plan's defect: the next plan names it.
+is the plan's defect: the next plan names it. An `outside-merged <path>` line is never restored:
+a base merge also changed that path, and restoring it would drop the base's change. Leave it as it
+is. Under `--unattended`, end your output with one line naming every such path,
+`NOTE: scope outside-merged <path>[, <path> ...]`. Run interactively, name it in the run's summary.
 
 **A plan with a `**Base:**` line** changes a spec that is already implemented. Whenever this skill
 runs a plan in this session with `superpowers:executing-plans` and the plan has that line, tell it:
@@ -479,7 +490,7 @@ runs a plan in this session with `superpowers:executing-plans` and the plan has 
 | Mistake | Fix |
 |---------|-----|
 | Proceeding without a PR number | Step 0 — ask, do not guess |
-| Validating comments against a stale base | Step 0a merges the PR's base branch first; outdated comments are then rejected, not re-fixed |
+| Validating comments against a stale base | Step 0a merges the PR's base branch first when the PR conflicts with its base, or with `--sync`; outdated comments are then rejected, not re-fixed |
 | Auto-resolving merge conflicts, or checking out the PR branch for the user | Never, beyond the mechanical ones `merge-union.sh` resolves. Step 0a stops, lists the files, and asks |
 | Acting on every PR comment blindly | Step 2 — validate before accepting |
 | Guessing reviewer intent on ambiguous comments | Step 2a — ask the user explicitly |

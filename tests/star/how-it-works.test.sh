@@ -108,7 +108,7 @@ PY
 [ "$out" = ok ] && pass "stages, states and models match the skill" || { fail "drift"; echo "$out" | sed 's/^/     /'; }
 # lane g: the page shows STAR's changes for issues #75 to #93
 grep -qF 'with a <code>VERDICT: PASS</code> line' "$PAGE" && pass "G1 the merge gate names the receipt's VERDICT line and both carries" || fail "G1 receipt on the page"
-grep -qF 'keeps the last codex PASS, so only the regression gate runs again' "$PAGE" && pass "G1 a clean base merge keeps the PASS" || fail "G1 carried SAFE on the page"
+grep -qF 'keeps the last codex PASS, so no codex round runs for it' "$PAGE" && pass "G1 a clean base merge keeps the PASS" || fail "G1 carried SAFE on the page"
 grep -qF 'One merge per base branch at a time' "$PAGE" && pass "G2 the page names the merge order" || fail "G2 merge order on the page"
 grep -qF '<code>refreshOutsideCap: false</code>' "$PAGE" && pass "G2 the page names refreshOutsideCap" || fail "G2 refreshOutsideCap on the page"
 grep -qF 'babysit merges the base in before asking for it' "$PAGE" && pass "G2 the last pass reviews a current head" || fail "G2 last pass on the page"
@@ -116,5 +116,22 @@ grep -qF 'so two sessions never work on one item' "$PAGE" && pass "G3 the page s
 grep -qF 'takes your answer as that value' "$PAGE" && pass "G4 the page says a step can take a value" || fail "G4 value step on the page"
 grep -qF 'its blockers and any not-before date' "$PAGE" && pass "G5 the queued state names the not-before date" || fail "G5 notBefore on the page"
 grep -qF 'set <code>tokenCmd</code> in <code>star.json</code> once' "$PAGE" && pass "G6 the page says how a repository gh cannot see gets its token" || fail "G6 tokenCmd on the page"
+# lane h: the page shows STAR's changes for issues #94 to #108
+grep -qF 'once any person-only step the narrowed brief adds is done, even under your go' "$PAGE" && pass "LH2 the re-scope waits for its person-only steps (#101)" || fail "LH2 re-scope steps on the page"
+grep -qF 'A file-name or id form is named only by quoting the check that enforces it' "$PAGE" && pass "LH3 a brief names a form only from the repo's own check (#107)" || fail "LH3 name forms on the page"
+grep -qF 'goes into the brief'"'"'s decisions before it is sent' "$PAGE" && pass "LH3 a standing rule is logged before it is sent (#99)" || fail "LH3 standing rules on the page"
+grep -qF '(a session Orca reports released with no retained reason is ended; one a person kept is still kept or held)' "$PAGE" && pass "LH4 a released session is ended (#95)" || fail "LH4 released session on the page"
+grep -qF 'The full regression gate and every live check run once per PR, before the first draft push.' "$PAGE" && pass "LH5 the full gate runs once per PR (#102)" || fail "LH5 gate once on the page"
+grep -qF 'plus a sweep that runs every test file once' "$PAGE" && pass "LH5 later pushes run the sweep (#102)" || fail "LH5 sweep on the page"
+grep -qF 'A head GitHub ran no CI on, while the PR does not conflict, comes to you.' "$PAGE" && pass "LH5 a head with no CI comes to you (#102)" || fail "LH5 ci-missing on the page"
+grep -qF 'When the record of passes is missing, babysit rebuilds it from the PR'"'"'s reviews first' "$PAGE" && pass "LH6 a missing pass record is rebuilt (#96)" || fail "LH6 hosted log on the page"
+grep -qF '>gates · push · ≤ 3 NOT-SAFE</text>' "$PAGE" && grep -qF '>3 NOT-SAFE in a row</text>' "$PAGE" && pass "LH6 the drawing counts NOT-SAFE rounds in a row (#108)" || fail "LH6 round budget in the drawing"
+grep -qF 'after 3 NOT-SAFE rounds in a row or a second Greptile pass' "$PAGE" && pass "LH6 the drawing's label says the same (#108)" || fail "LH6 round budget in the aria-label"
+grep -qF 'In babysit the count starts over at each SAFE round and each push' "$PAGE" && pass "LH6 a base merge after a SAFE round gets a fresh budget (#108)" || fail "LH6 round budget on the page"
+grep -qF 'a direct verdict supersedes a carry' "$PAGE" && pass "LH7 a direct PASS supersedes a carried one (#104)" || fail "LH7 direct receipt on the page"
+grep -qF 'git'"'"'s read-only commands (a denied run is retried once in the same round)' "$PAGE" && pass "LH7 the fallback's git reads and its retry (#100)" || fail "LH7 fallback reads on the page"
+# fix: a released session a person kept is still kept or held (#95)
+grep -qF 'ended, never held' "$PAGE" && fail "F95 the page no longer says a released session is never held" || pass "F95 the page no longer says a released session is never held"
+grep -qF 'one a person kept is still kept or held' "$PAGE" && pass "F95 the page says a released session a person kept is still kept or held" || fail "F95 released session a person kept on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
