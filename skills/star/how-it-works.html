@@ -417,7 +417,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <div>
         <h3>Always</h3>
         <ul>
-          <li>Codex PASS posted on the PR for that head, with a <code>VERDICT: PASS</code> line: gated on that head, carried to it from a gated head by a base merge a script proves adds nothing of its own, or carried by your decision to ship with the findings deferred. A gate round run on that head later still posts its own PASS: a direct verdict supersedes a carry</li>
+          <li>Codex PASS posted on the PR for that head, with a <code>VERDICT: PASS</code> line: gated on that head, carried to it from a gated head by a base merge that changed none of the files the branch changes, or carried by your decision to ship with the findings deferred. A gate round run on that head later still posts its own PASS: a direct verdict supersedes a carry</li>
           <li>Every check SUCCESS, NEUTRAL or SKIPPED</li>
           <li>A written disposition for every unfixed finding</li>
           <li>GitHub reports it mergeable, so branch rules still apply</li>
@@ -430,7 +430,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <ul>
           <li>Before READY, the babysit worker judges Greptile's review from guidelines: it reviewed the head commit, scores 4/5 or better, and has no open P0/P1 and nothing advising against merging</li>
           <li>The merge gate reads no review text: it trusts that READY came on a head the worker judged clean</li>
-          <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment). When the record of passes is missing, babysit rebuilds it from the PR's reviews first, so a pass already made still counts</li>
+          <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment). When the record of passes is missing, babysit rebuilds it from the PR's reviews and Greptile's summary comments first, so a pass already made still counts</li>
           <li>Pass 2 still not clean: back to STAR to re-scope</li>
           <li>A base sync after a clean pass gets one status refresh (<code>@greptileai</code>) on the new head; it is not a pass, unless the project counts every run (<code>refreshOutsideCap: false</code>): then that head comes to you</li>
           <li>When one pass is left, babysit merges the base in before asking for it, so the last pass reviews a current head</li>
@@ -450,7 +450,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
     <div>
       <h2>Where you are needed</h2>
       <ol>
-        <li>Give the brief: free text, tickets, or both.</li>
+        <li>Give the brief: free text, tickets, or both. Feedback you give while an item's brief is still drafting lands in that brief.</li>
         <li>Read one batch summary, do the person-only steps, and say go. A step that asks for a value (a host name, an id) takes your answer as that value.</li>
         <li>Approve risky calls even in scope: data migrations, billing or pricing, production credentials or data, deleting data.</li>
         <li>On a project with no hosted reviewer, have a teammate approve the PR.</li>
@@ -460,6 +460,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>Answer an escalation: a merge-gate check failing twice, NOT-SAFE again after a re-scope, or a worker stalled again after STAR restarted it.</li>
       </ol>
       <p class="aside">Any time: read the decision records in each brief and overrule a call.</p>
+      <p class="aside">On Claude Code 2.1.287 and later, a band above STAR's prompt shows what is building and what needs you, and juel's mod holds STAR to its rules: a direct <code>gh pr merge</code> is refused in STAR's session and its workers, and so is reading a review, evidence, report or log file into STAR's session.</p>
     </div>
     <div>
       <h2>Never stalls</h2>
@@ -468,8 +469,9 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself. The codex gate retries Sol, then runs the same review on Claude. With both down, STAR parks builds and babysits, asks you once, and checks the gate every 30 minutes until it is back.</li>
         <li>A codex gate still NOT SAFE after 3 rounds in a row, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again. In babysit the count starts over at each SAFE round and each push, so a base merge after a SAFE round gets a fresh budget.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
+        <li>A worker sitting on a prompt is seen on its screen. STAR answers Claude Code's safety prompt for an <code>rm</code> inside the item's worktree or a scratchpad, and any other prompt comes to you.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
-        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge a script proves adds nothing of its own keeps the last codex PASS, so no codex round runs for it. The full regression gate and every live check run once per PR, before the first draft push. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the tests for the files its conflicts changed. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
+        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it. A gate round on a base that moved and changed the branch's own files merges the base in first, so the round reviews a current head. The full regression gate and every live check run once per PR, before the first draft push. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the sweep, after a clean merge too. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
         <li>Before a stage starts again, a gate its stopped worker left holding the lock is stopped and the worker's own terminal is closed (a session Orca reports released with no retained reason is ended; one a person kept is still kept or held), a terminal still printing holds the start, and a merge you order stops the worker still fixing that PR first, so two sessions never work on one item.</li>
       </ul>
     </div>

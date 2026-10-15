@@ -124,7 +124,7 @@ grep -qF '(a session Orca reports released with no retained reason is ended; one
 grep -qF 'The full regression gate and every live check run once per PR, before the first draft push.' "$PAGE" && pass "LH5 the full gate runs once per PR (#102)" || fail "LH5 gate once on the page"
 grep -qF 'plus a sweep that runs every test file once' "$PAGE" && pass "LH5 later pushes run the sweep (#102)" || fail "LH5 sweep on the page"
 grep -qF 'A head GitHub ran no CI on, while the PR does not conflict, comes to you.' "$PAGE" && pass "LH5 a head with no CI comes to you (#102)" || fail "LH5 ci-missing on the page"
-grep -qF 'When the record of passes is missing, babysit rebuilds it from the PR'"'"'s reviews first' "$PAGE" && pass "LH6 a missing pass record is rebuilt (#96)" || fail "LH6 hosted log on the page"
+grep -qF 'When the record of passes is missing, babysit rebuilds it from the PR'"'"'s reviews and Greptile'"'"'s summary comments first' "$PAGE" && pass "LH6 a missing pass record is rebuilt (#96, #116)" || fail "LH6 hosted log on the page"
 grep -qF '>gates · push · ≤ 3 NOT-SAFE</text>' "$PAGE" && grep -qF '>3 NOT-SAFE in a row</text>' "$PAGE" && pass "LH6 the drawing counts NOT-SAFE rounds in a row (#108)" || fail "LH6 round budget in the drawing"
 grep -qF 'after 3 NOT-SAFE rounds in a row or a second Greptile pass' "$PAGE" && pass "LH6 the drawing's label says the same (#108)" || fail "LH6 round budget in the aria-label"
 grep -qF 'In babysit the count starts over at each SAFE round and each push' "$PAGE" && pass "LH6 a base merge after a SAFE round gets a fresh budget (#108)" || fail "LH6 round budget on the page"
@@ -133,5 +133,16 @@ grep -qF 'git'"'"'s read-only commands (a denied run is retried once in the same
 # fix: a released session a person kept is still kept or held (#95)
 grep -qF 'ended, never held' "$PAGE" && fail "F95 the page no longer says a released session is never held" || pass "F95 the page no longer says a released session is never held"
 grep -qF 'one a person kept is still kept or held' "$PAGE" && pass "F95 the page says a released session a person kept is still kept or held" || fail "F95 released session a person kept on the page"
+# lane h: the page shows STAR's changes for issues #110 to #118 and the mod
+grep -qF 'carried to it from a gated head by a base merge that changed none of the files the branch changes' "$PAGE" && pass "LH110 the merge gate's carry names the rule (#110)" || fail "LH110 carry rule in the merge gate"
+grep -qF 'A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it.' "$PAGE" && pass "LH110 a base merge keeps the PASS only when it changed none of the branch's files (#110)" || fail "LH110 carry rule in Never stalls"
+grep -qF 'a script proves adds nothing of its own' "$PAGE" && fail "LH110 the old carry wording is gone (#110)" || pass "LH110 the old carry wording is gone (#110)"
+grep -qF 'A gate round on a base that moved and changed the branch'"'"'s own files merges the base in first, so the round reviews a current head.' "$PAGE" && pass "LH113 a moved base that touches the branch is merged before the round (#113)" || fail "LH113 base-moved on the page"
+grep -qF 'a push that only merges the base runs the sweep, after a clean merge too.' "$PAGE" && pass "LH111 a push that only merges the base runs the sweep (#111)" || fail "LH111 sweep after a base merge on the page"
+grep -qF 'runs the tests for the files its conflicts changed' "$PAGE" && fail "LH111 the conflicted-files rule is gone (#111)" || pass "LH111 the conflicted-files rule is gone (#111)"
+grep -qF 'Feedback you give while an item'"'"'s brief is still drafting lands in that brief.' "$PAGE" && pass "LH112 feedback given while a brief drafts lands in it (#112)" || fail "LH112 feedback while drafting on the page"
+grep -qF 'A worker sitting on a prompt is seen on its screen. STAR answers Claude Code'"'"'s safety prompt for an <code>rm</code> inside the item'"'"'s worktree or a scratchpad, and any other prompt comes to you.' "$PAGE" && pass "LH114 a prompt is seen, the bounded one answered (#114)" || fail "LH114 prompts on the page"
+grep -qF 'On Claude Code 2.1.287 and later, a band above STAR'"'"'s prompt shows what is building and what needs you' "$PAGE" && pass "LHmod the page shows the band" || fail "LHmod band on the page"
+grep -qF 'a direct <code>gh pr merge</code> is refused in STAR'"'"'s session and its workers, and so is reading a review, evidence, report or log file into STAR'"'"'s session.' "$PAGE" && pass "LHmod the page shows the guards" || fail "LHmod guards on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
