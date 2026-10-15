@@ -222,7 +222,7 @@ g "L102a the gate-once paragraph" '**Gate once per PR.** The full regression gat
 g "L102b a later push runs the sweep through the gate lock" '-- sh <run-gates.sh> <gate manifest> --root <repo root> sweep`.'
 g "L102c the sweep is that push's one regression gate" 'The sweep is that push'"'"'s one regression gate: a red'
 g "L102d a live check runs again only for touched runtime code" 'A Phase 6 live check runs again only for a criterion whose runtime code the change touched.'
-g "L102e a base-only merge push tests only the conflict resolution" 'runs the tests for the files the conflict resolution'
+grep -qF 'runs the tests for the files the conflict resolution' "$SKILL" && fail "L102e a base-only merge push no longer tests only the conflict resolution" || pass "L102e a base-only merge push no longer tests only the conflict resolution"
 g "L102f a project rule that asks for more wins" "unless the project's own rule (its \`CLAUDE.md\` or \`AGENTS.md\`) asks"
 g "L102g the merge state is read after every push" 'read `gh pr view <pr> --json mergeable,mergeStateStatus`'
 g "L102h missing checks are never a pass" 'Missing checks are never read as a pass.'
@@ -268,5 +268,22 @@ grep -qF 'Waiters take a ticket and are served in arrival order' "$SKILL" && fai
 g "F106a the fixed NOTE list has one outside-merged line naming every path" '`NOTE: scope outside-merged <path>[, <path> ...]` line naming every path Phase 4'"'"'s scope check did not restore'
 g "F106b Phase 4 reports every such path in one fixed line" 'report every such path in one fixed line, `NOTE: scope outside-merged <path>[, <path> ...]`;'
 grep -qF 'NOTE: scope outside-merged <path>`' "$SKILL" && fail "F106c no outside-merged NOTE is per path any more" || pass "F106c no outside-merged NOTE is per path any more"
+# lane f: a base-only merge push runs the sweep, a moved base is merged before the round, the executor link is current (#111, #113, #118)
+g "L111a a base-only merge push runs the sweep" '2. A push that only merges the base branch in runs the sweep, through the gate lock as item 1'
+g "L111b after a clean merge too" 'runs it, after a clean merge too. A red sweep keeps the merge: the fix is a push of the worker'"'"'s'
+g "L111c the fix of a red sweep is a push of the worker's own changes" 'own changes, and item 1 applies to it.'
+grep -qF 'and none after a clean merge' "$SKILL" && fail "L111d no base-only merge push skips the tests" || pass "L111d no base-only merge push skips the tests"
+g "L113a a base-moved round merges the base before it runs" '6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.'
+g "L113b the merge follows babysit's Phase 4 step 1" 'Fetch the base and merge it in as `juel:babysit-pr`'"'"'s Phase 4 step 1 does'
+g "L113c then the same round runs again, not as an ERROR retry" 'the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and'
+g "L113d it casts no maxRounds vote" 'it casts no vote toward `gate.maxRounds`.'
+g "L113e any other ERROR still waits 10 minutes" 'Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more'
+g "L113f review-unavailable never counts a base-moved round" 'An `ERROR base-moved` never counts: the gate loop'"'"'s step 6 merges the base and runs the round again.'
+g "L118a the executor check compares the link with this plugin's copy" 'cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md'
+g "L118b right before each dispatch it checks that the skill is current" 'Right before the line, check that the skill is current:'
+g "L118c a link into another version's copy fails it" 'link into another version'"'"'s copy, which would run an older executor.'
+grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$SKILL" && fail "L118d no test -f check of the executor is left" || pass "L118d no test -f check of the executor is left"
+g "L118e the Preflight row runs the same check" '| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`'
+g "L118f a failing check under --unattended relinks once" '`--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
