@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 
-import { runCli } from './claude.ts'
+import { contentOf, parseObject, runCli, tail } from './claude.ts'
 import type { CliEvent, CliRun } from './claude.ts'
 import { calls, cleanup, play, world } from './test-helpers.ts'
 import type { World } from './test-helpers.ts'
@@ -60,4 +60,31 @@ test('a handler that throws is reported in the exit, not thrown', async () => {
   await play(w, 'claude', [{ lines: [{ type: 'x' }] }])
   const exit = await runCli({ bin: 'claude', args: [], cwd: w.repo, onEvent: () => { throw new Error('boom') } }).done
   assert.equal(exit.handlerError, 'boom')
+})
+
+test('a stdout line longer than one pipe chunk still arrives whole', async () => {
+  const text = 'x'.repeat(300_000)
+  await play(w, 'claude', [{ lines: [{ type: 'assistant', text }] }])
+  const events: CliEvent[] = []
+  const exit = await runCli({ bin: 'claude', args: [], cwd: w.repo, onEvent: event => { events.push(event) } }).done
+  assert.equal(exit.code, 0)
+  assert.equal(events.length, 1)
+  assert.equal(events[0].text, text)
+})
+
+test('an argument spawn refuses is a spawn error, not a throw', async () => {
+  const exit = await runCli({ bin: 'claude', args: ['a\u0000b'], cwd: w.repo }).done
+  assert.ok(exit.spawnError)
+  assert.equal(exit.code, null)
+})
+
+test('parseObject, tail and contentOf', () => {
+  assert.deepEqual(parseObject(' {"a": 1} '), { a: 1 })
+  assert.equal(parseObject('[1]'), null)
+  assert.equal(parseObject('{nope'), null)
+  assert.equal(tail('a\nb\nc\n'), 'c')
+  assert.equal(tail('a\nb\nc', 2), 'b\nc')
+  assert.equal(tail('  '), '')
+  assert.deepEqual(contentOf({ message: { content: [{ type: 'text' }] } }), [{ type: 'text' }])
+  assert.equal(contentOf({ message: {} }), null)
 })

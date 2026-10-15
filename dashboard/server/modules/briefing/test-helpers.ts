@@ -30,7 +30,13 @@ process.stdout.write((s.lines || []).map(l => JSON.stringify(l) + '\n').join('')
 process.stderr.write(s.stderr || '')
 const end = () => { process.exitCode = s.exit || 0 }
 if (s.wait) {
-  const tick = setInterval(() => { if (fs.existsSync(path.join(dir, 'release'))) { clearInterval(tick); end() } }, 10)
+  // Released by the test. A fake left waiting (a regression, or its folder already removed) gives
+  // up after 10 s with exit 99, so the suite fails instead of hanging and no process outlives it.
+  const giveUp = Date.now() + 10000
+  const tick = setInterval(() => {
+    if (fs.existsSync(path.join(dir, 'release'))) { clearInterval(tick); end() }
+    else if (Date.now() > giveUp) { clearInterval(tick); process.exitCode = 99 }
+  }, 10)
 } else end()
 `
 
@@ -88,7 +94,7 @@ export async function until<T>(probe: () => T | Promise<T>, ms = 5000): Promise<
   }
 }
 
-// Stream-json lines in the shape the real CLI prints them (claude 2.1.301, checked 2026-10-16).
+// The stream-json fields the module reads, from lines the real CLI printed (claude 2.1.301, checked 2026-10-16).
 export const hook = { type: 'system', subtype: 'hook_started' }
 export const init = (session: string, tools: string[] = ['Glob', 'Grep', 'Read']) => ({ type: 'system', subtype: 'init', session_id: session, tools, mcp_servers: [] })
 export const say = (text: string) => ({ type: 'assistant', message: { content: [{ type: 'text', text }] } })
@@ -117,8 +123,11 @@ function match(pattern: string, path: string): Record<string, string> | null {
   return params
 }
 
+/** `emitThrows`: emit records the event, then throws. `nudge`: what nudge answers (default true). */
+export type StubOptions = { emitThrows?: boolean; nudge?: (project: string) => Promise<boolean> }
+
 /** A ModuleApi that records everything, and `call` to run a registered handler as the server would. */
-export function stub(projects: Project[]): Stub {
+export function stub(projects: Project[], options: StubOptions = {}): Stub {
   const handlers: { method: string; path: string; handler: (req: Req) => Promise<Res> }[] = []
   const s: Stub = {
     routes: [],
@@ -132,11 +141,12 @@ export function stub(projects: Project[]): Stub {
       },
       emit(event) {
         s.events.push(event)
+        if (options.emitThrows) throw new Error('emit is down')
       },
       projects: () => projects,
       async nudge(project) {
         s.nudges.push(project)
-        return true
+        return options.nudge ? options.nudge(project) : true
       },
       log(line) {
         s.logs.push(line)
