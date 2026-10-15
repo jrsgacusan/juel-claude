@@ -657,8 +657,9 @@ more, which then wins:
    A `null` sweep runs `test` in its place. The sweep is that push's one regression gate: a red
    sweep is a red gate.
    A Phase 6 live check runs again only for a criterion whose runtime code the change touched.
-2. A push that only merges the base branch in runs the tests for the files the conflict resolution
-   changed, and none after a clean merge: CI carries the full suite.
+2. A push that only merges the base branch in runs the sweep, through the gate lock as item 1
+   runs it, after a clean merge too. A red sweep keeps the merge: the fix is a push of the worker's
+   own changes, and item 1 applies to it.
 
 After every push to the PR (right after Phase 7 opens the draft, and after each push of the codex
 gate loop), read `gh pr view <pr> --json mergeable,mergeStateStatus`. A `mergeable` of `UNKNOWN`
