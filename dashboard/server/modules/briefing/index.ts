@@ -1,6 +1,8 @@
 // The briefing module (STAR dashboard, part 3): a read-only Claude agent that helps the owner shape
 // one piece of work, and the create that turns its draft into a ticket STAR picks up. The server
 // imports dashboard/server/modules/*/index.ts and calls register(api).
+import { join } from 'node:path'
+
 import { message } from './claude.ts'
 import { createTicket, queueCreated } from './create.ts'
 import type { CreateOutcome } from './create.ts'
@@ -112,6 +114,11 @@ export function register(api: ModuleApi): void {
     busy.add(key)
     try {
       const created = await readCreated(at.dir)
+      // A create that did not finish may have made a ticket: never make another on a guess (D8).
+      if (created?.state === 'creating') {
+        const where = join(at.dir, 'created.json')
+        return refuse(409, `an earlier ${created.tracker} create of this briefing did not finish: check ${created.tracker} for the ticket (the dashboard log names any it made), then remove ${where} to try again`, { created })
+      }
       // Made before, but STAR's inbox file was never written: send that ticket now, never a second one.
       if (created?.inbox === null) {
         return await finish(at, created.tracker, await queueCreated({ home: at.project.home, repo: at.project.repo, dir: at.dir }, created))

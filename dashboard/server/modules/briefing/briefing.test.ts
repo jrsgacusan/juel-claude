@@ -348,3 +348,32 @@ test('pressing Create again after a failed inbox write queues the same ticket, t
   assert.equal(third.status, 409)
   assert.deepEqual(s.nudges, ['proj'])
 })
+
+test('a briefing whose create did not finish answers 409 and makes nothing', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = await newBriefing()
+  await withDraft(id)
+  const mark = { tracker: 'github', ref: null, specPath: null, url: null, at: '2026-10-16T00:00:00.000Z', state: 'creating', inbox: null }
+  await writeFile(join(briefingDir(w.home, id)!, 'created.json'), JSON.stringify(mark))
+  for (const tracker of ['github', 'none']) {
+    const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker })
+    assert.equal(res.status, 409, tracker)
+    assert.match(String(json(res).error), /did not finish/)
+  }
+  assert.deepEqual(await calls(w, 'gh'), [])
+  assert.deepEqual(s.nudges, [])
+})
+
+test('a ticket made but not recorded is 500 with made, and the next press is 409, not a second ticket', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = await newBriefing()
+  await withDraft(id)
+  await mkdir(join(briefingDir(w.home, id)!, `.created.json.${process.pid}.tmp`)) // the record's rewrite cannot write its temp file
+  const first = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(first.status, 500)
+  assert.equal((json(first).made as Record<string, unknown>).ref, '#42')
+  const second = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(second.status, 409)
+  assert.match(String(json(second).error), /did not finish/)
+  assert.equal((await calls(w, 'gh')).length, 1)
+})
