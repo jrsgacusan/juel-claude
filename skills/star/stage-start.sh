@@ -15,7 +15,9 @@
 #                             a session may still be working (#76): the row's previous dispatch has
 #                             an open terminal Orca does not prove it owns (<state> is its
 #                             retainedReason, such as user_takeover or identity_unproven, or its
-#                             ownershipState) that printed output in the last 10 minutes; or closing
+#                             ownershipState) that printed output in the last 10 minutes, unless
+#                             its screen shows only Claude Code's recap line above an empty prompt
+#                             (#119); or closing
 #                             the dispatch's own terminal failed ("close failed: <why>"; never for a
 #                             released dispatch, #95); or, for build and babysit, another claude or
 #                             codex terminal in the worktree printed output in the last 10 minutes
@@ -38,10 +40,13 @@
 #                                     is closed the same way, best-effort, and a failed close is ignored
 #   kept previous session <terminal> (<state>)
 #                                     an open terminal Orca does not prove is the dispatch's, quiet
-#                                     for 10 minutes or more: left open (a person's terminal is never
-#                                     closed), and the start goes on
+#                                     for 10 minutes or more, or showing only Claude Code's recap
+#                                     line above an empty prompt (#119): left open (a person's
+#                                     terminal is never closed), and the start goes on
 # These run only when the row's dispatch is not "-", and never on a replay, which would be its own
-# dispatch. Nothing is written to the row before a hold.
+# dispatch. Nothing is written to the row before a hold. A previous terminal that a readable,
+# untruncated `orca terminal list --limit 500` no longer lists is gone, whatever worker-show still
+# reports (#119): no line, nothing closed, no hold.
 # In order: for build, the brief's notBefore (a value that is not a date is "failed brief");
 # the host gate (nothing starts while one of its four checks fails); the previous dispatch's
 # terminal; for build and babysit, live terminals in the worktree, once it is known; then, with no
@@ -99,6 +104,15 @@ EFFORTS = ["max", "xhigh", "high", "medium", "low"]
 REFUSED = ("not installed", "unknown agent", "model", "access", "credit", "quota", "not available")
 ENV_NAMES = (".env", ".envrc", ".npmrc", ".tool-versions")
 LIVE_MS = 10 * 60 * 1000  # a terminal that printed output this recently is a working session (#76)
+# Claude Code 2.1.301's screen, as `orca terminal read --screen` renders it (#119): the prompt is a
+# rule row, the prompt row ("❯" alone when empty) and another rule row, with the footer below; a
+# footer row says "esc to interrupt" while a turn runs. Its recap is "※ recap: <text>" (the "※" in a
+# two-column box, then a dim bold "recap:"), wrapped onto indented rows under it.
+RULE = re.compile(r"^\s*[╭╰]?─{3,}[╮╯]?\s*$")
+PROMPT_ROW = re.compile(r"^\s*│?\s*[❯>](\s|$)")
+EMPTY_PROMPT = re.compile(r"^\s*│?\s*[❯>]\s*│?\s*$")
+RECAP = re.compile(r"^\s*※\s*recap:")
+CONTINUED = re.compile(r"^\s+[^\s⎿⏺●✽✻✶✳✢·*]")  # a wrapped row: indented, and no turn's glyph
 NOTES = []  # extra lines (#76), printed in this order before the one result line
 orca = os.environ.get("ORCA_CLI_COMMAND") or "orca"
 
@@ -602,6 +616,46 @@ def recent(last):
     return not isinstance(last, (int, float)) or time.time() * 1000 - last <= LIVE_MS
 
 
+def listed(handle):
+    """Whether Orca's terminal list holds this handle (#119); None when the list cannot be read, is
+    not a list, or is cut short (truncated): then a missing handle proves nothing."""
+    shown = run([orca, "terminal", "list", "--limit", "500", "--json"], 60)
+    data = lenient(shown.stdout)
+    result = data.get("result") if isinstance(data, dict) else None
+    terminals = result.get("terminals") if isinstance(result, dict) else None
+    if shown.returncode != 0 or not isinstance(terminals, list) or result.get("truncated") is True:
+        return None
+    return any(isinstance(t, dict) and t.get("handle") == handle for t in terminals)
+
+
+def screen_rows(handle):
+    """The terminal's rendered screen rows, as worker-probe.sh reads them; None when the screen
+    cannot be read or Orca reports anything but "screen"."""
+    read = run([orca, "terminal", "read", "--terminal", handle, "--screen", "--json"], 60)
+    data = lenient(read.stdout)
+    result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
+    term = result.get("terminal") if isinstance(result, dict) else None
+    tail = term.get("tail") if isinstance(term, dict) else None
+    if read.returncode != 0 or not isinstance(tail, list) or not tail or term.get("source", "screen") != "screen":
+        return None
+    return [str(row) for row in tail]
+
+
+def recap_only(rows):
+    """True when the newest rows above the screen's empty prompt are one recap block (#119): its
+    "※ recap:" row, then only wrapped rows, with no turn running. Any other screen is False."""
+    for i in range(len(rows or []) - 2, 0, -1):
+        if PROMPT_ROW.match(rows[i]) and RULE.match(rows[i - 1]) and RULE.match(rows[i + 1]):
+            if not EMPTY_PROMPT.match(rows[i]) or any("esc to interrupt" in r for r in rows[i + 2:]):
+                return False
+            above = [r for r in rows[:i - 1] if r.strip()]
+            for j in range(len(above) - 1, max(len(above) - 9, -1), -1):
+                if RECAP.match(above[j]):
+                    return all(CONTINUED.match(r) for r in above[j + 1:])
+            return False
+    return False
+
+
 def checks_previous():
     """The previous dispatch is checked when the row names one, and never on a replay of itself."""
     return not replay and (row.get("dispatch") or "-") != "-"
@@ -609,7 +663,9 @@ def checks_previous():
 
 def previous_session():
     """The row's previous dispatch's terminal (#76): close its own, or a released one's (#95), keep a
-    quiet one it cannot prove is its own, and hold on a working one. Returns that terminal's handle."""
+    quiet one it cannot prove is its own, and hold on a working one. A terminal Orca no longer lists
+    is gone, and a screen whose only news is Claude Code's recap line is quiet (#119). Returns that
+    terminal's handle, or None when there is none left."""
     if not checks_previous():
         return None
     prev = row["dispatch"]
@@ -631,12 +687,15 @@ def previous_session():
         run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
         NOTES.append(f"ended previous session {handle}")
         return handle
+    if listed(handle) is False:
+        return None  # Orca lists no such terminal any more: it is gone, whatever worker-show says (#119)
     if res.get("ownershipState") != "owned" or res.get("ownerDispatchId") != prev:
         state = reason or res.get("ownershipState") or "unowned"
     elif reason or seen.get("exactWorker") is not True:
         state = reason or "identity_unproven"
     if state:
-        if recent(terminal.get("lastOutputAt")):
+        # Claude Code's recap line alone is not a session at work (#119): only a recent terminal is read
+        if recent(terminal.get("lastOutputAt")) and not recap_only(screen_rows(handle)):
             out(f"hold session {handle} ({state})")
         NOTES.append(f"kept previous session {handle} ({state})")  # never close a terminal a person may own
         return handle
