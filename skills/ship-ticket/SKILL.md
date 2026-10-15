@@ -134,7 +134,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
-| claude-plan-executor | skill | HARD | `test -f ~/.codex/skills/claude-plan-executor/SKILL.md` (follows the link) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
+| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
@@ -825,16 +825,18 @@ right now, which are not the executor's (the user's own edits, untracked files, 
 not survive between Bash calls: write the sha and the `$BEFORE` path in literally in the later
 commands.
 
-**The executor skill.** Right before the line, check that the skill resolves:
-`test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
-a plugin version that is gone (a plugin update removes its old cache folder) fails it, even in the
-middle of a run. Missing under `--unattended`: relink once with
-`node <plugin root>/scripts/link-agent-skills.mjs` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or
-two levels above this file) and check again. Still missing: do not dispatch. Run the plan in this
-session with `superpowers:executing-plans`, and carry
+**The executor skill.** Right before the line, check that the skill is current:
+`cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
+(`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
+copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
+is gone (a plugin update removes its old cache folder), even in the middle of a run, and for a
+link into another version's copy, which would run an older executor. Failing under
+`--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check
+again. Still failing: do not dispatch. Run the plan in this session with
+`superpowers:executing-plans`, and carry
 `NOTE: executor skill missing, the plan ran in this session` into the report. Codex saying during
-a run that `$claude-plan-executor` is unavailable gets the same `NOTE`. Interactively, missing is
-the Preflight STOP with its fix command.
+a run that `$claude-plan-executor` is unavailable gets the same `NOTE`. Interactively, a failing
+check is the Preflight STOP with its fix command.
 
 **A linked worktree.** Compare `git rev-parse --path-format=absolute --git-dir` with
 `git rev-parse --path-format=absolute --git-common-dir`. When they differ, the checkout is a linked
