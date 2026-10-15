@@ -105,6 +105,25 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --wait: oklch(0.769 0.188 70.08);
+  --wait-fg: oklch(0.47 0.137 46.2);
+  --wait-bg: oklch(0.987 0.022 95.277);
+  --wait-line: oklch(0.924 0.12 95.746);
+  --run: oklch(0.623 0.214 259.815);
+  --run-fg: oklch(0.488 0.243 264.376);
+  --run-bg: oklch(0.97 0.014 254.604);
+  --run-line: oklch(0.882 0.059 254.128);
+  --done: oklch(0.723 0.219 149.579);
+  --done-fg: oklch(0.448 0.119 151.328);
+  --done-bg: oklch(0.982 0.018 155.826);
+  --done-line: oklch(0.925 0.084 155.995);
+  --stop: oklch(0.637 0.237 25.331);
+  --stop-fg: oklch(0.505 0.213 27.518);
+  --stop-bg: oklch(0.971 0.013 17.38);
+  --stop-line: oklch(0.885 0.062 18.334);
+  --shot: oklch(0.955 0 0);
+  --shot-bar: oklch(0.205 0 0);
+  --shot-line: oklch(0.88 0 0);
 }
 
 .dark {
