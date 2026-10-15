@@ -233,3 +233,99 @@ test('PUT tracker refuses a local file it cannot parse, naming it', async () => 
   assert.match(String(json(res).error), /workflow\.local\.json/)
   assert.equal(await readFile(join(w.repo, '.claude/workflow.local.json'), 'utf8'), '{ nope')
 })
+
+test('two messages sent at once: one runs, the other is 409', async () => {
+  await play(w, 'claude', [OK])
+  const id = await newBriefing()
+  const answers = await Promise.all([
+    s.call('POST', `/api/projects/proj/briefings/${id}/messages`, { text: 'one' }),
+    s.call('POST', `/api/projects/proj/briefings/${id}/messages`, { text: 'two' }),
+  ])
+  assert.deepEqual(answers.map(res => res.status).sort(), [202, 409])
+  await settled(id)
+  assert.equal((await calls(w, 'claude')).length, 1)
+})
+
+test('an emit that throws never takes the server down, and the briefing is freed', async () => {
+  const loud = stub([w.project], { emitThrows: true })
+  register(loud.api)
+  await play(w, 'claude', [OK])
+  const id = String(json(await loud.call('POST', '/api/projects/proj/briefings')).id)
+  assert.equal((await loud.call('POST', `/api/projects/proj/briefings/${id}/messages`, { text: 'one' })).status, 202)
+  await until(() => loud.events.some(event => 'error' in event || (event.turn as { done?: boolean } | undefined)?.done === true))
+  await until(async () => json(await loud.call('GET', `/api/projects/proj/briefings/${id}`)).busy === false)
+})
+
+test('a turn that throws is reported as a briefing error and frees the briefing', async () => {
+  const id = await newBriefing()
+  await mkdir(join(briefingDir(w.home, id)!, 'session')) // a folder where the session file goes: reading it throws
+  assert.equal((await s.call('POST', `/api/projects/proj/briefings/${id}/messages`, { text: 'one' })).status, 202)
+  await settled(id)
+  assert.match(String(s.events.at(-1)!.error), /EISDIR/)
+  assert.equal(json(await s.call('GET', `/api/projects/proj/briefings/${id}`)).busy, false)
+})
+
+test('a nudge that fails still answers 201, and the log says STAR was not reached', async () => {
+  const quiet = stub([w.project], { nudge: async () => { throw new Error('no terminal') } })
+  register(quiet.api)
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = String(json(await quiet.call('POST', '/api/projects/proj/briefings')).id)
+  await withDraft(id)
+  const res = await quiet.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(res.status, 201)
+  assert.ok(quiet.logs.some(line => line.includes('nudge failed: no terminal')))
+  assert.ok(quiet.logs.some(line => line.includes('not reached')))
+})
+
+test('create while a turn runs is 409', async () => {
+  await play(w, 'claude', [{ ...OK, wait: true }])
+  const id = await newBriefing()
+  await withDraft(id)
+  await s.call('POST', `/api/projects/proj/briefings/${id}/messages`, { text: 'one' })
+  await until(async () => (await calls(w, 'claude')).length === 1)
+  assert.equal((await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'none' })).status, 409)
+  await release(w)
+  await settled(id)
+})
+
+test('GET tracker answers one of the five or null, and logs a value it cannot use', async () => {
+  await mkdir(join(w.repo, '.claude'), { recursive: true })
+  const cases: [unknown, string | null][] = [[{ type: 'file' }, 'none'], ['Linear', 'linear'], [{ type: 'gitlab' }, null]]
+  for (const [tracker, want] of cases) {
+    await writeFile(join(w.repo, '.claude', 'workflow.json'), JSON.stringify({ tracker }))
+    assert.deepEqual((await s.call('GET', '/api/projects/proj/tracker')).json, { tracker: want }, JSON.stringify(tracker))
+  }
+  assert.ok(s.logs.some(line => line.includes('"gitlab"')))
+})
+
+test("a configured team is passed only to its own tracker's create", async () => {
+  await mkdir(join(w.repo, '.claude'), { recursive: true })
+  await writeFile(join(w.repo, '.claude', 'workflow.json'), JSON.stringify({ tracker: { type: 'linear', project: 'ENG' } }))
+  const answer = '{"error": "no project key"}'
+  await play(w, 'claude', [{ lines: [init('C1', ['mcp__atlassian__createJiraIssue']), say(answer), done(answer)] }])
+  const id = await newBriefing()
+  await withDraft(id)
+  assert.equal((await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'jira' })).status, 502)
+  assert.equal((await calls(w, 'claude'))[0].argv.at(-1)!.includes('"ENG"'), false)
+})
+
+test('a transcript line that is not a turn is skipped, and the list still answers', async () => {
+  const id = await newBriefing()
+  const good = { who: 'me', text: 'Add a retry', files: [], at: '2026-10-16T00:00:00.000Z' }
+  await writeFile(join(briefingDir(w.home, id)!, 'transcript.jsonl'), `null\n{"who":"me"}\n${JSON.stringify(good)}\n`)
+  const list = await s.call('GET', '/api/projects/proj/briefings')
+  assert.equal(list.status, 200)
+  assert.equal((list.json as Record<string, unknown>[])[0].title, 'Add a retry')
+  assert.deepEqual(json(await s.call('GET', `/api/projects/proj/briefings/${id}`)).turns, [{ who: 'me', text: 'Add a retry', files: [] }])
+})
+
+test('a ticket made but not recorded is 500 with made, never the 502 that offers to make it again', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = await newBriefing()
+  await withDraft(id)
+  await writeFile(join(w.home, 'inbox'), 'not a folder')
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(res.status, 500)
+  assert.equal((json(res).made as Record<string, unknown>).ref, '#42')
+  assert.deepEqual(s.nudges, [])
+})

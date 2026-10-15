@@ -1,9 +1,10 @@
 // The briefing module (STAR dashboard, part 3): a read-only Claude agent that helps the owner shape
 // one piece of work, and the create that turns its draft into a ticket STAR picks up. The server
 // imports dashboard/server/modules/*/index.ts and calls register(api).
+import { message } from './claude.ts'
 import { createTicket } from './create.ts'
 import { briefingDir, createBriefing, isDir, listBriefings, readCreated, readDraft, readTurns } from './store.ts'
-import { TRACKERS, isTracker, resolveTracker, saveTracker } from './tracker.ts'
+import { TRACKERS, asTracker, isTracker, resolveTracker, saveTracker } from './tracker.ts'
 import { runTurn } from './turn.ts'
 import type { ModuleApi, Project, Req, Res } from './types.ts'
 
@@ -11,11 +12,22 @@ type Located = { project: Project; id: string; dir: string }
 
 const answer = (json: unknown, status = 200): Res => ({ status, json })
 const refuse = (status: number, error: string, extra: Record<string, unknown> = {}): Res => ({ status, json: { error, ...extra } })
-const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 const field = (body: unknown, name: string): unknown => (typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[name] : undefined)
 const BAD_TRACKER = `tracker must be one of ${TRACKERS.join(', ')}`
 
 export function register(api: ModuleApi): void {
+  // The server's emit and log may throw (a full disk under ~/.juel/dashboard.log, say). A throw from a
+  // turn that nothing awaits would end the whole server, so neither ever escapes this module.
+  const safely = (what: string, act: () => void): void => {
+    try {
+      act()
+    } catch (err) {
+      console.error(`briefing: ${what} failed: ${message(err)}`)
+    }
+  }
+  const emit: ModuleApi['emit'] = event => safely('emit', () => api.emit(event))
+  const log = (line: string): void => safely('log', () => api.log(line))
+
   // Briefings with a turn or a create running, as <project>/<id>: one at a time each (B4).
   const busy = new Set<string>()
   const keyOf = (at: Located): string => `${at.project.name}/${at.id}`
@@ -59,10 +71,10 @@ export function register(api: ModuleApi): void {
     if (busy.has(key)) return refuse(409, 'a turn is already running for this briefing')
     busy.add(key)
     const { project, id, dir } = at
-    runTurn({ project: project.name, id, repo: project.repo, dir, text, emit: event => api.emit(event), log: line => api.log(line) })
+    runTurn({ project: project.name, id, repo: project.repo, dir, text, emit, log })
       .catch((err: unknown) => {
-        api.emit({ type: 'briefing', project: project.name, id, error: message(err) })
-        api.log(`briefing ${key}: turn failed: ${message(err)}`)
+        emit({ type: 'briefing', project: project.name, id, error: message(err) })
+        log(`briefing ${key}: turn failed: ${message(err)}`)
       })
       .finally(() => busy.delete(key))
     return answer({ accepted: true }, 202)
@@ -81,23 +93,32 @@ export function register(api: ModuleApi): void {
       if (created) return refuse(409, 'this briefing already made a ticket', { created })
       const draft = await readDraft(at.dir)
       if (!draft) return refuse(409, 'no draft yet')
-      const config = await resolveTracker(at.project.repo)
+      const config = await resolveTracker(at.project.repo, log)
       const outcome = await createTicket({
         project: at.project.name,
         repo: at.project.repo,
         home: at.project.home,
         dir: at.dir,
         tracker,
-        trackerProject: config?.type === tracker ? config.project : null,
+        trackerProject: config && asTracker(config.type) === tracker ? config.project : null,
         draft,
+        log,
       })
       if (!outcome.ok) {
-        api.log(`briefing ${key}: ${tracker} create failed: ${outcome.error}`)
-        return refuse(502, outcome.error, { tracker })
+        log(`briefing ${key}: ${tracker} create failed: ${outcome.error}`)
+        // The ticket exists but is not recorded: never the failure that offers to make it again.
+        if (outcome.made) return refuse(500, outcome.error, { tracker, made: outcome.made })
+        return refuse(502, outcome.error, outcome.maybeMade ? { tracker, maybeMade: true } : { tracker })
       }
       const { ref, specPath, url } = outcome.created
-      const nudged = await api.nudge(at.project.name).catch(() => false)
-      api.log(`briefing ${key}: created ${ref ?? specPath} via ${tracker}; STAR ${nudged ? 'nudged' : 'not reached'}`)
+      // A nudge that throws or rejects means STAR was not reached; the ticket stands either way.
+      const nudged = await Promise.resolve()
+        .then(() => api.nudge(at.project.name))
+        .catch((err: unknown) => {
+          log(`briefing ${key}: nudge failed: ${message(err)}`)
+          return false
+        })
+      log(`briefing ${key}: created ${ref ?? specPath} via ${tracker}; STAR ${nudged ? 'nudged' : 'not reached'}`)
       return answer(ref ? { ref, url } : { specPath, url }, 201)
     } finally {
       busy.delete(key)
@@ -107,7 +128,10 @@ export function register(api: ModuleApi): void {
   api.route('GET', '/api/projects/:p/tracker', async req => {
     const project = projectOf(req)
     if (!project) return refuse(404, 'unknown project')
-    return answer({ tracker: (await resolveTracker(project.repo))?.type ?? null })
+    const found = await resolveTracker(project.repo, log)
+    const tracker = found ? asTracker(found.type) : null
+    if (found && !tracker) log(`briefing: ${project.name}'s tracker "${found.type}" is not one the dashboard creates in, so the page asks`)
+    return answer({ tracker })
   })
 
   api.route('PUT', '/api/projects/:p/tracker', async req => {
