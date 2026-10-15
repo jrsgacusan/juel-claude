@@ -285,5 +285,13 @@ g "L118c a link into another version's copy fails it" 'link into another version
 grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$SKILL" && fail "L118d no test -f check of the executor is left" || pass "L118d no test -f check of the executor is left"
 g "L118e the Preflight row runs the same check" '| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`'
 g "L118f a failing check under --unattended relinks once" '`--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check'
+# #122: the build never pings the hosted reviewer; the ready mark starts its run
+g "L122a the build never pings or comments to the hosted reviewer (#122)" 'The build never pings or comments to the hosted reviewer on the PR at any point (no'
+g "L122b marking ready is the only thing that starts its run (#122)" '`@greptileai`, no review request): marking the PR ready is the only thing that starts its run,'
+# #123: progress lines come only from the step they name
+g "L123a a progress line comes only from its own step (#123)" 'A progress line is written only by the step it names, at that step, never by a background or'
+g "L123b never from a detached timer loop (#123)" 'detached timer loop the worker starts: such a timer keeps writing after the turn it belongs to'
+g "L123c gate-lock.sh --progress stays the one repeating writer (#123)" 'moving (#123). `gate-lock.sh --progress` stays the one writer that repeats, since it lives only as'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

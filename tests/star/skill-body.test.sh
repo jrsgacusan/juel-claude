@@ -658,5 +658,22 @@ g "LHmod-e the hard rule names the mod" '- On Claude Code 2.1.287 and later, jue
 # fix-2: prompt bounded in Reconcile and the escalation-answer rule (#114)
 g "FIX2a Reconcile keeps a prompt bounded worker, Housekeeping answers it (#114)" '`prompt bounded …` → keep it; Housekeeping answers it.'
 g "FIX2b an escalation answer counts a prompt bounded worker as still running (#114)" 'says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running'
+# #121: a draft brief's branch never collides with another item's or a remote branch
+g "LH121a draft-brief checks the branch for a collision (#121)" 'old PR. Then check the branch for a collision (#121): compare the branch you would name against'
+g "LH121b against the brief of every other ledger row (#121)" 'the `branch:` line of the brief of every other row in `<HOME_DIR>/ledger.md` (each row has its'
+g "LH121c and the branches of the remote (#121)" '(`git ls-remote --heads <remote>`). The branch the brief at `--out` already names, and the head'
+g "LH121d next title words, then the item's own words (#121)" 'slug with the next words of the title, one at a time, then with distinguishing words of the item'
+g "LH121e the chosen slug is recorded (#121)" 'that parent. Record the chosen slug in the brief front matter as `item.slug`.'
+g "LH121f the slug rule points at the collision rule (#121)" '6 words, unless the collision rule of step 5 extends it), `title`, `url`, `path` (a `file`'
+# #122: STAR's merge order counts hosted passes per distinct head
+g "LH122a the merge order counts distinct heads (#122)" '`updated`. The count is of distinct heads with a `pass` line, not of raw `pass` lines (#122): it'
+g "LH122b the count relies on one pass line per head (#122)" 'relies on the rule of `juel:babysit-pr` that a head gets at most one `pass` line (a later hosted'
+# #123: an API error at the prompt gets the capacity rule's nudges
+g "LH123a the capacity rule covers stalled: api error (#123)" '`stalled: model at capacity` or `stalled: api error` (#123) → the'
+g "LH123b the API error nudge, with Enter (#123)" 'orca terminal send --terminal <terminal> --text "STAR: your last model call failed with an API error. Continue where you stopped." --enter --json'
+g "LH123c both share the capacity counter (#123)" 'and `counters.capacity=+1` (both lines share the counter); at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as'
+g "LH123d the counter row names the API error (#123)" '| `capacity=<n>` | retry nudges sent to a worker stalled on a model at capacity or an API error (`stalled:`, #123) in one silent stretch |'
+g "LH123e looking after the workers names it (#123)" 'capacity, or a worker left at an empty prompt under an `API Error:` line (#123), is a third thing'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

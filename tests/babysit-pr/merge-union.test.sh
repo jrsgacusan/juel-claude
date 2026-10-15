@@ -307,5 +307,18 @@ both_ways brace-two-spaces copy.sh one_line 'cp src/{a,  b}.js dist/' 'cp src/{d
 both_ways brace-tab copy.sh one_line "cp src/{a,${TAB}b}.js dist/" "cp src/{d,${TAB}a,${TAB}b}.js dist/" "cp src/{a,${TAB}b,${TAB}c}.js dist/" conflict
 both_ways brace-space-before copy.sh one_line 'cp src/{a ,b}.js dist/' 'cp src/{d ,a ,b}.js dist/' 'cp src/{a ,b ,c}.js dist/' conflict
 
+# #120: one side inserted lines right after a line the other side edited: the edited line, then the
+# inserted block. Both orientations (main inserts and feat edits, then the reverse), merged and under
+# --resolve. Both sides editing the line, an insertion before the edited line, an edit that adds a
+# line, and an insertion that could sit on either side of the edit stay conflicts.
+txt() { printf '%b' "$1"; }
+both_ways adjacent-main-inserts v.js txt 'head\nconst fallback = { a: 1 };\ntail\n' 'head\nconst fallback = { a: 1 };\nif (x) {\n  y();\n}\ntail\n' 'head\nconst fallback = { a: 1, b: 2 };\ntail\n' 'head\nconst fallback = { a: 1, b: 2 };\nif (x) {\n  y();\n}\ntail\n'
+both_ways adjacent-feat-inserts v.js txt 'head\nconst fallback = { a: 1 };\ntail\n' 'head\nconst fallback = { a: 1, b: 2 };\ntail\n' 'head\nconst fallback = { a: 1 };\nif (x) {\n  y();\n}\ntail\n' 'head\nconst fallback = { a: 1, b: 2 };\nif (x) {\n  y();\n}\ntail\n'
+both_ways adjacent-two-lines v.txt txt 'a\nb\nc\nz\n' 'a\nb\nc\nX\nz\n' 'a\nB\nC\nz\n' 'a\nB\nC\nX\nz\n'
+both_ways adjacent-same-line v.js txt 'head\nconst fallback = { a: 1 };\ntail\n' 'head\nconst fallback = { a: 1, c: 3 };\nif (x) {\n}\ntail\n' 'head\nconst fallback = { a: 1, b: 2 };\ntail\n' conflict
+both_ways adjacent-insert-before v.txt txt 'head\nL\ntail\n' 'head\nX\nL\ntail\n' 'head\nL2\ntail\n' conflict
+both_ways adjacent-edit-adds-a-line v.txt txt 'h\nL\nt\n' 'h\nL\nX\nt\n' 'h\nL2\nL3\nt\n' conflict
+both_ways adjacent-either-side v.txt txt 'a\nb\nz\n' 'a\nb\nb\nz\n' 'a\nB\nz\n' conflict
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
