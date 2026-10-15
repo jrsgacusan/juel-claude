@@ -2,7 +2,12 @@ import { http, HttpResponse } from "msw/http"
 import { bypass } from "msw/utils/bypass"
 import { delay } from "msw/utils/delay"
 import type { BriefingEvent, Project, TrackerInfo } from "@/api/types"
-import { getDb, getScenario, mockEvents } from "./state"
+import {
+  consumeFailedBriefingTurn,
+  getDb,
+  getScenario,
+  mockEvents,
+} from "./state"
 import { HOME } from "./fixtures"
 import clipUrl from "./assets/clip.webm?url"
 
@@ -316,8 +321,19 @@ export const handlers = [
       const body = await bodyJson(request)
       const text = typeof body.text === "string" ? body.text.trim() : ""
       if (!text) return fail(400, "A message needs text")
-      entry.briefing.turns.push({ who: "me", text })
       entry.briefing.busy = true
+      if (consumeFailedBriefingTurn()) {
+        mockEvents.later(500, () => {
+          entry.briefing.busy = false
+          mockEvents.emit({
+            type: "briefing",
+            project: p,
+            id: String(params.id),
+            error: "claude exited 1",
+          })
+        })
+        return new HttpResponse(null, { status: 202 })
+      }
       const reply = `Noted: ${text}. I added it to the draft's acceptance criteria. Anything else before I create it?`
       const words = reply.split(" ")
       for (const [i, ms] of [250, 500, 750].entries())
@@ -343,14 +359,16 @@ export const handlers = [
           outOfScope: [],
         }
         entry.briefing.draft.criteria.push(text)
-        entry.briefing.turns.push({ who: "agent", text: reply, done: true })
         entry.summary.updatedAt = new Date().toISOString()
         mockEvents.emit({
           type: "briefing",
           project: p,
           id: String(params.id),
           turn: { who: "agent", text: reply, done: true },
+          draft: entry.briefing.draft,
         })
+        entry.briefing.turns.push({ who: "me", text })
+        entry.briefing.turns.push({ who: "agent", text: reply, done: true })
         mockEvents.emit({ type: "change", project: p, what: "briefings" })
       })
       return new HttpResponse(null, { status: 202 })

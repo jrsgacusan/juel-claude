@@ -3,7 +3,12 @@ import { http, HttpResponse } from "msw/http"
 import { describe, expect, it } from "vitest"
 import { getConnection } from "@/api/events"
 import { server } from "@/mocks/node"
-import { getDb, mockEvents, setScenario } from "@/mocks/state"
+import {
+  failNextBriefingTurn,
+  getDb,
+  mockEvents,
+  setScenario,
+} from "@/mocks/state"
 import { renderApp } from "@/test/render"
 
 const b1 = () =>
@@ -170,27 +175,104 @@ describe("Briefing", () => {
     ).toBeInTheDocument()
   })
 
-  it("shows Retry when a turn fails", async () => {
-    renderApp("/sphere-app/briefing")
-    await screen.findByLabelText("Message the briefing agent")
+  it("keeps the pending message and retries it", async () => {
+    const { user } = renderApp("/sphere-app/briefing")
+    const box = await screen.findByLabelText("Message the briefing agent")
     await waitFor(() => expect(getConnection()).toBe("open"))
-    act(() =>
-      mockEvents.emit({
-        type: "briefing",
-        project: "sphere-app",
-        id: "b1",
-        error: "claude exited 1",
-      })
-    )
+    failNextBriefingTurn()
+    await user.type(box, "Also log who paused it{Enter}")
     const chat = screen.getByRole("region", { name: "Conversation" })
     expect(
+      await within(chat).findByText("Also log who paused it")
+    ).toBeInTheDocument()
+    expect(
       await within(chat).findByText(
-        "The briefing agent stopped: claude exited 1."
+        "The briefing agent stopped: claude exited 1.",
+        {},
+        { timeout: 3000 }
       )
     ).toBeInTheDocument()
     expect(
-      within(chat).getByRole("button", { name: "Retry" })
+      b1()?.briefing.turns.some((t) => t.text === "Also log who paused it")
+    ).toBe(false)
+    await user.click(within(chat).getByRole("button", { name: "Retry" }))
+    expect(
+      await within(chat).findByText(
+        /^Noted: Also log who paused it\./,
+        {},
+        { timeout: 3000 }
+      )
     ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        b1()?.briefing.turns.filter((t) => t.text === "Also log who paused it")
+      ).toHaveLength(1)
+    )
+  })
+
+  it("clears a finished turn after a reconnect lost its done event", async () => {
+    const { user } = renderApp("/sphere-app/briefing")
+    const box = await screen.findByLabelText("Message the briefing agent")
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(box, "Also log who paused it{Enter}")
+    act(() => mockEvents.drop())
+    await waitFor(() => expect(b1()?.briefing.busy).toBe(false), {
+      timeout: 3000,
+    })
+    act(() => mockEvents.restore())
+    const chat = screen.getByRole("region", { name: "Conversation" })
+    await waitFor(
+      () =>
+        expect(
+          within(chat).queryByTestId("agent-streaming")
+        ).not.toBeInTheDocument(),
+      { timeout: 8000 }
+    )
+    expect(within(chat).getAllByText("Also log who paused it")).toHaveLength(1)
+  }, 15_000)
+
+  it("does not create a second ticket from the same briefing", async () => {
+    const { user } = renderApp("/sphere-app/briefing")
+    const draft = await screen.findByRole("region", { name: "Ticket draft" })
+    await within(draft).findByText("Let admins pause a member's seat")
+    await pickTracker(user, "GitHub Issues")
+    await user.click(
+      await within(draft).findByRole("button", {
+        name: "Create in GitHub Issues and hand to STAR",
+      })
+    )
+    expect(
+      await screen.findAllByText(
+        "#88 created in GitHub Issues. STAR is briefing it now."
+      )
+    ).not.toHaveLength(0)
+    expect(
+      await within(draft).findByRole("button", { name: "Created #88" })
+    ).toBeDisabled()
+  })
+
+  it("says when it could not read where the tickets live", async () => {
+    server.use(
+      http.get("*/api/projects/:p/tracker", () =>
+        HttpResponse.json(
+          { error: "workflow.local.json is not JSON" },
+          { status: 502 }
+        )
+      )
+    )
+    renderApp("/sphere-app/briefing")
+    const draft = await screen.findByRole("region", { name: "Ticket draft" })
+    expect(
+      await within(draft).findByText(
+        "Couldn't read where sphere-app's tickets live: workflow.local.json is not JSON"
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(draft).getByRole("button", { name: "Try again" })
+    ).toBeInTheDocument()
+    expect(
+      within(draft).queryByRole("combobox", { name: "Tracker" })
+    ).not.toBeInTheDocument()
   })
 
   it("has loading, empty and error states", async () => {
@@ -201,6 +283,11 @@ describe("Briefing", () => {
     setScenario("empty")
     const second = renderApp("/sphere-app/briefing")
     expect(await screen.findByText("No briefings yet.")).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        "Start one to shape a piece of work with the briefing agent; it ends in a ticket STAR picks up."
+      )
+    ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: /New briefing/ })
     ).toBeInTheDocument()

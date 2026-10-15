@@ -12,7 +12,7 @@ export type Scenario =
   | "conflict"
   | "stopped"
   | "slack-off"
-const SCENARIOS: readonly Scenario[] = [
+const SCENARIOS = [
   "default",
   "empty",
   "error",
@@ -21,6 +21,7 @@ const SCENARIOS: readonly Scenario[] = [
   "stopped",
   "slack-off",
 ]
+let failBriefingTurn = false
 export const isScenario = (value: unknown): value is Scenario =>
   typeof value === "string" && (SCENARIOS as readonly string[]).includes(value)
 
@@ -31,6 +32,14 @@ export const getDb = (): MockDb => db
 export const getScenario = (): Scenario => scenario
 export function setScenario(next: Scenario): void {
   scenario = next
+}
+export function failNextBriefingTurn(): void {
+  failBriefingTurn = true
+}
+export function consumeFailedBriefingTurn(): boolean {
+  const failed = failBriefingTurn
+  failBriefingTurn = false
+  return failed
 }
 
 /** The scenario Playwright picks before the page loads: localStorage['star-mock']. */
@@ -108,4 +117,5 @@ export function resetMockState(): void {
   dropped = false
   db = createDb()
   scenario = "default"
+  failBriefingTurn = false
 }

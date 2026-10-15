@@ -5,6 +5,7 @@ import {
   mockEvents,
   readScenario,
   resetMockState,
+  failNextBriefingTurn,
   setScenario,
   type Scenario,
 } from "./state"
@@ -16,6 +17,7 @@ declare global {
     __starMock?: {
       events: { drop(): void; restore(): void; emit(event: StarEvent): void }
       use(scenario: Scenario): void
+      failNextBriefingTurn(): void
       reset(): void
     }
   }
@@ -30,6 +32,7 @@ export async function startMockWorker(): Promise<void> {
       emit: (event) => mockEvents.emit(event),
     },
     use: setScenario,
+    failNextBriefingTurn,
     reset: resetMockState,
   }
   await setupWorker(...handlers).start({

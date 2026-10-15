@@ -1,6 +1,7 @@
 import { Check, CircleAlert } from "lucide-react"
 import { useState } from "react"
 import { toast } from "sonner"
+import { ApiError } from "@/api/client"
 import {
   useBriefing,
   useBriefings,
@@ -44,8 +45,9 @@ export function DraftPanel({
   const setTracker = useSetTracker(project)
   const create = useCreateTicket(project, id ?? "")
   const [createError, setCreateError] = useState<string | null>(null)
+  const [createConflict, setCreateConflict] = useState(false)
   const chosen = tracker.data?.tracker ?? null
-  // Spec D18: Synapse has no connector today; any other tracker warns when it says it is not connected.
+  // Spec D18: Synapse always warns (it has no connector); linear, jira and github warn when the server reports connected[tracker] === false; none never warns.
   const notConnected =
     chosen !== null &&
     chosen !== "none" &&
@@ -56,19 +58,22 @@ export function DraftPanel({
       : null
   const draft = briefing.data?.draft ?? null
   const updatedAt = briefings.data?.find((b) => b.id === id)?.updatedAt
+  const existingRef = briefings.data?.find((b) => b.id === id)?.ref ?? null
 
   const createIn = async (target: Tracker) => {
     if (!id) return
     try {
       const res = await create.mutateAsync({ tracker: target })
       setCreateError(null)
+      setCreateConflict(false)
       toast.success(
-        res.ref
+        "ref" in res
           ? `${res.ref} created in ${TRACKER_LABEL[target]}. STAR is briefing it now.`
           : "Saved as a spec file. STAR is briefing it now."
       )
     } catch (error) {
       setCreateError(errorMessage(error))
+      setCreateConflict(error instanceof ApiError && error.status === 409)
     }
   }
 
@@ -95,11 +100,27 @@ export function DraftPanel({
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="tracker">{`Where do ${project}'s tickets live?`}</Label>
-          {tracker.isPending ? (
-            <Skeleton className="h-9 w-full" />
+          {tracker.isError ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 text-xs text-stop-fg"
+            >
+              <span>
+                Couldn&apos;t read where {project}&apos;s tickets live:{" "}
+                {errorMessage(tracker.error)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void tracker.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
           ) : (
             <Select
               value={chosen ?? undefined}
+              disabled={tracker.isPending}
               onValueChange={(value) =>
                 setTracker.mutate({ tracker: value as Tracker })
               }
@@ -179,23 +200,32 @@ export function DraftPanel({
             className="flex flex-col gap-2 rounded-lg border border-stop-line bg-stop-bg p-3 text-sm text-stop-fg"
           >
             <span className="break-words">{`Couldn't create the ticket: ${createError}`}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={() => void createIn("none")}
-            >
-              Save as a spec instead
-            </Button>
+            {!createConflict && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="self-start"
+                onClick={() => void createIn("none")}
+              >
+                Save as a spec instead
+              </Button>
+            )}
           </div>
         )}
         <Button
           size="lg"
           className="w-full"
-          disabled={chosen === null || !draft || create.isPending}
+          disabled={
+            chosen === null ||
+            !draft ||
+            create.isPending ||
+            tracker.isPending ||
+            tracker.isError ||
+            existingRef !== null
+          }
           onClick={() => chosen && void createIn(chosen)}
         >
-          {label}
+          {existingRef ? `Created ${existingRef}` : label}
         </Button>
         <p className="-mt-2 text-center text-xs text-muted-foreground">
           Your go for the build comes later, in Needs you.

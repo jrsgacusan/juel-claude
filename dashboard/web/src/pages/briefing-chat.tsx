@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
+import { setPendingBriefing, usePendingBriefing } from "@/lib/pending-briefing"
 import { cn } from "@/lib/utils"
 
 function AgentTurn({
@@ -82,8 +83,15 @@ export function Conversation({
   const qc = useQueryClient()
   const [text, setText] = useState("")
   const [streaming, setStreaming] = useState<BriefingTurn | null>(null)
-  const [failed, setFailed] = useState<string | null>(null)
+  const pending = usePendingBriefing(project, id)
   const end = useRef<HTMLLIElement>(null)
+
+  const refresh = () => {
+    void Promise.all([
+      qc.invalidateQueries({ queryKey: keys.briefing(project, id ?? "") }),
+      qc.invalidateQueries({ queryKey: keys.briefings(project) }),
+    ])
+  }
 
   // The reply streams in as briefing events (spec D18: turn.text is the reply so far).
   useEffect(
@@ -92,24 +100,41 @@ export function Conversation({
         if (event.project !== project || event.id !== id) return
         if (event.error) {
           setStreaming(null)
-          setFailed(event.error)
-          void qc.invalidateQueries({
-            queryKey: keys.briefing(project, id ?? ""),
-          })
+          if (pending)
+            setPendingBriefing(project, id ?? "", {
+              ...pending,
+              failed: event.error,
+            })
+          refresh()
           return
         }
         if (!event.turn) return
         if (event.turn.done) {
           setStreaming(null)
-          void qc.invalidateQueries({
-            queryKey: keys.briefing(project, id ?? ""),
-          })
+          setPendingBriefing(project, id ?? "", null)
+          refresh()
         } else {
           setStreaming(event.turn)
         }
       }),
-    [project, id, qc]
+    [project, id, pending, qc]
   )
+
+  useEffect(() => {
+    if (!pending || pending.failed || briefing.data?.busy || !briefing.data)
+      return
+    const lastOwner = [...briefing.data.turns]
+      .reverse()
+      .find((turn) => turn.who === "me")?.text
+    setPendingBriefing(
+      project,
+      id ?? "",
+      lastOwner === pending.text
+        ? null
+        : { ...pending, failed: "The turn did not finish." }
+    )
+    setStreaming(null)
+  }, [briefing.data, id, pending, project])
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" })
@@ -122,7 +147,7 @@ export function Conversation({
   const submit = async (value: string) => {
     const message = value.trim()
     if (!message || !id) return
-    setFailed(null)
+    setPendingBriefing(project, id, { text: message, failed: null })
     try {
       await send.mutateAsync({ text: message })
       setText("")
@@ -136,6 +161,7 @@ export function Conversation({
   }
 
   const current = briefings.find((b) => b.id === id)
+  const showPending = pending !== null && pending.text !== lastMine
 
   return (
     <section
@@ -180,7 +206,7 @@ export function Conversation({
               Couldn't load this briefing: {errorMessage(briefing.error)}
             </li>
           )}
-          {briefing.data?.turns.length === 0 && !streaming && (
+          {briefing.data?.turns.length === 0 && !streaming && !showPending && (
             <li className="text-sm text-muted-foreground">
               Say what you want built. The agent reads the code and asks one
               question at a time.
@@ -198,24 +224,31 @@ export function Conversation({
               <AgentTurn key={i} turn={turn} />
             )
           )}
-          {streaming && <AgentTurn turn={streaming} streaming />}
-          {!streaming && briefing.data?.busy && (
+          {showPending && (
+            <li className="ml-auto max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 break-words">
+              {pending.text}
+            </li>
+          )}
+          {streaming && !pending?.failed && (
+            <AgentTurn turn={streaming} streaming />
+          )}
+          {!streaming && briefing.data?.busy && !pending?.failed && (
             <AgentTurn
               turn={{ who: "agent", text: "Reading the code for that…" }}
               streaming
             />
           )}
-          {failed && (
+          {pending?.failed && (
             <li
               role="alert"
               className="flex flex-wrap items-center gap-2 rounded-lg border border-stop-line bg-stop-bg px-3 py-2 text-sm text-stop-fg"
             >
-              <span className="min-w-0 flex-1 break-words">{`The briefing agent stopped: ${failed}.`}</span>
+              <span className="min-w-0 flex-1 break-words">{`The briefing agent stopped: ${pending.failed}.`}</span>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void submit(lastMine)}
-                disabled={!lastMine}
+                onClick={() => void submit(pending.text)}
+                disabled={send.isPending}
               >
                 <RotateCcw className="size-3.5" />
                 Retry
