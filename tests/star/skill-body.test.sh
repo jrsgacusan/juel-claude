@@ -597,7 +597,7 @@ g "LH4g the owner may ask for a second slot (#97)" 'The owner may ask for `sh S/
 g "LH4h the shared gate lock's order, in the edge cases (#97)" 'the gate lock (strict arrival order with one slot, the default;'
 g "LH5a a missing CI run is the owner's to look at (#102)" '`reason=ci-missing` (babysit found no CI run on the PR'"'"'s head while the PR does not conflict with its base, #102) is the owner'"'"'s to look at'
 g "LH5b missing checks are never a pass (#102)" 'missing checks are never a pass, so STAR neither answers it nor restarts the stage on its own'
-g "LH6a a missing hosted log is rebuilt by babysit (#96)" 'when it is missing, babysit rebuilds it from the PR'"'"'s reviews (`pr-state.sh --hosted-passes`)'
+g "LH6a a missing hosted log is rebuilt by babysit (#96, #116)" 'when it is missing, babysit rebuilds it from the PR'"'"'s reviews and the reviewer'"'"'s summary comments (`pr-state.sh --hosted-passes`)'
 g "LH6b babysit counts NOT-SAFE rounds since the newest SAFE round or push (#108)" 'A babysit run counts its NOT-SAFE rounds since the newest SAFE round or its last'
 g "LH6c an unpushed SAFE round starts a fresh count (#108)" 'that could not be pushed, because the PR needed a base merge first, starts a fresh count'
 g "LH7a a denied fallback run is retried once inside the round (#100)" 'is retried once inside the round, told which call was denied'
@@ -614,5 +614,49 @@ g "F95a the kept row: a released one a person kept follows the row" 'one a perso
 g "F95b the hold row: a released one a person kept is held" 'including a `released` one a person kept (`retainedReason` set);'
 grep -qF 'is never kept' "$SKILL" && fail "F95c a released dispatch is no longer never kept" || pass "F95c a released dispatch is no longer never kept"
 grep -qF 'never a dispatch Orca reports `released`' "$SKILL" && fail "F95d a released dispatch is no longer never held" || pass "F95d a released dispatch is no longer never held"
+# lane h: STAR's contract for issues #110 to #118 and the mod
+g "LH110a a merge carries only when the base changed none of the branch's files (#110)" 'none of the files the branch changes, so a merge with a conflict never carries) carries the last'
+grep -qF 'git merged it cleanly, or every' "$SKILL" && fail "LH110b a mechanical conflict no longer carries (#110)" || pass "LH110b a mechanical conflict no longer carries (#110)"
+g "LH110c done-check accepts a carry by the same rule (#110)" '`carry-check.sh` carries it to the PR'"'"'s head, by the rule above (#110).'
+g "LH113a a round pins its base (#113)" 'Each round pins the base to one commit and records it in the review'"'"'s `Gate:`'
+g "LH113b a moved base that touches the branch refuses the round (#113)" '`ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>`'
+g "LH113c the worker merges the base and runs the round again (#113)" '(#113): the worker merges the base in, runs the sweep and runs the same round again.'
+g "LH113d the refusal is not an ERROR retry (#113)" 'That is not an `ERROR` retry: it counts toward no escalation and casts no `gate.maxRounds` vote.'
+g "LH113e a disjoint base move is not acted on (#113)" 'A base that moved without touching the branch'"'"'s files is not acted on.'
+g "LH113f the edge case (#113)" '| The base moves under a gate loop and changes the branch'"'"'s own files |'
+g "LH117a the fallback searches with Grep and Glob (#117)" '`ERROR gate-down <why>`, never a verdict. The fallback searches with Grep and Glob, never'
+g "LH117b never git grep, whose -O runs a program (#117)" '`git grep`, whose `-O` runs a program; its retry line says so too (#117).'
+g "LH112a feedback on a briefing row goes to a side file (#112)" '`<the brief path>.feedback.md` (`HOME_DIR/briefs/<project>/<item>.md.feedback.md`), one line per'
+g "LH112b one dated line per entry, and STAR is the only writer (#112)" 'entry: `- <YYYY-MM-DD HH:MM> <the words, line breaks folded to spaces>`. STAR is its only writer.'
+g "LH112c a BRIEF adds every line the brief lacks (#112)" '(`grep -cxF '"'"'<line>'"'"' <brief>` prints 0), then delete the side file. When any line was missing,'
+g "LH112d a missing line is handled as go-batch feedback (#112)" '`go-batch` "anything else" answer for that row, which they already are under `## Feedback`'
+g "LH112e an ESCALATION moves the lines into the brief file (#112)" '- `ESCALATION`: put the lines under the brief file'"'"'s `## Feedback`, creating the file with only that'
+g "LH112f a SPLIT copies them to each new row's brief (#112)" '- `SPLIT`: put the lines under `## Feedback` in each new row'"'"'s brief file, creating each with only'
+g "LH112g a row lost or failed keeps its side file (#112)" 'A row that leaves `briefing` any other way (lost, `failed`) keeps the side file: its next brief run'
+g "LH112h Messages settles the side file first (#112)" '`SPLIT` or `ESCALATION` settles the brief'"'"'s feedback side file first (#112,'
+g "LH112i a briefing row's answer is not sent to its worker (#112)" 'the row stays as it is. A `briefing` row'"'"'s answer goes to the brief'"'"'s feedback side file'
+g "LH112j draft-brief reads the side file at step 1 (#112)" 'Read `<--out>.feedback.md` too when it exists (#112): one line per entry, feedback STAR took'
+g "LH112k draft-brief copies it right before writing (#112)" 'as below), then write the brief to `--out`. Right before writing, read `<--out>.feedback.md`'
+g "LH112l only the lines the brief lacks are copied (#112)" 'again when it exists, and copy each of its lines the brief does not already hold, verbatim, under'
+g "LH112m the edge case (#112)" '| The owner gives feedback while an item'"'"'s brief is drafting |'
+g "LH114a a bounded prompt is the probe's own result (#114)" '`prompt bounded <terminal> <path>` (#114): the worker sits on Claude Code'"'"'s safety prompt for an'
+g "LH114b STAR sends the digit 1 with no Enter (#114)" '`orca terminal send --terminal <terminal> --text "1" --json` (no `--enter`: the digit picks the'
+g "LH114c the answer is on record (#114)" '`- <date> STAR answered a permission prompt for the <stage> worker: Yes (<path>)` to the brief'"'"'s'
+g "LH114d three answers at most per row (#114)" '`counters.prompted=+1`. At `prompted=3`, a fourth `prompt bounded` takes the `stuck:` path below.'
+g "LH114e the escalation names the prompt (#114)" '`stuck: confirmation dialog: <its line>`, so the escalation names it)'
+g "LH114f never answer, except prompt bounded (#114)" 'Never answer a worker'"'"'s prompt for it, except `prompt bounded` (above, #114).'
+g "LH114g the probe reads the rendered screen (#114)" 'screen (`orca terminal read --screen`), not Orca'"'"'s transcript, which shows no prompt (#114).'
+g "LH114h the one exception to never answering a screen (#114)" 'user, and STAR never answers a worker'"'"'s screen for it, with one exception (#114): `prompt bounded`,'
+g "LH114i the common mistake names the exception (#114)" 'The one exception is `prompt bounded` (#114): the digit `1`, never Enter |'
+g "LH114j the prompted counter (#114)" '| `prompted=<n>` | Claude Code safety prompts STAR answered on this row'"'"'s worker screen (`prompt bounded`, #114) | a new worker starts |'
+grep -qF 'user, and STAR never answers a worker'"'"'s screen for it. A model at capacity' "$SKILL" && fail "LH114k the old unqualified rule is gone (#114)" || pass "LH114k the old unqualified rule is gone (#114)"
+grep -q 'id: claude-mods' "$SKILL" && pass "LHmod-a STAR requires claude-mods" || fail "LHmod-a STAR requires claude-mods"
+g "LHmod-b the requirement is soft, with the version check" 'check: "claude --version is 2.1.287 or later"'
+g "LHmod-c the fallback is the prose rules" 'fallback: no band; the coordinator'"'"'s rules hold as prose, from the SessionStart hook'
+g "LHmod-d the Preflight row" '| Claude Code mods | cli | SOFT | `claude --version` is 2.1.287 or later | no band; the coordinator'"'"'s rules hold as prose, from the SessionStart hook |'
+g "LHmod-e the hard rule names the mod" '- On Claude Code 2.1.287 and later, juel'"'"'s mod refuses a direct `gh pr merge` in the coordinator and in STAR'"'"'s workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.'
+# fix-2: prompt bounded in Reconcile and the escalation-answer rule (#114)
+g "FIX2a Reconcile keeps a prompt bounded worker, Housekeeping answers it (#114)" '`prompt bounded …` → keep it; Housekeeping answers it.'
+g "FIX2b an escalation answer counts a prompt bounded worker as still running (#114)" 'says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

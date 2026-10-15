@@ -160,6 +160,7 @@ for b in claude cmux codex gh git orca; do
   command -v "$b" >/dev/null 2>&1 && echo "CLI_${b}=present:$(command -v "$b")" || echo "CLI_${b}=absent"
 done
 git --version 2>/dev/null || echo "GIT_VERSION=unknown"
+claude --version 2>/dev/null || echo "CLAUDE_VERSION=unknown"
 for c in grep sleep tail head cat; do command -v "$c" >/dev/null 2>&1 || echo "COREUTIL_MISSING=$c"; done
 gh auth status >/dev/null 2>&1 && echo "GH_AUTH=yes" || echo "GH_AUTH=no-or-absent"
 
@@ -229,9 +230,12 @@ for s in brainstorming writing-plans receiving-code-review; do
   fi
 done
 
-# the vendored Codex skill four juel skills dispatch as $claude-plan-executor
-if [ -L "$HOME/.codex/skills/claude-plan-executor" ] && [ -f "$HOME/.codex/skills/claude-plan-executor/SKILL.md" ]; then
+# the vendored Codex skill four juel skills dispatch as $claude-plan-executor; a link into another
+# version's copy is stale: Codex would run an older executor than this plugin ships
+if [ -L "$HOME/.codex/skills/claude-plan-executor" ] && cmp -s "$HOME/.codex/skills/claude-plan-executor/SKILL.md" "${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md"; then
   echo "CODEXSKILL_claude-plan-executor=ok"
+elif [ -L "$HOME/.codex/skills/claude-plan-executor" ] && [ -f "$HOME/.codex/skills/claude-plan-executor/SKILL.md" ]; then
+  echo "CODEXSKILL_claude-plan-executor=stale -> $(readlink "$HOME/.codex/skills/claude-plan-executor")"
 elif [ -e "$HOME/.codex/skills/claude-plan-executor" ]; then
   echo "CODEXSKILL_claude-plan-executor=unmanaged (not the vendored symlink)"
 else
@@ -251,9 +255,11 @@ The link targets are version-pinned into the superpowers plugin cache, so they g
 superpowers update. A `broken` result usually means "superpowers updated", not "something is
 wrong" - the remedy is the same either way.
 
-Report `absent` for `CODEXSKILL_claude-plan-executor` as a **HARD** failure for
+Report `absent` or `stale` for `CODEXSKILL_claude-plan-executor` as a **HARD** failure for
 `juel:execute`, `juel:review-and-execute`, `juel:receive-review-and-execute` and
-`juel:ship-ticket`, with the remedy `node scripts/link-agent-skills.mjs`. Report `unmanaged` as
+`juel:ship-ticket`, with the remedy `node scripts/link-agent-skills.mjs`. A `stale` link resolves,
+but into another version's copy (a link made before this plugin updated), so Codex would run an
+older executor: the four skills relink it once under `--unattended` and stop otherwise. Report `unmanaged` as
 DEGRADED, not a failure: a personal copy still works, it just is not the version this plugin
 ships, so its contract may differ.
 
@@ -332,6 +338,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | id | kind | Present when | Missing when | Always unverifiable? |
 |---|---|---|---|---|
 | `claude` | cli | `command -v claude`, or one of the declared `paths` is executable | neither resolves | |
+| `claude-mods` | cli | `claude --version` prints 2.1.287 or later | older, or `claude` absent | |
 | `cmux` | cli | `command -v cmux`, or a declared `paths` entry | neither resolves | |
 | `orca` | cli | `command -v orca`, or a declared `paths` entry | neither resolves | |
 | `codex` | cli | `command -v codex` | absent | |
@@ -358,7 +365,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `playwright-video` | mcp | `PLAYWRIGHT_VIDEO=enabled` | `PLAYWRIGHT_VIDEO=disabled` | `PLAYWRIGHT_VIDEO=restart-needed`: set in settings.json but not yet in this session's environment |
 | `juel:daily-worktrees`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
 | `pr-review-toolkit`, `superpowers` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
-| `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves | it does not | when running under Claude Code — the Claude path still dispatches `codex exec`, so it is required there too; report it in both harnesses |
+| `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves and matches `${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md` (`cmp -s`) | it does not resolve, or it differs (`stale`: a link into another version's copy) | when running under Claude Code — the Claude path still dispatches `codex exec`, so it is required there too; report it in both harnesses |
 | `superpowers:brainstorming` | skill | the `superpowers` plugin cache dir exists **and** contains a `skills/brainstorming/SKILL.md` | the plugin dir is missing, or it's present without that skill | |
 | `run`, `verify` | skill | — | — | yes, always — harness built-ins this plugin cannot install or query. Report plainly: "cannot determine; assume present unless a skill actually fails to invoke it" |
 

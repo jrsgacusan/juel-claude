@@ -244,8 +244,8 @@ err=$(sh "$SCRIPT" --resolve "$D/base/t.md" "$D/ours/t.md" "$D/nope.md" 2>&1 >/d
 
 # lane d: a package.json chain the base side reordered resolves when no side drops or repeats a
 # command and ours only adds; a command both sides added, or one whose text another's contains, is
-# written once (#103, Review Focus 3). Each case runs as a merge and again under --resolve, the way
-# carry-check.sh calls it. both_ways <name> <file> <writer> <base> <main> <feat> <want>: <writer>
+# written once (#103, Review Focus 3). Each case runs as a merge and again under --resolve.
+# both_ways <name> <file> <writer> <base> <main> <feat> <want>: <writer>
 # turns a text into the file, feat merges main, and <want> is what the merged file holds, or "conflict"
 both_ways() {
   repo "$1"; "$3" "$4" > "$R/$2"; commit base; git -C "$R" branch feat

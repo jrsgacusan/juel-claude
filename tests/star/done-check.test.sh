@@ -62,5 +62,43 @@ t "gh failing is pending" "PENDING gh: HTTP 502: Bad Gateway" "$(D ITEM-1 --pr h
 rm -f "$TMP/gh-fail"
 D ITEM-1 --pr x >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --head is 64" || fail "usage"
 D ITEM-1 --pr x --head xyz >/dev/null 2>&1; [ $? -eq 64 ] && pass "a head that is not hex is 64" || fail "usage hex"
+# lane a: #110 a SAFE review of an earlier head counts when carry-check.sh carries it to the PR's head
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+R="$TMP/repo"; mkdir -p "$R"
+g() { git -C "$R" "$@"; }
+s7() { printf '%.7s' "$1"; }
+g init -q -b main
+printf '1\n2\n3\n4\n5\n' > "$R/app.txt"; printf 'x\n' > "$R/other.txt"
+g add . && g commit -qm base
+g checkout -qb feat; printf '1 feat\n2\n3\n4\n5\n' > "$R/app.txt"; g commit -qam feature; GATED=$(g rev-parse HEAD)
+H2="$TMP/home2"; mkdir -p "$H2/reviews/app"
+printf '{"project": {"name": "app", "repo": "%s"}}\n' "$R" > "$H2/star.json"
+printf 'VERDICT item=ITEM-3 round=1 SAFE findings=0 head=%s\n' "$GATED" > "$H2/reviews/app/ITEM-3-r1.md"
+prb() { printf '{"author":{"login":"me"},"baseRefName":"main","headRefOid":"%s","comments":[{"author":{"login":"me"},"body":"Codex gate: PASS (head %s, carried from %s)"}]}\n' "$1" "$1" "$GATED" > "$TMP/pr.json"; }
+D2() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" --home "$H2" "$@"; }
+# Review Focus 1: base changes only to a file the branch never touched carry, so done-check passes it
+g checkout -q main; printf 'y\n' > "$R/other.txt"; g commit -qam "main moves"; g update-ref refs/remotes/origin/main main
+g checkout -q feat; g merge -q --no-edit origin/main; M1=$(g rev-parse HEAD)
+prb "$M1"
+t "#110 a SAFE review carried across a merge that touched no branch file is OK" "OK" "$(D2 ITEM-3 --pr https://github.com/o/r/pull/7 --head "$M1")"
+# Review Focus 1: a clean merge whose base side changed a file the branch changed is not carried
+g checkout -q main; printf '1\n2\n3\n4\n5 main\n' > "$R/app.txt"; g commit -qam "main app"; g update-ref refs/remotes/origin/main main
+g checkout -q feat; g merge -q --no-edit origin/main; M2=$(g rev-parse HEAD)
+prb "$M2"
+t "#110 a SAFE review is not carried across a merge into a branch file" "MISMATCH review: not carried: $(s7 "$M2") brings base changes to app.txt, a file this branch changes: the gate reviews the merge" "$(D2 ITEM-3 --pr https://github.com/o/r/pull/7 --head "$M2")"
+# the remote is found as codex-gate.sh post-pass finds it
+g update-ref -d refs/remotes/origin/main
+t "#110 no remote-tracking branch for the base is not carried" "MISMATCH review: not carried: no single remote-tracking branch for the base main (found: none)" "$(D2 ITEM-3 --pr https://github.com/o/r/pull/7 --head "$M2")"
+g update-ref refs/remotes/origin/main main
+# a PR head the repo does not have
+NOPE=1234567890123456789012345678901234567890
+prb "$NOPE"
+t "#110 a head git does not know is not carried, and says why" "MISMATCH review: not carried: carry-check failed: carry-check.sh: --head: git knows no commit $NOPE" "$(D2 ITEM-3 --pr https://github.com/o/r/pull/7 --head "$NOPE")"
+# a NOT-SAFE review of an earlier head is never carried
+printf 'VERDICT item=ITEM-3 round=1 NOT-SAFE findings=1 head=%s\n' "$GATED" > "$H2/reviews/app/ITEM-3-r1.md"
+prb "$M1"
+out=$(D2 ITEM-3 --pr https://github.com/o/r/pull/7 --head "$M1")
+case "$out" in "MISMATCH review: verdict: "*) pass "#110 a NOT-SAFE review is never carried" ;; *) fail "#110 NOT-SAFE carried ($out)" ;; esac
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

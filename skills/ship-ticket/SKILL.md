@@ -134,7 +134,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
-| claude-plan-executor | skill | HARD | `test -f ~/.codex/skills/claude-plan-executor/SKILL.md` (follows the link) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
+| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
@@ -556,6 +556,7 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
     `post-pass` printed `ERROR` twice, a minute apart. `needs=` quotes its `ERROR` line, whole.
+    An `ERROR base-moved` never counts: the gate loop's step 6 merges the base and runs the round again.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -657,8 +658,9 @@ more, which then wins:
    A `null` sweep runs `test` in its place. The sweep is that push's one regression gate: a red
    sweep is a red gate.
    A Phase 6 live check runs again only for a criterion whose runtime code the change touched.
-2. A push that only merges the base branch in runs the tests for the files the conflict resolution
-   changed, and none after a clean merge: CI carries the full suite.
+2. A push that only merges the base branch in runs the sweep, through the gate lock as item 1
+   runs it, after a clean merge too. A red sweep keeps the merge: the fix is a push of the worker's
+   own changes, and item 1 applies to it.
 
 After every push to the PR (right after Phase 7 opens the draft, and after each push of the codex
 gate loop), read `gh pr view <pr> --json mergeable,mergeStateStatus`. A `mergeable` of `UNKNOWN`
@@ -823,16 +825,18 @@ right now, which are not the executor's (the user's own edits, untracked files, 
 not survive between Bash calls: write the sha and the `$BEFORE` path in literally in the later
 commands.
 
-**The executor skill.** Right before the line, check that the skill resolves:
-`test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
-a plugin version that is gone (a plugin update removes its old cache folder) fails it, even in the
-middle of a run. Missing under `--unattended`: relink once with
-`node <plugin root>/scripts/link-agent-skills.mjs` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or
-two levels above this file) and check again. Still missing: do not dispatch. Run the plan in this
-session with `superpowers:executing-plans`, and carry
+**The executor skill.** Right before the line, check that the skill is current:
+`cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
+(`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
+copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
+is gone (a plugin update removes its old cache folder), even in the middle of a run, and for a
+link into another version's copy, which would run an older executor. Failing under
+`--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check
+again. Still failing: do not dispatch. Run the plan in this session with
+`superpowers:executing-plans`, and carry
 `NOTE: executor skill missing, the plan ran in this session` into the report. Codex saying during
-a run that `$claude-plan-executor` is unavailable gets the same `NOTE`. Interactively, missing is
-the Preflight STOP with its fix command.
+a run that `$claude-plan-executor` is unavailable gets the same `NOTE`. Interactively, a failing
+check is the Preflight STOP with its fix command.
 
 **A linked worktree.** Compare `git rev-parse --path-format=absolute --git-dir` with
 `git rev-parse --path-format=absolute --git-common-dir`. When they differ, the checkout is a linked
@@ -1187,7 +1191,14 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
    item.
-6. `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
+6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.
+   Fetch the base and merge it in as `juel:babysit-pr`'s Phase 4 step 1 does (`../babysit-pr/SKILL.md`
+   from this file: `merge-union.sh` resolves a mechanical conflict; any other conflict is
+   `git merge --abort` and the `merge-conflict` escalation), run the sweep as "Gate once per PR"
+   item 2 says, commit the merge, push (never force), read the PR's merge state as "Gate once per PR"
+   says, then run the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and
+   it casts no vote toward `gate.maxRounds`.
+   Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
    (an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move); a second `ERROR` is
    `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`, the line
    quoted whole: an `ERROR gate-down …` line tells STAR that the gate itself is down (Sol and its

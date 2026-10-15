@@ -443,5 +443,17 @@ gone "$HPID" && pass "the slot 2 gate's process group got the TERM" || { fail "s
 wait "$HPID" 2>/dev/null
 rm -f "$JUEL_GATE_LOCK.2" "$JUEL_GATE_LOCK.slots"
 
+# lane d: feedback STAR left beside a brief that was still drafting gives the brief stage --feedback (#112)
+reset; L add SPH-80 ref=SPH-80 project=app >/dev/null
+printf -- '- 2026-10-15 09:30 keep the old export name\n' > "$H/briefs/app/SPH-80.md.feedback.md"
+ST brief SPH-80 >/dev/null
+grep -q -- "draft-brief SPH-80 --project app --item SPH-80 --out $H/briefs/app/SPH-80.md --feedback --task-title" "$TMP/calls" && pass "a feedback side file alone gives --feedback" || fail "side file ($(grep task-create "$TMP/calls"))"
+reset; L add SPH-81 ref=SPH-81 project=app >/dev/null
+ST brief SPH-81 >/dev/null
+grep -q -- "--out $H/briefs/app/SPH-81.md --task-title" "$TMP/calls" && pass "no side file and no ## Feedback: no --feedback" || fail "no feedback ($(grep task-create "$TMP/calls"))"
+reset; L add SPH-82 ref=SPH-82 project=app >/dev/null; brief SPH-82; printf '## Feedback\n- 2026-10-15 09:40 smaller scope\n' >> "$H/briefs/app/SPH-82.md"
+ST brief SPH-82 >/dev/null
+grep -q -- "--out $H/briefs/app/SPH-82.md --feedback --task-title" "$TMP/calls" && pass "a brief's own ## Feedback still gives --feedback" || fail "brief feedback ($(grep task-create "$TMP/calls"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

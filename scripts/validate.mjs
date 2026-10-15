@@ -667,6 +667,32 @@ for (const [name, text] of skillBodies) {
   }
 }
 
+// --- Check 15: hooks.json keeps the session hook beside the mod -------------
+// hooks/hooks.json holds two forms. The classic SessionStart hook runs
+// hooks/star-session.sh, which tells STAR's coordinator who it is and writes
+// the GH_TOKEN line every worker's gh needs; it is the only form a Claude Code
+// older than 2.1.287 runs. The "modules" entry loads the mod (STAR's band and
+// guards). Losing the first breaks STAR on every build, and a module path that
+// does not exist loads nothing.
+{
+  const hooksPath = join(root, 'hooks', 'hooks.json');
+  const hooks = existsSync(hooksPath) ? readJson(hooksPath) : null;
+  if (hooks) {
+    const runsStar = (hooks.hooks?.SessionStart ?? []).some((entry) =>
+      (entry.hooks ?? []).some((h) => h.type === 'command' && /hooks\/star-session\.sh/.test(h.command ?? '')));
+    if (!runsStar)
+      fail('hooks', 'hooks/hooks.json: the SessionStart block no longer runs hooks/star-session.sh');
+    if (hooks.modules !== undefined) {
+      if (!Array.isArray(hooks.modules) || !hooks.modules.length)
+        fail('hooks', 'hooks/hooks.json: "modules" must be a non-empty array of paths');
+      else
+        for (const m of hooks.modules)
+          if (typeof m !== 'string' || !existsSync(join(root, 'hooks', m)))
+            fail('hooks', `hooks/hooks.json: module ${JSON.stringify(m)} does not exist next to hooks.json`);
+    }
+  }
+}
+
 // --- Report -----------------------------------------------------------------
 export { root, skills, skillBodies, problems, fail, warn };
 

@@ -31,6 +31,7 @@ else
     */commits/*/status*) f=statuses ;;
     */reviews*) f=reviews ;;
     */pulls/*/comments*) f=inline ;;
+    */pulls/*/commits*) f=commits ;;
     */issues/*/comments*) f=comments ;;
     */issues/*/timeline*) f=timeline ;;
     *) echo "unexpected gh call: $*" >&2; exit 9 ;;
@@ -581,7 +582,7 @@ fixture passes reviews.json "$PREV"
 PWANT=$(printf '2026-10-13T09:00:00Z pass 1 head=%s\n2026-10-13T11:00:00Z pass 2 head=%s' "$PA" "$PB")
 run passes 30 --hosted 'greptile-apps[bot]' --hosted-passes
 check_lines "hosted-passes: one pass per distinct head, oldest first; a pending and a human review add none" 0 "$PWANT"
-grep -q -- '--paginate repos/o/r/pulls/30/reviews' "$TMP/log" && [ "$(wc -l < "$TMP/log" | tr -d ' ')" = 2 ] && echo "ok   hosted-passes: reads the PR and its reviews, paginated, and nothing else" || { echo "FAIL hosted-passes: gh calls ($(cat "$TMP/log"))"; fails=$((fails + 1)); }
+grep -q -- '--paginate repos/o/r/pulls/30/reviews' "$TMP/log" && grep -q -- '--paginate repos/o/r/issues/30/comments' "$TMP/log" && [ "$(wc -l < "$TMP/log" | tr -d ' ')" = 3 ] && echo "ok   hosted-passes: reads the PR, its reviews and its comments, paginated, and nothing else" || { echo "FAIL hosted-passes: gh calls ($(cat "$TMP/log"))"; fails=$((fails + 1)); }
 run passes https://github.com/o/r/pull/30 --hosted 'Greptile-Apps[bot]' --hosted-passes
 check_lines "hosted-passes: a PR URL and the login in another case read the same passes" 0 "$PWANT"
 hosted_case passes-none
@@ -598,6 +599,54 @@ run passes 30 --hosted 'greptile-apps[bot]' --hosted-passes --wait
 check_rc "hosted-passes: with --wait is a usage error" 64
 run passes 30 --hosted 'greptile-apps[bot]' --hosted-passes --as-reviewer me --reviewed-head "$PA"
 check_rc "hosted-passes: with --as-reviewer is a usage error" 64
+
+# lane c: #116 --hosted-passes also counts a pass the hosted reviewer left only as its summary comment
+# gpc <id> <login> <updated_at> <footer>: a conversation comment, created an hour before it was last edited
+gpc() { printf '{"id":%s,"user":{"login":"%s","type":"Bot"},"created_at":"2026-10-13T00:00:00Z","updated_at":"%s","html_url":"c%s","body":"Confidence 4/5\\n%s"}' "$1" "$2" "$3" "$1" "$4"; }
+hosted_case hp-comment
+fixture hp-comment comments.json "$(gpc 60 'greptile-apps[bot]' 2026-10-13T08:00:00Z "Last reviewed commit: [abc1234](https://github.com/o/r/commit/$HEADX)")"
+run hp-comment 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#116 a summary comment alone is a pass, timed by its last edit" 0 "2026-10-13T08:00:00Z pass 1 head=$HEADX"
+grep -q -- '--paginate repos/o/r/issues/30/comments' "$TMP/log" && ! grep -q 'pulls/30/commits' "$TMP/log" && echo "ok   #116 reads the comments, paginated, and no commit list when every footer sha is full" || { echo "FAIL #116 comment calls ($(cat "$TMP/log"))"; fails=$((fails + 1)); }
+hosted_case hp-same
+fixture hp-same reviews.json "$PREV"
+fixture hp-same comments.json "$(gpc 61 'greptile-apps[bot]' 2026-10-13T12:30:00Z 'Last reviewed commit: aaaaaaa')"
+run hp-same 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#116 a footer naming a head a review names adds no line, and the review's time stands" 0 "$PWANT"
+hosted_case hp-order
+fixture hp-order reviews.json '{"id":97,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"1 finding","commit_id":"'"$PA"'","submitted_at":"2026-10-13T09:00:00Z","html_url":"r97"}'
+fixture hp-order comments.json "$(gpc 62 'greptile-apps[bot]' 2026-10-13T08:30:00Z "<sub>Last reviewed commit: <a href=\\\"https://github.com/o/r/commit/$PB\\\">bbbbbbb</a></sub>")"
+run hp-order 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#116 a review of one head and a footer naming another are two passes, by time" 0 "$(printf '2026-10-13T08:30:00Z pass 1 head=%s\n2026-10-13T09:00:00Z pass 2 head=%s' "$PB" "$PA")"
+hosted_case hp-none
+fixture hp-none comments.json "$(gpc 63 'greptile-apps[bot]' 2026-10-13T08:00:00Z 'no footer here')
+$(gpc 64 'mstr-ezra' 2026-10-13T08:00:00Z "Last reviewed commit: $PA")"
+run hp-none 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#116 a comment with no footer, or a footer by someone else, is no pass" 0 ''
+hosted_case hp-short
+fixture hp-short comments.json "$(gpc 65 'greptile-apps[bot]' 2026-10-13T08:00:00Z 'Last reviewed commit: abc1234')"
+run hp-short 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#116 a bare short footer sha is expanded from the PR's head" 0 "2026-10-13T08:00:00Z pass 1 head=$HEADX"
+hosted_case hp-commits
+fixture hp-commits comments.json "$(gpc 66 'greptile-apps[bot]' 2026-10-13T08:00:00Z 'Last reviewed commit: ccccccc')"
+fixture hp-commits commits.json '{"sha":"'"$PA"'"}
+{"sha":"'"$PC"'"}'
+run hp-commits 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#116 a short footer sha no review or head names is expanded from the PR's commits" 0 "2026-10-13T08:00:00Z pass 1 head=$PC"
+grep -q -- '--paginate repos/o/r/pulls/30/commits' "$TMP/log" && echo "ok   #116 the commit list is read, paginated, only to expand a short sha" || { echo "FAIL #116 commits call ($(cat "$TMP/log"))"; fails=$((fails + 1)); }
+hosted_case hp-unknown
+fixture hp-unknown comments.json "$(gpc 67 'greptile-apps[bot]' 2026-10-13T08:00:00Z 'Last reviewed commit: eeeeeee')"
+fixture hp-unknown commits.json '{"sha":"'"$PA"'"}'
+run hp-unknown 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#116 a short footer sha nothing resolves still counts, printed as given" 0 "2026-10-13T08:00:00Z pass 1 head=eeeeeee"
+STUB_FAIL_ROUTE=comments; export STUB_FAIL_ROUTE
+run hp-comment 30 --hosted 'greptile-apps[bot]' --hosted-passes
+unset STUB_FAIL_ROUTE
+check_lines "#116 comments GitHub cannot read print one error line, exit 1" 1 'error gh exited 1: boom'
+STUB_FAIL_ROUTE=commits; export STUB_FAIL_ROUTE
+run hp-commits 30 --hosted 'greptile-apps[bot]' --hosted-passes
+unset STUB_FAIL_ROUTE
+check_lines "#116 a commit list GitHub cannot read prints one error line, exit 1" 1 'error gh exited 1: boom'
 
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

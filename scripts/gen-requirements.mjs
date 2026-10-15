@@ -113,6 +113,11 @@ const DEFINITIONS = {
     install: 'https://claude.com/claude-code',
     paths: ['/Applications/cmux.app/Contents/Resources/bin/claude'],
   },
+  'claude-mods': {
+    kind: 'cli',
+    label: 'Claude Code mods (2.1.287 or later)',
+    install: 'Update Claude Code: https://code.claude.com/docs/en/setup#update-claude-code',
+  },
   codex: {
     kind: 'cli',
     label: 'Codex CLI',

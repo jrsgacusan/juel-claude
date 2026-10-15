@@ -68,7 +68,7 @@ Takes an existing implementation plan and dispatches Codex (sandboxed `workspace
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
-| claude-plan-executor | skill | HARD | `test -f ~/.codex/skills/claude-plan-executor/SKILL.md` (follows the link) | STOP → `node scripts/link-agent-skills.mjs` |
+| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs` |
 | plan file | context | HARD | newest `${docsRoot}/plans/*.md` | STOP → no plan to execute |
 | writable workspace | context | HARD | `test -w .` | STOP |
 
@@ -172,12 +172,13 @@ Resolve the model and effort first: `sh <executor-model.sh> --model latest-luna 
 `default <why>` means: drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in
 one line.
 
-**The executor skill.** Right before the line, check that the skill resolves:
-`test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
-a plugin version that is gone fails it. Missing: stop and tell the user to run
-`node <plugin root>/scripts/link-agent-skills.mjs` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or
-two levels above this file), then run this skill again. Never dispatch without it: Codex would
-execute something else.
+**The executor skill.** Right before the line, check that the skill is current:
+`cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
+(`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
+copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
+is gone, and for a link into another version's copy, which would run an older executor.
+Failing: stop and tell the user to run `node <plugin root>/scripts/link-agent-skills.mjs`, then
+run this skill again. Never dispatch without it: Codex would execute something else.
 
 **A linked worktree.** Compare `git rev-parse --path-format=absolute --git-dir` with
 `git rev-parse --path-format=absolute --git-common-dir`. When they differ, the checkout is a linked

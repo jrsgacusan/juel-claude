@@ -4,7 +4,8 @@
 # STAR's context.
 #   worker-probe.sh <dispatch> [--item <item> --home <H> [--worktree <path>] [--deadline <minutes>]]
 #     ->   ok | quiet <m> <terminal> | stale <m> <terminal> | settled <state> [<reason>]
-#          | stuck: <label> | stalled: model at capacity | gone | unknown <why>
+#          | stuck: <label>[: <line>] | prompt bounded <terminal> <path>...
+#          | stalled: model at capacity | gone | unknown <why>
 #     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39).
 # <reason> follows only a failed settlement, when Orca gives one (agent_prompt_stalled: the agent
 # never took its prompt, most often because Claude Code's trust dialog was on screen).
@@ -13,6 +14,30 @@
 # overload or rate-limit error on screen: recoverable without the user (#41). The error type names
 # overloaded_error and rate_limit_error count only on a line that also has "api error", an
 # "error:" prefix or a 4xx/5xx status, so code or docs that name them are not a stall.
+# A question with numbered options is "stuck: confirmation dialog: <line>", the line being the
+# rm/rmdir safety line of the last dialog when it has one, else the last question, 120 characters at
+# most; "stuck: confirmation dialog" alone is a "No, exit" screen. One such dialog STAR answers itself
+# (#114), printed "prompt bounded <terminal> <operands>", only when all of these hold:
+#   - the lines are the rendered screen of a worker with a terminal, never worker-read's text;
+#   - the last question is "Do you want to proceed?" with a "1. Yes" option in the 3 lines after it;
+#   - its safety line, "Dangerous rm|rmdir operation on possibly-empty variable path: <operand>", is
+#     the last one in the 12 lines above it, with no other question, option or "Bash command"
+#     header between the two;
+#   - between the last "Bash command" header in those 12 lines and the safety line there are exactly
+#     two rows, the command and its description, and the description holds no /, $ or ; (a command
+#     wrapped onto a second row, a description posing as the header, or a missing description is
+#     not bounded). The command holds <operand>. Nothing else on the screen is read for
+#     assignments: Claude Code keeps no shell variables between Bash calls, so a previous call's
+#     line says nothing about this one;
+#   - the command is plain: NAME=<value> assignments (each NAME once, each used by an operand, no
+#     value holding $, a backtick, "..", "~", a space or a glob or brace character), then one rm or
+#     rmdir with options and operands, and nothing else (no &&, ||, |, &, $(, redirect or statement
+#     after the removal);
+#   - every operand, with the values put in, is an absolute path with no glob, brace or ".." and is
+#     strictly below --worktree or a Claude Code session scratchpad,
+#     (/private)/tmp/claude-<uid>/<project>/<session>/scratchpad/<something>, by its text and by its
+#     realpath. The worktree or scratchpad root itself is not bounded.
+# <operands> are those paths, normalized and space-separated. A check that fails is the stuck line.
 # With --item and --home, progress decides: the newest of <H>/progress/<item>.log, the worktree's
 # last commit and the files the worktree has changed. No progress for --deadline minutes (default
 # 30) is "stale <m> <terminal>". Without them, or with no progress source at all, the terminal
@@ -21,8 +46,12 @@
 # shapeless or failing output is "unknown" and says nothing about the worker, so it never
 # justifies starting a second one.
 # The patterns are whole phrases from the agents' own blocking screens, looked for only where
-# such a screen sits: the last lines of the terminal, or the newest transcript message when it
-# is short. Ordinary work that mentions "login", "rate limit" or "switch to main" does not match.
+# such a screen sits: the last lines of the rendered screen (orca terminal read --screen, when the
+# worker has a terminal; #114: Orca 1.4.198's worker-read returns the hook transcript, which never
+# shows a prompt), else worker-read's terminal tail and its newest transcript message when it is
+# short (a top-level messages list, or transcript.messages[-1].blocks[*].text). A screen that cannot
+# be read, or that Orca reports as anything but "screen", falls back to worker-read. Ordinary work
+# that mentions "login", "rate limit" or "switch to main" does not match.
 # STAR_NOW (ISO UTC) overrides the clock, for tests.
 # Exit: 0, or 64 on bad usage.
 STAR_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -66,6 +95,20 @@ YES_NO = r"[\[(](y/n|yes/no)[\])]\s*:?\s*$"
 # ever reported as merely quiet: STAR's check-in ends with Enter, which would answer the prompt.
 QUESTION = r"\b(do you want to|would you like to)\b.*\?\s*$"
 OPTION = r"^\s*(❯\s*)?\d+\.\s+(yes|no)\b"
+# #114: Claude Code's safety prompt for an rm or rmdir whose path holds a variable. STAR answers it
+# only when the operand is bounded: see bounded_prompt().
+SAFETY = r"dangerous (rm|rmdir) operation on possibly-empty variable path:\s*(\S+)"
+PROCEED = r"\bdo you want to proceed\?"
+YES_ONE = r"^\s*(❯\s*)?1\.\s+yes\b"
+HEADER = r"^bash command$"
+VAR = r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))"
+ASSIGN = r"([A-Za-z_][A-Za-z0-9_]*)=(?:\"([^\"]*)\"|'([^']*)'|([^\s\"']*))"
+# A value or path is plain when it holds only characters no shell treats specially: no $, backtick,
+# quote, backslash, space, glob, brace or ~.
+PLAIN = r"[\w./+@%:=,-]*"
+# Names the shell itself reads: a plain assignment to one changes how the removal runs.
+SHELL_NAMES = {"PATH", "IFS", "HOME", "CDPATH", "ENV", "BASH_ENV", "SHELLOPTS", "GLOBIGNORE", "PWD", "OLDPWD"}
+SCRATCHPAD = r"^(/private)?/tmp/claude-[0-9]+/[^/]+/[^/]+/scratchpad/."
 BOX = "│┃|║╭╮╰╯─━═ \t"  # a TUI frame around a line is not part of the line
 USAGE = "usage: worker-probe.sh <dispatch> [--item <item> --home <H> [--worktree <path>] [--deadline <minutes>]]"
 
@@ -151,14 +194,54 @@ if worker.get("stage") == "settled" or worker.get("state") in TERMINAL:
     out("settled " + state + reason(state))
 if dispatch_record.get("status") in ("completed", "failed"):
     out("settled " + dispatch_record["status"] + reason(dispatch_record["status"]))
-read = call("worker-read", "--limit", "40")
-terminal, messages = read.get("terminal"), read.get("messages")
-lines = [str(l) for l in ((terminal or {}).get("tail") or [])][-25:] if isinstance(terminal, dict) else []
-if isinstance(messages, list) and messages and isinstance(messages[-1], dict):
-    newest = str(messages[-1].get("text") or messages[-1].get("content") or "")
+
+
+def screen_tail(handle):
+    """The rendered screen's lines (#114), or None when it cannot be read or is not a screen."""
+    try:
+        proc = subprocess.run([orca, "terminal", "read", "--terminal", handle, "--screen", "--json"],
+                              capture_output=True, text=True, timeout=30)
+        data = json.loads(proc.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
+    term = result.get("terminal") if isinstance(result, dict) else None
+    tail = term.get("tail") if isinstance(term, dict) else None
+    if proc.returncode != 0 or not isinstance(tail, list) or not tail or term.get("source", "screen") != "screen":
+        return None
+    return [str(l) for l in tail]
+
+
+def newest_message(read):
+    """The newest transcript message's text: a top-level messages list, or Orca 1.4.198's
+    transcript.messages[-1].blocks[*].text."""
+    messages = read.get("messages")
+    transcript = read.get("transcript")
+    if not isinstance(messages, list) and isinstance(transcript, dict):
+        messages = transcript.get("messages")
+    if not isinstance(messages, list) or not messages or not isinstance(messages[-1], dict):
+        return ""
+    newest = messages[-1]
+    blocks = newest.get("blocks")
+    if isinstance(blocks, list):
+        return "\n".join(str(b.get("text")) for b in blocks if isinstance(b, dict) and b.get("text"))
+    return str(newest.get("text") or newest.get("content") or "")
+
+
+handle = worker.get("agent_terminal_handle")
+lines = screen_tail(handle) if handle else None
+on_screen = lines is not None
+if lines is None:
+    read = call("worker-read", "--limit", "40")
+    terminal = read.get("terminal")
+    lines = [str(l) for l in (terminal.get("tail") or [])][-25:] if isinstance(terminal, dict) else []
+    newest = newest_message(read)
     if len(newest) <= 400:  # a blocking notice is short; a long message is the worker talking
         lines += newest.splitlines()
-lines = [l for l in (l.strip(BOX) for l in lines) if len(l) <= 200]
+else:
+    lines = lines[-25:]
+rows = [l.strip(BOX) for l in lines]
+lines = [l for l in rows if len(l) <= 200]
 
 
 def at_capacity(line):
@@ -172,8 +255,98 @@ if any(at_capacity(l) for l in lines):
 for label, pattern in PATTERNS:
     if any(re.search(pattern, l, re.IGNORECASE) for l in lines):
         out("stuck: " + label)
+
+
+def inside(path, root):
+    """Strictly below root: the root itself is not."""
+    return path.startswith(root.rstrip("/") + "/")
+
+
+def last_dialog(rows):
+    """(the last question's index, the index of its rm/rmdir safety line or None): the nearest safety
+    line in the 12 lines above the question, unless another question, option or Bash command header
+    sits between them, which makes it another dialog's."""
+    ask = next((i for i in range(len(rows) - 1, -1, -1) if re.search(QUESTION, rows[i], re.IGNORECASE)), None)
+    if ask is None:
+        return None, None
+    for i in range(ask - 1, max(ask - 13, -1), -1):
+        if re.search(SAFETY, rows[i], re.IGNORECASE):
+            return ask, i
+        if any(re.search(p, rows[i], re.IGNORECASE) for p in (QUESTION, OPTION, HEADER)):
+            break
+    return ask, None
+
+
+def plain_command(command):
+    """(values, operands) of `NAME=value; ...; rm|rmdir [-options] operands`, else None."""
+    if re.search(r"[|&`<>\\\r\n]|\$\(", command):
+        return None
+    *before, removal = [part.strip() for part in command.split(";")]
+    values = {}
+    for part in before:
+        m = re.fullmatch(ASSIGN, part)
+        if not m:
+            return None
+        name, value = m.group(1), next(g for g in m.groups()[1:] if g is not None)
+        if name in values or name in SHELL_NAMES or ".." in value or not re.fullmatch(PLAIN, value):
+            return None
+        values[name] = value
+    words = removal.split()
+    if not words or words[0] not in ("rm", "rmdir"):
+        return None
+    operands = words[1:]
+    while operands and operands[0].startswith("-"):
+        operands.pop(0)
+    return (values, operands) if operands else None
+
+
+def bounded_prompt(rows, on_screen):
+    """#114 (design 3.5): the operands of Claude Code's variable-path rm/rmdir safety prompt, values
+    put in and normalized and space-separated, when the last dialog on the rendered screen is that
+    prompt, its own command is plain, and every operand is strictly below the row's worktree or a
+    Claude Code session scratchpad; else None."""
+    if not on_screen:
+        return None
+    ask, at = last_dialog(rows)
+    if at is None or not re.search(PROCEED, rows[ask], re.IGNORECASE) \
+            or not any(re.search(YES_ONE, l, re.IGNORECASE) for l in rows[ask + 1:ask + 4]):
+        return None
+    named = re.search(SAFETY, rows[at], re.IGNORECASE).group(2)
+    header = next((i for i in range(at - 1, max(ask - 13, -1), -1) if re.search(HEADER, rows[i], re.IGNORECASE)), None)
+    if header is None:
+        return None
+    shown = [l for l in rows[header + 1:at] if l]
+    if len(shown) != 2 or re.search(r"[/$;]", shown[1]):  # the command and its plain description
+        return None
+    command = shown[0]
+    parsed = plain_command(command) if named in command else None
+    if not parsed:
+        return None
+    values, operands = parsed
+    if {m.group(1) or m.group(2) for o in operands for m in re.finditer(VAR, o)} != set(values):
+        return None
+    wt = opts.get("worktree")
+    resolved = []
+    for operand in operands:
+        path = re.sub(VAR, lambda m: values[m.group(1) or m.group(2)], operand)
+        if not re.fullmatch("/" + PLAIN, path) or ".." in path.split("/"):
+            return None
+        path = os.path.normpath(path)
+        real = os.path.realpath(path)
+        in_worktree = wt and any(inside(path, r) for r in (os.path.normpath(wt), os.path.realpath(wt))) \
+            and inside(real, os.path.realpath(wt))
+        if not in_worktree and not (re.match(SCRATCHPAD, path) and re.match(SCRATCHPAD, real)):
+            return None
+        resolved.append(path)
+    return " ".join(resolved)
+
+
 if any(re.search(QUESTION, l, re.IGNORECASE) for l in lines) and any(re.search(OPTION, l, re.IGNORECASE) for l in lines):
-    out("stuck: confirmation dialog")
+    bounded = bounded_prompt(rows, on_screen)
+    if bounded:
+        out(f"prompt bounded {handle} {bounded}")
+    ask, at = last_dialog(lines)
+    out("stuck: confirmation dialog: " + lines[ask if at is None else at].strip()[:120])
 last_line = next((l for l in reversed(lines) if l.strip()), "")
 if re.search(YES_NO, last_line, re.IGNORECASE) and not last_line.lstrip().startswith(("⏺", "●", "-", "*")):
     out("stuck: waiting for input")
@@ -243,7 +416,6 @@ def quiet_minutes(handle):
     return max(minutes, 0)
 
 
-handle = worker.get("agent_terminal_handle")
 if "item" in opts:
     try:
         deadline = float(opts.get("deadline", "30"))

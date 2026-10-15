@@ -40,6 +40,11 @@ metadata:
         hard: true
         why: brief, build, babysit and post workers run the configured worker agent, claude by default
         check: "command -v claude"
+      - id: claude-mods
+        hard: false
+        why: juel's mod draws STAR's band above the coordinator's prompt and refuses a direct merge and reading review, evidence or log files into the coordinator
+        check: "claude --version is 2.1.287 or later"
+        fallback: no band; the coordinator's rules hold as prose, from the SessionStart hook
       - id: codex
         hard: true
         why: the executor runs every plan on the newest luna, and codex-gate.sh reviews every draft PR with codex review
@@ -150,6 +155,7 @@ session is the Stop rule below, nothing more: it does not run the start sequence
 | git | cli | HARD | `command -v git` | STOP |
 | python3 | cli | HARD | `command -v python3` | STOP → install Python 3 |
 | claude | cli | HARD | `command -v claude` (or the configured `worker.agent`) | STOP → install the worker agent CLI |
+| Claude Code mods | cli | SOFT | `claude --version` is 2.1.287 or later | no band; the coordinator's rules hold as prose, from the SessionStart hook |
 | codex | cli | HARD | `command -v codex` | STOP → install the Codex CLI (`npm i -g @openai/codex`): the executor and the gate need it |
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
 | running in an Orca terminal | context | HARD | `[ -n "$ORCA_TERMINAL_HANDLE" ]` | STOP → start Claude Code from an Orca terminal and re-run there |
@@ -309,7 +315,7 @@ reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the ver
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
-reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`; when it is missing, babysit rebuilds it from the PR's reviews (`pr-state.sh --hosted-passes`) before it counts a pass
+reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`; when it is missing, babysit rebuilds it from the PR's reviews and the reviewer's summary comments (`pr-state.sh --hosted-passes`) before it counts a pass
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
@@ -468,6 +474,7 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `start=<n>`, `live=<n>` | written by `stage-start.sh`: the attempt number, and an attempt still being started | `live=` when that start ends; never `start=` |
 | `kept=1` | the worktree of a finished row was kept (`worktree-clean.sh`): STAR does not try again by itself | its held item is answered `done` |
 | `capacity=<n>` | retry nudges sent to a worker stalled on a model at capacity (`stalled:`) in one silent stretch | the probe prints anything else, a report from it is processed, or a new worker starts |
+| `prompted=<n>` | Claude Code safety prompts STAR answered on this row's worker screen (`prompt bounded`, #114) | a new worker starts |
 | `mismatch=<n>` | `DONE` reports `done-check.sh` could not check | the row reaches `babysit-queued` |
 | `mergefail=<n>` | merge-gate `FAIL`s sent back to babysitting | the row is `done`, or the user answers its escalation |
 | `rescoped=1` | the item was narrowed once by a re-scope | never: a second re-scope request escalates |
@@ -579,7 +586,7 @@ runs in <handle>", and end the turn.
    No scheduler tool → skip it and say so: an idle STAR then wakes only on a hand-over nudge or the user, so
    away summaries and answers typed into the queue file wait for one of those.
 5. **Reconcile** every row in a worker stage, except a `building` row whose `verify` holds `retry=` (below), with `sh S/worker-probe.sh <dispatch> --item <item> --home HOME_DIR --worktree <worktree> --deadline <progressDeadlineMin>` (no `--worktree` for a `briefing` or `posting` row):
-   `ok`, `quiet …` or `stale …` (with or without ` holds-screen <m>`) → keep it. `stalled: …` → housekeeping's capacity rule. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
+   `ok`, `quiet …` or `stale …` (with or without ` holds-screen <m>`) → keep it. `prompt bounded …` → keep it; Housekeeping answers it. `stalled: …` → housekeeping's capacity rule. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
    catches it if it is not (`agent_prompt_stalled` included). `gone` → Orca has no such worker (an Orca restart):
    a `briefing`, `posting` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
    put the row in its stage's waiting state; `restarts` goes back to 0 whenever the row moves on to a new stage; babysit resumes with `--since <cursor>`), because
@@ -728,11 +735,13 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    applied it.
 
    **An `escalation` answer for a row whose worker is still running** (its state is a worker stage
-   and `sh S/worker-probe.sh <dispatch>` says `ok`, `quiet …`, `stale …` or `stalled: …`: a worker in any of those is still running) is handled first: `drop` stops the worker before
+   and `sh S/worker-probe.sh <dispatch>` says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running) is handled first: `drop` stops the worker before
    the row changes (`orca orchestration worker-stop --dispatch <id> --json`, then `worker-release` and the gone check);
    any other answer is appended to the brief's `## Decisions` and sent to that worker with
    `orca orchestration send --to dispatch:<id> --subject "decision" --body "<answer>" --json`, and
-   the row stays as it is. An answer never starts a second worker for a row that has one.
+   the row stays as it is. A `briefing` row's answer goes to the brief's feedback side file
+   instead, and is not sent ("Feedback while a brief drafts", in "The batch summary and go", #112).
+   An answer never starts a second worker for a row that has one.
    A `question` is always answered with `reply` (its worker is blocked waiting for exactly that),
    and `held` and `draft` answers never reach a worker.
 
@@ -788,7 +797,9 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    "<item>: report was cut at 12 lines".
 
    The first row that fits wins, top to bottom. A line that lacks a field its row names (`DONE`
-   without `pr=`, `RESCOPE` without `review=`) fits only the last row.
+   without `pr=`, `RESCOPE` without `review=`) fits only the last row. A brief stage's `BRIEF`,
+   `SPLIT` or `ESCALATION` settles the brief's feedback side file first (#112, "Feedback while a
+   brief drafts", in "The batch summary and go").
 
    | First line of the report | Action |
    |---|---|
@@ -891,15 +902,24 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      and `counters.capacity=+1`; at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as
      a lost worker (the reconcile rule: a `briefing`, `posting` or `babysitting` row restarts once;
      a `building` row gets `--kind restart-or-drop`) (#41).
+     `prompt bounded <terminal> <path>` (#114): the worker sits on Claude Code's safety prompt for an
+     `rm` or `rmdir` of a variable path, and `worker-probe.sh` found every operand inside the item's
+     worktree or a Claude Code session scratchpad. Below `prompted=3`, send
+     `orca terminal send --terminal <terminal> --text "1" --json` (no `--enter`: the digit picks the
+     option, and an Enter could answer what comes next), append
+     `- <date> STAR answered a permission prompt for the <stage> worker: Yes (<path>)` to the brief's
+     `## Decisions` (a row with no brief yet: the status line only), name it in the status line, and
+     `counters.prompted=+1`. At `prompted=3`, a fourth `prompt bounded` takes the `stuck:` path below.
      `stuck: <what>` → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
-     `--kind escalation` "<stage> worker stuck: <what>". `settled failed agent_prompt_stalled` (the
+     `--kind escalation` "<stage> worker stuck: <what>" (a prompt the probe would not answer reads
+     `stuck: confirmation dialog: <its line>`, so the escalation names it). `settled failed agent_prompt_stalled` (the
      worker never took its prompt) → `failed`, release, queue `--kind escalation` "<stage> worker
      never received its prompt: most likely Claude Code's trust dialog for <worktree>. Trust it once
      (run `claude` there and accept), then answer restart". Any other `settled …` with no processed
      report: `silent=1` in `counters` the first time; the second time in a row → `failed`, release,
      queue it. `gone` → the reconcile rule for a lost worker. `unknown <why>` → `unknown=<n>` in
      `counters`; three ticks in a row → `failed`, queue it with `<why>` (the worker is not stopped:
-     nothing is known about it). Never answer a worker's prompt for it.
+     nothing is known about it). Never answer a worker's prompt for it, except `prompt bounded` (above, #114).
    - `sh S/loops.sh list` printing a `missing` line (an id that was handed out and is now in
      neither the queue nor the archive: removed by hand, or lost when an editor saved an older
      copy of the file): say so in the status line, and add again any ask a row still needs (an
@@ -1003,13 +1023,22 @@ cannot be judged never lets something out.
 `sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>` runs
 one headless `codex review` of the branch against its base, read-only and with no MCP server, on
 `star.json`'s `gate` model (the newest sol at xhigh, resolved like the executor's
-`latest-<family>`). A capacity error is retried after 60 and 180 seconds. After that, or at once
+`latest-<family>`). Each round pins the base to one commit and records it in the review's `Gate:`
+line. A round whose base moved past the branch and changed a file the branch changes refuses
+before any review runs, with
+`ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>`
+(#113): the worker merges the base in, runs the sweep and runs the same round again.
+That is not an `ERROR` retry: it counts toward no escalation and casts no `gate.maxRounds` vote.
+A base that moved without touching the branch's files is not acted on. A capacity error is retried
+after 60 and 180 seconds. After that, or at once
 when the Codex account is out of usage, the same prompt runs through `gate.fallback`: a headless
 `claude -p` review on Opus at xhigh, with read-only tools and no MCP server. The review's `Gate:`
 line and the PASS comment then name it (`claude:opus xhigh`). A fallback run with a denied tool
 call (it may not have read the diff) is retried once inside the round, told which call was denied
 (#100). When the fallback fails too, or a second denial follows, the gate prints
-`ERROR gate-down <why>`, never a verdict. Its prompt, `S/template/gate-prompt.md`, kept as
+`ERROR gate-down <why>`, never a verdict. The fallback searches with Grep and Glob, never
+`git grep`, whose `-O` runs a program; its retry line says so too (#117). Its prompt,
+`S/template/gate-prompt.md`, kept as
 `HOME_DIR/specs/<project>/<item>-gate-r<k>.md`, carries the brief's criteria and `## Decisions`, the
 project's notes, the previous round's review and `-fix.md` from round 2, and the review rules from
 the base branch, so a PR cannot change its own rules. Only a `[P0]` or `[P1]` finding makes the round
@@ -1023,8 +1052,9 @@ round the worker posts the receipt with `codex-gate.sh post-pass`, once per head
 receipt is posted even when a carried receipt already names the head, #104), in two lines:
 `Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)`, then `VERDICT: PASS`. Two receipts
 carry an earlier verdict, and `post-pass` writes both, so none is ever written by hand. A merge of
-the base that `carry-check.sh` proves added no change of its own (git merged it cleanly, or every
-conflict is one `merge-union.sh` resolves) carries the last SAFE to the merge head, with
+the base that `carry-check.sh` proves added no change of its own (#110: the base side changed
+none of the files the branch changes, so a merge with a conflict never carries) carries the last
+SAFE to the merge head, with
 `, carried from <gated head>: <reason>` before the first line's closing parenthesis (#75). A head
 the owner shipped with a round's findings deferred carries `, carried by owner decision <id>:
 findings deferred` there, and `VERDICT: PASS (owner decision <id>)` (#82; the Answers row for a ship
@@ -1033,7 +1063,9 @@ reports `RESCOPE`. A babysit run counts its NOT-SAFE rounds since the newest SAF
 push, whichever is later, and reports `RESCOPE` at the `gate.maxRounds`-th (#108). A SAFE round
 that could not be pushed, because the PR needed a base merge first, starts a fresh count. STAR
 opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
-read them and print one line. Luna writes the code and Sol gates it, so the independent review is
+read them and print one line. `done-check.sh` accepts a SAFE round on an earlier head only when
+`carry-check.sh` carries it to the PR's head, by the rule above (#110). Luna writes the code and
+Sol gates it, so the independent review is
 the build's fresh Claude review, before the gate. While the fallback runs, the gate is a second
 Claude review, not a second model.
 
@@ -1064,6 +1096,8 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
    a bare flag that says there is something new there; the text itself is never put in the prompt,
    where a quote or a line break could change it. An answer there settles the question it answers (which tracker holds the ref, what a
    term means): use it in the steps below and never ask or escalate the same thing again.
+   Read `<--out>.feedback.md` too when it exists (#112): one line per entry, feedback STAR took
+   while no brief was written yet. Its lines count as `## Feedback` entries. Never edit or delete it.
 2. Resolve the project's work source: an explicit source in the ref → `.claude/workflow.local.json`
    / `.claude/workflow.json` `tracker` → a `## Work Source` block in CLAUDE.md or AGENTS.md → the
    legacy `## Linear Worktrees Config` block → the ref's shape when unambiguous (`#412` is GitHub; an
@@ -1094,7 +1128,10 @@ again after its first item was dropped or finished), the branch gets the same su
 (`feat/savi-1162-add-auth-2`), so the new item never builds in the old item's worktree or on its
 old PR.
 6. Read enough of the code to choose an approach and to take the item's open decisions (grounded,
-   as below), then write the brief to `--out`. When a brief already exists at `--out`, read it
+   as below), then write the brief to `--out`. Right before writing, read `<--out>.feedback.md`
+   again when it exists, and copy each of its lines the brief does not already hold, verbatim, under
+   the brief's `## Feedback` (#112): STAR may have added one while you read the code. Answer every
+   one of them, as below. When a brief already exists at `--out`, read it
    first: revise it to answer every entry under its `## Feedback` section (the user's dated answers
    to earlier drafts, kept there by STAR), keep the `## Feedback` section as it is, and keep every
    entry under `## Decisions` (records and dated lines), adding new records after them with the
@@ -1559,12 +1596,17 @@ no more check-ins; the worker is not stopped. Any probe result other than `quiet
 silent stretch is over.
 
 The probe never says `quiet` or `stale` while a question with numbered options is on the worker's
-screen (that is `stuck: confirmation dialog`), because the check-in ends with Enter and Enter would
-answer the prompt. Send a check-in or an instruction only on this tick's probe and `step-check.sh`
+screen (that is `stuck: confirmation dialog`, or `prompt bounded` for the one prompt STAR answers),
+because the check-in ends with Enter and Enter would answer the prompt. It reads the rendered
+screen (`orca terminal read --screen`), not Orca's transcript, which shows no prompt (#114). Send a
+check-in or an instruction only on this tick's probe and `step-check.sh`
 lines, never from memory of an earlier one.
 
 A blocking screen is a different thing (`stuck:`): that worker is stopped and the row goes to the
-user, and STAR never answers a worker's screen for it. A model at capacity is a third thing
+user, and STAR never answers a worker's screen for it, with one exception (#114): `prompt bounded`,
+Claude Code's safety prompt for an `rm` or `rmdir` whose every operand `worker-probe.sh` found
+inside the item's worktree or a session scratchpad, gets the digit `1` (Housekeeping). A model at
+capacity is a third thing
 (`stalled:`): STAR nudges it to retry, three times at most, then restarts it (the capacity rule in
 Housekeeping).
 
@@ -1735,6 +1777,29 @@ batch then runs without them.
 3. A go given before every step is answered starts the items whose steps are done; the others stay
    `brief-ready` and come back in the next summary, with what each waits for.
 
+**Feedback while a brief drafts** (#112). Feedback the owner gives on a row that is still
+`briefing`, in chat or as an answer for it, never goes into the brief, which its worker may be
+writing, and is never sent to the worker. STAR appends it to the brief's feedback side file,
+`<the brief path>.feedback.md` (`HOME_DIR/briefs/<project>/<item>.md.feedback.md`), one line per
+entry: `- <YYYY-MM-DD HH:MM> <the words, line breaks folded to spaces>`. STAR is its only writer.
+The brief worker copies it under the brief's `## Feedback` right before it writes (draft-brief
+steps 1 and 6). When the row's report arrives, STAR settles the side file before the report's row
+in Messages:
+
+- `BRIEF`: append under the brief's `## Feedback` each side-file line the brief lacks
+  (`grep -cxF '<line>' <brief>` prints 0), then delete the side file. When any line was missing,
+  the brief was written without it: after the `BRIEF` row's own action, handle those lines as a
+  `go-batch` "anything else" answer for that row, which they already are under `## Feedback` (a
+  small edit STAR makes itself, or row → `inbox` and the brief stage runs again with `--feedback`).
+- `ESCALATION`: put the lines under the brief file's `## Feedback`, creating the file with only that
+  section when the worker wrote no brief, then delete the side file. The brief stage that runs
+  again reads them there.
+- `SPLIT`: put the lines under `## Feedback` in each new row's brief file, creating each with only
+  that section, then delete the side file.
+
+A row that leaves `briefing` any other way (lost, `failed`) keeps the side file: its next brief run
+reads it.
+
 Refs handed over from another session: STAR's own session prints the summary, and the handing
 session says "answer STAR's batch summary in <terminal>".
 
@@ -1807,6 +1872,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   the item's grant, outside quiet hours. No worker merges.
 - Never read review, evidence, log or diff content into this session. One line per fact, from a
   script or a report.
+- On Claude Code 2.1.287 and later, juel's mod refuses a direct `gh pr merge` in the coordinator and in STAR's workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.
 - An item is never built before the owner's go for its batch, or, for a re-scope's follow-up, its
   parent's grant. A go is never inferred.
 - Product calls are STAR's, decided from sourced options and kept as decision records the owner
@@ -1841,7 +1907,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
 | Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
-| Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it |
+| Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
 | Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |
 | Picking a row for a message by its `item=` name | By dispatch id; the name only confirms it |
@@ -1862,6 +1928,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | The same ref given twice | One row. The second time changes nothing |
 | The user merges or closes a PR before STAR merged it | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
 | The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
+| The owner gives feedback while an item's brief is drafting | STAR writes it to the brief's feedback side file, never to the brief; the worker copies it in right before writing, and the `BRIEF` row adds any line it missed (#112) |
 | The owner orders a merge while the item's worker is still fixing the PR | The worker is stopped and its terminal checked first, the head is read again, and a fresh babysit run replies and reports `READY`; `merge.sh` refuses a row in a worker stage (`FAIL live worker`) |
 | A stopped worker's terminal is still open when its stage starts again | `stage-start.sh` stops a gate the item's earlier session left holding the lock, and closes the terminal when Orca shows the stopped dispatch owns it. A terminal Orca cannot place holds the row while it still prints, and is left open once it has been quiet for 10 minutes |
 | A second `/juel:star` in another terminal of the same project | It hands its refs to the running STAR and ends; it never becomes a second coordinator |
@@ -1884,6 +1951,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
 | The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |
+| The base moves under a gate loop and changes the branch's own files | The round prints `ERROR base-moved`: the worker merges the base in, runs the sweep and runs the same round again; it is not an error, and STAR does nothing (#113) |
 | The review gate is down on every model (`ERROR gate-down`) | STAR parks each build and babysit that reports it, starts no new ones, asks the owner once, and checks the gate every 30 minutes until it is back |
 | A worktree Orca created inside the repository | `.git/info/exclude` gets a line for its top folder |
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |
