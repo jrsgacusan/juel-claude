@@ -8,7 +8,15 @@ import { parseTicket } from './ticket.ts'
 import type { Ticket } from './ticket.ts'
 
 export type Turn = { who: 'me' | 'agent'; text: string; files: string[]; at: string }
-export type Created = { tracker: string; ref: string | null; specPath: string | null; url: string | null; at: string }
+export type Created = {
+  tracker: string
+  ref: string | null
+  specPath: string | null
+  url: string | null
+  at: string
+  /** STAR's inbox file for the ticket; null until it is written. Absent on a record this module could not read. */
+  inbox?: string | null
+}
 export type Summary = { id: string; title: string; updatedAt: string; ref: string | null }
 
 const errCode = (err: unknown): string | undefined => (err as { code?: string } | null)?.code
@@ -134,6 +142,13 @@ export async function appendTurns(dir: string, turns: Turn[]): Promise<void> {
 /** Writes created.json unless it exists; false when it already did. */
 export async function writeCreated(dir: string, created: Created): Promise<boolean> {
   return writeNew(join(dir, 'created.json'), `${JSON.stringify(created, null, 2)}\n`)
+}
+
+/** Replaces created.json in one rename, so a reader never sees half a record. */
+export async function rewriteCreated(dir: string, created: Created): Promise<void> {
+  const tmp = join(dir, `.created.json.${process.pid}.tmp`)
+  await writeFile(tmp, `${JSON.stringify(created, null, 2)}\n`)
+  await rename(tmp, join(dir, 'created.json'))
 }
 
 /** The list title (D8): the draft's title, else the owner's first turn cut to 60 characters. */

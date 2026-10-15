@@ -7,7 +7,7 @@ import { basename, join } from 'node:path'
 import { contentOf, message, parseObject, runCli, tail } from './claude.ts'
 import type { CliEvent } from './claude.ts'
 import { hex4, stamp } from './ids.ts'
-import { writeCreated, writeNew } from './store.ts'
+import { rewriteCreated, writeCreated, writeNew } from './store.ts'
 import type { Created } from './store.ts'
 import type { Ticket } from './ticket.ts'
 import type { Tracker } from './tracker.ts'
@@ -196,8 +196,9 @@ async function createViaMcp(ctx: CreateContext, tracker: 'linear' | 'jira'): Pro
 }
 
 /**
- * Makes the ticket, then records it in created.json and an inbox file. A tracker failure writes
- * nothing. Once the ticket exists it is logged first, and a failure to record it comes back with `made`.
+ * Makes the ticket, records it in created.json with `inbox: null`, then sends it to STAR with
+ * queueCreated. A tracker failure writes nothing. Once the ticket exists it is logged first, and a
+ * failure to record it comes back with `made`.
  */
 export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
   let made: Made | 'absent' = 'absent'
@@ -208,9 +209,9 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
   let created: Created
   if (made === 'absent') {
     const specPath = await writeSpecItem(ctx.home, ctx.project, ctx.draft)
-    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at }
+    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at, inbox: null }
   } else {
-    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at }
+    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at, inbox: null }
   }
   const name = created.ref ?? created.specPath ?? ''
   ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: made ${name} (${created.url})`)
@@ -218,9 +219,25 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
     if (!(await writeCreated(ctx.dir, created))) {
       return { ok: false, error: `${name} was made, but this briefing already had a ticket`, made: created }
     }
-    await writeInbox(ctx.home, ctx.repo, name)
   } catch (err) {
     return { ok: false, error: `${name} was made, but it could not be recorded: ${message(err)}`, made: created }
   }
-  return { ok: true, created }
+  return queueCreated(ctx, created)
+}
+
+/**
+ * Tells STAR about a made ticket: a new inbox file, then created.json rewritten with its path. On a
+ * failure created.json keeps `inbox: null`, so pressing Create again runs this again (the create
+ * route) instead of answering 409, and no second ticket is made.
+ */
+export async function queueCreated(ctx: Pick<CreateContext, 'home' | 'repo' | 'dir'>, created: Created): Promise<CreateOutcome> {
+  const name = created.ref ?? created.specPath ?? ''
+  try {
+    const inbox = await writeInbox(ctx.home, ctx.repo, name)
+    const queued: Created = { ...created, inbox }
+    await rewriteCreated(ctx.dir, queued)
+    return { ok: true, created: queued }
+  } catch (err) {
+    return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: created }
+  }
 }

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
 
-import { CREATE_TOOLS, createTicket, lastJson, slugOf, ticketBody, writeInbox } from './create.ts'
+import { CREATE_TOOLS, createTicket, lastJson, queueCreated, slugOf, ticketBody, writeInbox } from './create.ts'
 import type { CreateContext } from './create.ts'
 import { stamp } from './ids.ts'
 import { briefingDir, createBriefing, readCreated, writeDraft } from './store.ts'
@@ -217,15 +217,25 @@ test('a ref that is not one token, or a url that is not https, is not taken', as
   assert.deepEqual(await inboxFiles(), [])
 })
 
-test('a ticket that is made but cannot be recorded comes back with made, and is logged first', async () => {
+test('a ticket made while the inbox cannot be written keeps inbox: null, and queueCreated sends it later', async () => {
   await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
   await writeFile(join(w.home, 'inbox'), 'not a folder')
   const outcome = await createTicket(ctx('github'))
   assert.equal(outcome.ok, false)
   if (outcome.ok) return
   assert.equal(outcome.made?.ref, '#42')
-  assert.match(outcome.error, /#42 was made, but it could not be recorded/)
+  assert.match(outcome.error, /#42 was made, but STAR's inbox file could not be written/)
   assert.ok(logs.some(line => line.includes('made #42 (https://github.com/o/r/issues/42)')))
+  assert.equal((await readCreated(dir))?.inbox, null)
+
+  await rm(join(w.home, 'inbox'))
+  const queued = await queueCreated({ home: w.home, repo: w.repo, dir }, (await readCreated(dir))!)
+  if (!queued.ok) assert.fail(queued.error)
+  assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: ['#42'] })
+  const [file] = await inboxFiles()
+  assert.equal(queued.created.inbox, join(w.home, 'inbox', file))
+  assert.deepEqual(await readCreated(dir), queued.created)
+  assert.equal((await calls(w, 'gh')).length, 1)
 })
 
 test('a spec title with a newline stays one frontmatter line', async () => {
