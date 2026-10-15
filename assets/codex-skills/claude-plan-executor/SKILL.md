@@ -83,6 +83,11 @@ of the two; that is normal and not a problem to report.
   task is about to touch the same file.
 - **Use the plan's commit message verbatim** when it supplies one. If the plan states a commit
   convention, follow it. If it states none, do not invent one.
+- **Never `git add -f` (`--force`).** A path the repository ignores is never committed, even when
+  a plan step says to commit it: leave it on disk and say in the task's report
+  `not committed: <path> is git-ignored`. Before each `git commit`, run
+  `git diff --cached --no-renames --name-only --diff-filter=A | git check-ignore --no-index --stdin`;
+  for each path it prints, `git rm --cached -q -- <path>` (the file stays on disk), then commit.
 - **`.git` is a protected path under `--sandbox workspace-write`.** A commit only succeeds if the
   escalation is approved, and who approves is set by `approvals_reviewer` in
   `~/.codex/config.toml`: `user` means an interactive session prompts a human, and a
