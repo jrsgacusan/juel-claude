@@ -1,0 +1,22 @@
+{
+ "type": "result",
+ "subtype": "success",
+ "is_error": false,
+ "duration_ms": 38211,
+ "num_turns": 4,
+ "result": "git grep was refused, so I could not find where the test chain is defined on the base.",
+ "stop_reason": "end_turn",
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "total_cost_usd": 0.27,
+ "permission_denials": [
+  {
+   "tool_name": "Bash",
+   "tool_use_id": "toolu_06",
+   "tool_input": {
+    "command": "git grep -n chain origin/main -- package.json",
+    "description": "Find the test chain on the base"
+   }
+  }
+ ],
+ "terminal_reason": "completed"
+}
