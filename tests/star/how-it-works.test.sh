@@ -133,5 +133,9 @@ grep -qF 'git'"'"'s read-only commands (a denied run is retried once in the same
 # fix: a released session a person kept is still kept or held (#95)
 grep -qF 'ended, never held' "$PAGE" && fail "F95 the page no longer says a released session is never held" || pass "F95 the page no longer says a released session is never held"
 grep -qF 'one a person kept is still kept or held' "$PAGE" && pass "F95 the page says a released session a person kept is still kept or held" || fail "F95 released session a person kept on the page"
+# lane h: the page shows STAR's changes for issues #110 to #118 and the mod
+grep -qF 'carried to it from a gated head by a base merge that changed none of the files the branch changes' "$PAGE" && pass "LH110 the merge gate's carry names the rule (#110)" || fail "LH110 carry rule in the merge gate"
+grep -qF 'A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it.' "$PAGE" && pass "LH110 a base merge keeps the PASS only when it changed none of the branch's files (#110)" || fail "LH110 carry rule in Never stalls"
+grep -qF 'a script proves adds nothing of its own' "$PAGE" && fail "LH110 the old carry wording is gone (#110)" || pass "LH110 the old carry wording is gone (#110)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -1023,8 +1023,9 @@ round the worker posts the receipt with `codex-gate.sh post-pass`, once per head
 receipt is posted even when a carried receipt already names the head, #104), in two lines:
 `Codex gate: PASS (head <full sha>, round <k>, <model> <effort>)`, then `VERDICT: PASS`. Two receipts
 carry an earlier verdict, and `post-pass` writes both, so none is ever written by hand. A merge of
-the base that `carry-check.sh` proves added no change of its own (git merged it cleanly, or every
-conflict is one `merge-union.sh` resolves) carries the last SAFE to the merge head, with
+the base that `carry-check.sh` proves added no change of its own (#110: the base side changed
+none of the files the branch changes, so a merge with a conflict never carries) carries the last
+SAFE to the merge head, with
 `, carried from <gated head>: <reason>` before the first line's closing parenthesis (#75). A head
 the owner shipped with a round's findings deferred carries `, carried by owner decision <id>:
 findings deferred` there, and `VERDICT: PASS (owner decision <id>)` (#82; the Answers row for a ship
@@ -1033,7 +1034,9 @@ reports `RESCOPE`. A babysit run counts its NOT-SAFE rounds since the newest SAF
 push, whichever is later, and reports `RESCOPE` at the `gate.maxRounds`-th (#108). A SAFE round
 that could not be pushed, because the PR needed a base merge first, starts a fresh count. STAR
 opens none of these files: `done-check.sh` and `pr-verify.sh --merge-gate`
-read them and print one line. Luna writes the code and Sol gates it, so the independent review is
+read them and print one line. `done-check.sh` accepts a SAFE round on an earlier head only when
+`carry-check.sh` carries it to the PR's head, by the rule above (#110). Luna writes the code and
+Sol gates it, so the independent review is
 the build's fresh Claude review, before the gate. While the fallback runs, the gate is a second
 Claude review, not a second model.
 

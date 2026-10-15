@@ -417,7 +417,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <div>
         <h3>Always</h3>
         <ul>
-          <li>Codex PASS posted on the PR for that head, with a <code>VERDICT: PASS</code> line: gated on that head, carried to it from a gated head by a base merge a script proves adds nothing of its own, or carried by your decision to ship with the findings deferred. A gate round run on that head later still posts its own PASS: a direct verdict supersedes a carry</li>
+          <li>Codex PASS posted on the PR for that head, with a <code>VERDICT: PASS</code> line: gated on that head, carried to it from a gated head by a base merge that changed none of the files the branch changes, or carried by your decision to ship with the findings deferred. A gate round run on that head later still posts its own PASS: a direct verdict supersedes a carry</li>
           <li>Every check SUCCESS, NEUTRAL or SKIPPED</li>
           <li>A written disposition for every unfixed finding</li>
           <li>GitHub reports it mergeable, so branch rules still apply</li>
@@ -469,7 +469,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>A codex gate still NOT SAFE after 3 rounds in a row, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again. In babysit the count starts over at each SAFE round and each push, so a base merge after a SAFE round gets a fresh budget.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
-        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge a script proves adds nothing of its own keeps the last codex PASS, so no codex round runs for it. The full regression gate and every live check run once per PR, before the first draft push. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the tests for the files its conflicts changed. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
+        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it. The full regression gate and every live check run once per PR, before the first draft push. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the tests for the files its conflicts changed. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
         <li>Before a stage starts again, a gate its stopped worker left holding the lock is stopped and the worker's own terminal is closed (a session Orca reports released with no retained reason is ended; one a person kept is still kept or held), a terminal still printing holds the start, and a merge you order stops the worker still fixing that PR first, so two sessions never work on one item.</li>
       </ul>
     </div>

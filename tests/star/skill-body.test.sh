@@ -614,5 +614,9 @@ g "F95a the kept row: a released one a person kept follows the row" 'one a perso
 g "F95b the hold row: a released one a person kept is held" 'including a `released` one a person kept (`retainedReason` set);'
 grep -qF 'is never kept' "$SKILL" && fail "F95c a released dispatch is no longer never kept" || pass "F95c a released dispatch is no longer never kept"
 grep -qF 'never a dispatch Orca reports `released`' "$SKILL" && fail "F95d a released dispatch is no longer never held" || pass "F95d a released dispatch is no longer never held"
+# lane h: STAR's contract for issues #110 to #118 and the mod
+g "LH110a a merge carries only when the base changed none of the branch's files (#110)" 'none of the files the branch changes, so a merge with a conflict never carries) carries the last'
+grep -qF 'git merged it cleanly, or every' "$SKILL" && fail "LH110b a mechanical conflict no longer carries (#110)" || pass "LH110b a mechanical conflict no longer carries (#110)"
+g "LH110c done-check accepts a carry by the same rule (#110)" '`carry-check.sh` carries it to the PR'"'"'s head, by the rule above (#110).'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
