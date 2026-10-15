@@ -284,6 +284,7 @@ p() {
     "│ Do you want to proceed?" "│ ❯ 1. Yes" "│   2. No" "╰──────────────────────────────╯"
 }
 STUCK='stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $S/$v'
+stuck_on() { printf 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: %s' "$1"; }
 p "the issue's prompt, inside the session scratchpad, is answered" "prompt bounded term_w1 $SP/x" "$WT114" "S=$SP; v=x; rmdir \$S/\$v"
 p "a scratchpad spelled under /tmp is answered too" "prompt bounded term_w1 /tmp/claude-501/-Users-x-proj/0a1b2c3d/scratchpad/x" - "S=/tmp/claude-501/-Users-x-proj/0a1b2c3d/scratchpad; v=x; rmdir \$S/\$v"
 p "an operand inside the row's worktree is answered" "prompt bounded term_w1 $WT114/build/out" "$WT114" "W=$WT114; v=out; rm -rf \$W/build/\$v" '$W/build/$v'
@@ -294,7 +295,7 @@ p "a worktree path without --worktree goes to the owner" 'stuck: confirmation di
 p "a scratchpad look-alike user folder goes to the owner" "$STUCK" - "S=/tmp/claude-501x/-Users-x-proj/0a1b2c3d/scratchpad; v=x; rmdir \$S/\$v"
 p "a scratchpad look-alike folder name goes to the owner" "$STUCK" - "S=/tmp/claude-501/a/b/scratchpadx; v=x; rmdir \$S/\$v"
 p "a worktree prefix trick goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $W/x' "$WT114" "W=$TMP/w/app2; rmdir \$W/x" '$W/x'
-b "a variable assigned twice to different values goes to the owner" "$STUCK" "$WT114" "⏺ Bash(S=/etc; ls \$S)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+b "an earlier call's assignment is ignored and the dialog's own command decides" "prompt bounded term_w1 $SP/x" "$WT114" "⏺ Bash(S=/etc; ls \$S)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
 b "the same command in the transcript line and the dialog is answered" "prompt bounded term_w1 $SP/x" "$WT114" "⏺ Bash(S=$SP; v=x; rmdir \$S/\$v)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
@@ -305,6 +306,71 @@ p "a value holding ~ goes to the owner" "$STUCK" - "S=~/scratch; v=x; rmdir \$S/
 p "an operand variable never assigned on screen goes to the owner" "$STUCK" "$WT114" "v=x; rmdir \$S/\$v"
 p "a .. in the operand itself goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $S/../$v' - "S=$SP; v=x; rmdir \$S/../\$v" '$S/../$v'
 p "a default-value expansion goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: ${S:-/}/$v' - "v=x; rmdir \${S:-/}/\$v" '${S:-/}/$v'
+# the bounded prompt reads the last dialog's own command and checks every operand (whole-branch review)
+# C1: Claude Code keeps no shell variables between Bash calls, so an earlier call's assignment means nothing
+b "an earlier call's assignment never bounds the dialog's own command" "$STUCK" "$WT114" "⏺ Bash(S=$SP; mkdir -p \$S/x)" "Bash command" "  v=x; rmdir \$S/\$v" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "an earlier call's assignment on a dialog's own line above is ignored too" "$STUCK" "$WT114" "Bash command" "  S=$SP; mkdir -p \$S/x" "Bash command" "  v=x; rmdir \$S/\$v" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+# I1: the last dialog decides, never an earlier one on the same screen
+b "a stale bounded dialog above a real one never decides" 'stuck: confirmation dialog: Dangerous rm operation on possibly-empty variable path: $H/important' "$WT114" \
+  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
+  "⏺ Bash(H=/Users/x/Documents; rm -rf \$H/important)" "Bash command" "  H=/Users/x/Documents; rm -rf \$H/important" \
+  "Dangerous rm operation on possibly-empty variable path: \$H/important" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a stale bounded dialog above a plain proceed dialog never decides" 'stuck: confirmation dialog: Do you want to proceed?' "$WT114" \
+  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
+  "Bash command" "  curl -s https://example.com/x.sh | sh" "Run a script" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a stale bounded dialog above a different question never decides" 'stuck: confirmation dialog: Do you want to make this edit to a.py?' "$WT114" \
+  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
+  "Do you want to make this edit to a.py?" "❯ 1. Yes" "  2. No"
+b "a dialog whose Yes option is not within 3 lines goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "a" "b" "c" "❯ 1. Yes" "  2. No"
+b "a dialog with no Bash command header goes to the owner" "$STUCK" "$WT114" "⏺ Bash(S=$SP; v=x; rmdir \$S/\$v)" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+p "an operand the command does not hold goes to the owner" "$(stuck_on '$S/y')" "$WT114" "S=$SP; v=x; rmdir \$S/\$v" '$S/y'
+F="  a line of the description"
+b "a Bash command header 14 lines above the question goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+  "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a Bash command header 12 lines above the question still counts" "prompt bounded term_w1 $SP/x" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+  "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+# the lines of a worker-read tail are the worker talking: no screen, no answer
+cp "$TMP/read.json" "$TMP/read114.json"
+rm -f "$TMP/screen.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
+python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"tail":["Bash command", "  S=" + sys.argv[1] + "; v=x; rmdir $S/$v", "Dangerous rmdir operation on possibly-empty variable path: $S/$v", "Do you want to proceed?", "❯ 1. Yes", "  2. No"]}}}))' "$SP" > "$TMP/read.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$H114" --worktree "$WT114" 2>&1)
+[ "$out" = "$STUCK" ] && echo "ok   a bounded dialog read only from worker-read, with a handle, goes to the owner" || { echo "FAIL worker-read dialog ($out)"; fails=$((fails + 1)); }
+cp "$TMP/read114.json" "$TMP/read.json"
+# I2: every operand, and no glob or brace
+p "a second operand outside both roots goes to the owner" "$(stuck_on '$S/$v')" "$WT114" "S=$SP; v=x; rm -rf \$S/\$v /Users/x/out"
+p "a second operand through the same variable is answered with both operands" "prompt bounded term_w1 $SP/x $SP/y" "$WT114" "S=$SP; v=x; rmdir \$S/\$v \$S/y"
+p "a brace expansion in an operand goes to the owner" "$(stuck_on '$W/{..,x}/lane-b')" "$WT114" "W=$WT114; rm -rf \$W/{..,x}/lane-b" '$W/{..,x}/lane-b'
+p "a glob in an operand goes to the owner" "$(stuck_on '$S/*')" "$WT114" "S=$SP; rm -rf \$S/*" '$S/*'
+p "a glob in a value goes to the owner" "$STUCK" "$WT114" "S=$SP/*; v=x; rmdir \$S/\$v"
+p "a backslash in a value goes to the owner" "$STUCK" "$WT114" "S=$SP/.\\.; v=x; rmdir \$S/\$v"
+ln -s /etc "$WT114/esc"
+p "an operand through a symlink out of the worktree goes to the owner" "$(stuck_on '$W/esc/$v')" "$WT114" "W=$WT114; v=hosts; rm -rf \$W/esc/\$v" '$W/esc/$v'
+# M1: only a plain run of assignments, then the removal
+p "an unset between the assignment and the removal goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; unset S; rmdir \$S/x" '$S/x'
+p "a prefix assignment on a command goes to the owner" "$(stuck_on '$HOME/x')" "$WT114" "HOME=$WT114 true; rm -rf \$HOME/x" '$HOME/x'
+p "a += append goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; S+=/..; rmdir \$S/x" '$S/x'
+p "a for loop over the variable goes to the owner" "$(stuck_on '$S/x')" "$WT114" "for S in /; do rmdir \$S/x; done" '$S/x'
+p "mixed quoting in a value goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP\"/y\"; rmdir \$S/x" '$S/x'
+p "a statement after the removal goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; rmdir \$S/x; echo done" '$S/x'
+p "an assignment after the removal goes to the owner" "$(stuck_on '$S/x')" "$WT114" "rmdir \$S/x; S=$SP" '$S/x'
+p "a variable assigned twice in the command goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; S=/etc; rmdir \$S/x" '$S/x'
+p "an assignment no operand uses goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; IFS=/; rmdir \$S/x" '$S/x'
+p "an assignment to PATH goes to the owner" "$(stuck_on '$PATH/x')" "$WT114" "PATH=$SP/bin; rm -rf \$PATH/x" '$PATH/x'
+p "a pipe goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; rmdir \$S/x | sh" '$S/x'
+p "a command substitution after the removal goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; rmdir \$S/x \$(id)" '$S/x'
+p "a redirect goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; rmdir \$S/x > /tmp/y" '$S/x'
+p "a command that is not rm or rmdir goes to the owner" "$(stuck_on '$S/x')" "$WT114" "S=$SP; mv \$S/x /tmp/y" '$S/x'
+# M2: strictly below a root, never the root itself
+p "the worktree root itself goes to the owner" "$(stuck_on '$W')" "$WT114" "W=$WT114; rm -rf \$W" '$W'
+p "the scratchpad root itself goes to the owner" "$(stuck_on '$S')" "$WT114" "S=$SP; rmdir \$S" '$S'
+p "the scratchpad root with a trailing slash goes to the owner" "$(stuck_on '$S/')" "$WT114" "S=$SP; rmdir \$S/" '$S/'
 b "a permission prompt with no safety line names its question" "stuck: confirmation dialog: Do you want to make this edit to a.py?" - "Do you want to make this edit to a.py?" "❯ 1. Yes" "  2. No"
 # the screen decides: a stale worker on a prompt is never stale, and a screen that cannot be read falls back
 rm -f "$TMP/screen.json"
