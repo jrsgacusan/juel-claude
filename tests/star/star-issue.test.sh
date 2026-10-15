@@ -12,7 +12,7 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 APP="$TMP/app"; mkdir -p "$APP"
 (cd "$APP" && git init -q -b main . && git commit -q --allow-empty -m init && git remote add origin git@github.com:acme/sphere-browser.git)
 APP=$(cd "$APP" && pwd -P)
-H=$(sh "$S/star-home.sh" --cwd "$APP" init)
+H=$(HOME="$TMP/home" sh "$S/star-home.sh" --cwd "$APP" init)
 sh "$S/ledger.sh" --home "$H" add SPH-13 ref=SPH-13 project=app >/dev/null
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'

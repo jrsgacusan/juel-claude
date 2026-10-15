@@ -7,6 +7,8 @@ TMP=$(mktemp -d); trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
+# init and register write ~/.juel/star-homes.json: never the owner's real one from a test
+export HOME="$TMP/home"; mkdir -p "$HOME"
 [ -f "$SCRIPT" ] || { echo "FAIL star-home.sh missing"; exit 1; }
 mkrepo() { mkdir -p "$1" && (cd "$1" && git init -q . && git commit -q --allow-empty -m init); }
 real() { (cd "$1" && pwd -P); }
@@ -76,6 +78,39 @@ mkrepo "$TMP/race"; RACE=$(real "$TMP/race")
 i=0; while [ $i -lt 10 ]; do i=$((i + 1)); sh "$SCRIPT" --cwd "$RACE" init >/dev/null 2>&1 & done; wait
 HRA="$RACE/docs/superpowers/context/star"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["project"]["name"]=="race"' "$HRA/star.json" && cmp -s "$HRA/ledger.md" "$ROOT/skills/star/template/ledger.md" && [ "$(grep -c 'context/star' "$RACE/.git/info/exclude")" = 1 ] && pass "ten init calls at once leave one intact folder" || fail "concurrent init"
+
+# register: ~/.juel/star-homes.json lists each STAR folder once, under a lock
+REG="$HOME/.juel/star-homes.json"
+mkrepo "$TMP/reg"; RG=$(real "$TMP/reg")
+RH=$(sh "$SCRIPT" --cwd "$RG" init)
+python3 - "$REG" "$RH" "$RG" <<'PY' && pass "init lists the folder in ~/.juel/star-homes.json" || fail "init did not register ($(cat "$REG" 2>/dev/null))"
+import json, sys
+entries = json.load(open(sys.argv[1]))
+assert {"name": "reg", "repo": sys.argv[3], "home": sys.argv[2]} in entries, entries
+PY
+[ "$(sh "$SCRIPT" --cwd "$RG" register)" = "listed $RH" ] && pass "register on a listed folder says listed" || fail "register again: $(sh "$SCRIPT" --cwd "$RG" register)"
+sh "$SCRIPT" --cwd "$RG" init >/dev/null; sh "$SCRIPT" --cwd "$RG" register >/dev/null
+[ "$(python3 -c 'import json,sys; print(sum(1 for e in json.load(open(sys.argv[1])) if e["home"] == sys.argv[2]))' "$REG" "$RH")" = 1 ] && pass "once per home, however often" || fail "the home is listed more than once"
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["project"]["name"]="renamed"; json.dump(d,open(p,"w"))' "$RH/star.json"
+[ "$(sh "$SCRIPT" --cwd "$RG" register)" = "registered $RH" ] && python3 -c 'import json,sys; assert [e["name"] for e in json.load(open(sys.argv[1])) if e["home"] == sys.argv[2]] == ["renamed"]' "$REG" "$RH" && pass "a renamed project is updated in place" || fail "rename not registered"
+mkrepo "$TMP/reg2"; RG2=$(real "$TMP/reg2")
+out=$(sh "$SCRIPT" --cwd "$RG2" register 2>&1); rc=$?
+[ "$rc" = 1 ] && echo "$out" | grep -q 'no STAR folder' && pass "register with no STAR folder exits 1" || fail "register without a folder (rc=$rc: $out)"
+RH2=$(sh "$SCRIPT" --cwd "$RG2" init)
+(sh "$SCRIPT" --cwd "$RG" register & sh "$SCRIPT" --cwd "$RG2" register & sh "$SCRIPT" --cwd "$RG" register & wait) >/dev/null
+python3 - "$REG" "$RH" "$RH2" <<'PY' && pass "registers running at once keep one entry per home" || fail "concurrent registers: $(cat "$REG")"
+import json, sys
+homes = [e["home"] for e in json.load(open(sys.argv[1]))]
+assert homes.count(sys.argv[2]) == 1 and homes.count(sys.argv[3]) == 1, homes
+PY
+printf 'not json' > "$REG"
+out=$(sh "$SCRIPT" --cwd "$RG" register 2>&1); rc=$?
+[ "$rc" = 1 ] && grep -q '^not json$' "$REG" && pass "a broken registry is never overwritten" || fail "broken registry (rc=$rc: $out)"
+rm -f "$REG"; rm -rf "$HOME/.juel"; printf 'a file, not a folder' > "$HOME/.juel"
+mkrepo "$TMP/reg3"; RG3=$(real "$TMP/reg3")
+RH3=$(sh "$SCRIPT" --cwd "$RG3" init 2> "$TMP/reg3.err"); rc=$?
+[ "$rc" = 0 ] && [ "$RH3" = "$RG3/docs/superpowers/context/star" ] && grep -q 'could not register' "$TMP/reg3.err" && pass "init still works when the registry cannot be written" || fail "init with no registry (rc=$rc: $RH3 / $(cat "$TMP/reg3.err"))"
+rm -f "$HOME/.juel"
 
 # Review: git lists the git directory, not the checkout, for a submodule and for a separate git dir
 mkrepo "$TMP/lib"; mkrepo "$TMP/super"; SUP=$(real "$TMP/super")

@@ -17,7 +17,7 @@ APP="$TMP/app"; mkdir -p "$APP"
 (cd "$APP" && git init -q -b main . && printf '.env\n' > .gitignore && git add .gitignore && git commit -q -m init)
 APP=$(cd "$APP" && pwd -P)
 printf 'TOKEN=1\n' > "$APP/.env"
-H=$(sh "$S/star-home.sh" --cwd "$APP" init)
+H=$(HOME="$TMP/home" sh "$S/star-home.sh" --cwd "$APP" init)
 settings() { python3 - "$H/star.json" "$@" <<'PY'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p))

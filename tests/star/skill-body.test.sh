@@ -294,7 +294,7 @@ g "H3 it reads each PR's review logins from the REST API" "gh api \"repos/{owner
 g "H4 and each PR's comment logins" "gh api \"repos/{owner}/{repo}/issues/<n>/comments\" --jq '.[].user.login'"
 g "H5 it stops at the exact REST login" 'stopping at the first line that is exactly `greptile-apps[bot]`'
 grep -qF 'gh pr view <n> --json comments,reviews' "$SKILL" && fail "H6 the GraphQL lookup is gone" || pass "H6 the GraphQL lookup is gone"
-g "CW1 status, away, back and stop are commands only as the whole text" '`status`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "CW1 status, dashboard, away, back and stop are commands only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
 g "CW2 a free-text brief may start with a command word" '`/juel:star stop the digest from sending twice` is a free-text brief'
 g "CW3 draft-brief and post-report match as the first word" 'A first word of `draft-brief` or `post-report` is'
 g "CW4 filler is dropped, a remark about the refs goes to the note" '(`and`, `add`, `please`), which is dropped, or only say something about the refs'
@@ -470,7 +470,7 @@ g "GD1 a gate-down escalation parks the row" '| `ESCALATION item=… reason=revi
 g "GD2 no build or babysit starts while the gate is down" 'While `gateDown` is set, start no build and no babysit'
 g "GD3 the gate is checked every 30 minutes" '`gateDown` set, and its `checked` 30 minutes or more ago: `sh S/codex-gate.sh check`'
 g "GD4 retry checks the gate now" '| `held` "the review gate is down…" | `retry` |'
-g "GD5 retry is a command word" '`accept`, `retry` or `not merging`'
+g "GD5 retry is a command word" '`accept`, `retry`, `skip` or `not merging`'
 g "GD6 STAR stays active while the gate is down" 'or while `gateDown` is set'
 g "GD7 the status line says so" '`gate down since <since>`'
 g "GD8 the Gate down rule" '**Gate down.**'
@@ -658,5 +658,27 @@ g "LHmod-e the hard rule names the mod" '- On Claude Code 2.1.287 and later, jue
 # fix-2: prompt bounded in Reconcile and the escalation-answer rule (#114)
 g "FIX2a Reconcile keeps a prompt bounded worker, Housekeeping answers it (#114)" '`prompt bounded …` → keep it; Housekeeping answers it.'
 g "FIX2b an escalation answer counts a prompt bounded worker as still running (#114)" 'says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running'
+# the STAR dashboard (star-dashboard-server)
+g "DASH1 the dashboard command row" '| `/juel:star dashboard` |'
+g "DASH2 dashboard is a command word only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "DASH3 the dashboard section runs dashboard.sh" '`sh S/dashboard.sh`'
+g "DASH4 the dashboard needs no STAR running" 'It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder.'
+g "DASH5 init lists the folder in the registry" '`~/.juel/star-homes.json`'
+g "DASH6 every start registers the home" 'Then `sh S/star-home.sh register`'
+g "DASH7 a pick is marked recommended" 'it marks that option in the `Options:` line with a ` (recommended)` suffix'
+g "DASH8 a pick says why on a Suggest line" '`Suggest: <one line, why>`'
+g "DASH9 never a pick on a secret step" 'A `secret` step never gets either'
+g "DASH10 the Answers step drops the suffix" 'drops a trailing ` (recommended)` from an answer before it compares command words'
+g "DASH11 a slack: inbox file is not a work item" 'A file with a `slack:` block is a Slack message the dashboard'"'"'s watcher routed to this project'
+g "DASH12 the Slack draft path" '`HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`'
+g "DASH13 the draft first line" '`to: slack <channelId> <threadTs>`'
+g "DASH14 the slack-reply queue item" '--kind slack-reply --project <p> --item slack'
+g "DASH15 the slack-reply options" 'Options: send (recommended) / rewrite: <how> / skip'
+g "DASH16 send posts through the Slack connector" '| `slack-reply` | send |'
+g "DASH17 quiet hours do not hold a send" 'Quiet hours do not hold it: the owner pressed send.'
+g "DASH18 no Slack connector holds the send" 'connect Slack in Claude Code to send <draft name>'
+g "DASH19 rewrite redrafts" '| `slack-reply` | `rewrite: <how>` |'
+g "DASH20 skip closes it" '| `slack-reply` | skip | close it |'
+g "DASH21 the home lists the Slack drafts" 'drafts/<YYYY-MM-DD>-<project>-slack-<id>.md'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
