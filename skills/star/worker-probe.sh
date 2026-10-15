@@ -4,7 +4,8 @@
 # STAR's context.
 #   worker-probe.sh <dispatch> [--item <item> --home <H> [--worktree <path>] [--deadline <minutes>]]
 #     ->   ok | quiet <m> <terminal> | stale <m> <terminal> | settled <state> [<reason>]
-#          | stuck: <label> | stalled: model at capacity | gone | unknown <why>
+#          | stuck: <label>[: <line>] | prompt bounded <terminal> <path>
+#          | stalled: model at capacity | gone | unknown <why>
 #     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39).
 # <reason> follows only a failed settlement, when Orca gives one (agent_prompt_stalled: the agent
 # never took its prompt, most often because Claude Code's trust dialog was on screen).
@@ -13,6 +14,18 @@
 # overload or rate-limit error on screen: recoverable without the user (#41). The error type names
 # overloaded_error and rate_limit_error count only on a line that also has "api error", an
 # "error:" prefix or a 4xx/5xx status, so code or docs that name them are not a stall.
+# A question with numbered options is "stuck: confirmation dialog: <line>", the line being the
+# rm/rmdir safety line below when the screen has one, else the question, 120 characters at most;
+# "stuck: confirmation dialog" alone is a "No, exit" screen. One such dialog STAR answers itself
+# (#114), printed "prompt bounded <terminal> <path>": Claude Code's "Dangerous rm|rmdir operation on
+# possibly-empty variable path: <operand>" above "Do you want to proceed?" and a "1. Yes" option,
+# on a worker that has a terminal, where every $NAME or ${NAME} in the operand is assigned on the
+# screen above the question, each time to the same value (NAME=<value>, NAME="<value>" or
+# NAME='<value>'; the transcript line and the dialog both show the command), no value
+# holds $, a backtick, ".." or "~", and the operand with those values put in is an absolute path
+# with no ".." segment, under --worktree (by its realpath too) or under a Claude Code session
+# scratchpad, (/private)/tmp/claude-<uid>/<project>/<session>/scratchpad. <path> is that operand,
+# normalized.
 # With --item and --home, progress decides: the newest of <H>/progress/<item>.log, the worktree's
 # last commit and the files the worktree has changed. No progress for --deadline minutes (default
 # 30) is "stale <m> <terminal>". Without them, or with no progress source at all, the terminal
@@ -21,8 +34,12 @@
 # shapeless or failing output is "unknown" and says nothing about the worker, so it never
 # justifies starting a second one.
 # The patterns are whole phrases from the agents' own blocking screens, looked for only where
-# such a screen sits: the last lines of the terminal, or the newest transcript message when it
-# is short. Ordinary work that mentions "login", "rate limit" or "switch to main" does not match.
+# such a screen sits: the last lines of the rendered screen (orca terminal read --screen, when the
+# worker has a terminal; #114: Orca 1.4.198's worker-read returns the hook transcript, which never
+# shows a prompt), else worker-read's terminal tail and its newest transcript message when it is
+# short (a top-level messages list, or transcript.messages[-1].blocks[*].text). A screen that cannot
+# be read, or that Orca reports as anything but "screen", falls back to worker-read. Ordinary work
+# that mentions "login", "rate limit" or "switch to main" does not match.
 # STAR_NOW (ISO UTC) overrides the clock, for tests.
 # Exit: 0, or 64 on bad usage.
 STAR_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -66,6 +83,13 @@ YES_NO = r"[\[(](y/n|yes/no)[\])]\s*:?\s*$"
 # ever reported as merely quiet: STAR's check-in ends with Enter, which would answer the prompt.
 QUESTION = r"\b(do you want to|would you like to)\b.*\?\s*$"
 OPTION = r"^\s*(❯\s*)?\d+\.\s+(yes|no)\b"
+# #114: Claude Code's safety prompt for an rm or rmdir whose path holds a variable. STAR answers it
+# only when the operand is bounded: see bounded_prompt().
+SAFETY = r"dangerous (rm|rmdir) operation on possibly-empty variable path:\s*(\S+)"
+PROCEED = r"\bdo you want to proceed\?"
+YES_ONE = r"^\s*(❯\s*)?1\.\s+yes\b"
+VAR = r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))"
+SCRATCHPAD = r"^(/private)?/tmp/claude-[0-9]+/[^/]+/[^/]+/scratchpad(/|$)"
 BOX = "│┃|║╭╮╰╯─━═ \t"  # a TUI frame around a line is not part of the line
 USAGE = "usage: worker-probe.sh <dispatch> [--item <item> --home <H> [--worktree <path>] [--deadline <minutes>]]"
 
@@ -151,13 +175,51 @@ if worker.get("stage") == "settled" or worker.get("state") in TERMINAL:
     out("settled " + state + reason(state))
 if dispatch_record.get("status") in ("completed", "failed"):
     out("settled " + dispatch_record["status"] + reason(dispatch_record["status"]))
-read = call("worker-read", "--limit", "40")
-terminal, messages = read.get("terminal"), read.get("messages")
-lines = [str(l) for l in ((terminal or {}).get("tail") or [])][-25:] if isinstance(terminal, dict) else []
-if isinstance(messages, list) and messages and isinstance(messages[-1], dict):
-    newest = str(messages[-1].get("text") or messages[-1].get("content") or "")
+
+
+def screen_tail(handle):
+    """The rendered screen's lines (#114), or None when it cannot be read or is not a screen."""
+    try:
+        proc = subprocess.run([orca, "terminal", "read", "--terminal", handle, "--screen", "--json"],
+                              capture_output=True, text=True, timeout=30)
+        data = json.loads(proc.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
+    term = result.get("terminal") if isinstance(result, dict) else None
+    tail = term.get("tail") if isinstance(term, dict) else None
+    if proc.returncode != 0 or not isinstance(tail, list) or not tail or term.get("source", "screen") != "screen":
+        return None
+    return [str(l) for l in tail]
+
+
+def newest_message(read):
+    """The newest transcript message's text: a top-level messages list, or Orca 1.4.198's
+    transcript.messages[-1].blocks[*].text."""
+    messages = read.get("messages")
+    transcript = read.get("transcript")
+    if not isinstance(messages, list) and isinstance(transcript, dict):
+        messages = transcript.get("messages")
+    if not isinstance(messages, list) or not messages or not isinstance(messages[-1], dict):
+        return ""
+    newest = messages[-1]
+    blocks = newest.get("blocks")
+    if isinstance(blocks, list):
+        return "\n".join(str(b.get("text")) for b in blocks if isinstance(b, dict) and b.get("text"))
+    return str(newest.get("text") or newest.get("content") or "")
+
+
+handle = worker.get("agent_terminal_handle")
+lines = screen_tail(handle) if handle else None
+if lines is None:
+    read = call("worker-read", "--limit", "40")
+    terminal = read.get("terminal")
+    lines = [str(l) for l in (terminal.get("tail") or [])][-25:] if isinstance(terminal, dict) else []
+    newest = newest_message(read)
     if len(newest) <= 400:  # a blocking notice is short; a long message is the worker talking
         lines += newest.splitlines()
+else:
+    lines = lines[-25:]
 lines = [l for l in (l.strip(BOX) for l in lines) if len(l) <= 200]
 
 
@@ -172,8 +234,54 @@ if any(at_capacity(l) for l in lines):
 for label, pattern in PATTERNS:
     if any(re.search(pattern, l, re.IGNORECASE) for l in lines):
         out("stuck: " + label)
+
+
+def inside(path, root):
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def bounded_prompt(lines):
+    """#114: the operand of Claude Code's variable-path rm/rmdir safety prompt, values put in and
+    normalized, when every part of it is known and it stays inside the row's worktree or a Claude
+    Code session scratchpad; else None."""
+    ask = next((i for i, l in enumerate(lines) if re.search(PROCEED, l, re.IGNORECASE)), None)
+    if ask is None or not any(re.search(YES_ONE, l, re.IGNORECASE) for l in lines[ask + 1:]):
+        return None
+    above = lines[:ask]
+    safety = next((m for m in (re.search(SAFETY, l, re.IGNORECASE) for l in above) if m), None)
+    if not safety:
+        return None
+    operand, values = safety.group(2), {}
+    for m in re.finditer(VAR, operand):
+        name = m.group(1) or m.group(2)
+        if name in values:
+            continue
+        assign = re.compile(r"(?:^|[\s;&|(])" + re.escape(name) + r"=(?:\"([^\"]*)\"|'([^']*)'|([^\s;&|)\"']*))")
+        found = [next(g for g in a.groups() if g is not None) for l in above for a in assign.finditer(l)]
+        if len(set(found)) != 1 or any(c in found[0] for c in "$`~") or ".." in found[0]:
+            return None
+        values[name] = found[0]
+    path = re.sub(VAR, lambda m: values[m.group(1) or m.group(2)], operand)
+    if any(c in path for c in "$`~") or not path.startswith("/") or ".." in path.split("/"):
+        return None
+    path = os.path.normpath(path)
+    real = os.path.realpath(path)
+    wt = opts.get("worktree")
+    if wt and any(inside(path, r) for r in (os.path.normpath(wt), os.path.realpath(wt))) \
+            and inside(real, os.path.realpath(wt)):
+        return path
+    if re.match(SCRATCHPAD, path) and re.match(SCRATCHPAD, real):
+        return path
+    return None
+
+
 if any(re.search(QUESTION, l, re.IGNORECASE) for l in lines) and any(re.search(OPTION, l, re.IGNORECASE) for l in lines):
-    out("stuck: confirmation dialog")
+    bounded = bounded_prompt(lines) if handle else None
+    if bounded:
+        out(f"prompt bounded {handle} {bounded}")
+    why = next((l for l in lines if re.search(SAFETY, l, re.IGNORECASE)), None) \
+        or next(l for l in reversed(lines) if re.search(QUESTION, l, re.IGNORECASE))
+    out("stuck: confirmation dialog: " + why.strip()[:120])
 last_line = next((l for l in reversed(lines) if l.strip()), "")
 if re.search(YES_NO, last_line, re.IGNORECASE) and not last_line.lstrip().startswith(("⏺", "●", "-", "*")):
     out("stuck: waiting for input")
@@ -243,7 +351,6 @@ def quiet_minutes(handle):
     return max(minutes, 0)
 
 
-handle = worker.get("agent_terminal_handle")
 if "item" in opts:
     try:
         deadline = float(opts.get("deadline", "30"))
