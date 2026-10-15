@@ -62,14 +62,20 @@ export async function pickPort(recorded: unknown): Promise<number> {
 }
 export async function probe(port: unknown, token: unknown): Promise<boolean> {
   if (typeof port !== "number" || !isToken(token)) return false;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 3000);
   try {
-    const r = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+    const r = await fetch(`http://127.0.0.1:${port}/api/events`, {
       headers: { "x-star-token": token },
-      signal: AbortSignal.timeout(3000),
+      signal: ac.signal,
     });
-    return r.status === 200;
+    const type = r.headers.get("content-type") ?? "";
+    return r.status === 200 && type.toLowerCase().includes("text/event-stream");
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
+    ac.abort();
   }
 }
 export function takeLock(dir: string): boolean {

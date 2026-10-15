@@ -42,6 +42,6 @@ export function fileRoutes(router: Router, ctx: Ctx): void {
     const type = TEXTUAL.has(path.extname(real).toLowerCase())
       ? "text/plain; charset=utf-8"
       : typeOf(real);
-    return { file: { path: real, size: stat.size, type } };
+    return { file: { path: real, rel, size: stat.size, type } };
   });
 }

@@ -21,6 +21,17 @@ const dir = juelDir();
 const log = makeLog(dir);
 const urlOf = (port: number, token: string): string =>
   `http://127.0.0.1:${port}/?t=${token}`;
+
+// A feature module's background timer must not take the server down: log it and keep serving.
+process.on("uncaughtException", (err) =>
+  log(`uncaught: ${err.stack ?? err.message}`),
+);
+process.on("unhandledRejection", (why) =>
+  log(
+    `unhandled rejection: ${why instanceof Error ? (why.stack ?? why.message) : String(why)}`,
+  ),
+);
+
 async function running(): Promise<boolean> {
   const c = readConfig(dir);
   if (

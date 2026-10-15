@@ -248,3 +248,44 @@ test("modules load in name order; one that throws is skipped with its routes, an
   assert.ok(lines.includes("module good loaded"), lines.join("\n"));
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test("a module whose register never returns is skipped after the time limit, and later modules still load", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "star-mods-"));
+  fs.mkdirSync(path.join(dir, "aaa"));
+  fs.writeFileSync(
+    path.join(dir, "aaa", "index.ts"),
+    "export function register(api) {\n  api.route('GET', '/api/aaa', async () => ({ json: 1 }))\n  return new Promise(() => {})\n}\n",
+  );
+  fs.mkdirSync(path.join(dir, "zzz"));
+  fs.writeFileSync(
+    path.join(dir, "zzz", "index.ts"),
+    "export function register(api) {\n  api.route('GET', '/api/zzz', async () => ({ json: 2 }))\n}\n",
+  );
+  fs.mkdirSync(path.join(dir, "js-only"));
+  fs.writeFileSync(
+    path.join(dir, "js-only", "index.js"),
+    "export function register() {}\n",
+  );
+  const router = new Router();
+  const lines: string[] = [];
+  const started = Date.now();
+  const loaded = await loadModules(
+    dir,
+    router,
+    { emit: () => {}, projects: () => [], nudge: async () => false },
+    (l) => lines.push(l),
+    300,
+  );
+  assert.ok(Date.now() - started < 3000);
+  assert.deepEqual(loaded, ["zzz"]);
+  assert.equal(router.match("GET", "/api/aaa"), undefined);
+  assert.ok(
+    lines.includes("module aaa skipped: register did not return in 0.3s"),
+    lines.join("\n"),
+  );
+  assert.ok(
+    lines.includes("module js-only skipped: no index.ts"),
+    lines.join("\n"),
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+});

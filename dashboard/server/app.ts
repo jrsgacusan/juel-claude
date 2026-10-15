@@ -3,7 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import { Hub, watchHomes } from "./events.ts";
 import type { WatchFn } from "./events.ts";
-import { HttpError, Unreadable, readJson, sendJson } from "./http.ts";
+import { HttpError, Unreadable, readJson, sendJson, whyOf } from "./http.ts";
 import { loadModules } from "./modules.ts";
 import { nudge } from "./orca.ts";
 import { LOOPS_SH, MODULES_DIR, WEB_DIST } from "./paths.ts";
@@ -32,6 +32,7 @@ export type AppOptions = {
   pollMs?: number;
   rescanMs?: number;
   refreshMs?: number;
+  registerMs?: number;
 };
 export type Ctx = {
   registry: Registry;
@@ -92,8 +93,8 @@ export async function startApp(opts: AppOptions): Promise<App> {
   async function handle(
     req: http.IncomingMessage,
     res: http.ServerResponse,
+    url: URL,
   ): Promise<void> {
-    const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (url.pathname !== "/api" && !url.pathname.startsWith("/api/")) {
       serveStatic(req, res, dist);
       return;
@@ -125,6 +126,15 @@ export async function startApp(opts: AppOptions): Promise<App> {
       body,
     });
     if (out.file) {
+      let fh: fs.promises.FileHandle;
+      try {
+        fh = await fs.promises.open(out.file.path, "r");
+      } catch (err) {
+        if ((err as { code?: unknown }).code === "ENOENT") {
+          throw new HttpError(404, `no file ${out.file.rel}`);
+        }
+        throw new Unreadable(out.file.rel, whyOf(err));
+      }
       res.writeHead(out.status ?? 200, {
         "content-type": out.file.type,
         "content-length": out.file.size,
@@ -132,8 +142,11 @@ export async function startApp(opts: AppOptions): Promise<App> {
         "x-content-type-options": "nosniff",
         "content-security-policy": "sandbox",
       });
-      fs.createReadStream(out.file.path)
-        .on("error", () => res.destroy())
+      fh.createReadStream()
+        .on("error", (err) => {
+          log(`file ${out.file?.rel ?? ""}: ${err.message}`);
+          res.destroy();
+        })
         .pipe(res);
       return;
     }
@@ -141,14 +154,20 @@ export async function startApp(opts: AppOptions): Promise<App> {
   }
 
   const server = http.createServer((req, res) => {
-    handle(req, res).catch((err: unknown) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    handle(req, res, url).catch((err: unknown) => {
       if (res.headersSent) {
         res.destroy();
         return;
       }
-      if (err instanceof HttpError)
+      if (err instanceof HttpError) {
+        if (err.status >= 500) {
+          log(
+            `${req.method ?? ""} ${url.pathname}: ${err.status} ${err.message}`,
+          );
+        }
         sendJson(res, err.status, { error: err.message });
-      else if (err instanceof Unreadable)
+      } else if (err instanceof Unreadable)
         sendJson(res, 502, { error: `${err.file}: ${err.why}` });
       else {
         log(
@@ -184,6 +203,7 @@ export async function startApp(opts: AppOptions): Promise<App> {
       },
     },
     log,
+    opts.registerMs,
   );
   const watcher = watchHomes(
     () => registry.entries(),

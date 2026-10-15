@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { isFree } from "../config.ts";
 
 const MAIN = path.join(import.meta.dirname, "..", "main.ts");
 
@@ -117,7 +118,14 @@ test("a start after a dead one reuses its token and port", async () => {
   const { tmp, home, env } = sandbox();
   fs.mkdirSync(path.join(home, ".juel"));
   const token = "abcdefabcdefabcdefabcdefabcdef12";
-  const port = 4800 + Math.floor(Math.random() * 60);
+  let port = 0;
+  for (let candidate = 4800; candidate < 4900; candidate += 1) {
+    if (await isFree(candidate)) {
+      port = candidate;
+      break;
+    }
+  }
+  assert.notEqual(port, 0, "no free test port");
   fs.writeFileSync(
     path.join(home, ".juel", "dashboard.json"),
     JSON.stringify({ port, token, pid: 999_999 }),
@@ -129,6 +137,42 @@ test("a start after a dead one reuses its token and port", async () => {
     assert.equal(c.port, port);
   } finally {
     await stop(child);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("two starts at the same moment leave one server, and the other says it already runs", async () => {
+  const { tmp, home, env } = sandbox();
+  const a = spawn(process.execPath, [MAIN], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const b = spawn(process.execPath, [MAIN], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const out = new Map<ChildProcess, string>([
+    [a, ""],
+    [b, ""],
+  ]);
+  for (const c of [a, b])
+    c.stdout?.on("data", (d) => out.set(c, (out.get(c) ?? "") + String(d)));
+  try {
+    const first = await Promise.race(
+      [a, b].map(
+        (c) =>
+          new Promise<ChildProcess>((resolve) =>
+            c.once("exit", () => resolve(c)),
+          ),
+      ),
+    );
+    assert.equal(first.exitCode, 0);
+    assert.match(out.get(first) ?? "", /already runs/);
+    const survivor = first === a ? b : a;
+    assert.equal((await config(home, survivor.pid)).pid, survivor.pid);
+  } finally {
+    await stop(a);
+    await stop(b);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
