@@ -44,7 +44,7 @@
 # `git merge-file --diff3 --marker-size=31`, so a file's own 7-character marker-like lines are
 # never mistaken for a hunk, and with `--diff-algorithm=histogram`, the one `git merge` uses.
 # --resolve merges one file from three files with the same rules and needs no repository or merge
-# in progress (carry-check.sh uses it): it prints the merged text exactly and exits 0, or prints
+# in progress: it prints the merged text exactly and exits 0, or prints
 # "conflict <why>" and exits 1. The lockfile and package.json rules go by the name --path gives,
 # else by the name of <ours file>.
 # Exit: 0 all resolved; 1 something is not mechanical; 2 no merge with conflicts in progress;
