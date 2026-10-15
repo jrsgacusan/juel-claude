@@ -30,6 +30,8 @@ test("skips one, rewrites one with a chip and routes an unrouted one", async ({
     .getByText("which PR fixes the invoice time zone?")
     .click()
   await page.getByRole("button", { name: "Shorter" }).click()
+  await expect(page.getByLabel("Ask STAR to rewrite it")).toHaveValue("shorter")
+  await page.getByRole("button", { name: /^Rewrite$/ }).click()
   await expect(page.getByText('STAR is rewriting it: "shorter".')).toBeVisible()
   await page
     .getByRole("region", { name: "Messages" })

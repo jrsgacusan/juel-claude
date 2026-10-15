@@ -8,7 +8,11 @@ test("answers a loop with the recommended option and ⌘Enter", async ({
     .getByRole("button", { name: /Start building SPH-11, SPH-12 and SPH-14/ })
     .click()
   const answer = page.getByRole("region", { name: "Answer" })
-  await answer.getByText("Go").click()
+  await expect(
+    answer.locator("label").filter({ hasText: "Recommended" }).first()
+  ).toContainText("Go")
+  await answer.getByRole("radio").first().check()
+  await expect(answer.getByRole("radio").first()).toBeChecked()
   await page.keyboard.press(`${MOD}+Enter`)
   await expect(
     page.getByText('Sent to STAR: "go". It acts on it now.')
@@ -22,7 +26,11 @@ test("answers a loop with the recommended option and ⌘Enter", async ({
 test("shows the conflict banner on a 409", async ({ page }) => {
   await openApp(page, "/sphere-app/needs?loop=N-41", "conflict")
   const answer = page.getByRole("region", { name: "Answer" })
-  await answer.getByText("Go").click()
+  await expect(
+    answer.locator("label").filter({ hasText: "Recommended" }).first()
+  ).toContainText("Go")
+  await answer.getByRole("radio").first().check()
+  await expect(answer.getByRole("radio").first()).toBeChecked()
   await answer.getByRole("button", { name: /Send to STAR/ }).click()
   await expect(
     page.getByText(

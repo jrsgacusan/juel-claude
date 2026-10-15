@@ -9,6 +9,7 @@ test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
     "Search items, decisions, Slack, briefings and evidence"
   )
   await input.fill("csv")
+  const dialog = page.getByRole("dialog")
   for (const group of [
     "Items",
     "Needs you",
@@ -17,8 +18,14 @@ test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
     "Briefings",
     "Evidence",
   ])
-    await expect(page.getByText(group, { exact: true })).toBeVisible()
+    await expect(
+      dialog.locator("[cmdk-group-heading]").filter({ hasText: group })
+    ).toBeVisible()
   await expect.poll(() => page.locator("mark").count()).toBeGreaterThan(3)
+  await expect(dialog.getByRole("option").first()).toHaveAttribute(
+    "aria-selected",
+    "true"
+  )
   await page.keyboard.press("ArrowDown")
   await page.keyboard.press("Enter")
   await expect(page).toHaveURL(/\/sphere-app\/needs\?loop=N-41$/)
@@ -31,7 +38,8 @@ test("Ctrl+K from Progress with Every project on", async ({ page }) => {
     .getByPlaceholder("Search items, decisions, Slack, briefings and evidence")
     .fill("csv")
   await page.getByRole("switch", { name: "Search every project" }).click()
-  await page.getByText("juel-claude, building").click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByText("juel-claude, building").click()
   await expect(page).toHaveURL(
     /\/juel-claude\/progress\?item=star-dashboard-web$/
   )

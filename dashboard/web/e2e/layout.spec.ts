@@ -43,14 +43,13 @@ test("makes no request outside its own origin", async ({ page, baseURL }) => {
     "/sphere-app/evidence",
   ])
     await page.goto(path)
-  expect(
-    urls.every(
-      (url) =>
-        url.startsWith(baseURL ?? "") ||
-        url.startsWith("blob:") ||
-        url.startsWith("data:")
-    )
-  ).toBeTruthy()
+  const offOrigin = urls.filter(
+    (url) =>
+      !url.startsWith(baseURL ?? "") &&
+      !url.startsWith("blob:") &&
+      !url.startsWith("data:")
+  )
+  expect(offOrigin).toEqual([])
   await noHorizontalScroll(page)
 })
 test("the header shows the breadcrumb, the ⌘K hint and the theme switch", async ({

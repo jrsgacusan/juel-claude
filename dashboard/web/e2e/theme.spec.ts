@@ -17,6 +17,10 @@ test("Light and Dark persist across a reload", async ({ page }) => {
 test("System follows the OS", async ({ page }) => {
   await openApp(page)
   await page.getByLabel("System theme").click()
+  await page.reload()
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("star-theme")))
+    .toBe("system")
   await page.emulateMedia({ colorScheme: "dark" })
   await expect(page.locator("html")).toHaveClass(/dark/)
   await page.emulateMedia({ colorScheme: "light" })
@@ -29,5 +33,19 @@ test("the project's colors only mark state", async ({ page }) => {
   const merged = page.getByText("Merged").first()
   await expect(stopped).toBeVisible()
   await expect(merged).toBeVisible()
+  const colors = await page.evaluate(() => {
+    const body = getComputedStyle(document.body).backgroundColor
+    const stopped = getComputedStyle(
+      document.querySelector('[data-variant="stop"]') as Element
+    ).backgroundColor
+    const done = getComputedStyle(
+      document.querySelector('[data-variant="done"]') as Element
+    ).backgroundColor
+    return { body, stopped, done }
+  })
+  expect(colors.stopped).not.toBe(colors.done)
+  expect(colors.stopped).not.toBe(colors.body)
+  expect(colors.done).not.toBe(colors.body)
+  expect(colors.body).toMatch(/^rgb\((\d+), \1, \1\)$/)
   await noHorizontalScroll(page)
 })

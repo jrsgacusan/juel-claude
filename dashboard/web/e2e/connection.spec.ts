@@ -18,6 +18,6 @@ test("shows the banner when the stream drops and reconnects within 5 seconds", a
   await page.evaluate(() => window.__starMock?.events.restore())
   await expect(
     page.getByText("Lost the connection to the dashboard server")
-  ).toBeHidden({ timeout: 6000 })
+  ).toBeHidden({ timeout: 5500 })
   await noHorizontalScroll(page)
 })
