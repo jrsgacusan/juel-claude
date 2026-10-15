@@ -40,6 +40,11 @@ metadata:
         hard: true
         why: brief, build, babysit and post workers run the configured worker agent, claude by default
         check: "command -v claude"
+      - id: claude-mods
+        hard: false
+        why: juel's mod draws STAR's band above the coordinator's prompt and refuses a direct merge and reading review, evidence or log files into the coordinator
+        check: "claude --version is 2.1.287 or later"
+        fallback: no band; the coordinator's rules hold as prose, from the SessionStart hook
       - id: codex
         hard: true
         why: the executor runs every plan on the newest luna, and codex-gate.sh reviews every draft PR with codex review
@@ -150,6 +155,7 @@ session is the Stop rule below, nothing more: it does not run the start sequence
 | git | cli | HARD | `command -v git` | STOP |
 | python3 | cli | HARD | `command -v python3` | STOP → install Python 3 |
 | claude | cli | HARD | `command -v claude` (or the configured `worker.agent`) | STOP → install the worker agent CLI |
+| Claude Code mods | cli | SOFT | `claude --version` is 2.1.287 or later | no band; the coordinator's rules hold as prose, from the SessionStart hook |
 | codex | cli | HARD | `command -v codex` | STOP → install the Codex CLI (`npm i -g @openai/codex`): the executor and the gate need it |
 | reachable Orca runtime | context | HARD | `orca status` reports `runtimeReachable: true` and `graphState: ready` | STOP → run `orca open`, then re-run |
 | running in an Orca terminal | context | HARD | `[ -n "$ORCA_TERMINAL_HANDLE" ]` | STOP → start Claude Code from an Orca terminal and re-run there |
@@ -1866,6 +1872,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   the item's grant, outside quiet hours. No worker merges.
 - Never read review, evidence, log or diff content into this session. One line per fact, from a
   script or a report.
+- On Claude Code 2.1.287 and later, juel's mod refuses a direct `gh pr merge` in the coordinator and in STAR's workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.
 - An item is never built before the owner's go for its batch, or, for a re-scope's follow-up, its
   parent's grant. A go is never inferred.
 - Product calls are STAR's, decided from sourced options and kept as decision records the owner

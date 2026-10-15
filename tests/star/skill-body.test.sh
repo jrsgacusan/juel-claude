@@ -650,5 +650,10 @@ g "LH114h the one exception to never answering a screen (#114)" 'user, and STAR 
 g "LH114i the common mistake names the exception (#114)" 'The one exception is `prompt bounded` (#114): the digit `1`, never Enter |'
 g "LH114j the prompted counter (#114)" '| `prompted=<n>` | Claude Code safety prompts STAR answered on this row'"'"'s worker screen (`prompt bounded`, #114) | a new worker starts |'
 grep -qF 'user, and STAR never answers a worker'"'"'s screen for it. A model at capacity' "$SKILL" && fail "LH114k the old unqualified rule is gone (#114)" || pass "LH114k the old unqualified rule is gone (#114)"
+grep -q 'id: claude-mods' "$SKILL" && pass "LHmod-a STAR requires claude-mods" || fail "LHmod-a STAR requires claude-mods"
+g "LHmod-b the requirement is soft, with the version check" 'check: "claude --version is 2.1.287 or later"'
+g "LHmod-c the fallback is the prose rules" 'fallback: no band; the coordinator'"'"'s rules hold as prose, from the SessionStart hook'
+g "LHmod-d the Preflight row" '| Claude Code mods | cli | SOFT | `claude --version` is 2.1.287 or later | no band; the coordinator'"'"'s rules hold as prose, from the SessionStart hook |'
+g "LHmod-e the hard rule names the mod" '- On Claude Code 2.1.287 and later, juel'"'"'s mod refuses a direct `gh pr merge` in the coordinator and in STAR'"'"'s workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
