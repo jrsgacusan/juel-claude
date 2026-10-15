@@ -68,7 +68,7 @@ Takes an existing implementation plan and dispatches Codex (sandboxed `workspace
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
-| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs` |
+| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs` |
 | plan file | context | HARD | newest `${docsRoot}/plans/*.md` | STOP → no plan to execute |
 | writable workspace | context | HARD | `test -w .` | STOP |
 

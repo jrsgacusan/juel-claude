@@ -113,7 +113,7 @@ g "C1k the hard rule allows the executor's fix plan for the gate" 'from a fix pl
 # and gets no third pass, so it keeps the clean judgement and READY may follow it
 hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
 [ "$(printf '%s\n' "$hosted_row" | grep -c .)" -eq 1 ] && pass "C2 one table row holds the hosted reviewer" || fail "C2 one table row holds the hosted reviewer"
-printf '%s\n' "$hosted_row" | grep -qF "push that only merges the base branch in keeps the hosted review's clean judgement (the codex gate re-gates that push, or carries its SAFE across a merge that added nothing of its own), so \`READY\` may follow it" && pass "C2 a base-only merge push keeps the clean judgement" || fail "C2 a base-only merge push keeps the clean judgement"
+printf '%s\n' "$hosted_row" | grep -qF "push that only merges the base branch in keeps the hosted review's clean judgement (the codex gate re-gates that push, or carries its SAFE across a merge that brings no change to a file this branch changes, as \`carry-check.sh\` decides), so \`READY\` may follow it" && pass "C2 a base-only merge push keeps the clean judgement" || fail "C2 a base-only merge push keeps the clean judgement"
 printf '%s\n' "$hosted_row" | grep -qF 'Never ask it for a third pass' && pass "C2 the third pass is still never asked for" || fail "C2 the third pass is still never asked for"
 # Progress step tokens (spec 5, feeds #70)
 progress_row=$(grep -F '| progress |' "$SKILL")
@@ -168,7 +168,7 @@ grow "L75b the carried receipt goes through post-pass" '--carried-from <G> --rea
 grow "L75c a NO line, or no SAFE round, gets the codex round" 'no SAFE round yet'
 grow "L75d post-pass refusing the carry gets the codex round" '`ERROR not carried: …`'
 g "L75e Phase 4 points at the carry" 'carries the last SAFE with no codex round'
-g "L75f a conflict wake's push is gated the same way" 'the push'"'"'s gate, a carry of the last SAFE when the merge added nothing of its own'
+g "L75f a conflict wake's push is gated the same way" 'the push'"'"'s gate, a carry of the last SAFE when the merge brings no change to a file this branch changes, as `carry-check.sh` decides'
 g "L82a an owner's carried PASS is proof" 'It prints `OK carried round=<k>` for an owner'
 g "L82b both OK forms are proof" 'Both `OK` forms are proof.'
 g "L82c its receipt is posted by post-pass in Phase 1" 'names a `<item>-r<k>-carried.md` file) | in Phase 1'
@@ -322,5 +322,13 @@ grow "#113b it merges as Phase 4 step 1 does and runs the sweep" 'Merge it in as
 grow "#113c it is not an ERROR retry" 'it is not an `ERROR` retry, never counts toward the second `ERROR`, and casts no vote toward `gate.maxRounds`.'
 grow "#113d any other ERROR still waits 10 minutes" 'The gate printing any other `ERROR`: wait 10 minutes and run the same round once more'
 g "#113e base-moved is the one behind merge outside Phase 4" 'A gate round that prints `ERROR base-moved` is the one case where a `behind` PR is merged outside Phase 4.'
+# fix-3: babysit describes a carried merge as one that brings no change to a branch file, as carry-check.sh decides (#110)
+carry_new='brings no change to a file this branch changes, as `carry-check.sh` decides'
+grep -qF 'added nothing of its own' "$SKILL" && fail "fix-3 M8a no row says a carried merge added nothing of its own" || pass "fix-3 M8a no row says a carried merge added nothing of its own"
+printf '%s\n' "$markready_row" | grep -qF "no codex round is spent on a merge that $carry_new" && pass "fix-3 M8b the mark-ready row names carry-check's rule" || fail "fix-3 M8b the mark-ready row names carry-check's rule"
+[ "$(printf '%s\n' "$hosted_row" | grep -oF -- "$carry_new" | wc -l | tr -d ' ')" -eq 2 ] && pass "fix-3 M8c the hosted-reviewer row names carry-check's rule twice" || fail "fix-3 M8c the hosted-reviewer row names carry-check's rule twice"
+conflict_row=$(grep -F '| `conflict` |' "$SKILL")
+printf '%s\n' "$conflict_row" | grep -qF "a carry of the last SAFE when the merge $carry_new" && pass "fix-3 M8d the conflict row names carry-check's rule" || fail "fix-3 M8d the conflict row names carry-check's rule"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

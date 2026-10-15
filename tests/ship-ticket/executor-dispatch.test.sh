@@ -94,5 +94,11 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
 done
 grep -qF "Right after the task's commit, before the next task's first step, append" "$EX" && pass "#118 the executor writes each ledger line right after the task's commit" || fail "#118 ledger timing"
 
+# fix-3: the Preflight check says what <plugin root> is where it first appears (#118)
+for s in ship-ticket review-and-execute receive-review-and-execute execute; do
+  row=$(grep -F '| claude-plan-executor | skill |' "$ROOT/skills/$s/SKILL.md")
+  [ "$(printf '%s\n' "$row" | grep -c .)" -eq 1 ] && printf '%s\n' "$row" | grep -qF '`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`' && pass "fix-3 M9 $s: the Preflight row names what <plugin root> is" || fail "fix-3 M9 $s: the Preflight row names what <plugin root> is"
+done
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
