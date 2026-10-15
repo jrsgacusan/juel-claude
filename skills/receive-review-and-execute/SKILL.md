@@ -97,7 +97,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | open PR + number | context | HARD | `gh pr view <N> --json number` | STOP → this skill consumes an existing PR |
 | GitHub remote | context | HARD | `git remote get-url <remote>` matches github.com | STOP → non-GitHub remotes are unsupported here |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
-| claude-plan-executor | skill | HARD | `test -f ~/.codex/skills/claude-plan-executor/SKILL.md` (follows the link) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
+| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
 | python3 | cli | SOFT | `command -v python3` | an interactive run does not need it; an unattended run prints STOPPED |
 | orca | cli | SOFT | `command -v orca` | an interactive run does not need it |
@@ -411,15 +411,17 @@ Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-
 `default <why>` means: drop `-m` and `-c model_reasoning_effort=…` from the line below and say so in
 one line.
 
-**The executor skill.** Right before the line, check that the skill resolves:
-`test -f ~/.codex/skills/claude-plan-executor/SKILL.md`. `test -f` follows the link, so a link into
-a plugin version that is gone fails it. Missing under `--unattended`: relink once with
-`node <plugin root>/scripts/link-agent-skills.mjs` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or
-two levels above this file) and check again. Still missing: do not dispatch. Run the plan in this
-session with `superpowers:executing-plans`, and end your output with the line
+**The executor skill.** Right before the line, check that the skill is current:
+`cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
+(`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
+copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
+is gone, and for a link into another version's copy, which would run an older executor.
+Failing under `--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs`
+and check again. Still failing: do not dispatch. Run the plan in this session with
+`superpowers:executing-plans`, and end your output with the line
 `NOTE: executor skill missing, the plan ran in this session`, which `juel:babysit-pr` carries into
 its report. Codex saying during a run that `$claude-plan-executor` is unavailable gets the same
-line. Missing in an interactive run: the Preflight STOP with its fix command.
+line. Failing in an interactive run: the Preflight STOP with its fix command.
 
 **A linked worktree.** Compare `git rev-parse --path-format=absolute --git-dir` with
 `git rev-parse --path-format=absolute --git-common-dir`. When they differ, the checkout is a linked

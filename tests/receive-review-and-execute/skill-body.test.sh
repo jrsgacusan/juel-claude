@@ -58,5 +58,13 @@ done
 # fix: step 6 pushes a merge commit only when step 0a made one (#109)
 grep -qF '6. Do not push here. The merge commit, when step 0a made one, is pushed with the remediation commits.' "$SKILL" && pass "F109a step 6 pushes a merge commit only when step 0a made one" || fail "F109a step 6 pushes a merge commit only when step 0a made one"
 grep -qF '6. Do not push here. The merge commit is pushed' "$SKILL" && fail "F109b step 6 no longer assumes a merge commit" || pass "F109b step 6 no longer assumes a merge commit"
+# lane g: the executor link is current, and the doctor checks it and the mods requirement (#118)
+for s in execute review-and-execute receive-review-and-execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'Right before the line, check that the skill is current:' "$F" && pass "#118a $s: right before each dispatch it checks that the skill is current" || fail "#118a $s: right before each dispatch it checks that the skill is current"
+  [ "$(grep -cF 'cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F")" -eq 2 ] && pass "#118b $s: the Preflight row and the dispatch compare the link with this plugin's copy" || fail "#118b $s: the Preflight row and the dispatch compare the link with this plugin's copy"
+  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$F" && fail "#118c $s: no test -f check of the executor is left" || pass "#118c $s: no test -f check of the executor is left"
+  grep -qF "is gone, and for a link into another version's copy, which would run an older executor." "$F" && pass "#118d $s: a link into another version's copy fails the check" || fail "#118d $s: a link into another version's copy fails the check"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
