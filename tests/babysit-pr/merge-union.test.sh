@@ -320,5 +320,14 @@ both_ways adjacent-insert-before v.txt txt 'head\nL\ntail\n' 'head\nX\nL\ntail\n
 both_ways adjacent-edit-adds-a-line v.txt txt 'h\nL\nt\n' 'h\nL\nX\nt\n' 'h\nL2\nL3\nt\n' conflict
 both_ways adjacent-either-side v.txt txt 'a\nb\nz\n' 'a\nb\nb\nz\n' 'a\nB\nz\n' conflict
 
+# review fixes (#120): an edit that runs past the point, a carriage return inside a git line, and a
+# block that repeats the edited line stay conflicts; a package.json hunk and CRLF lines resolve
+both_ways adjacent-edit-spans-the-point v.txt txt 'h\nL\nM\nt\n' 'h\nL\nX\nM\nt\n' 'h\nL2\nM2\nt\n' conflict
+both_ways adjacent-edit-spans-the-point-feat-inserts v.txt txt 'h\nL\nM\nt\n' 'h\nL2\nM2\nt\n' 'h\nL\nX\nM\nt\n' conflict
+both_ways adjacent-cr-inside-a-line v.txt txt 'h\na\rb\nt\n' 'h\na\rZ\rb\nt\n' 'h\nA\rb\nt\n' conflict
+both_ways adjacent-block-repeats-the-edit v.txt txt 'h\nfoo(1)\nt\n' 'h\nfoo(1)\nfoo(2)\nt\n' 'h\nfoo(2)\nt\n' conflict
+both_ways adjacent-package-json package.json txt '{\n  "dependencies": {\n    "a": "1.0.0",\n    "c": "3.0.0"\n  }\n}\n' '{\n  "dependencies": {\n    "a": "1.0.0",\n    "b": "2.0.0",\n    "c": "3.0.0"\n  }\n}\n' '{\n  "dependencies": {\n    "a": "1.1.0",\n    "c": "3.0.0"\n  }\n}\n' '{\n  "dependencies": {\n    "a": "1.1.0",\n    "b": "2.0.0",\n    "c": "3.0.0"\n  }\n}\n'
+both_ways adjacent-crlf v.txt txt 'head\r\nL\r\ntail\r\n' 'head\r\nL\r\nX\r\ntail\r\n' 'head\r\nL2\r\ntail\r\n' 'head\r\nL2\r\nX\r\ntail\r\n'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

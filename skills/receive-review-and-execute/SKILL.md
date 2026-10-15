@@ -256,7 +256,10 @@ git status --porcelain
    - Clean merge: report the merge commit's short SHA and the number of files it brought in.
    - Conflicts: first run `sh <merge-union.sh>` (`../babysit-pr/merge-union.sh` from this file, or
      `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/merge-union.sh`). Exit 0 means every conflict was
-     mechanical (both sides inserted text at the same point and changed nothing else) and is
+     mechanical (both sides inserted text at the same point and changed nothing else, one side
+     inserted lines right after a line the other side edited, or a `package.json` script chain or a
+     one-line `{ a, b }` list both sides only added to: the header of `merge-union.sh` lists each
+     rule) and is
      resolved and staged: conclude the merge with
      `git commit -m "Merge <remote>/<base> into <branch>; mechanical conflicts resolved in <files>"`,
      print one evidence line naming the files, and continue. This skill runs no gate here: the

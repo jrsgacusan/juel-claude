@@ -40,13 +40,16 @@
 # or a shell brace expansion ({a,b}) changes meaning with a space (#103).
 # An edit next to an insertion (#120): one side inserted a block of whole lines at a point of the
 # hunk's base and changed nothing else, and the other side rewrote, line for line, only base lines
-# ending at the one directly before that point. The hunk resolves to the edited lines, then the
-# inserted block, then the base after the point. It stays a conflict when the block's last line is
-# the base line before the point, since the same insertion then also fits before the edited line.
-# Never mechanical: any other hunk shape (edited on both sides: both sides editing one line, an edit
-# that does not end right before the other side's insertion, an insertion before the edited line,
-# an edit that adds or drops lines), a file with no base version (added on both sides), a delete or
-# rename conflict, a mode change, a binary file, a lockfile, a file whose last line has no newline.
+# before that point, the last of them the one directly before it. The hunk resolves to the edited
+# lines, then the inserted block, then the base after the point. It stays a conflict when the
+# block's last line is the base line before the point (the inserted lines then also read as an
+# insertion before the edited line), and when the block repeats an edited line. Lines are split at
+# newlines only, as git splits them.
+# Never mechanical: any other hunk shape (edited on both sides: both sides editing the same line, an
+# edit that does not end right before the other side's insertion or that runs past it, an insertion
+# before the edited line, an edit that adds or drops lines), a file with no base version (added on
+# both sides), a delete or rename conflict, a mode change, a binary file, a lockfile, a file whose
+# last line has no newline.
 # Hunks are found with
 # `git merge-file --diff3 --marker-size=31`, so a file's own 7-character marker-like lines are
 # never mistaken for a hunk, and with `--diff-algorithm=histogram`, the one `git merge` uses.
@@ -267,20 +270,28 @@ def resolve_names(base, ours, theirs):
     return m.group(1) + "{" + inside + "}" + m.group(6) + "\n"
 
 
+def hunk_lines(text):
+    """text split into lines at newlines only, as git counts lines: a carriage return, a form feed or
+    a U+2028 inside a line stays inside it."""
+    return re.findall(r"[^\n]*\n|[^\n]+\Z", text)
+
+
 def resolve_adjacent(base, ours, theirs):
     """#120: one side inserted a block of whole lines at a point and changed nothing else, and the
-    other side rewrote, line for line, only base lines ending at the one directly before that point:
-    the edited lines, then the block, then the base after the point. None for any other shape, and
-    when the block's last line is the base line before the point (the same insertion then also fits
-    before the edited line)."""
-    b = base.splitlines(keepends=True)
+    other side changed, line for line, only base lines before that point, the last of them the one
+    directly before it: the edited lines, then the block, then the base after the point. None for any
+    other shape; when the block's last line is the base line before the point (the inserted lines
+    then also read as an insertion before the edited line); and when the block repeats an edited
+    line (the union would hold it twice)."""
+    b = hunk_lines(base)
     for edit, added in ((ours, theirs), (theirs, ours)):
-        e, found = edit.splitlines(keepends=True), insertion(b, added.splitlines(keepends=True))
+        e, found = hunk_lines(edit), insertion(b, hunk_lines(added))
         if found is None or not found[1] or found[0] < 1 or len(e) != len(b):
             continue
         point, block = found
-        changed = [i for i in range(len(b)) if e[i] != b[i]]
-        if changed and changed[-1] == point - 1 and block[-1] != b[point - 1]:
+        edited = [e[i] for i in range(point) if e[i] != b[i]]
+        if e[point - 1] != b[point - 1] and e[point:] == b[point:] and block[-1] != b[point - 1] \
+                and not any(line in block for line in edited):
             return "".join(e[:point] + block + b[point:])
     return None
 

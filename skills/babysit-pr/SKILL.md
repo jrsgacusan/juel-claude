@@ -371,7 +371,8 @@ In reviewer mode, this phase is the re-review in "Reviewer mode"; the steps belo
    (next to this file; `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/merge-union.sh` when that is set).
    It resolves only mechanical conflicts, where in every conflicted file both sides inserted text
    at the same point and changed nothing else (two rows appended to one table, two entries added
-   to one list), and never touches a lockfile or a binary file.
+   to one list), or one side inserted lines right after a line the other side edited (#120), or
+   the conflict has another shape its header lists, and never touches a lockfile or a binary file.
    - Exit 0 (`resolved <path>` lines): commit the merge with
      `git commit -m "Merge <remote>/<base> into <branch>; mechanical conflicts resolved in <files>"`,
      then step 3's gates run as usual. A red gate there keeps the merge commit and is step 3's red,

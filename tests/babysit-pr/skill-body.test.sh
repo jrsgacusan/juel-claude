@@ -339,6 +339,7 @@ grep -qF 'The passes used are the `pass` lines in that file' "$SKILL" && fail "B
 # #123: progress lines come only from the step they name
 g "B123a a progress line comes only from its own step (#123)" 'A progress line is written only by the step it names, at that step, never by a background or detached timer loop the worker starts'
 g "B123b gate-lock.sh --progress stays the one repeating writer (#123)" '`gate-lock.sh --progress` stays the one writer that repeats, since it lives only as long as the gate it waits for'
+g "B120a the base sync names the edit next to an insertion (#120)" 'to one list), or one side inserted lines right after a line the other side edited (#120), or'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
