@@ -1,6 +1,7 @@
-// juel's hooks module: STAR's coordinator band and guards, and the #114 rm/rmdir spike for STAR's
-// workers. Lives inside the juel plugin so it can run skills/star/star-home.sh (the one place that
-// knows where a project's STAR folder is) from $.plugin.root.
+// juel's hooks module: STAR's band and guards in the coordinator session, the merge guard and the
+// #114 rm/rmdir rewrite in STAR's worker sessions. Lives inside the juel plugin so it can run
+// skills/star/star-home.sh (the one place that knows where a project's STAR folder is) from
+// $.plugin.root.
 //
 // Who is who, decided from files and the environment, never from chat:
 //   coordinator  ORCA_TERMINAL_HANDLE is set and equals star.json's "terminal" (as hooks/star-session.sh)
@@ -125,6 +126,15 @@ async function refresh($: Api): Promise<void> {
   await update($, band, () => next)
 }
 
+/** The deny text a STAR worker gets for a direct merge: only STAR merges, through merge.sh. */
+function workerMergeText(how: string): string {
+  return (
+    `juel STAR guard: a direct merge (${how}) is refused here: a STAR worker never merges a PR. ` +
+    `Leave the PR open and say so in your report; STAR merges it through merge.sh once the merge ` +
+    `gate passes on its head and the owner has said go.`
+  )
+}
+
 function denyText(v: Verdict, p: Place, root: string): string {
   if (v.kind === 'merge') {
     return (
@@ -190,14 +200,20 @@ export const register: Register = (on, options) => {
     )
   })
 
-  // Guard 1 and 2 for shell commands: a direct merge, and a review, evidence or log file read in.
-  // It judges the text first (pure, cheap) and reads star.json only for a command it would refuse.
+  // Guard 1 and 2 for shell commands: a direct merge (the coordinator and STAR's workers), and a
+  // review, evidence or log file read in (the coordinator only). It judges the text first (pure,
+  // cheap) and reads STAR's files only for a command it would refuse.
   on('tool.call', { tool: ['Bash', 'Monitor'] }, async ($, e, next) => {
     const p = place
     if (!isGuardOn || !p) return next(e)
-    const verdict = judge(commandOfCall(e), p.protect)
-    if (!verdict || !(await isCoordinator($, p))) return next(e)
-    return { deny: denyText(verdict, p, $.plugin.root) }
+    const command = commandOfCall(e)
+    const verdict = judge(command, p.protect)
+    if (!verdict) return next(e)
+    if (await isCoordinator($, p)) return { deny: denyText(verdict, p, $.plugin.root) }
+    // A worker may read what it likes; judged with no protected paths, only a merge is left.
+    const merge = verdict.kind === 'merge' ? verdict : judge(command, undefined)
+    if (merge?.kind === 'merge' && (await isWorker($, p))) return { deny: workerMergeText(merge.how) }
+    return next(e)
   }).catch(($, e, next) => {
     // The guard failed (threw, timed out) or was asked again beneath its own $ call: refuse only
     // what the text alone shows is refused, so a broken guard never takes Bash away.

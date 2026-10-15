@@ -89,7 +89,9 @@ test('another terminal in the same project gets no band and no guard', async ($,
   await ui.unmount()
   const merged = await $.tool.call({ tool: 'Bash', command: 'gh pr merge 12 --squash' })
   expect(merged.deny).toBeUndefined()
-  expect(w.ran).toEqual(['gh pr merge 12 --squash'])
+  const read = await $.tool.call({ tool: 'Read', file_path: `${HOME}/reviews/app/issue-1-r1.md` })
+  expect(read.deny).toBeUndefined()
+  expect(w.ran).toEqual(['gh pr merge 12 --squash', 'Read'])
 })
 
 test('the coordinator cannot merge directly or read a review in', async ($, on) => {
@@ -147,4 +149,29 @@ test('a session in an Orca terminal looks the STAR folder up once, with star-hom
   expect(w.looked.length).toBe(1)
   expect(w.looked[0]?.[1]?.endsWith('/skills/star/star-home.sh')).toBe(true)
   expect(w.looked[0]?.slice(2)).toEqual(['--cwd', ROOT, 'path'])
+})
+
+test('a STAR worker cannot merge directly, and reads what it likes', async ($, on) => {
+  const { clock, w } = world(on, 'term_W', '/w/app-issue-1')
+  await start($)
+  await clock.settle()
+  const merged = await $.tool.call({ tool: 'Bash', command: 'gh pr merge 12 --squash' })
+  expect(merged.deny).toContain('a STAR worker never merges a PR')
+  const hidden = await $.tool.call({ tool: 'Bash', command: `cat ${HOME}/reviews/app/issue-1-r1.md && gh pr merge 12` })
+  expect(hidden.deny).toContain('a STAR worker never merges a PR')
+  const read = await $.tool.call({ tool: 'Read', file_path: `${HOME}/reviews/app/issue-1-r1.md` })
+  expect(read.deny).toBeUndefined()
+  const tailed = `tail -n 20 ${HOME}/progress/issue-1.log`
+  const tail = await $.tool.call({ tool: 'Bash', command: tailed })
+  expect(tail.deny).toBeUndefined()
+  expect(w.ran).toEqual(['Read', tailed])
+})
+
+test('a session whose worktree is no running row is not a worker, and may merge', async ($, on) => {
+  const { clock, w } = world(on, 'term_W', '/w/app-issue-7')
+  await start($)
+  await clock.settle()
+  const merged = await $.tool.call({ tool: 'Bash', command: 'gh pr merge 12 --squash' })
+  expect(merged.deny).toBeUndefined()
+  expect(w.ran).toEqual(['gh pr merge 12 --squash'])
 })
