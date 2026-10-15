@@ -313,5 +313,14 @@ phase 4 | grep -qF 'branch in runs the sweep, `sh <run-gates.sh> <the --gates-fi
 phase 4 | grep -qF '`test` command), after a clean merge too: the base can change a call that an untouched file on' && pass "#111b after a clean merge too" || fail "#111b after a clean merge too"
 phase 4 | grep -qF 'A red gate there keeps the merge commit and is step 3'"'"'s red,' && pass "#111c a red gate after a mechanical merge keeps the merge" || fail "#111c a red gate after a mechanical merge keeps the merge"
 grep -qF 'conflict resolution changed' "$SKILL" && fail "#111d no push tests only the conflict resolution's files" || pass "#111d no push tests only the conflict resolution's files"
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "#110a a carry needs a merge that changes no file of this branch" 'is gated by a carry when a script proves the merge brings no change to a file this branch changes'
+printf '%s\n' "$gate_row" | grep -qF 'when a script proves the merge added nothing of its own' && fail "#110b the carry no longer says added nothing of its own" || pass "#110b the carry no longer says added nothing of its own"
+phase 4 | grep -qF 'file this branch changes, as `carry-check.sh` decides, carries the last SAFE with no codex round.' && pass "#110c Phase 4 step 4 names carry-check's rule" || fail "#110c Phase 4 step 4 names carry-check's rule"
+grow "#113a a base-moved round merges the base first" 'The gate printing `ERROR base-moved …`: the base changed a file this branch changes.'
+grow "#113b it merges as Phase 4 step 1 does and runs the sweep" 'Merge it in as Phase 4 step 1 does'
+grow "#113c it is not an ERROR retry" 'it is not an `ERROR` retry, never counts toward the second `ERROR`, and casts no vote toward `gate.maxRounds`.'
+grow "#113d any other ERROR still waits 10 minutes" 'The gate printing any other `ERROR`: wait 10 minutes and run the same round once more'
+g "#113e base-moved is the one behind merge outside Phase 4" 'A gate round that prints `ERROR base-moved` is the one case where a `behind` PR is merged outside Phase 4.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
