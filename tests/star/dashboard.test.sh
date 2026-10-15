@@ -126,5 +126,14 @@ start=$(date +%s)
 out=$(HOME="$TMP/home3" PATH="$TMP/bin:$PATH" sh "$R3/skills/star/dashboard.sh" 2>&1); rc=$?
 [ "$rc" = 1 ] && printf '%s\n' "$out" | grep -q 'boom at start' && [ $(( $(date +%s) - start )) -lt 10 ] && pass "a server that cannot start is said at once, with its error" || fail "failed start (rc=$rc): $out"
 
+# a server started by hand from the repo root, with the relative path the docs give, is this checkout's: it is opened, never replaced
+kill "$(conf pid)" 2>/dev/null; n=0; while [ -n "$(lsof -nP -iTCP:"$(conf port)" -sTCP:LISTEN 2>/dev/null)" ] && [ "$n" -lt 40 ]; do sleep 0.25; n=$((n + 1)); done
+(cd "$R2" && HOME="$TMP/home" PATH="$TMP/bin:$PATH" node dashboard/server/main.ts > /dev/null 2>&1 &)
+n=0; until [ -f "$TMP/home/.juel/dashboard.json" ] && kill -0 "$(conf pid)" 2>/dev/null && ps -p "$(conf pid)" -o command= | grep -q 'node dashboard/server/main.ts'; do sleep 0.25; n=$((n + 1)); [ "$n" -gt 60 ] && break; done
+relpid=$(conf pid)
+out=$(HOME="$TMP/home" PATH="$TMP/bin:$PATH" STAR_FREE_GB=8 sh "$R2/skills/star/dashboard.sh" 2>&1)
+[ "$(conf pid)" = "$relpid" ] && kill -0 "$relpid" 2>/dev/null && ! printf '%s\n' "$out" | grep -q 'stopping the dashboard' \
+  && pass "a server started with the relative path is opened, not replaced" || fail "relative start (pid $relpid → $(conf pid)): $out"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

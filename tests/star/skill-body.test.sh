@@ -691,8 +691,9 @@ g "DASH29 a slack: file adds no row" 'not a work item: it adds no row'
 g "DASH30 the sent.log line for a Slack reply" '`<iso>\tSTAR\tslack\tslack reply <draft name>`'
 g "DASH31 the reply goes in the message's thread" '(`thread_ts`)'
 g "DASH32 no Slack tool writes nothing to sent.log" 'and write nothing to `sent.log`'
-g "DASH33 a failed post is not marked sent" 'A post that fails: remove that `sent.log` line'
+g "DASH33 a reply is marked sent only once it posted" 'once the post succeeds, append that line to `sent.log`'
 g "DASH34 anything else asks again" '(answer send, rewrite: <how> or skip)'
+g "DASH35 a failed post writes nothing to sent.log" 'A post that fails: write nothing to `sent.log`'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

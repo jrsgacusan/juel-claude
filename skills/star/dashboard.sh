@@ -85,6 +85,22 @@ except Exception:
 PY
 }
 
+# The real path of the main.ts a dashboard process runs: its command line minus the node binary,
+# resolved against the process's own folder when it is relative (`node dashboard/server/main.ts`
+# from the repo root, as the docs give it). Nothing when that folder cannot be read.
+server_of() {  # <pid> <command line>
+  script=${2#* }
+  case "$script" in
+    /*) ;;
+    *)
+      cwd=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1)
+      [ -n "$cwd" ] || return 0
+      script="$cwd/$script"
+      ;;
+  esac
+  python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$script"
+}
+
 running() {
   OTHER=
   set -- $(conf)
@@ -96,19 +112,19 @@ running() {
   command=$(ps -p "$pid" -o command= 2>/dev/null || true)
   if [ -n "$command" ]; then
     case "$command" in
-      *"$SERVER"*)
-        PORT=$port
-        TOKEN=$token
-        return 0
-        ;;
-      *dashboard/server/main.ts*)
-        OTHER=$pid
-        return 1
-        ;;
-      *)
-        return 1
-        ;;
+      *dashboard/server/main.ts*) ;;
+      *) return 1 ;;  # a reused pid
     esac
+    theirs=$(server_of "$pid" "$command")
+    mine=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$SERVER")
+    # A server whose path cannot be told is left running and opened: never stop what cannot be placed.
+    if [ -n "$theirs" ] && [ "$theirs" != "$mine" ]; then
+      OTHER=$pid
+      return 1
+    fi
+    PORT=$port
+    TOKEN=$token
+    return 0
   fi
   curl -fsS -H "x-star-token: $token" "http://127.0.0.1:$port/api/projects" >/dev/null 2>&1 || return 1
   PORT=$port
