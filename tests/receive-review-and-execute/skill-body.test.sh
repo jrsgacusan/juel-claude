@@ -66,5 +66,12 @@ for s in execute review-and-execute receive-review-and-execute; do
   grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$F" && fail "#118c $s: no test -f check of the executor is left" || pass "#118c $s: no test -f check of the executor is left"
   grep -qF "is gone, and for a link into another version's copy, which would run an older executor." "$F" && pass "#118d $s: a link into another version's copy fails the check" || fail "#118d $s: a link into another version's copy fails the check"
 done
+D="$ROOT/skills/doctor/SKILL.md"
+grep -qF 'echo "CODEXSKILL_claude-plan-executor=stale -> $(readlink "$HOME/.codex/skills/claude-plan-executor")"' "$D" && pass "#118e doctor: a link into another version's copy is stale" || fail "#118e doctor: a link into another version's copy is stale"
+grep -qF 'cmp -s "$HOME/.codex/skills/claude-plan-executor/SKILL.md" "${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md"' "$D" && pass "#118f doctor: ok means the linked copy matches this plugin's" || fail "#118f doctor: ok means the linked copy matches this plugin's"
+grep -qF 'Report `absent` or `stale` for `CODEXSKILL_claude-plan-executor` as a **HARD** failure' "$D" && pass "#118g doctor: stale is a HARD failure, like absent" || fail "#118g doctor: stale is a HARD failure, like absent"
+grep -qF '| `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves and matches `${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md` (`cmp -s`) |' "$D" && pass "#118h doctor: the id table checks the copy is current" || fail "#118h doctor: the id table checks the copy is current"
+grep -qF '| `claude-mods` | cli | `claude --version` prints 2.1.287 or later | older, or `claude` absent | |' "$D" && pass "MOD1 doctor: the claude-mods requirement has a row" || fail "MOD1 doctor: the claude-mods requirement has a row"
+grep -qF 'claude --version 2>/dev/null || echo "CLAUDE_VERSION=unknown"' "$D" && pass "MOD2 doctor: Phase 1 records the Claude Code version" || fail "MOD2 doctor: Phase 1 records the Claude Code version"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
