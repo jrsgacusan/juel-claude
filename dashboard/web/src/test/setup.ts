@@ -1,5 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
+import { setConnection } from "@/api/events"
+import { setConflict } from "@/lib/conflict"
 import { afterEach, beforeEach, vi } from "vitest"
 
 if (!window.matchMedia) {
@@ -36,4 +38,6 @@ afterEach(() => {
   sessionStorage.clear()
   localStorage.clear()
   document.documentElement.className = ""
+  setConflict(null)
+  setConnection("connecting")
 })
