@@ -16,7 +16,10 @@ const slugOf = (item: string): string =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "item";
 
-/** The newest release record (release-record.sh) for this item: the PR, the merge commit, when it merged, and every `- <Label>: <value>` line. A record that cannot be read is an Unreadable. */
+/**
+ * The newest release record (release-record.sh) for this item: the PR, the merge commit, when it
+ * merged, and every `- <Label>: <value>` line. A record that cannot be read is an Unreadable.
+ */
 export function readRelease(
   home: string,
   project: string,

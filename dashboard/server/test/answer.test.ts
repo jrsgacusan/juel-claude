@@ -82,6 +82,10 @@ test("with STAR stopped, or a nudge Orca refuses, the answer is still recorded a
     env.setTerminals(null);
     const r3 = await answer(env, "N-6", "can't now");
     assert.deepEqual(await r3.json(), { recorded: true, nudged: false });
+    const queue = fs.readFileSync(path.join(env.star, "open-loops.md"), "utf8");
+    assert.match(block(queue, "N-4"), /^Answer: skip$/m);
+    assert.match(block(queue, "N-5"), /^Answer: go$/m);
+    assert.match(block(queue, "N-6"), /^Answer: can't now$/m);
   } finally {
     await env.close();
   }

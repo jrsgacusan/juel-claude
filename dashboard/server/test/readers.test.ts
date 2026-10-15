@@ -65,6 +65,7 @@ test("a brief gives its title, go time, criteria and decision headings", () => {
   assert.deepEqual(b, {
     title: "Export reports as CSV",
     approved: "2026-10-15T07:00:00Z",
+    grant: null,
     criteria: [
       "The reports page has an Export CSV button",
       "The file opens in a spreadsheet",
@@ -88,6 +89,7 @@ test("a brief gives its title, go time, criteria and decision headings", () => {
   assert.deepEqual(parseBrief("no frontmatter\n"), {
     title: null,
     approved: null,
+    grant: null,
     criteria: [],
     decisions: [],
   });
@@ -108,12 +110,21 @@ test("progress lines, release records, evidence kinds, drafts and briefings", ()
     pr: "https://github.com/o/r/pull/7",
     sha: "0b8e4c3d2a1f",
     mergedAt: "2026-10-15T11:40:00Z",
+    fields: {
+      PR: "https://github.com/o/r/pull/7 (#7), fix/rounding → main",
+      Merged: "2026-10-15T11:40:00Z by someone, merge commit 0b8e4c3d2a1f",
+      "Approved by": "a-teammate",
+      "Checks on the PR head at merge": "all passed",
+      "Second-model review rounds": "1",
+      Evidence: "evidence/issue-4/",
+    },
   });
   assert.deepEqual(readRelease(FIXTURE, "app", "issue-1"), {
     title: null,
     pr: null,
     sha: null,
     mergedAt: null,
+    fields: {},
   });
   assert.deepEqual(listFiles(path.join(FIXTURE, "evidence", "issue-4")), [
     "2026-10-15-fix-rounding/recording.webm",

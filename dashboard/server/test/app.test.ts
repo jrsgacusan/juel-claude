@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -28,6 +30,15 @@ test("listens on 127.0.0.1 only, and every /api/ request needs the token", async
         headers: { "x-star-token": "f".repeat(32) },
       });
       assert.equal(wrong.status, 401, p);
+      assert.equal(
+        (
+          await fetch(env.url(p), {
+            headers: { "x-star-token": "abc" },
+          })
+        ).status,
+        401,
+        p,
+      );
     }
     const viaQuery = await fetch(
       env.url("/api/projects?t=0123456789abcdef0123456789abcdef"),
@@ -53,7 +64,9 @@ test("/ serves the build-first page with no dist, and the app with one, for ever
   } finally {
     await env.close();
   }
-  const dist = fs.mkdtempSync(path.join(env.tmp + "-dist"));
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), "star-dist-"));
+  const dist = path.join(box, "dist");
+  fs.mkdirSync(dist);
   fs.mkdirSync(path.join(dist, "assets"));
   fs.writeFileSync(
     path.join(dist, "index.html"),
@@ -75,9 +88,36 @@ test("/ serves the build-first page with no dist, and the app with one, for ever
     const js = await fetch(withDist.url("/assets/app.js"));
     assert.match(js.headers.get("content-type") ?? "", /javascript/);
     assert.equal(await js.text(), "console.log(1)");
+    fs.writeFileSync(path.join(box, "secret.json"), '{"token":"leak"}');
+    fs.mkdirSync(path.join(box, "dist-evil"));
+    fs.writeFileSync(path.join(box, "dist-evil", "x.txt"), "leak");
+    for (const raw of [
+      "/..%2fsecret.json",
+      "/%2e%2e%2fsecret.json",
+      "/..%2fdist-evil%2fx.txt",
+      "/../secret.json",
+    ]) {
+      const body = await new Promise<string>((resolve, reject) => {
+        http
+          .get(
+            {
+              host: "127.0.0.1",
+              port: withDist.app.port,
+              path: raw,
+            },
+            (r) => {
+              let text = "";
+              r.on("data", (d) => (text += String(d)));
+              r.on("end", () => resolve(text));
+            },
+          )
+          .on("error", reject);
+      });
+      assert.doesNotMatch(body, /leak/, raw);
+    }
   } finally {
     await withDist.close();
-    fs.rmSync(dist, { recursive: true, force: true });
+    fs.rmSync(box, { recursive: true, force: true });
   }
 });
 
@@ -243,6 +283,23 @@ test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest,
       { label: "rewrite: …", answer: "rewrite: ", recommended: false },
       { label: "skip", answer: "skip", recommended: false },
     ]);
+    const q = path.join(env.star, "open-loops.md");
+    fs.writeFileSync(
+      q,
+      fs
+        .readFileSync(q, "utf8")
+        .replace(
+          "## Waiting on others",
+          "### N-12 · app · issue-3 · q\nkind: question\nmsg: m-3\nAnswer:\n\n### N-10 · app · issue-6 · h\nkind: held\nOptions: done\nAnswer:\n\n## Waiting on others",
+        ),
+    );
+    const ordered = (await (
+      await env.api("/api/projects/app/loops")
+    ).json()) as { id: string }[];
+    assert.deepEqual(
+      ordered.map((l) => l.id),
+      ["N-5", "N-6", "N-7", "N-12", "N-4", "N-3", "N-10"],
+    );
     fs.appendFileSync(path.join(env.star, "open-loops.md"), "<<<<<<< HEAD\n");
     const broken = await env.api("/api/projects/app/loops");
     assert.equal(broken.status, 502);
@@ -295,7 +352,9 @@ test("a client that goes away mid-stream does not break the server", async () =>
   try {
     const first = await openEvents(env);
     first.close();
-    await sleep(100);
+    const end = Date.now() + 2000;
+    while (env.app.hub.size() !== 0 && Date.now() < end) await sleep(50);
+    assert.equal(env.app.hub.size(), 0);
     env.app.hub.emit({ type: "change", project: "app", what: "loops" });
     const second = await openEvents(env);
     env.app.hub.emit({ type: "ping-test" });

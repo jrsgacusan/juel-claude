@@ -10,7 +10,20 @@ import type { Router } from "../router.ts";
 const counterOf = (counters: string, key: string): string | null =>
   new RegExp(`(?:^|\\s)${key}=(\\S+)`).exec(counters)?.[1] ?? null;
 
-export function statusOf(row: LedgerRow, open: readonly NeedItem[]): string {
+export type ItemStatus =
+  | "needs-you"
+  | "stopped"
+  | "building"
+  | "in-review"
+  | "briefing"
+  | "queued"
+  | "merged"
+  | "dropped";
+
+export function statusOf(
+  row: LedgerRow,
+  open: readonly NeedItem[],
+): ItemStatus {
   if (row.state === "done") return "merged";
   if (row.state === "dropped") return "dropped";
   if (row.state === "escalated" || row.state === "failed") return "stopped";
@@ -71,7 +84,7 @@ export function itemRoutes(router: Router, ctx: Ctx): void {
         row: itemOf(p.home, p.name, row, openNeeds(p.home)),
         progress: readProgress(p.home, name),
         criteria: brief?.criteria ?? [],
-        decisions: brief?.decisions ?? [],
+        decisions: (brief?.decisions ?? []).map((d) => `${d.id} ${d.title}`),
       },
     };
   });

@@ -67,14 +67,8 @@ test("GET items/:item: the row, every progress line, the criteria and the decisi
       "The file opens in a spreadsheet",
     ]);
     assert.deepEqual(one["decisions"], [
-      {
-        id: "D1",
-        title: "CSV over XLSX (2026-10-15, decided by the brief worker)",
-      },
-      {
-        id: "D2",
-        title: "A 10,000-row cap on exports (2026-10-15, decided by STAR)",
-      },
+      "D1 CSV over XLSX (2026-10-15, decided by the brief worker)",
+      "D2 A 10,000-row cap on exports (2026-10-15, decided by STAR)",
     ]);
     assert.equal(
       (await env.api("/api/projects/app/items/issue-99")).status,
@@ -142,6 +136,12 @@ test("GET evidence: merged items with evidence, and one item's files in one grou
       sha: "0b8e4c3d2a1f",
       mergedAt: "2026-10-15T11:40:00Z",
       goAt: "2026-10-15T09:30:00Z",
+      record: {
+        approval: "a-teammate",
+        ci: "all passed",
+        gate: "1",
+        go: "go, ship the rounding fix",
+      },
       groups: [
         {
           criterion: null,
@@ -180,6 +180,74 @@ test("GET evidence: merged items with evidence, and one item's files in one grou
     assert.equal(
       (await env.api("/api/projects/app/evidence/..%2Fbriefs")).status,
       400,
+    );
+  } finally {
+    await env.close();
+  }
+});
+
+test("every status: a direct queue item, an unbatched brief, dropped and escalated", async () => {
+  const env = await setup();
+  try {
+    const row = (item: string, state: string, counters: string): string =>
+      `| ${item} | #x | app | - | ${state} | build | 0 | - | - | 0 | - | - | - | - | ${counters} | 2026-10-15T09:00:00Z |\n`;
+    fs.appendFileSync(
+      path.join(env.star, "ledger.md"),
+      row("issue-8", "brief-ready", "batch=B-9") +
+        row("issue-9", "dropped", "-") +
+        row("issue-10", "escalated", "-"),
+    );
+    const q = path.join(env.star, "open-loops.md");
+    fs.writeFileSync(
+      q,
+      fs
+        .readFileSync(q, "utf8")
+        .replace(
+          "## Waiting on others",
+          "### N-20 · app · issue-3 · which copy for the button?\nkind: question\nmsg: m-2\nAnswer:\n\n## Waiting on others",
+        ),
+    );
+    const items = (await (await env.api("/api/projects/app/items")).json()) as {
+      item: string;
+      status: string;
+    }[];
+    const status = Object.fromEntries(items.map((i) => [i.item, i.status]));
+    assert.equal(status["issue-3"], "needs-you");
+    assert.equal(status["issue-8"], "briefing");
+    assert.equal(status["issue-9"], "dropped");
+    assert.equal(status["issue-10"], "stopped");
+  } finally {
+    await env.close();
+  }
+});
+
+test("the evidence list holds merged items only, newest first", async () => {
+  const env = await setup();
+  try {
+    fs.mkdirSync(path.join(env.star, "evidence", "issue-5"));
+    fs.writeFileSync(
+      path.join(env.star, "evidence", "issue-5", "x.png"),
+      "png\n",
+    );
+    fs.appendFileSync(
+      path.join(env.star, "ledger.md"),
+      "| issue-11 | #11 | app | - | done | babysit | 1 | - | - | 0 | https://github.com/o/r/pull/3 | 1111111 | - | - | - | 2026-10-14T10:00:00Z |\n",
+    );
+    fs.mkdirSync(path.join(env.star, "evidence", "issue-11"));
+    fs.writeFileSync(
+      path.join(env.star, "evidence", "issue-11", "report.md"),
+      "ok\n",
+    );
+    fs.writeFileSync(
+      path.join(env.star, "releases", "2026-10-14-app-issue-11.md"),
+      "# app · issue-11 · Older fix\n\n- PR: https://github.com/o/r/pull/3 (#3), fix/a → main\n- Merged: 2026-10-14T10:00:00Z by someone, merge commit 1111111\n",
+    );
+    const list = (await (
+      await env.api("/api/projects/app/evidence")
+    ).json()) as { item: string }[];
+    assert.deepEqual(
+      list.map((e) => e.item),
+      ["issue-4", "issue-11"],
     );
   } finally {
     await env.close();

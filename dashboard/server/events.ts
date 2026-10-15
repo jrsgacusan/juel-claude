@@ -67,7 +67,8 @@ export const WHATS = [
   "slack",
   "briefings",
 ] as const;
-const FOLDERS: Readonly<Record<string, string>> = {
+export type What = (typeof WHATS)[number];
+const FOLDERS: Readonly<Record<string, What>> = {
   progress: "progress",
   evidence: "evidence",
   drafts: "drafts",
@@ -76,7 +77,7 @@ const FOLDERS: Readonly<Record<string, string>> = {
 };
 
 /** What a changed path (relative to the STAR folder) is about; a path fs.watch did not name could be any of them. */
-export function whatOf(rel: string | null): string[] {
+export function whatOf(rel: string | null): What[] {
   if (rel === null) return [...WHATS];
   const parts = rel.split(/[\\/]/).filter(Boolean);
   const name = parts[parts.length - 1] ?? "";

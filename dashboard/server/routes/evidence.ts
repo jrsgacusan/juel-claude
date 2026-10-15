@@ -4,6 +4,7 @@ import { readBrief } from "../readers/briefs.ts";
 import { evidenceDir, kindOf } from "../readers/evidence.ts";
 import { isDir, isPlainName, listFiles } from "../readers/files.ts";
 import { readRelease } from "../readers/releases.ts";
+import { goWords } from "../readers/grants.ts";
 import { readLedger } from "../readers/star.ts";
 import type { Router } from "../router.ts";
 
@@ -47,6 +48,19 @@ export function evidenceRoutes(router: Router, ctx: Ctx): void {
       throw new HttpError(400, `${item} is not an item name`);
     if (!isDir(evidenceDir(p.home, item)))
       throw new HttpError(404, `no evidence for ${item}`);
+    const rel = readRelease(p.home, p.name, item);
+    const brief = readBrief(p.home, p.name, item);
+    const record: Record<string, string> = {};
+    for (const [key, label] of [
+      ["approval", "Approved by"],
+      ["ci", "Checks on the PR head at merge"],
+      ["gate", "Second-model review rounds"],
+    ] as const) {
+      const value = rel.fields[label];
+      if (value) record[key] = value;
+    }
+    const go = goWords(p.home, brief?.grant ?? null);
+    if (go) record["go"] = go;
     const { files: _count, ...summary } = evidenceSummary(p.home, p.name, item);
     const files = listFiles(evidenceDir(p.home, item), `evidence/${item}`).map(
       (name) => ({
@@ -55,6 +69,8 @@ export function evidenceRoutes(router: Router, ctx: Ctx): void {
         url: fileUrl(p.name, `evidence/${item}/${name}`),
       }),
     );
-    return { json: { ...summary, groups: [{ criterion: null, files }] } };
+    return {
+      json: { ...summary, record, groups: [{ criterion: null, files }] },
+    };
   });
 }
