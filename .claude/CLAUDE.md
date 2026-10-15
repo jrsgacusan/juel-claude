@@ -22,9 +22,15 @@ is "done" or are asked why a release is missing.
 ## The STAR page is a living document
 
 `skills/star/how-it-works.html` is the page at https://claude.ai/artifact/V2Qx9Cm469k1vuJvcjS2fC,
-which shows how `juel:star` works. A change under `skills/star/`, or to the parts of
-`juel:ship-ticket` and `juel:babysit-pr` that STAR drives (`--unattended`, the gate loop, the hosted
-reviewer), updates the page in the same commit, then republishes it to that link with the Artifact
-tool (`url` set to the link). `tests/star/how-it-works.test.sh` fails when the page's stages, states
-or models no longer match the skill. A release sets the page's status label to the new version in
-its own commit, before `node scripts/bump-version.mjs`.
+which shows how `juel:star` works. `docs/star-closed-loop.html` is the same page, kept under `docs/`
+(the one tracked file there): it is `skills/star/how-it-works.html` without its first line, the
+artifact link comment. Both are living documents that change with the STAR flow.
+
+A change under `skills/star/`, or to the parts of `juel:ship-ticket` and `juel:babysit-pr` that STAR
+drives (`--unattended`, the gate loop, the hosted reviewer), updates both pages in the same commit:
+edit `skills/star/how-it-works.html`, then run
+`tail -n +2 skills/star/how-it-works.html > docs/star-closed-loop.html`. Then republish the page to
+that link with the Artifact tool (`url` set to the link). `tests/star/how-it-works.test.sh` fails
+when the page's stages, states or models no longer match the skill, and when
+`docs/star-closed-loop.html` is not the page without its first line. A release sets the status label
+to the new version in its own commit, in both pages, before `node scripts/bump-version.mjs`.

@@ -1,6 +1,7 @@
 #!/bin/sh
 # skills/star/how-it-works.html is the living doc of juel:star: its stages, states and models
 # must match SKILL.md and template/star.json.
+# docs/star-closed-loop.html is the same living page, kept under docs/: this page without its first line.
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 PAGE="$ROOT/skills/star/how-it-works.html"
 fails=0
@@ -144,5 +145,12 @@ grep -qF 'Feedback you give while an item'"'"'s brief is still drafting lands in
 grep -qF 'A worker sitting on a prompt is seen on its screen. STAR answers Claude Code'"'"'s safety prompt for an <code>rm</code> inside the item'"'"'s worktree or a scratchpad, and any other prompt comes to you.' "$PAGE" && pass "LH114 a prompt is seen, the bounded one answered (#114)" || fail "LH114 prompts on the page"
 grep -qF 'On Claude Code 2.1.287 and later, a band above STAR'"'"'s prompt shows what is building and what needs you' "$PAGE" && pass "LHmod the page shows the band" || fail "LHmod band on the page"
 grep -qF 'a direct <code>gh pr merge</code> is refused in STAR'"'"'s session and its workers, and so is reading a review, evidence, report or log file into STAR'"'"'s session.' "$PAGE" && pass "LHmod the page shows the guards" || fail "LHmod guards on the page"
+# the docs copy: docs/star-closed-loop.html changes in the same commit as this page
+DOCS="$ROOT/docs/star-closed-loop.html"
+if [ -f "$DOCS" ] && tail -n +2 "$PAGE" | cmp -s - "$DOCS"; then
+  pass "docs/star-closed-loop.html is this page without its first line"
+else
+  fail "docs/star-closed-loop.html differs from this page: run tail -n +2 skills/star/how-it-works.html > docs/star-closed-loop.html"
+fi
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -7,7 +7,8 @@ superpowers/
 
 # Design docs, research, specs and plans — local only
 docs/*
-# The closed-loop design page is the one file under docs/ that is committed
+# The STAR page's docs copy (skills/star/how-it-works.html without its first line) is the one file
+# under docs/ that is committed
 !docs/star-closed-loop.html
 
 # Local workspace config for developing this plugin (not product).
