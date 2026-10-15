@@ -23,9 +23,12 @@
 #   - its safety line, "Dangerous rm|rmdir operation on possibly-empty variable path: <operand>", is
 #     the last one in the 12 lines above it, with no other question, option or "Bash command"
 #     header between the two;
-#   - the command is the first line after the last "Bash command" header in those 12 lines and holds
-#     <operand>. Nothing else on the screen is read for assignments: Claude Code keeps no shell
-#     variables between Bash calls, so a previous call's line says nothing about this one;
+#   - between the last "Bash command" header in those 12 lines and the safety line there are exactly
+#     two rows, the command and its description, and the description holds no /, $ or ; (a command
+#     wrapped onto a second row, a description posing as the header, or a missing description is
+#     not bounded). The command holds <operand>. Nothing else on the screen is read for
+#     assignments: Claude Code keeps no shell variables between Bash calls, so a previous call's
+#     line says nothing about this one;
 #   - the command is plain: NAME=<value> assignments (each NAME once, each used by an operand, no
 #     value holding $, a backtick, "..", "~", a space or a glob or brace character), then one rm or
 #     rmdir with options and operands, and nothing else (no &&, ||, |, &, $(, redirect or statement
@@ -312,7 +315,10 @@ def bounded_prompt(rows, on_screen):
     header = next((i for i in range(at - 1, max(ask - 13, -1), -1) if re.search(HEADER, rows[i], re.IGNORECASE)), None)
     if header is None:
         return None
-    command = next((l for l in rows[header + 1:at] if l), "")
+    shown = [l for l in rows[header + 1:at] if l]
+    if len(shown) != 2 or re.search(r"[/$;]", shown[1]):  # the command and its plain description
+        return None
+    command = shown[0]
     parsed = plain_command(command) if named in command else None
     if not parsed:
         return None

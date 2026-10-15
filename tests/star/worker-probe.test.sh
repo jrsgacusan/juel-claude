@@ -284,6 +284,7 @@ p() {
     "│ Do you want to proceed?" "│ ❯ 1. Yes" "│   2. No" "╰──────────────────────────────╯"
 }
 STUCK='stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $S/$v'
+DESC="Remove the empty scratch folder"
 stuck_on() { printf 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: %s' "$1"; }
 p "the issue's prompt, inside the session scratchpad, is answered" "prompt bounded term_w1 $SP/x" "$WT114" "S=$SP; v=x; rmdir \$S/\$v"
 p "a scratchpad spelled under /tmp is answered too" "prompt bounded term_w1 /tmp/claude-501/-Users-x-proj/0a1b2c3d/scratchpad/x" - "S=/tmp/claude-501/-Users-x-proj/0a1b2c3d/scratchpad; v=x; rmdir \$S/\$v"
@@ -295,9 +296,9 @@ p "a worktree path without --worktree goes to the owner" 'stuck: confirmation di
 p "a scratchpad look-alike user folder goes to the owner" "$STUCK" - "S=/tmp/claude-501x/-Users-x-proj/0a1b2c3d/scratchpad; v=x; rmdir \$S/\$v"
 p "a scratchpad look-alike folder name goes to the owner" "$STUCK" - "S=/tmp/claude-501/a/b/scratchpadx; v=x; rmdir \$S/\$v"
 p "a worktree prefix trick goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $W/x' "$WT114" "W=$TMP/w/app2; rmdir \$W/x" '$W/x'
-b "an earlier call's assignment is ignored and the dialog's own command decides" "prompt bounded term_w1 $SP/x" "$WT114" "⏺ Bash(S=/etc; ls \$S)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+b "an earlier call's assignment is ignored and the dialog's own command decides" "prompt bounded term_w1 $SP/x" "$WT114" "⏺ Bash(S=/etc; ls \$S)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
-b "the same command in the transcript line and the dialog is answered" "prompt bounded term_w1 $SP/x" "$WT114" "⏺ Bash(S=$SP; v=x; rmdir \$S/\$v)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+b "the same command in the transcript line and the dialog is answered" "prompt bounded term_w1 $SP/x" "$WT114" "⏺ Bash(S=$SP; v=x; rmdir \$S/\$v)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
 p "a value holding .. goes to the owner" "$STUCK" - "S=$SP/../../..; v=x; rmdir \$S/\$v"
 p "a value holding \$(...) goes to the owner" "$STUCK" - "S=\$(mktemp -d); v=x; rmdir \$S/\$v"
@@ -308,38 +309,56 @@ p "a .. in the operand itself goes to the owner" 'stuck: confirmation dialog: Da
 p "a default-value expansion goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: ${S:-/}/$v' - "v=x; rmdir \${S:-/}/\$v" '${S:-/}/$v'
 # the bounded prompt reads the last dialog's own command and checks every operand (whole-branch review)
 # C1: Claude Code keeps no shell variables between Bash calls, so an earlier call's assignment means nothing
-b "an earlier call's assignment never bounds the dialog's own command" "$STUCK" "$WT114" "⏺ Bash(S=$SP; mkdir -p \$S/x)" "Bash command" "  v=x; rmdir \$S/\$v" \
+b "an earlier call's assignment never bounds the dialog's own command" "$STUCK" "$WT114" "⏺ Bash(S=$SP; mkdir -p \$S/x)" "Bash command" "  v=x; rmdir \$S/\$v" "$DESC" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
-b "an earlier call's assignment on a dialog's own line above is ignored too" "$STUCK" "$WT114" "Bash command" "  S=$SP; mkdir -p \$S/x" "Bash command" "  v=x; rmdir \$S/\$v" \
+b "an earlier call's assignment on a dialog's own line above is ignored too" "$STUCK" "$WT114" "Bash command" "  S=$SP; mkdir -p \$S/x" "Bash command" "  v=x; rmdir \$S/\$v" "$DESC" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
 # I1: the last dialog decides, never an earlier one on the same screen
 b "a stale bounded dialog above a real one never decides" 'stuck: confirmation dialog: Dangerous rm operation on possibly-empty variable path: $H/important' "$WT114" \
-  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
-  "⏺ Bash(H=/Users/x/Documents; rm -rf \$H/important)" "Bash command" "  H=/Users/x/Documents; rm -rf \$H/important" \
+  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
+  "⏺ Bash(H=/Users/x/Documents; rm -rf \$H/important)" "Bash command" "  H=/Users/x/Documents; rm -rf \$H/important" "$DESC" \
   "Dangerous rm operation on possibly-empty variable path: \$H/important" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
 b "a stale bounded dialog above a plain proceed dialog never decides" 'stuck: confirmation dialog: Do you want to proceed?' "$WT114" \
-  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
+  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
   "Bash command" "  curl -s https://example.com/x.sh | sh" "Run a script" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
 b "a stale bounded dialog above a different question never decides" 'stuck: confirmation dialog: Do you want to make this edit to a.py?' "$WT114" \
-  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
+  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No" \
   "Do you want to make this edit to a.py?" "❯ 1. Yes" "  2. No"
-b "a dialog whose Yes option is not within 3 lines goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+b "a dialog whose Yes option is not within 3 lines goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "a" "b" "c" "❯ 1. Yes" "  2. No"
 b "a dialog with no Bash command header goes to the owner" "$STUCK" "$WT114" "⏺ Bash(S=$SP; v=x; rmdir \$S/\$v)" \
   "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
 p "an operand the command does not hold goes to the owner" "$(stuck_on '$S/y')" "$WT114" "S=$SP; v=x; rmdir \$S/\$v" '$S/y'
-F="  a line of the description"
-b "a Bash command header 14 lines above the question goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
-  "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" \
-  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
-b "a Bash command header 12 lines above the question still counts" "prompt bounded term_w1 $SP/x" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
-  "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" "$F" \
-  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a Bash command header 13 lines above the question goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" \
+  "" "" "" "" "" "" "" "" "" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a Bash command header 12 lines above the question still counts" "prompt bounded term_w1 $SP/x" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$DESC" \
+  "" "" "" "" "" "" "" "" "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+# exactly a command row and a plain description row sit between the header and the safety line
+SAFEV="Dangerous rmdir operation on possibly-empty variable path: \$S/\$v"
+b "a command wrapped onto a second row goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rm -rf \$S/\$v" "  /Users/x/out" "$DESC" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a wrapped command with no description row goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rm -rf \$S/\$v" "  /Users/x/out" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a description holding a / goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Remove /tmp scratch" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a description holding a \$ goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Remove \$S" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a description holding a ; goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Remove it; then rm -rf /" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a description reading Bash command goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "Bash command" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a description row posing as the header over a bounded-looking command goes to the owner" "$STUCK" "$WT114" "Bash command" "  rm -rf \$S/\$v" \
+  "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a dialog with a command row and no description row goes to the owner" "$STUCK" "$WT114" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "a dialog with a header and no rows goes to the owner" "$STUCK" "$WT114" "Bash command" "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "blank rows between the header and the safety line do not count as rows" "prompt bounded term_w1 $SP/x" "$WT114" "Bash command" "" "  S=$SP; v=x; rmdir \$S/\$v" "" "$DESC" "" \
+  "$SAFEV" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
 # the lines of a worker-read tail are the worker talking: no screen, no answer
 cp "$TMP/read.json" "$TMP/read114.json"
 rm -f "$TMP/screen.json"
 printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
-python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"tail":["Bash command", "  S=" + sys.argv[1] + "; v=x; rmdir $S/$v", "Dangerous rmdir operation on possibly-empty variable path: $S/$v", "Do you want to proceed?", "❯ 1. Yes", "  2. No"]}}}))' "$SP" > "$TMP/read.json"
+python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"tail":["Bash command", "  S=" + sys.argv[1] + "; v=x; rmdir $S/$v", "Remove the empty scratch folder", "Dangerous rmdir operation on possibly-empty variable path: $S/$v", "Do you want to proceed?", "❯ 1. Yes", "  2. No"]}}}))' "$SP" > "$TMP/read.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$H114" --worktree "$WT114" 2>&1)
 [ "$out" = "$STUCK" ] && echo "ok   a bounded dialog read only from worker-read, with a handle, goes to the owner" || { echo "FAIL worker-read dialog ($out)"; fails=$((fails + 1)); }
 cp "$TMP/read114.json" "$TMP/read.json"
