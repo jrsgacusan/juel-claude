@@ -33,7 +33,7 @@ export async function startMockWorker(): Promise<void> {
     reset: resetMockState,
   }
   await setupWorker(...handlers).start({
-    onUnhandledRequest: "bypass",
+    onUnhandledFrame: "bypass",
     quiet: true,
   })
 }

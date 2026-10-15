@@ -1,19 +1,7 @@
 import { http, HttpResponse } from "msw/http"
 import { bypass } from "msw/utils/bypass"
 import { delay } from "msw/utils/delay"
-import type {
-  AnswerRequest,
-  Briefing,
-  BriefingEvent,
-  BriefingTurn,
-  CreateRequest,
-  Loop,
-  MessageRequest,
-  Project,
-  RouteRequest,
-  TrackerInfo,
-} from "@/api/types"
-import { paths } from "@/api/paths"
+import type { BriefingEvent, Project, TrackerInfo } from "@/api/types"
 import { getDb, getScenario, mockEvents } from "./state"
 import { HOME } from "./fixtures"
 import clipUrl from "./assets/clip.webm?url"

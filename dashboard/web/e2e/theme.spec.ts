@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp } from "./helpers"
+import { noHorizontalScroll, openApp } from "./helpers.js"
 test("Light and Dark persist across a reload", async ({ page }) => {
   await openApp(page)
   await page.getByLabel("Dark theme").click()

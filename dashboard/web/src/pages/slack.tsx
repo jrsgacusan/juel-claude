@@ -69,6 +69,10 @@ function Entry({
   )
 }
 
+const isRouted = (
+  message: RoutedMessage | UnroutedMessage
+): message is RoutedMessage => "thread" in message
+
 export function SlackPage() {
   const { project = "" } = useParams()
   const slack = useSlack()
@@ -193,7 +197,7 @@ export function SlackPage() {
           </Banner>
         )}
         {selected ? (
-          "project" in selected ? (
+          isRouted(selected) ? (
             <RoutedDetail
               key={selected.id}
               project={project}

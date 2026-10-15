@@ -16,7 +16,9 @@ export function captureToken(): string | null {
     memory = fromUrl
     try {
       sessionStorage.setItem(TOKEN_KEY, fromUrl)
-    } catch {}
+    } catch {
+      // Storage may be unavailable; the in-memory copy remains usable.
+    }
     url.searchParams.delete("t")
     window.history.replaceState(
       window.history.state,

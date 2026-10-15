@@ -2,7 +2,7 @@ import { useParams, useSearchParams } from "react-router"
 import { useEvidence } from "@/api/queries"
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-state"
 import { Skeleton } from "@/components/ui/skeleton"
-import { age, clock, dayLabel } from "@/lib/format"
+import { clock, dayLabel } from "@/lib/format"
 import { EvidenceDetailView } from "./evidence-detail"
 export function EvidencePage() {
   const { project = "" } = useParams()
@@ -44,7 +44,6 @@ export function EvidencePage() {
       },
       { replace: true }
     )
-  let lastDay = ""
   return (
     <div className="grid min-h-0 flex-1 md:h-full md:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
       <section
@@ -58,9 +57,11 @@ export function EvidencePage() {
           </p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-          {evidence.data.map((item) => {
+          {evidence.data.map((item, index) => {
             const day = dayLabel(item.mergedAt)
-            const heading = day !== lastDay ? (lastDay = day) : null
+            const previous = evidence.data[index - 1]
+            const heading =
+              !previous || dayLabel(previous.mergedAt) !== day ? day : null
             return (
               <div key={item.item}>
                 {heading && (

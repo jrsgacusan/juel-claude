@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp, type Scenario } from "./helpers"
+import { noHorizontalScroll, openApp, type Scenario } from "./helpers.js"
 for (const pageName of [
   "needs",
   "progress",

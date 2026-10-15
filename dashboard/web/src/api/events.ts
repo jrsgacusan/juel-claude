@@ -41,7 +41,9 @@ export function parseFrames(buffer: string): {
     if (!data) continue
     try {
       events.push(JSON.parse(data))
-    } catch {}
+    } catch {
+      // Ignore malformed frames from the stream.
+    }
   }
   return { events, rest }
 }

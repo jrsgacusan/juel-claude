@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp } from "./helpers"
+import { noHorizontalScroll, openApp } from "./helpers.js"
 test("opens a row's step log and goes to Needs you", async ({ page }) => {
   await openApp(page, "/sphere-app/progress")
   await page.getByText("Remove the old export modal").click()

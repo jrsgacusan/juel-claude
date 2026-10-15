@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp } from "./helpers"
+import { noHorizontalScroll, openApp } from "./helpers.js"
 test("chats, streams the reply, answers the tracker question and creates a ticket", async ({
   page,
 }) => {

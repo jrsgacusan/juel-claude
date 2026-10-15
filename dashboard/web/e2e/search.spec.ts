@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp, MOD } from "./helpers"
+import { noHorizontalScroll, openApp, MOD } from "./helpers.js"
 test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
   page,
 }) => {

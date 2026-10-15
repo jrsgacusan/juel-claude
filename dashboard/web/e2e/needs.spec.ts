@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp, MOD } from "./helpers"
+import { noHorizontalScroll, openApp, MOD } from "./helpers.js"
 test("answers a loop with the recommended option and ⌘Enter", async ({
   page,
 }) => {

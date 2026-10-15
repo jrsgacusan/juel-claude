@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { isPhone, noHorizontalScroll, openApp, openNav } from "./helpers"
+import { isPhone, noHorizontalScroll, openApp, openNav } from "./helpers.js"
 test("every page fits the width", async ({ page }) => {
   await openApp(page)
   for (const path of [

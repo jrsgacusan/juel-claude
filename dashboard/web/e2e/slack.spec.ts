@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp } from "./helpers"
+import { noHorizontalScroll, openApp } from "./helpers.js"
 test("edits and sends a draft", async ({ page }) => {
   await openApp(page, "/sphere-app/slack")
   const box = page.getByLabel("Your reply")

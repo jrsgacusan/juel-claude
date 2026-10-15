@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp } from "./helpers"
+import { noHorizontalScroll, openApp } from "./helpers.js"
 test("opens an image, a video and a text file full size", async ({ page }) => {
   await openApp(page, "/sphere-app/evidence?item=SPH-4")
   const detail = page.getByRole("region", { name: "Evidence detail" })
