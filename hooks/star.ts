@@ -61,8 +61,9 @@ export function parseLedger(text: string): Parsed<LedgerRow[]> {
   return { ok: true, value: rows }
 }
 
-// loops.sh ITEM_RE, ANSWER_RE, COMMENT_RE and SECTIONS.
-const ITEM_RE = /^### (N-\d+) · (.*?) · (.*?) · (.*)$/
+// loops.sh ITEM_RE, ANSWER_RE, COMMENT_RE and SECTIONS, as the same text: tests/star/mod.test.sh
+// compares them with the script's.
+const ITEM_RE = /^### (N-(\d+)) · (.*?) · (.*?) · (.*)$/
 const ANSWER_RE = /^\s{0,3}(?:[-*+]\s+)?(?:\[[ xX]\]\s*)?[*_]{0,2}answer\s*[:：][*_]{0,2}/i
 const COMMENT_RE = /^\s*<!--.*-->\s*$/
 const SECTIONS = ['## Resume', '## Needs you', '## Waiting on others']
@@ -117,7 +118,7 @@ export function parseQueue(text: string): Parsed<Queue> {
       answer = parts.join(' ').replace(/\s+/g, ' ').trim()
     }
     // An answered item is STAR's to act on next tick; only an open one needs the owner.
-    if (!answer) needs.push({ id, kind, project: m[2] ?? '', item: m[3] ?? '', title: (m[4] ?? '').trimEnd() })
+    if (!answer) needs.push({ id, kind, project: m[3] ?? '', item: m[4] ?? '', title: (m[5] ?? '').trimEnd() })
     i = stop
   }
   return { ok: true, value: { resume, needs } }

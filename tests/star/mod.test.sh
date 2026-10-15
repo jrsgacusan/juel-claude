@@ -38,6 +38,34 @@ PY
 
 (cd "$ROOT" && git check-ignore -q .claude-plugin/types/claude-code/index.d.ts) && pass "the engine's .claude-plugin/types/ is git-ignored" || fail ".claude-plugin/types/ is not ignored"
 
+# parity: the band reads what ledger.sh and loops.sh write, so columns and patterns are the same text
+python3 - "$ROOT" > "$TMP/parity.txt" <<'PY'
+import ast, re, sys
+root = sys.argv[1]
+ledger = open(f"{root}/skills/star/ledger.sh", encoding="utf-8").read()
+loops = open(f"{root}/skills/star/loops.sh", encoding="utf-8").read()
+star = open(f"{root}/hooks/star.ts", encoding="utf-8").read()
+cols = ast.literal_eval(re.search(r"^COLS = (\[.*?\])", ledger, re.S | re.M).group(1))
+ts = re.search(r"export const LEDGER_COLS = \[(.*?)\] as const", star, re.S)
+ts_cols = re.findall(r"'([^']*)'", ts.group(1)) if ts else None
+print("COLS", "same" if cols == ts_cols else f"differ: {cols} != {ts_cols}")
+for name in ("ITEM_RE", "ANSWER_RE", "COMMENT_RE"):
+    py = re.search(rf'^{name} = re\.compile\(r"(.*?)"(?:, re\.IGNORECASE)?\)$', loops, re.M)
+    ts = re.search(rf"^const {name} = /(.*)/i?$", star, re.M)
+    if not py or not ts:
+        print(name, "missing")
+    else:
+        print(name, "same" if py.group(1) == ts.group(1) else f"differ: {py.group(1)} != {ts.group(1)}")
+py = re.search(r"^SECTIONS = (\(.*?\))", loops, re.M)
+ts = re.search(r"^const SECTIONS = \[(.*?)\]", star, re.M)
+same = py and ts and list(ast.literal_eval(py.group(1))) == re.findall(r"'([^']*)'", ts.group(1))
+print("SECTIONS", "same" if same else "differ")
+PY
+for k in COLS ITEM_RE ANSWER_RE COMMENT_RE SECTIONS; do
+  line=$(grep "^$k " "$TMP/parity.txt")
+  [ "$line" = "$k same" ] && pass "parity: hooks/star.ts $k is STAR's own" || fail "parity: ${line:-$k not printed}"
+done
+
 # The plugin validates and the mod's own tests pass, on a Claude Code that loads mods
 ver=$(claude --version 2>/dev/null | awk 'NR == 1 {print $1}')
 if [ -z "$ver" ] || ! python3 -c 'import sys; v = tuple(int(x) for x in sys.argv[1].split(".")); sys.exit(0 if v >= (2, 1, 287) else 1)' "$ver" 2>/dev/null; then
