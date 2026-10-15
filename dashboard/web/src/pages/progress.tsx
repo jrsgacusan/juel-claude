@@ -31,7 +31,7 @@ const TABS: Array<{ id: ProgressTab; label: string }> = [
 
 const matches = (row: ItemRow, q: string) =>
   !q ||
-  `${row.ref ?? ""} ${row.item} ${row.title}`
+  `${row.ref ?? ""} ${row.item} ${row.title ?? ""}`
     .toLowerCase()
     .includes(q.trim().toLowerCase())
 
@@ -213,7 +213,9 @@ export function ProgressPage() {
                           <span className="font-mono text-xs text-muted-foreground">
                             {row.ref ?? row.item}
                           </span>
-                          <span className="font-medium">{row.title}</span>
+                          <span className="font-medium">
+                            {row.title ?? row.item}
+                          </span>
                         </button>
                       </TableCell>
                       <TableCell className="px-4 py-3">

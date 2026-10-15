@@ -151,7 +151,7 @@ export const handlers = [
           goAt: d.goAt,
           files: d.groups.reduce((sum, group) => sum + group.files.length, 0),
         }))
-        .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))
+        .sort((a, b) => (b.mergedAt ?? "").localeCompare(a.mergedAt ?? ""))
     )
   }),
   http.get(`${API}/projects/:p/evidence/:item`, async ({ params }) => {
@@ -365,13 +365,17 @@ export const handlers = [
       )
       if (!entry?.briefing.draft)
         return fail(400, "The briefing has no ticket draft yet")
+      if (entry.summary.ref)
+        return fail(409, `This briefing already made ${entry.summary.ref}`)
       const body = await bodyJson(request)
       const tracker = typeof body.tracker === "string" ? body.tracker : "none"
       const connected =
         getDb().trackers[p]?.connected?.[
           tracker as keyof TrackerInfo["connected"] & string
         ] !== false
-      let result: { ref?: string; specPath?: string; url: string | null }
+      let result:
+        | { ref: string; url: string | null }
+        | { specPath: string; url: string | null }
       if (tracker === "github" && connected)
         result = {
           ref: "#88",
@@ -390,7 +394,7 @@ export const handlers = [
             .replace(/(^-|-$)/g, "")}.md`,
           url: null,
         }
-      entry.summary.ref = result.ref ?? result.specPath ?? null
+      entry.summary.ref = "ref" in result ? result.ref : result.specPath
       mockEvents.later(50, () => {
         mockEvents.emit({ type: "change", project: p, what: "loops" })
         mockEvents.emit({ type: "change", project: p, what: "briefings" })
@@ -407,6 +411,12 @@ export const handlers = [
     const p = projectOf(params)
     const body = await bodyJson(request)
     const tracker = typeof body.tracker === "string" ? body.tracker : "none"
+    if (
+      !(["synapse", "linear", "jira", "github", "none"] as string[]).includes(
+        tracker
+      )
+    )
+      return fail(400, `Unknown tracker ${tracker}`)
     const current = getDb().trackers[p] ?? { tracker: null }
     current.tracker = tracker as TrackerInfo["tracker"]
     getDb().trackers[p] = current

@@ -22,7 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { age, clock } from "@/lib/format"
 import { isAnswered } from "@/lib/loops"
 import { projectPath } from "@/lib/routes"
-import { prLabel, STATUS } from "@/lib/status"
+import { prLabel, statusOf, stepText, TAB_OF } from "@/lib/status"
 
 type StepTone = "done" | "run" | "wait" | "stop"
 
@@ -55,10 +55,9 @@ export function ItemSheet({
   const detail = useItem(project, item)
   const loops = useLoops(project)
   const row = detail.data?.row
-  const tone = row ? STATUS[row.status].tone : "run"
+  const tone = row ? statusOf(row.status).tone : "run"
   const lastTone: StepTone = tone === "muted" ? "run" : tone
-  const waiting =
-    row && (row.status === "needs-you" || row.status === "stopped")
+  const waiting = row && TAB_OF[row.status] === "needs"
   const loop = row
     ? loops.data?.find((l) => l.item === row.item && !isAnswered(l))
     : undefined
@@ -75,7 +74,7 @@ export function ItemSheet({
             {row?.ref ?? item}
           </span>
           <SheetTitle className="text-lg leading-snug">
-            {row?.title ?? item ?? ""}
+            {row?.title ?? row?.ref ?? row?.item ?? item ?? ""}
           </SheetTitle>
           <SheetDescription className="sr-only">
             The item's branch, PR and step log
@@ -98,9 +97,11 @@ export function ItemSheet({
         {detail.data && row && (
           <>
             <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Branch</dt>
+              <dt className="text-muted-foreground">Worktree</dt>
               <dd className="truncate font-mono text-xs leading-5">
-                {row.branch || "Not created yet"}
+                {row.worktree && row.worktree !== "-"
+                  ? row.worktree
+                  : "Not created yet"}
               </dd>
               <dt className="text-muted-foreground">PR</dt>
               <dd className="font-mono text-xs leading-5">
@@ -125,7 +126,7 @@ export function ItemSheet({
                       />
                     </span>
                     <span className="min-w-0 flex-1 text-sm leading-5 break-words">
-                      {line.text}
+                      {stepText(line.text)}
                     </span>
                     <span className="font-mono text-xs text-muted-foreground tabular-nums">
                       {clock(line.time)}

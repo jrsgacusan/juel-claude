@@ -64,6 +64,16 @@ type ItemSeed = {
 
 function item(p: string, s: ItemSeed): ItemDetail {
   const [lastAgo, lastText] = s.steps[s.steps.length - 1] ?? [0, ""]
+  const lower = lastText.toLowerCase()
+  const token = lower.includes("codex gate")
+    ? "gate-r2"
+    : lower.includes("executor")
+      ? "executor"
+      : lower.includes("plan")
+        ? "phase1"
+        : lower.includes("merge")
+          ? "phase4"
+          : "update"
   return {
     row: {
       item: s.ref,
@@ -73,11 +83,10 @@ function item(p: string, s: ItemSeed): ItemDetail {
       worktree: s.branch ? `.worktrees/${p}/${s.ref.toLowerCase()}` : "-",
       pr: s.pr ? String(s.pr) : "-",
       head: null,
-      branch: s.branch || null,
       updated: ago(lastAgo),
       title: s.title,
       status: s.status,
-      step: `${ago(lastAgo)} update ${lastText}`,
+      step: `${token} ${lastText}`,
       prUrl: s.pr ? `https://github.com/example/${p}/pull/${s.pr}` : null,
     },
     progress: s.steps.map(([m, text]) => ({ time: ago(m), text })),
@@ -87,7 +96,7 @@ function item(p: string, s: ItemSeed): ItemDetail {
 }
 
 const emptyOverview = (): Overview => ({
-  resume: { state: "idle", pools: "", next: "", lastTick: null },
+  resume: { state: null, pools: null, next: null, lastTick: null },
   counts: {},
   workers: { brief: [0, 4], build: [0, 3], babysit: [0, 3] },
   gateDown: null,
@@ -194,7 +203,7 @@ export function createDb(): MockDb {
       opt("Skip", "skip"),
     ],
     suggestion: `Send: "${reply}"`,
-    answer: null,
+    answer: "",
     askedAt: ago(minutes),
   })
 
@@ -271,7 +280,7 @@ export function createDb(): MockDb {
           ],
           suggestion:
             "Run the build again and have it fix that e2e test first. Both failures point at a selector, not at the product.",
-          answer: null,
+          answer: "",
           askedAt: ago(41),
         },
         {
@@ -292,7 +301,7 @@ export function createDb(): MockDb {
           ],
           suggestion:
             "Go. SPH-11 and SPH-12 start in the next tick. SPH-14 starts on its own once the webhook secret is in.",
-          answer: null,
+          answer: "",
           askedAt: ago(12),
         },
         {
@@ -306,7 +315,7 @@ export function createDb(): MockDb {
           options: [opt("Done", "done", true), opt("Can't now", "can't now")],
           suggestion:
             "Do it now. SPH-14 is the only item in the batch still waiting on you.",
-          answer: null,
+          answer: "",
           askedAt: ago(12),
         },
         {
@@ -332,7 +341,7 @@ export function createDb(): MockDb {
           ],
           suggestion:
             "Yes, with a 301 to /v2/reports/export. docs/api.md:41 already marks v1 as deprecated, so both clients keep working.",
-          answer: null,
+          answer: "",
           askedAt: ago(6),
         },
         slackLoop(
@@ -373,7 +382,7 @@ export function createDb(): MockDb {
           options: [opt("Done, I asked", "done")],
           suggestion:
             "Ask in #sphere-eng. STAR merges it within a tick of the approval.",
-          answer: null,
+          answer: "",
           askedAt: null,
         },
         {
@@ -385,7 +394,7 @@ export function createDb(): MockDb {
           body: [],
           options: [],
           suggestion: null,
-          answer: null,
+          answer: "",
           askedAt: ago(15),
         },
       ],
@@ -399,7 +408,7 @@ export function createDb(): MockDb {
           body: ["https://github.com/example/juel-claude/pull/131"],
           options: [opt("Go", "go", true), opt("Not merging", "not merging")],
           suggestion: "Go. Every gate passed on 9f3c2e1.",
-          answer: null,
+          answer: "",
           askedAt: ago(30),
         },
       ],
@@ -573,6 +582,7 @@ export function createDb(): MockDb {
         lastCheck: ago(2),
         error: null,
         model: "haiku",
+        workspace: null,
       },
       routed: [
         {
@@ -732,7 +742,7 @@ export function createDb(): MockDb {
     evidence(HOME, db, {
       ref: "SPH-8",
       title: "Fix invoice rounding",
-      pr: "#207",
+      pr: "https://github.com/example/sphere-app/pull/207",
       sha: "0b8e4c3",
       mergedAgo: 10,
       goAgo: 60 * 13,
@@ -765,7 +775,7 @@ export function createDb(): MockDb {
     evidence(HOME, db, {
       ref: "SPH-4",
       title: "Reports page filters",
-      pr: "#205",
+      pr: "https://github.com/example/sphere-app/pull/205",
       sha: "7d2a91c",
       mergedAgo: 150,
       goAgo: 60 * 13,
@@ -800,7 +810,7 @@ export function createDb(): MockDb {
     evidence(HOME, db, {
       ref: "SPH-3",
       title: "Empty state for reports",
-      pr: "#199",
+      pr: "https://github.com/example/sphere-app/pull/199",
       sha: "a41f0de",
       mergedAgo: 60 * 24 * 2,
       goAgo: 60 * 24 * 2 + 480,

@@ -19,7 +19,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar"
 import { type Page, projectPath } from "@/lib/routes"
-import { PROJECT_STATE } from "@/lib/status"
+import { projectStateOf } from "@/lib/status"
 import { Dot, StarMark } from "./status"
 
 const NAV: Array<{ page: Page; label: string; icon: typeof Inbox }> = [
@@ -37,7 +37,7 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
   const { setOpenMobile } = useSidebar()
   const close = () => setOpenMobile(false)
   const current = projects.data?.find((p) => p.name === project)
-  const state = current ? PROJECT_STATE[current.state] : null
+  const state = current ? projectStateOf(current.state) : null
   const slackCount =
     slack.data?.routed.filter((m) => m.project === project).length ?? 0
   const workers = overview.data?.workers
@@ -87,11 +87,14 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
                       <span>{label}</span>
                     </NavLink>
                   </SidebarMenuButton>
-                  {target === "needs" && current && current.needsYou > 0 && (
-                    <SidebarMenuBadge className="rounded-md border border-wait-line bg-wait-bg text-wait-fg">
-                      {current.needsYou}
-                    </SidebarMenuBadge>
-                  )}
+                  {target === "needs" &&
+                    current &&
+                    typeof current.needsYou === "number" &&
+                    current.needsYou > 0 && (
+                      <SidebarMenuBadge className="rounded-md border border-wait-line bg-wait-bg text-wait-fg">
+                        {current.needsYou}
+                      </SidebarMenuBadge>
+                    )}
                   {target === "slack" && slackCount > 0 && (
                     <SidebarMenuBadge>{slackCount}</SidebarMenuBadge>
                   )}
@@ -115,10 +118,10 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
                 <SidebarMenuItem key={p.name}>
                   <SidebarMenuButton asChild isActive={p.name === project}>
                     <Link to={projectPath(p.name, page)} onClick={close}>
-                      <Dot tone={PROJECT_STATE[p.state].tone} />
+                      <Dot tone={projectStateOf(p.state).tone} />
                       <span className="flex-1 truncate">{p.name}</span>
                       <span className="text-xs text-muted-foreground">
-                        {PROJECT_STATE[p.state].label}
+                        {projectStateOf(p.state).label}
                       </span>
                     </Link>
                   </SidebarMenuButton>

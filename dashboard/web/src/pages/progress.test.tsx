@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { setScenario } from "@/mocks/state"
+import { getDb, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
 
 const rows = () => screen.getAllByRole("row")
@@ -50,7 +50,7 @@ describe("Progress", () => {
     const sheet = await screen.findByRole("dialog")
     expect(router.state.location.search).toBe("?item=SPH-9")
     expect(
-      await within(sheet).findByText("feat/sph-9-remove-export-modal")
+      await within(sheet).findByText(".worktrees/sphere-app/sph-9")
     ).toBeInTheDocument()
     expect(within(sheet).getByText("#213")).toBeInTheDocument()
     expect(within(sheet).getByText("Plan written, 4 tasks")).toBeInTheDocument()
@@ -111,5 +111,31 @@ describe("Progress", () => {
     expect(await screen.findByTestId("page-error")).toHaveTextContent(
       "Couldn't load the items."
     )
+  })
+
+  it("renders null server values with fallbacks", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-13"
+    )
+    if (!row) throw new Error("fixture SPH-13 missing")
+    row.row.title = null
+    row.progress = [{ time: null, text: "executor Executor writing the code" }]
+    const { user } = renderApp("/sphere-app/progress")
+    await user.click(
+      (
+        await screen.findAllByRole("button", { name: /SPH-13/ })
+      )[0] as HTMLElement
+    )
+    const sheet = await screen.findByRole("dialog")
+    expect(
+      within(sheet).getByRole("heading", { name: "SPH-13" })
+    ).toBeInTheDocument()
+    expect(
+      within(sheet).getByText("Executor writing the code")
+    ).toBeInTheDocument()
+    expect(within(sheet).queryByText(/null/)).not.toBeInTheDocument()
+    expect(
+      within(sheet).getByText(".worktrees/sphere-app/sph-13")
+    ).toBeInTheDocument()
   })
 })

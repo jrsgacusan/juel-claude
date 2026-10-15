@@ -36,14 +36,27 @@ export const PROJECT_STATE: Record<
   stopped: { label: "Stopped", tone: "stop", pulse: false },
 }
 
-const PROGRESS_LINE = /^\d{4}-\d{2}-\d{2}T\S+\s+\S+\s+(.*)$/
+const STEP_TOKEN =
+  /^(?:phase[1-8]|executor|live-check|regression-gate|gate-r\d+|post-pass|ready|sync|report|update)\s+/
+const ISO_PREFIX = /^\d{4}-\d{2}-\d{2}T\S+\s+/
 
-/** The text of a progress line "<iso> <step> <text>"; other text as is. */
+/** A progress line's text, without its time and step token when the line carries them. */
 export function stepText(step: string | null | undefined): string {
   if (!step) return ""
-  const line = step.trim()
-  return PROGRESS_LINE.exec(line)?.[1] ?? line
+  return step.trim().replace(ISO_PREFIX, "").replace(STEP_TOKEN, "")
 }
+
+export const statusOf = (status: string): { label: string; tone: Tone } =>
+  STATUS[status as ItemStatus] ?? { label: status, tone: "muted" }
+
+export const projectStateOf = (
+  state: string
+): { label: string; tone: Tone; pulse: boolean } =>
+  PROJECT_STATE[state as ProjectState] ?? {
+    label: state,
+    tone: "muted",
+    pulse: false,
+  }
 
 /** "#209" from the ledger's pr cell or the PR URL; null when there is no PR. */
 export function prLabel(row: Pick<ItemRow, "pr" | "prUrl">): string | null {

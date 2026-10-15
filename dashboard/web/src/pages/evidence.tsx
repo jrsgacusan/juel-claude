@@ -3,6 +3,7 @@ import { useEvidence } from "@/api/queries"
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { clock, dayLabel } from "@/lib/format"
+import { prLabel } from "@/lib/status"
 import { EvidenceDetailView } from "./evidence-detail"
 export function EvidencePage() {
   const { project = "" } = useParams()
@@ -58,10 +59,15 @@ export function EvidencePage() {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           {evidence.data.map((item, index) => {
-            const day = dayLabel(item.mergedAt)
+            const day =
+              item.mergedAt === null ? "Unknown" : dayLabel(item.mergedAt)
             const previous = evidence.data[index - 1]
-            const heading =
-              !previous || dayLabel(previous.mergedAt) !== day ? day : null
+            const previousDay = previous
+              ? previous.mergedAt === null
+                ? "Unknown"
+                : dayLabel(previous.mergedAt)
+              : null
+            const heading = !previous || previousDay !== day ? day : null
             return (
               <div key={item.item}>
                 {heading && (
@@ -82,14 +88,14 @@ export function EvidencePage() {
                       {item.item}
                     </span>
                     <span className="font-mono text-muted-foreground">
-                      {item.pr ?? ""}
+                      {prLabel({ pr: "-", prUrl: item.pr }) ?? ""}
                     </span>
                     <span className="ml-auto text-muted-foreground tabular-nums">
                       {clock(item.mergedAt)}
                     </span>
                   </span>
                   <span className="truncate text-sm font-medium">
-                    {item.title}
+                    {item.title ?? item.item}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {item.files} {item.files === 1 ? "file" : "files"}

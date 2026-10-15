@@ -1,6 +1,6 @@
 import type { ItemStatus } from "@/api/types"
 import { Badge } from "@/components/ui/badge"
-import { STATUS, type Tone } from "@/lib/status"
+import { statusOf, type Tone } from "@/lib/status"
 import { cn } from "@/lib/utils"
 
 /** STAR's mark (mock:124-126). */
@@ -44,7 +44,7 @@ export function Dot({ tone, pulse = false }: { tone: Tone; pulse?: boolean }) {
 }
 
 export function StateBadge({ status }: { status: ItemStatus }) {
-  const { label, tone } = STATUS[status]
+  const { label, tone } = statusOf(status)
   return (
     <Badge variant={tone === "muted" ? "secondary" : tone}>
       {tone !== "muted" && <Dot tone={tone} pulse={tone === "run"} />}

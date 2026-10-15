@@ -11,15 +11,15 @@ export type Project = {
   state: ProjectState
   terminal: string | null
   lastTick: string | null
-  needsYou: number
+  needsYou: number | null
 }
 /** The quiet window, as the server sends it. */
 export type QuietHours = { tz: string; start: string; end: string }
 export type Overview = {
   resume: {
-    state: string
-    pools: string
-    next: string
+    state: string | null
+    pools: string | null
+    next: string | null
     lastTick: string | null
   }
   counts: Record<string, number>
@@ -28,8 +28,8 @@ export type Overview = {
     build: [number, number]
     babysit: [number, number]
   }
-  gateDown: null | { since: string; why: string }
-  away: string | boolean | null
+  gateDown: null | { since: string | null; why: string | null }
+  away: string | null
   quietHours: QuietHours | null
 }
 export type LoopOption = { label: string; answer: string; recommended: boolean }
@@ -64,14 +64,13 @@ export type ItemRow = {
   worktree: string
   pr: string
   head?: string | null
-  branch?: string | null
   updated?: string | null
-  title: string
+  title: string | null
   status: ItemStatus
   step: string | null
   prUrl: string | null
 }
-export type ProgressLine = { time: string; text: string }
+export type ProgressLine = { time: string | null; text: string }
 export type ItemDetail = {
   row: ItemRow
   progress: ProgressLine[]
@@ -80,10 +79,11 @@ export type ItemDetail = {
 }
 export type EvidenceSummary = {
   item: string
-  title: string
+  title: string | null
+  /** The release record's PR URL. */
   pr: string | null
   sha: string | null
-  mergedAt: string
+  mergedAt: string | null
   goAt: string | null
   files: number
 }
@@ -103,10 +103,12 @@ export type EvidenceGroup = {
 }
 export type EvidenceDetail = {
   item: string
-  title: string
+  title: string | null
+  /** The release record's PR URL. */
+  pr: string | null
   pr: string | null
   sha: string | null
-  mergedAt: string
+  mergedAt: string | null
   goAt: string | null
   /** go, gate, ci and approval feed the four check cards. */
   record: EvidenceRecord
@@ -142,6 +144,7 @@ export type BriefingEvent = {
   id: string
   turn?: BriefingTurn
   error?: string
+  draft?: TicketDraft | null
 }
 export type StarEvent = ChangeEvent | BriefingEvent
 export type SlackStatus = {
@@ -149,6 +152,7 @@ export type SlackStatus = {
   lastCheck: string | null
   error: string | null
   model: string | null
+  workspace?: string | null
 }
 export type RoutedMessage = {
   id: string
@@ -199,9 +203,6 @@ export type TrackerInfo = {
   connected?: Partial<Record<Tracker, boolean>>
 }
 export type CreateRequest = { tracker: Tracker }
-export type CreateResponse = {
-  ref?: string
-  specPath?: string
-  url: string | null
-}
+export type CreateResponse =
+  { ref: string; url: string | null } | { specPath: string; url: string | null }
 export type ApiErrorBody = { error?: string; message?: string }

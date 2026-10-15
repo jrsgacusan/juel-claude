@@ -2,6 +2,9 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
+export const isValidTime = (iso: string | null | undefined): iso is string =>
+  typeof iso === "string" && Number.isFinite(Date.parse(iso))
+
 const since = (iso: string | null | undefined, now: number): number | null => {
   if (!iso) return null
   const ms = now - Date.parse(iso)
@@ -36,7 +39,11 @@ const startOfDay = (d: Date) =>
   new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 
 /** "Today", "Yesterday", else "Oct 14" (local time). */
-export function dayLabel(iso: string, now = new Date()): string {
+export function dayLabel(
+  iso: string | null | undefined,
+  now = new Date()
+): string {
+  if (!isValidTime(iso)) return ""
   const d = new Date(iso)
   const diff = Math.round((startOfDay(now) - startOfDay(d)) / DAY)
   if (diff === 0) return "Today"
@@ -48,15 +55,19 @@ export function dayLabel(iso: string, now = new Date()): string {
 }
 
 /** "09:12" (local, 24 h) */
-export const clock = (iso: string): string =>
-  new Intl.DateTimeFormat("en-GB", {
+export const clock = (iso: string | null | undefined): string => {
+  if (!isValidTime(iso)) return ""
+  return new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(iso))
+}
 
 /** "Oct 15, 22:40" */
-export const dateTime = (iso: string): string =>
-  `${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(iso))}, ${clock(iso)}`
+export const dateTime = (iso: string | null | undefined): string => {
+  if (!isValidTime(iso)) return ""
+  return `${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(iso))}, ${clock(iso)}`
+}
 
 /** The time of a Slack message id "<channelId>-<ts>", or null. */
 export function slackTime(id: string): string | null {

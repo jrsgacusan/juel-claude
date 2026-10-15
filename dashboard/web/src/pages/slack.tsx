@@ -140,7 +140,9 @@ export function SlackPage() {
           {slack.data.status.connected ? (
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Dot tone="done" pulse />
-              {model ? `Watching Slack with ${model}.` : "Watching Slack."}{" "}
+              {model
+                ? `Watching ${slack.data.status.workspace ?? "Slack"} with ${model}.`
+                : `Watching ${slack.data.status.workspace ?? "Slack"}.`}{" "}
               {slack.data.status.lastCheck &&
                 `Checked ${agoText(slack.data.status.lastCheck)}.`}
             </p>

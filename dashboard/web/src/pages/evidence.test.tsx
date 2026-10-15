@@ -1,7 +1,8 @@
 import { screen, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { setScenario } from "@/mocks/state"
+import { getDb, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
+import { dayLabel } from "@/lib/format"
 
 describe("Evidence", () => {
   it("lists merged items by day and shows the selected one's checks and criteria", async () => {
@@ -11,7 +12,11 @@ describe("Evidence", () => {
       await within(list).findByText("Fix invoice rounding")
     ).toBeInTheDocument()
     expect(within(list).getAllByRole("button")).toHaveLength(3)
-    expect(within(list).getByText("Today")).toBeInTheDocument()
+    expect(
+      within(list).getByText(
+        dayLabel(getDb().evidence["sphere-app"]?.[0]?.mergedAt ?? null)
+      )
+    ).toBeInTheDocument()
     expect(within(list).getByText("3 files")).toBeInTheDocument()
     const detail = screen.getByRole("region", { name: "Evidence detail" })
     expect(
@@ -128,5 +133,22 @@ describe("Evidence", () => {
     expect(await screen.findByTestId("page-error")).toHaveTextContent(
       "Couldn't load the evidence."
     )
+  })
+
+  it("shows the PR from the record's URL and files an unknown merge time under Unknown", async () => {
+    const sph3 = getDb().evidence["sphere-app"]?.find((e) => e.item === "SPH-3")
+    if (!sph3) throw new Error("fixture SPH-3 missing")
+    sph3.mergedAt = null
+    renderApp("/sphere-app/evidence?item=SPH-3")
+    const list = await screen.findByRole("region", { name: "Merged items" })
+    expect(await within(list).findByText("Unknown")).toBeInTheDocument()
+    const detail = screen.getByRole("region", { name: "Evidence detail" })
+    expect(
+      await within(detail).findByText("Merge time unknown.")
+    ).toBeInTheDocument()
+    expect(
+      within(detail).getByRole("link", { name: /PR #199/ })
+    ).toHaveAttribute("href", "https://github.com/example/sphere-app/pull/199")
+    expect(within(detail).queryByText(/1970|Jan 1/)).not.toBeInTheDocument()
   })
 })

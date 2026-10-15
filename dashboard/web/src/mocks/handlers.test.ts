@@ -48,6 +48,7 @@ describe("the mock API", () => {
     })
     const loops = await apiJson<Loop[]>(paths.loops(HOME))
     expect(loops.find((l) => l.id === "N-39")?.askedAt).toBeNull()
+    expect(loops.find((l) => l.id === "N-41")?.answer).toBe("")
     for (const item of ["SPH-8", "SPH-4", "SPH-3"]) {
       const detail = await apiJson<EvidenceDetail>(
         paths.evidenceItem(HOME, item)
@@ -57,12 +58,22 @@ describe("the mock API", () => {
           ["approval", "ci", "gate", "go"].includes(k)
         )
       ).toBe(true)
+      expect(detail.pr?.startsWith("https://")).toBe(true)
     }
     const flat = await apiJson<EvidenceDetail>(
       paths.evidenceItem(HOME, "SPH-3")
     )
     expect(flat.groups).toHaveLength(1)
     expect(flat.groups[0]?.criterion).toBeNull()
+  })
+
+  it("returns 404 for an unknown project's overview", async () => {
+    await expect(
+      apiJson(paths.overview("unknown-project"))
+    ).rejects.toMatchObject({
+      status: 404,
+      message: "No project named unknown-project",
+    })
   })
   it("records an answer and emits a loops change", async () => {
     const res = await sendJson("POST", paths.answer(HOME, "N-41"), {

@@ -34,6 +34,16 @@ describe("Slack replies", () => {
     ).toBeInTheDocument()
   })
 
+  it("names the workspace in the watcher line when the server knows it", async () => {
+    getDb().slack.status.workspace = "Sphere Technology"
+    renderApp("/sphere-app/slack")
+    expect(
+      await screen.findByText(
+        "Watching Sphere Technology with Haiku. Checked 2 min ago."
+      )
+    ).toBeInTheDocument()
+  })
+
   it("saves an edited draft on blur, then Send reply answers the loop with send", async () => {
     const { user } = renderApp("/sphere-app/slack")
     const box = await screen.findByLabelText("Your reply")
@@ -68,7 +78,7 @@ describe("Slack replies", () => {
     expect(
       await screen.findByText("Couldn't save the draft: drafts/ is read-only")
     ).toBeInTheDocument()
-    expect(loopAnswer("N-45")).toBeNull()
+    expect(loopAnswer("N-45")).toBe("")
   })
 
   it("skips, and asks for a rewrite with a chip or in words", async () => {
