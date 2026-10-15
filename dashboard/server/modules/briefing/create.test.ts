@@ -16,16 +16,18 @@ const BODY = 'The sync drops on a flaky network.\n\n## Acceptance criteria\n- [ 
 
 let w: World
 let dir: string
+let logs: string[]
 beforeEach(async () => {
   w = await world()
   dir = briefingDir(w.home, await createBriefing(w.home))!
   await writeDraft(dir, T)
+  logs = []
 })
 afterEach(async () => {
   await cleanup(w)
 })
 
-const ctx = (tracker: CreateContext['tracker'], trackerProject: string | null = null, at = dir): CreateContext => ({ project: 'proj', repo: w.repo, home: w.home, dir: at, tracker, trackerProject, draft: T })
+const ctx = (tracker: CreateContext['tracker'], trackerProject: string | null = null, at = dir): CreateContext => ({ project: 'proj', repo: w.repo, home: w.home, dir: at, tracker, trackerProject, draft: T, log: line => { logs.push(line) } })
 const specPath = (name = 'retry-the-sync.md'): string => join(w.home, 'items', 'proj', name)
 
 async function inboxFiles(): Promise<string[]> {
@@ -70,6 +72,8 @@ test('slugOf is kebab case of at most six words, and briefing when nothing is le
 test('lastJson finds the last line that is a JSON object', () => {
   assert.deepEqual(lastJson('Done.\n{"ref": "A-1", "url": "u"}\n```'), { ref: 'A-1', url: 'u' })
   assert.equal(lastJson('no json here\n[1]'), null)
+  assert.deepEqual(lastJson('Done:\n{\n  "ref": "ENG-7",\n  "url": "https://x/ENG-7"\n}\n'), { ref: 'ENG-7', url: 'https://x/ENG-7' })
+  assert.deepEqual(lastJson('{\n  "a": {"b": 1}\n}'), { a: { b: 1 } })
 })
 
 test('github: gh issue create in the repo, ref #<n>, created.json and the inbox file', async () => {
@@ -115,7 +119,7 @@ test('linear: a headless haiku run allowed only the create tools, when one is co
   assert.equal(outcome.created.ref, 'ENG-7')
   assert.equal(outcome.created.url, 'https://linear.app/acme/issue/ENG-7')
   const [call] = await calls(w, 'claude')
-  assert.deepEqual(call.argv.slice(0, -1), ['-p', '--model', 'haiku', '--output-format', 'stream-json', '--verbose', '--tools', '', '--allowedTools', CREATE_TOOLS.linear.join(','), '--'])
+  assert.deepEqual(call.argv.slice(0, -1), ['-p', '--model', 'haiku', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk', '--tools', '', '--allowedTools', CREATE_TOOLS.linear.join(','), '--'])
   const prompt = call.argv.at(-1)!
   assert.ok(prompt.includes('Retry the sync'))
   assert.ok(prompt.includes(BODY.trim()))
@@ -140,7 +144,8 @@ test('a connected tracker that answers {error} is a failed create', async () => 
   assert.deepEqual(await createTicket(ctx('jira')), { ok: false, error: 'no project key for Jira' })
   assert.deepEqual(await inboxFiles(), [])
   assert.equal(await readCreated(dir), null)
-  assert.equal((await calls(w, 'claude'))[0].argv[9], CREATE_TOOLS.jira.join(','))
+  const argv = (await calls(w, 'claude'))[0].argv
+  assert.equal(argv[argv.indexOf('--allowedTools') + 1], CREATE_TOOLS.jira.join(','))
 })
 
 test('a create run that ends before its init event is a failed create', async () => {
@@ -181,4 +186,52 @@ test('writeInbox never overwrites an inbox file', async () => {
   assert.equal(basename(path), '20261016T030405Z-bbbb.md')
   assert.equal(await readFile(taken, 'utf8'), 'repo: other\nrefs:\n- #1\n')
   assert.equal(await readFile(path, 'utf8'), `repo: ${w.repo}\nrefs:\n- #2\n`)
+})
+
+test('a connected tracker that answers in pretty-printed JSON is still read', async () => {
+  const answer = 'Created it:\n{\n  "ref": "ENG-8",\n  "url": "https://linear.app/acme/issue/ENG-8"\n}'
+  await play(w, 'claude', [{ lines: [init('C1', ['mcp__linear__save_issue']), say(answer), done(answer)] }])
+  const outcome = await createTicket(ctx('linear'))
+  if (!outcome.ok) assert.fail(outcome.error)
+  assert.equal(outcome.created.ref, 'ENG-8')
+})
+
+test('a create tool that ran without a usable answer may have made the issue, and says so', async () => {
+  const toolUse = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__linear__save_issue', input: {} }] } }
+  await play(w, 'claude', [{ lines: [init('C1', ['mcp__linear__save_issue']), toolUse, say('Done, I think.'), done('Done, I think.')] }])
+  const outcome = await createTicket(ctx('linear'))
+  assert.equal(outcome.ok, false)
+  if (outcome.ok) return
+  assert.equal(outcome.maybeMade, true)
+  assert.match(outcome.error, /create tool ran: check linear/)
+  assert.deepEqual(await inboxFiles(), [])
+  assert.ok(logs.some(line => line.includes('Done, I think.')))
+})
+
+test('a ref that is not one token, or a url that is not https, is not taken', async () => {
+  for (const answer of ['{"ref": "ENG-9\\nrefs:\\n- evil", "url": "https://linear.app/x"}', '{"ref": "ENG-9", "url": "javascript:alert(1)"}']) {
+    await play(w, 'claude', [{ lines: [init('C1', ['mcp__linear__save_issue']), say(answer), done(answer)] }])
+    const outcome = await createTicket(ctx('linear'))
+    assert.equal(outcome.ok, false, answer)
+  }
+  assert.deepEqual(await inboxFiles(), [])
+})
+
+test('a ticket that is made but cannot be recorded comes back with made, and is logged first', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  await writeFile(join(w.home, 'inbox'), 'not a folder')
+  const outcome = await createTicket(ctx('github'))
+  assert.equal(outcome.ok, false)
+  if (outcome.ok) return
+  assert.equal(outcome.made?.ref, '#42')
+  assert.match(outcome.error, /#42 was made, but it could not be recorded/)
+  assert.ok(logs.some(line => line.includes('made #42 (https://github.com/o/r/issues/42)')))
+})
+
+test('a spec title with a newline stays one frontmatter line', async () => {
+  const draft = { ...T, title: 'Fix the sync\nstatus: done' }
+  const outcome = await createTicket({ ...ctx('none'), draft })
+  if (!outcome.ok) assert.fail(outcome.error)
+  const text = await readFile(outcome.created.specPath!, 'utf8')
+  assert.equal(text.split('\n').slice(0, 4).join('\n'), '---\nstatus: todo\ntitle: Fix the sync status: done\n---')
 })

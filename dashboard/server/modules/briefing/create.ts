@@ -1,22 +1,24 @@
 // Turns a briefing's draft into a ticket (brief D5, D9, B6-B8): an issue through gh for github, an
 // issue through the tracker's MCP create tool in a headless haiku run for linear and jira when that
 // tool is connected, else a STAR spec item. Then created.json, and an inbox file so STAR picks it up.
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
-import { runCli } from './claude.ts'
+import { contentOf, message, parseObject, runCli, tail } from './claude.ts'
 import type { CliEvent } from './claude.ts'
 import { hex4, stamp } from './ids.ts'
-import { writeCreated } from './store.ts'
+import { writeCreated, writeNew } from './store.ts'
 import type { Created } from './store.ts'
 import type { Ticket } from './ticket.ts'
 import type { Tracker } from './tracker.ts'
 
 /**
- * Each tracker's MCP create tool under every prefix it is known by (D5, B6). Linear's prefixes and
- * save_issue: references/work-source.md:110,158,189. Jira: Atlassian's MCP server names its create
- * tool createJiraIssue (github.com/atlassian/atlassian-mcp-server, skills/triage-issue/SKILL.md).
- * Synapse has no MCP yet; adding it is one row.
+ * The MCP create tool of linear and jira, under the prefixes tried (D5, B6); a connector under any
+ * other prefix sends the item to the spec path. Linear's prefixes and save_issue:
+ * references/work-source.md:110,158,189. Jira's tool is createJiraIssue
+ * (https://github.com/atlassian/atlassian-mcp-server/blob/main/skills/triage-issue/SKILL.md), under
+ * the same prefix pattern. Synapse has no MCP yet: wiring one in takes a row here, a branch in
+ * createTicket and its name in createPrompt.
  */
 export const CREATE_TOOLS: Record<'linear' | 'jira' | 'synapse', string[]> = {
   linear: ['mcp__linear__save_issue', 'mcp__plugin_linear_linear__save_issue', 'mcp__claude_ai_Linear__save_issue'],
@@ -36,12 +38,18 @@ export type CreateContext = {
   /** The tracker's project or team from the repo's config, when it names one. */
   trackerProject: string | null
   draft: Ticket
+  log: (line: string) => void
 }
-export type CreateOutcome = { ok: true; created: Created } | { ok: false; error: string }
-type Made = { ok: true; ref: string; url: string } | { ok: false; error: string }
+/**
+ * A failed create carries `made` when the ticket exists but could not be recorded, so it must not be
+ * made again, and `maybeMade` when the tracker's create tool ran but did not say what it made.
+ */
+export type CreateOutcome = { ok: true; created: Created } | { ok: false; error: string; made?: Created; maybeMade?: boolean }
+type Made = { ok: true; ref: string; url: string } | { ok: false; error: string; maybeMade?: boolean }
 
-const errCode = (err: unknown): string | undefined => (err as { code?: string } | null)?.code
-const tail = (text: string, lines = 5): string => text.trim().split('\n').slice(-lines).join('\n').trim()
+// A ref is one token, so it stays one line of the inbox file; a url is https with no whitespace.
+const REF = /^[A-Za-z0-9][A-Za-z0-9_.#-]*$/
+const HTTPS = /^https:\/\/\S+$/
 
 /** The issue body, and the spec item's body under its frontmatter (D9, B7). */
 export function ticketBody(draft: Ticket): string {
@@ -59,16 +67,6 @@ export function slugOf(title: string): string {
 /** The spec item through the server's file route (B8). */
 export function specUrl(project: string, specPath: string): string {
   return `/api/projects/${encodeURIComponent(project)}/file?path=${encodeURIComponent(`items/${project}/${basename(specPath)}`)}`
-}
-
-async function writeNew(path: string, content: string): Promise<boolean> {
-  try {
-    await writeFile(path, content, { flag: 'wx' })
-    return true
-  } catch (err) {
-    if (errCode(err) === 'EEXIST') return false
-    throw err
-  }
 }
 
 /** <STAR folder>/items/<project>/<slug>.md, then -2, -3: never overwrites a spec. */
@@ -112,17 +110,18 @@ export function createPrompt(tracker: 'linear' | 'jira', project: string | null,
   ].join('\n\n')
 }
 
-/** The last line of the text that parses as a JSON object. */
-export function lastJson(text: string): Record<string, unknown> | null {
+/** The last JSON object in the text: a line of its own, or else one spread over several lines. */
+export function lastJson(text: string): CliEvent | null {
   for (const line of text.split('\n').reverse()) {
-    const trimmed = line.trim()
-    if (!trimmed.startsWith('{')) continue
-    try {
-      const value: unknown = JSON.parse(trimmed)
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) return value as Record<string, unknown>
-    } catch {
-      // not JSON: keep looking
-    }
+    const value = parseObject(line)
+    if (value) return value
+  }
+  const end = text.lastIndexOf('}')
+  let start = end === -1 ? -1 : text.lastIndexOf('{', end)
+  while (start !== -1) {
+    const value = parseObject(text.slice(start, end + 1))
+    if (value) return value
+    start = start === 0 ? -1 : text.lastIndexOf('{', start - 1)
   }
   return null
 }
@@ -137,7 +136,7 @@ async function createGithub(ctx: CreateContext): Promise<Made> {
     onLine: line => { lines.push(line.trim()) },
   }).done
   if (exit.spawnError) return { ok: false, error: `gh could not start: ${exit.spawnError}` }
-  if (exit.code !== 0) return { ok: false, error: tail(exit.stderr) || `gh exited with ${exit.code ?? exit.signal}` }
+  if (exit.code !== 0) return { ok: false, error: tail(exit.stderr, 5) || `gh exited with ${exit.code ?? exit.signal}` }
   const url = lines.filter(line => line.startsWith('https://')).pop()
   if (!url) return { ok: false, error: 'gh issue create printed no issue URL' }
   const number = /\/issues\/(\d+)/.exec(url)?.[1]
@@ -149,11 +148,14 @@ async function createViaMcp(ctx: CreateContext, tracker: 'linear' | 'jira'): Pro
   const tools = CREATE_TOOLS[tracker]
   const texts: string[] = []
   let connected: boolean | null = null
+  let called = false
   let result: CliEvent | null = null
   let stop = (): void => {}
   const run = runCli({
     bin: 'claude',
-    args: ['-p', '--model', 'haiku', '--output-format', 'stream-json', '--verbose', '--tools', '', '--allowedTools', tools.join(','), '--', createPrompt(tracker, ctx.trackerProject, ctx.draft)],
+    // dontAsk: only the allowed create tools run, whatever default mode the owner's settings give;
+    // --tools "" leaves no built-in tool (D5).
+    args: ['-p', '--model', 'haiku', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk', '--tools', '', '--allowedTools', tools.join(','), '--', createPrompt(tracker, ctx.trackerProject, ctx.draft)],
     cwd: ctx.repo,
     onEvent: event => {
       if (event.type === 'system' && event.subtype === 'init') {
@@ -161,10 +163,9 @@ async function createViaMcp(ctx: CreateContext, tracker: 'linear' | 'jira'): Pro
         connected = tools.some(tool => listed.includes(tool))
         if (!connected) stop() // not connected is not a failure: the spec path takes it
       } else if (event.type === 'assistant') {
-        const content = (event.message as { content?: unknown } | undefined)?.content
-        if (!Array.isArray(content)) return
-        for (const block of content as Record<string, unknown>[]) {
+        for (const block of contentOf(event) ?? []) {
           if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text)
+          if (block?.type === 'tool_use' && typeof block.name === 'string' && tools.includes(block.name)) called = true
         }
       } else if (event.type === 'result') {
         result = event
@@ -177,17 +178,27 @@ async function createViaMcp(ctx: CreateContext, tracker: 'linear' | 'jira'): Pro
   const final = result as CliEvent | null
   if (seen === false) return 'absent'
   if (exit.spawnError) return { ok: false, error: `claude could not start: ${exit.spawnError}` }
-  if (seen === null) return { ok: false, error: `the ${tracker} create ended before it started: ${tail(exit.stderr) || 'no output'}` }
-  const said = lastJson(typeof final?.result === 'string' ? final.result : texts.join('\n'))
-  const error = typeof said?.error === 'string' && said.error !== '' ? said.error : null
-  if (exit.code !== 0 || !final || final.is_error === true) {
-    return { ok: false, error: error ?? (tail(exit.stderr) || `the ${tracker} create failed (exit ${exit.code ?? exit.signal})`) }
+  if (seen === null) return { ok: false, error: `the ${tracker} create ended before it started: ${tail(exit.stderr, 5) || 'no output'}` }
+  const reply = typeof final?.result === 'string' ? final.result : texts.join('\n')
+  const said = lastJson(reply)
+  const finished = exit.code === 0 && final !== null && final.is_error !== true
+  if (finished && typeof said?.ref === 'string' && REF.test(said.ref) && typeof said.url === 'string' && HTTPS.test(said.url)) {
+    return { ok: true, ref: said.ref, url: said.url }
   }
-  if (typeof said?.ref === 'string' && said.ref !== '' && typeof said.url === 'string' && said.url !== '') return { ok: true, ref: said.ref, url: said.url }
-  return { ok: false, error: error ?? `the ${tracker} create did not say whether it made the issue` }
+  ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: the ${tracker} create ended with: ${tail(reply, 5) || tail(exit.stderr, 5) || 'no output'}`)
+  const error = typeof said?.error === 'string' && said.error !== '' ? said.error : null
+  const reason = error ?? (finished ? `the ${tracker} create did not say whether it made the issue` : tail(exit.stderr, 5) || `the ${tracker} create failed (exit ${exit.code ?? exit.signal})`)
+  // The create tool ran, so the issue may exist even though the run did not report it.
+  if ((called as boolean) && error === null) {
+    return { ok: false, error: `${reason} (its create tool ran: check ${tracker} before saving it as a spec)`, maybeMade: true }
+  }
+  return { ok: false, error: reason }
 }
 
-/** Makes the ticket, then created.json and the inbox file; a failure writes nothing. */
+/**
+ * Makes the ticket, then records it in created.json and an inbox file. A tracker failure writes
+ * nothing. Once the ticket exists it is logged first, and a failure to record it comes back with `made`.
+ */
 export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
   let made: Made | 'absent' = 'absent'
   if (ctx.tracker === 'github') made = await createGithub(ctx)
@@ -201,7 +212,15 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
   } else {
     created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at }
   }
-  await writeCreated(ctx.dir, created)
-  await writeInbox(ctx.home, ctx.repo, created.ref ?? created.specPath ?? '')
+  const name = created.ref ?? created.specPath ?? ''
+  ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: made ${name} (${created.url})`)
+  try {
+    if (!(await writeCreated(ctx.dir, created))) {
+      return { ok: false, error: `${name} was made, but this briefing already had a ticket`, made: created }
+    }
+    await writeInbox(ctx.home, ctx.repo, name)
+  } catch (err) {
+    return { ok: false, error: `${name} was made, but it could not be recorded: ${message(err)}`, made: created }
+  }
   return { ok: true, created }
 }
