@@ -16,9 +16,27 @@ const BAND_PROPS = {
   view: {},
 }
 
-type World = { files: Map<string, string>; mtimes: Map<string, number>; ran: string[]; looked: (readonly string[])[] }
+type World = {
+  files: Map<string, string>
+  mtimes: Map<string, number>
+  ran: string[]
+  looked: (readonly string[])[]
+  /** while true, the guard's `$.clock.now()` is refused, which fails the guard's handler */
+  isClockDown: boolean
+}
 
-function world(on: On, handle: string, root = ROOT): { clock: ReturnType<typeof mock.clock>; w: World } {
+type Clock = Pick<ReturnType<typeof mock.clock>, 'settle'>
+
+/**
+ * A clock the test can break: it answers `clock.now` itself (`mock.clock` cannot refuse a read),
+ * and holds no timers, so the world is built with the band off. Real time settles a start.
+ */
+function brokenClock(on: On, w: World): Clock {
+  on('clock.now', () => (w.isClockDown ? { deny: 'clock down' } : { value: Date.parse('2026-10-15T08:05:00Z') }))
+  return { settle: () => new Promise<void>(done => setTimeout(done, 50)) }
+}
+
+function world(on: On, handle: string, root = ROOT, isClockBroken = false): { clock: Clock; w: World } {
   const w: World = {
     files: new Map([
       [`${HOME}/star.json`, STAR('term_A')],
@@ -28,6 +46,7 @@ function world(on: On, handle: string, root = ROOT): { clock: ReturnType<typeof 
     mtimes: new Map(),
     ran: [],
     looked: [],
+    isClockDown: false,
   }
   // An empty handle stands for a session outside Orca: the variable is unset.
   mock.env(on, handle ? { ORCA_TERMINAL_HANDLE: handle } : {})
@@ -37,7 +56,7 @@ function world(on: On, handle: string, root = ROOT): { clock: ReturnType<typeof 
     const { Text } = $.ui.resolve(e)
     return h(Text, {}, 'engine band') as RenderElement
   })
-  const clock = mock.clock(on, { now: Date.parse('2026-10-15T08:05:00Z') })
+  const clock = isClockBroken ? brokenClock(on, w) : mock.clock(on, { now: Date.parse('2026-10-15T08:05:00Z') })
   on('process.run', ($, e) => {
     w.looked.push(e.argv)
     return { value: { exitCode: 0, stdout: `${HOME}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -174,4 +193,29 @@ test('a session whose worktree is no running row is not a worker, and may merge'
   const merged = await $.tool.call({ tool: 'Bash', command: 'gh pr merge 12 --squash' })
   expect(merged.deny).toBeUndefined()
   expect(w.ran).toEqual(['gh pr merge 12 --squash'])
+})
+
+// The Bash guard's `.catch` handler runs when the guard fails (an engine timeout, a throw), and then
+// the session's role is unknown. A worker's guard reads the clock to decide, so a refused clock
+// fails it. Only a merge, which every guarded role forbids, is refused then.
+test('when the guard fails, a direct merge is still refused, with the suffix saying so', { options: { star_band: false } }, async ($, on) => {
+  const { clock, w } = world(on, 'term_W', '/w/app-issue-1', true)
+  await start($)
+  await clock.settle()
+  w.isClockDown = true
+  const merged = await $.tool.call({ tool: 'Bash', command: 'gh pr merge 12 --squash' })
+  expect(merged.deny).toContain('a direct merge (gh pr merge) is refused')
+  expect(merged.deny).toContain("(the guard could not confirm the session's role, so it refused)")
+  expect(w.ran).toEqual([])
+})
+
+test('when the guard fails, a merge behind a review-file read is refused as a merge, not as a read', { options: { star_band: false } }, async ($, on) => {
+  const { clock, w } = world(on, 'term_W', '/w/app-issue-1', true)
+  await start($)
+  await clock.settle()
+  w.isClockDown = true
+  const hidden = await $.tool.call({ tool: 'Bash', command: `cat ${HOME}/reviews/app/issue-1-r1.md && gh pr merge 12` })
+  expect(hidden.deny).toContain('a direct merge (gh pr merge) is refused')
+  expect(hidden.deny).not.toContain('a review file')
+  expect(w.ran).toEqual([])
 })

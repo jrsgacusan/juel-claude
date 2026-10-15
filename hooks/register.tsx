@@ -14,7 +14,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { StarBand } from '../types'
-import { guardRmVars, judge, protectedWhy } from './guards'
+import { fallbackDeny, guardRmVars, judge, protectedWhy } from './guards'
 import type { Protect, Verdict } from './guards'
 import { WORKER_STATES, bandOf, parseLedger, parseQueue, parseStar } from './star'
 import type { LedgerRow, Parsed, Queue, Star } from './star'
@@ -215,11 +215,12 @@ export const register: Register = (on, options) => {
     if (merge?.kind === 'merge' && (await isWorker($, p))) return { deny: workerMergeText(merge.how) }
     return next(e)
   }).catch(($, e, next) => {
-    // The guard failed (threw, timed out) or was asked again beneath its own $ call: refuse only
-    // what the text alone shows is refused, so a broken guard never takes Bash away.
+    // The guard failed (threw, timed out) or was asked again beneath its own $ call, so the role is
+    // unknown. Refuse only a merge, which every guarded role forbids; a read passes (the session may
+    // be a worker or a person's own), and the SessionStart prose rule stays the backstop for it.
     if (next.called) return next(e)
     const p = place
-    const verdict = p ? judge(commandOfCall(e), p.protect) : undefined
+    const verdict = fallbackDeny(e)
     return verdict && p ? { deny: `${denyText(verdict, p, $.plugin.root)} (the guard could not confirm the session's role, so it refused)` } : next(e)
   })
 
@@ -232,10 +233,9 @@ export const register: Register = (on, options) => {
     if (!why || !(await isCoordinator($, p))) return next(e)
     return { deny: denyText({ kind: 'read', path: e.file_path, why }, p, $.plugin.root) }
   }).catch(($, e, next) => {
-    if (next.called) return next(e)
-    const p = place
-    const why = p ? protectedWhy(e.file_path, p.protect) : undefined
-    return why && p ? { deny: denyText({ kind: 'read', path: e.file_path, why }, p, $.plugin.root) } : next(e)
+    // The guard failed, so the role is unknown. The read guard is the coordinator's only, and a Read
+    // is never a merge (fallbackDeny: a merge is all a failed guard refuses), so it always passes.
+    return next(e)
   })
 
   // #114 spike, off unless star_rm_guard is set: in a STAR worker (and its subagents, whose calls
