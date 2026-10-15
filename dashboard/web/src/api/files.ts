@@ -3,6 +3,8 @@ import { apiFetch } from "./client"
 import { keys } from "./queries"
 import type { FileKind } from "./types"
 type FileData = { url: string | null; text: string | null }
+// An <img> or <video> cannot send X-Star-Token (spec D12), so files are fetched with apiFetch;
+// the object URL is revoked when its query is dropped from the cache (createQueryClient).
 export function useFileBlob(url: string | null, kind: FileKind) {
   const query = useQuery({
     queryKey: keys.file(url ?? ""),
@@ -19,5 +21,6 @@ export function useFileBlob(url: string | null, kind: FileKind) {
     text: query.data?.text ?? null,
     isLoading: query.isLoading,
     error: query.error,
+    refetch: query.refetch,
   }
 }

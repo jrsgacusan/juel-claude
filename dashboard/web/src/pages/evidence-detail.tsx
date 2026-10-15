@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { clock, dateTime, dayLabel } from "@/lib/format"
+import { errorMessage } from "@/lib/errors"
 import { prLabel } from "@/lib/status"
 
 // The four check cards read the release record the server sends (API contract, 2026-10-16).
@@ -48,6 +49,7 @@ export function Thumb({
   onOpen: (file: EvidenceFile) => void
 }) {
   const content = useFileBlob(file.url, file.kind)
+  const [mediaError, setMediaError] = useState(false)
   return (
     <button
       type="button"
@@ -59,20 +61,22 @@ export function Thumb({
         {content.isLoading && (
           <Skeleton className="absolute inset-0 rounded-none" />
         )}
-        {file.kind === "image" && content.url && (
+        {file.kind === "image" && content.url && !mediaError && (
           <img
             src={content.url}
             alt=""
             className="size-full object-cover object-top"
+            onError={() => setMediaError(true)}
           />
         )}
-        {file.kind === "video" && content.url && (
+        {file.kind === "video" && content.url && !mediaError && (
           <video
             src={content.url}
             muted
             preload="metadata"
             aria-hidden="true"
             className="size-full object-cover"
+            onError={() => setMediaError(true)}
           />
         )}
         {file.kind === "text" && content.text !== null && (
@@ -94,9 +98,25 @@ export function Thumb({
             </span>
           </span>
         )}
+        {mediaError && (
+          <span className="absolute inset-0 grid place-items-center p-2 text-center text-xs text-stop-fg">
+            {file.name} could not be shown.
+          </span>
+        )}
         {content.error && (
           <span className="absolute inset-0 grid place-items-center p-2 text-center text-xs text-stop-fg">
-            Couldn't load it
+            <span className="flex flex-col items-center gap-1">
+              <span>Couldn&apos;t load it</span>
+              <span
+                className="cursor-pointer underline underline-offset-2"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void content.refetch()
+                }}
+              >
+                Try again
+              </span>
+            </span>
           </span>
         )}
       </span>
@@ -109,19 +129,26 @@ export function Thumb({
 
 function FullSize({ file }: { file: EvidenceFile }) {
   const content = useFileBlob(file.url, file.kind)
+  const [mediaError, setMediaError] = useState(false)
   if (content.isLoading) return <Skeleton className="aspect-video w-full" />
   if (content.error)
     return (
-      <p role="alert" className="text-sm text-stop-fg">
-        Couldn't load {file.name}.
-      </p>
+      <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-stop-fg">
+        <span>{`Couldn't load ${file.name}: ${errorMessage(content.error)}`}</span>
+        <Button variant="outline" size="sm" onClick={() => void content.refetch()}>
+          Try again
+        </Button>
+      </div>
     )
+  if (mediaError)
+    return <p className="text-sm text-stop-fg">{file.name} could not be shown.</p>
   if (file.kind === "image")
     return (
       <img
         src={content.url ?? ""}
         alt={file.name}
         className="max-h-[75vh] w-full rounded-lg border object-contain"
+        onError={() => setMediaError(true)}
       />
     )
   if (file.kind === "video")
@@ -132,6 +159,7 @@ function FullSize({ file }: { file: EvidenceFile }) {
         autoPlay
         aria-label={file.name}
         className="max-h-[75vh] w-full rounded-lg border bg-black"
+        onError={() => setMediaError(true)}
       />
     )
   return (

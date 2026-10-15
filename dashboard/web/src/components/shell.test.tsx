@@ -17,6 +17,28 @@ describe("the app shell", () => {
     )
   })
 
+  it("redirects a project root to Needs you", async () => {
+    const { router } = renderApp("/sphere-app")
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe("/sphere-app/needs"),
+    )
+  })
+
+  it("uses the first listed project when none are running", async () => {
+    server.use(
+      http.get(
+        "*/api/projects",
+        () =>
+          HttpResponse.json([
+            { name: "first", repo: "/first", state: "stopped", terminal: null, lastTick: null, needsYou: 0 },
+            { name: "second", repo: "/second", state: "idle", terminal: null, lastTick: null, needsYou: 0 },
+          ]),
+      ),
+    )
+    const { router } = renderApp("/")
+    await waitFor(() => expect(router.state.location.pathname).toBe("/first/needs"))
+  })
+
   it("lists every project with its state, and switches project on the same page", async () => {
     const { user, router } = renderApp("/sphere-app/progress")
     const projects = await screen.findByRole("list", { name: "Projects" })
@@ -127,7 +149,7 @@ describe("the app shell", () => {
 
   it("a project name that needs encoding works", async () => {
     const odd: Project = {
-      name: "sphere.api tools",
+      name: "a#b c",
       repo: "/r",
       state: "stopped",
       terminal: null,
@@ -135,10 +157,15 @@ describe("the app shell", () => {
       needsYou: 0,
     }
     server.use(http.get("*/api/projects", () => HttpResponse.json([odd])))
-    renderApp("/sphere.api%20tools/needs")
+    renderApp("/a%23b%20c/progress")
+    const projects = await screen.findByRole("list", { name: "Projects" })
+    expect(within(projects).getByRole("link", { name: /a#b c/ })).toHaveAttribute(
+      "href",
+      "/a%23b%20c/progress",
+    )
     expect(
       await screen.findByText(
-        "STAR is stopped for sphere.api tools. Start it with /juel:star in that project. Your answers wait in its queue."
+        "STAR is stopped for a#b c. Start it with /juel:star in that project. Your answers wait in its queue."
       )
     ).toBeInTheDocument()
   })

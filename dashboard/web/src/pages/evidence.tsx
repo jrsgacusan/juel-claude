@@ -1,4 +1,4 @@
-import { useParams, useSearchParams } from "react-router"
+import { useParams } from "react-router"
 import { useEvidence } from "@/api/queries"
 import {
   EmptyState,
@@ -11,11 +11,12 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { clock, dayLabel } from "@/lib/format"
 import { prLabel } from "@/lib/status"
+import { useSearchParam } from "@/lib/use-search-param"
 import { EvidenceDetailView } from "./evidence-detail"
 export function EvidencePage() {
   const { project = "" } = useParams()
   const evidence = useEvidence(project)
-  const [params, setParams] = useSearchParams()
+  const [itemParam, setItemParam] = useSearchParam("item")
   if (evidence.isPending)
     return (
       <LoadingState label="the evidence">
@@ -50,17 +51,9 @@ export function EvidencePage() {
       </>
     )
   const selected =
-    evidence.data.find((item) => item.item === params.get("item")) ??
+    evidence.data.find((item) => item.item === itemParam) ??
     evidence.data[0]
-  const select = (item: string) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        next.set("item", item)
-        return next
-      },
-      { replace: true }
-    )
+  const select = (item: string) => setItemParam(item)
   return (
     <>
       {refreshFailed(evidence) && (
