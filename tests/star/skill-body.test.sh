@@ -655,5 +655,8 @@ g "LHmod-b the requirement is soft, with the version check" 'check: "claude --ve
 g "LHmod-c the fallback is the prose rules" 'fallback: no band; the coordinator'"'"'s rules hold as prose, from the SessionStart hook'
 g "LHmod-d the Preflight row" '| Claude Code mods | cli | SOFT | `claude --version` is 2.1.287 or later | no band; the coordinator'"'"'s rules hold as prose, from the SessionStart hook |'
 g "LHmod-e the hard rule names the mod" '- On Claude Code 2.1.287 and later, juel'"'"'s mod refuses a direct `gh pr merge` in the coordinator and in STAR'"'"'s workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.'
+# fix-2: prompt bounded in Reconcile and the escalation-answer rule (#114)
+g "FIX2a Reconcile keeps a prompt bounded worker, Housekeeping answers it (#114)" '`prompt bounded …` → keep it; Housekeeping answers it.'
+g "FIX2b an escalation answer counts a prompt bounded worker as still running (#114)" 'says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

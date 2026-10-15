@@ -586,7 +586,7 @@ runs in <handle>", and end the turn.
    No scheduler tool → skip it and say so: an idle STAR then wakes only on a hand-over nudge or the user, so
    away summaries and answers typed into the queue file wait for one of those.
 5. **Reconcile** every row in a worker stage, except a `building` row whose `verify` holds `retry=` (below), with `sh S/worker-probe.sh <dispatch> --item <item> --home HOME_DIR --worktree <worktree> --deadline <progressDeadlineMin>` (no `--worktree` for a `briefing` or `posting` row):
-   `ok`, `quiet …` or `stale …` (with or without ` holds-screen <m>`) → keep it. `stalled: …` → housekeeping's capacity rule. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
+   `ok`, `quiet …` or `stale …` (with or without ` holds-screen <m>`) → keep it. `prompt bounded …` → keep it; Housekeeping answers it. `stalled: …` → housekeeping's capacity rule. `settled <state> [<reason>]` → its report is in the run's inbox; housekeeping's settlement rule
    catches it if it is not (`agent_prompt_stalled` included). `gone` → Orca has no such worker (an Orca restart):
    a `briefing`, `posting` or `babysitting` row restarts once on its own (`restarts` column: set it to 1 and
    put the row in its stage's waiting state; `restarts` goes back to 0 whenever the row moves on to a new stage; babysit resumes with `--since <cursor>`), because
@@ -735,7 +735,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    applied it.
 
    **An `escalation` answer for a row whose worker is still running** (its state is a worker stage
-   and `sh S/worker-probe.sh <dispatch>` says `ok`, `quiet …`, `stale …` or `stalled: …`: a worker in any of those is still running) is handled first: `drop` stops the worker before
+   and `sh S/worker-probe.sh <dispatch>` says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running) is handled first: `drop` stops the worker before
    the row changes (`orca orchestration worker-stop --dispatch <id> --json`, then `worker-release` and the gone check);
    any other answer is appended to the brief's `## Decisions` and sent to that worker with
    `orca orchestration send --to dispatch:<id> --subject "decision" --body "<answer>" --json`, and
