@@ -34,7 +34,11 @@ export async function listTerminals(): Promise<Terminals> {
   }
 }
 
-/** Wake STAR with `inbox` through `orca terminal send`, as a hand-over does (the band's prompt.submit works only inside STAR's own session). True only when Orca took it; a terminal Orca does not list, or none, is false without sending. */
+/**
+ * Wake STAR with `inbox` through `orca terminal send`, as a hand-over does (the band's
+ * prompt.submit works only inside STAR's own session). True only when Orca took it; a terminal
+ * Orca does not list, or none, is false without sending.
+ */
 export async function nudge(
   terminal: string | null,
   log: (line: string) => void = () => {},

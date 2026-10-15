@@ -208,14 +208,17 @@ export function parseStar(text: string): Parsed<Star> {
 // decision to run the stage again") is the field's placeholder, not a button.
 const IN_WORDS = /^(or\b|answer with\b|tell me\b|say\b)|\byour (decision|answer)\b/i
 
+// STAR's pick on an item: its option in the Options line ends in " (recommended)". The words the
+// band and the dashboard send never carry the suffix.
+const RECOMMENDED = /\s*\(recommended\)\s*$/i
+
 /**
  * An item's `Options:` line as the band draws it: each option the owner can pick as it is, each
  * template (`go except <items>`) as the words before its placeholder, ready to finish, and the
  * options that only ask for words as the field's placeholder.
+ * Each option carries `recommended`: true when it ended in ` (recommended)`, which is dropped from
+ * its label and text.
  */
-// STAR's pick on an item: its option in the Options line ends in " (recommended)". The words the
-// band and the dashboard send never carry the suffix.
-const RECOMMENDED = /\s*\(recommended\)\s*$/i
 
 export function optionsOf(body: readonly string[]): { options: { label: string; text: string; recommended: boolean }[]; hint: string } {
   const line = body.find(l => /^options\s*:/i.test(l))

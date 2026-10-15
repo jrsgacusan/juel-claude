@@ -29,7 +29,11 @@ export function isDir(p: string): boolean {
   }
 }
 
-/** Every regular file under dir, as sorted paths relative to it. Symbolic links are left out. A missing dir is []. With rel (the folder's path in the STAR folder), a folder that cannot be read is an Unreadable naming it; without, it is skipped (the change poll). */
+/**
+ * Every regular file under dir, as sorted paths relative to it. Symbolic links are left out. A
+ * missing dir is []. With rel (the folder's path in the STAR folder), a folder that cannot be read
+ * is an Unreadable naming it; without, it is skipped (the change poll).
+ */
 export function listFiles(dir: string, rel?: string): string[] {
   const out: string[] = [];
   const walk = (sub: string): void => {

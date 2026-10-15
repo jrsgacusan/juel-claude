@@ -40,7 +40,7 @@ export type StarNeed = {
   hint: string
   /** For a worker's question: "23m left" or "5m overdue"; null otherwise. */
   due: string | null
-  /** The item's `Suggest:` line (STAR's pick and why), null when it has none or the step is a secret. */
+  /** The text of the item's first `Suggest:` line (STAR's pick and why; for a `slack-reply`, the drafted reply's first line). Null when it has none or the step is a secret. */
   suggestion: string | null
 }
 

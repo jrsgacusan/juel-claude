@@ -2,7 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { Unreadable, whyOf } from "../http.ts";
 
-/** The owner's go, as typed: the grant file's text after its frontmatter, on one line. Null when the brief names no grant, or one outside this STAR folder, or the file is gone. */
+/**
+ * The owner's go, as typed: the grant file's text after its frontmatter, on one line. Null when
+ * the brief names no grant, or one outside this STAR folder, or the file is gone.
+ */
 export function goWords(home: string, grant: string | null): string | null {
   if (!grant) return null;
   const file = path.resolve(home, grant);

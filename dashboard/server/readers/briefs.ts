@@ -21,7 +21,10 @@ const unquote = (v: string): string => {
   return bare === "null" || bare === "~" ? "" : bare;
 };
 
-/** A brief's item.title, approved: and grant: from its frontmatter, the checklist under `## Acceptance criteria`, and every `### D<n>` heading in its body. */
+/**
+ * A brief's item.title, approved: and grant: from its frontmatter, the checklist under
+ * `## Acceptance criteria`, and every `### D<n>` heading in its body.
+ */
 export function parseBrief(text: string): Brief {
   const lines = text.split("\n");
   let title: string | null = null;

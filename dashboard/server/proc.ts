@@ -2,7 +2,10 @@ import { execFile } from "node:child_process";
 
 export type Run = { code: number; stdout: string; stderr: string };
 
-/** Run a command with an argv array (no shell). code is -1 when it could not start, timed out, was killed by a signal, or printed more than 8 MB; stderr then ends with the reason. */
+/**
+ * Run a command with an argv array (no shell). code is -1 when it could not start, timed out, was
+ * killed by a signal, or printed more than 8 MB; stderr then ends with the reason.
+ */
 export function run(
   cmd: string,
   args: readonly string[],

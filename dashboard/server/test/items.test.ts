@@ -194,8 +194,7 @@ test("every status: a direct queue item, an unbatched brief, dropped and escalat
     fs.appendFileSync(
       path.join(env.star, "ledger.md"),
       row("issue-8", "brief-ready", "batch=B-9") +
-        row("issue-9", "dropped", "-") +
-        row("issue-10", "escalated", "-"),
+        row("issue-9", "dropped", "-") + row("issue-10", "escalated", "-"),
     );
     const q = path.join(env.star, "open-loops.md");
     fs.writeFileSync(
@@ -204,7 +203,14 @@ test("every status: a direct queue item, an unbatched brief, dropped and escalat
         .readFileSync(q, "utf8")
         .replace(
           "## Waiting on others",
-          "### N-20 · app · issue-3 · which copy for the button?\nkind: question\nmsg: m-2\nAnswer:\n\n## Waiting on others",
+          [
+            "### N-20 · app · issue-3 · which copy for the button?",
+            "kind: question",
+            "msg: m-2",
+            "Answer:",
+            "",
+            "## Waiting on others",
+          ].join("\n"),
         ),
     );
     const items = (await (await env.api("/api/projects/app/items")).json()) as {
@@ -231,7 +237,11 @@ test("the evidence list holds merged items only, newest first", async () => {
     );
     fs.appendFileSync(
       path.join(env.star, "ledger.md"),
-      "| issue-11 | #11 | app | - | done | babysit | 1 | - | - | 0 | https://github.com/o/r/pull/3 | 1111111 | - | - | - | 2026-10-14T10:00:00Z |\n",
+      [
+        "| issue-11 | #11 | app | - | done | babysit | 1 | - | - | 0 |",
+        "https://github.com/o/r/pull/3 | 1111111 | - | - | - |",
+        "2026-10-14T10:00:00Z |\n",
+      ].join(" "),
     );
     fs.mkdirSync(path.join(env.star, "evidence", "issue-11"));
     fs.writeFileSync(
@@ -240,7 +250,13 @@ test("the evidence list holds merged items only, newest first", async () => {
     );
     fs.writeFileSync(
       path.join(env.star, "releases", "2026-10-14-app-issue-11.md"),
-      "# app · issue-11 · Older fix\n\n- PR: https://github.com/o/r/pull/3 (#3), fix/a → main\n- Merged: 2026-10-14T10:00:00Z by someone, merge commit 1111111\n",
+      [
+        "# app · issue-11 · Older fix",
+        "",
+        "- PR: https://github.com/o/r/pull/3 (#3), fix/a → main",
+        "- Merged: 2026-10-14T10:00:00Z by someone, merge commit 1111111",
+        "",
+      ].join("\n"),
     );
     const list = (await (
       await env.api("/api/projects/app/evidence")

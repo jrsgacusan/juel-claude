@@ -4,7 +4,10 @@ export type Kind = 'image' | 'video' | 'text'
 const IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'])
 const VIDEOS = new Set(['.webm', '.mp4', '.mov', '.m4v'])
 
-/** D6: by extension, image, video, else text. */
+/**
+ * By extension: image, video, else text. Evidence files carry no criterion in their names, so the
+ * evidence route returns them as one group.
+ */
 export function kindOf(name: string): Kind {
   const ext = path.extname(name).toLowerCase()
   return IMAGES.has(ext) ? 'image' : VIDEOS.has(ext) ? 'video' : 'text'

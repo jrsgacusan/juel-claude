@@ -3,12 +3,28 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
 
 const TYPES: Readonly<Record<string, string>> = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.map': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-  '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8',
-  '.md': 'text/plain; charset=utf-8', '.log': 'text/plain; charset=utf-8', '.webm': 'video/webm', '.mp4': 'video/mp4',
-  '.m4v': 'video/mp4', '.mov': 'video/quicktime',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/plain; charset=utf-8',
+  '.log': 'text/plain; charset=utf-8',
+  '.webm': 'video/webm',
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.mov': 'video/quicktime',
 }
 
 export const typeOf = (file: string): string => TYPES[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
@@ -26,19 +42,33 @@ export const BUILD_FIRST = [
 ].join('\n')
 
 const isFile = (p: string): boolean => {
-  try { return fs.statSync(p).isFile() } catch { return false }
+  try {
+    return fs.statSync(p).isFile()
+  } catch {
+    return false
+  }
 }
 
 function sendFile(res: ServerResponse, file: string, head: boolean): void {
   const size = fs.statSync(file).size
   res.writeHead(200, { 'content-type': typeOf(file), 'content-length': size, 'cache-control': 'no-cache' })
-  if (head) { res.end(); return }
+  if (head) {
+    res.end()
+    return
+  }
   fs.createReadStream(file).on('error', () => res.destroy()).pipe(res)
 }
 
-/** dashboard/web/dist: a file by its path, index.html for every other path (D12), the build-first page with no dist. */
+/**
+ * dashboard/web/dist: a file by its path; index.html for every other path, so the web app's deep
+ * links and reloads work; the build-first page while dist/index.html is missing.
+ */
 export function serveStatic(req: IncomingMessage, res: ServerResponse, dist: string): void {
-  if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { allow: 'GET, HEAD' }); res.end(); return }
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { allow: 'GET, HEAD' })
+    res.end()
+    return
+  }
   const head = req.method === 'HEAD'
   const index = path.join(dist, 'index.html')
   if (!isFile(index)) {

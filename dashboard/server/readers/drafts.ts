@@ -4,7 +4,10 @@ import { Unreadable, whyOf } from "../http.ts";
 
 export type SlackDraft = { name: string; to: string; reply: string };
 
-/** drafts/*-slack-*.md: the first line (`to: slack <channelId> <threadTs or ts>`) and the reply after it. A draft that cannot be read is an Unreadable. */
+/**
+ * drafts/*-slack-*.md: the first line (`to: slack <channelId> <threadTs or ts>`) and the reply
+ * after it. A draft that cannot be read is an Unreadable.
+ */
 export function slackDrafts(home: string): SlackDraft[] {
   let names: string[];
   try {

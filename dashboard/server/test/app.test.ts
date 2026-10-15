@@ -290,7 +290,19 @@ test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest,
         .readFileSync(q, "utf8")
         .replace(
           "## Waiting on others",
-          "### N-12 · app · issue-3 · q\nkind: question\nmsg: m-3\nAnswer:\n\n### N-10 · app · issue-6 · h\nkind: held\nOptions: done\nAnswer:\n\n## Waiting on others",
+          [
+            "### N-12 · app · issue-3 · q",
+            "kind: question",
+            "msg: m-3",
+            "Answer:",
+            "",
+            "### N-10 · app · issue-6 · h",
+            "kind: held",
+            "Options: done",
+            "Answer:",
+            "",
+            "## Waiting on others",
+          ].join("\n"),
         ),
     );
     const ordered = (await (

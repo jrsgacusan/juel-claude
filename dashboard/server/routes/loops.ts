@@ -47,8 +47,9 @@ export function loopRoutes(router: Router, ctx: Ctx): void {
     return { json: needs.map((n) => loopOf(n, Date.now())) };
   });
 
-  // The band's path (hooks/register.tsx sendAnswer): loops.sh set-answer, then wake STAR. Nothing
-  // goes to a worker from here: STAR's Answers step does that.
+  // The band's path (hooks/register.tsx sendAnswer): loops.sh set-answer, then wake STAR, here with
+  // `orca terminal send` (ctx.nudge), since this process is not STAR's session. Nothing goes to a
+  // worker from here: STAR's Answers step does that.
   router.add("POST", "/api/projects/:p/loops/:id/answer", async (req) => {
     const p = await ctx.registry.find(req.params["p"] ?? "");
     const id = req.params["id"] ?? "";
