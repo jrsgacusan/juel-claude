@@ -45,6 +45,8 @@ conf() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d[sy
 out=$(D 2>&1); rc=$?
 url=$(printf '%s\n' "$out" | sed -n 's/^STAR dashboard: //p')
 [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -q 'no dashboard/web yet' && [ -n "$url" ] && pass "with no dashboard/web it starts the server and prints the URL" || fail "first run (rc=$rc): $out"
+printf '%s\n' "$out" | grep -q 'No such file or directory' && fail "the first run printed a shell error: $out" || pass "the first run prints no shell error"
+[ "$(printf '%s\n' "$out" | grep -vc -e '^STAR dashboard: ' -e '^dashboard.sh: ')" = 0 ] && pass "every first-run line is the URL or a dashboard.sh line" || fail "unexpected first-run lines: $out"
 [ "$(cat "$TMP/opened" 2>/dev/null)" = "$url" ] && pass "it opens the URL" || fail "opened: $(cat "$TMP/opened" 2>/dev/null)"
 pid=$(conf pid); port=$(conf port); token=$(conf token)
 [ "$url" = "http://127.0.0.1:$port/?t=$token" ] && kill -0 "$pid" 2>/dev/null && pass "dashboard.json names the live server and its token" || fail "dashboard.json: pid=$pid port=$port"

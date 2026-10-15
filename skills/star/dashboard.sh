@@ -126,7 +126,8 @@ if ! running; then
     done
   fi
   mkdir -p "$JUEL"
-  start=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+  start=0
+  [ -f "$LOG" ] && start=$(wc -c < "$LOG" | tr -d ' ')
   CHILD=$(python3 - "$SERVER" "$LOG" <<'PY'
 import subprocess, sys
 with open(sys.argv[2], "ab") as log:
