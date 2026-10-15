@@ -340,6 +340,34 @@ test('a session that is not the coordinator never runs cswap', async ($, on) => 
   expect(w.listed).toBe(0)
 })
 
+test("Orca's nudge typed into the focused field is not sent: STAR is woken instead", async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  await ui.input({ key: 'answer:N-12', text: 'You have 1', kind: 'change' })
+  await ui.input({ key: 'answer:N-12', text: 'You have 1 orchestration message. Run orca orchestration check --run run_x.' })
+  expect(w.answered).toEqual([])
+  expect(w.prompts).toEqual(['inbox'])
+  expect(w.toasts).toEqual(["N-12: that was Orca's message for STAR, not your answer, so nothing was sent"])
+  expect((await ui.find({ type: 'Input', key: 'answer:N-12' }))?.props['value']).toBe('')
+  await ui.unmount()
+})
+
+test('the hint says how to reach the field: a click in fullscreen, ctrl+x tab on the classic screen', async ($, on) => {
+  const { clock } = world(on, 'term_A')
+  await start($)
+  await clock.settle()
+  const hint = async (isFullscreen: boolean): Promise<string | undefined> => {
+    const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS, viewport: { columns: 120, rows: 40, isFullscreen } })
+    const found = (await ui.find({ type: 'Text', text: /to go back$/ }))?.text
+    await ui.unmount()
+    return found
+  }
+  expect(await hint(true)).toContain('click here to reply')
+  expect(await hint(false)).toContain('clicks need fullscreen: /tui fullscreen')
+})
+
 test('an answer with no letter or digit is not sent', async ($, on) => {
   const { clock, w } = world(on, 'term_A')
   await start($)

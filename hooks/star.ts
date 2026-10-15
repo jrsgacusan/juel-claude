@@ -220,6 +220,14 @@ export function optionsOf(body: readonly string[]): { options: { label: string; 
   return { options, hint: hints.join(', or ') }
 }
 
+// Orca types its nudge into STAR's terminal ("You have 1 orchestration message. Run orca ..."), and
+// STAR's heartbeat and wake-ups arrive as prompts: while the band's reply field holds the focus, the
+// nudge lands there, Enter included. None of these is ever the owner's answer.
+const MACHINE_TEXT = /^(?:you have \d+ orchestration messages?\b|star heartbeat:|inbox$)/i
+
+/** Whether a reply is Orca's or STAR's own text, typed into the field, rather than the owner's. */
+export const isMachineText = (text: string): boolean => MACHINE_TEXT.test(text.trim())
+
 function ago(ms: number): string {
   if (ms < 60_000) return 'just now'
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ago`

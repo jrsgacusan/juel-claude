@@ -6,7 +6,7 @@ import { fallbackDeny, guardRmVars, judge, protectedWhy } from '../../hooks/guar
 import type { Protect } from '../../hooks/guards'
 import { autoOf, normDir, parseAccounts } from '../../hooks/cswap'
 import type { Proc } from '../../hooks/cswap'
-import { bandOf, needOf, optionsOf, parseLedger, parseQueue, parseStar } from '../../hooks/star'
+import { bandOf, isMachineText, needOf, optionsOf, parseLedger, parseQueue, parseStar } from '../../hooks/star'
 import { CSWAP_LIST, HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
 
 const P: Protect = { homes: [HOME], docsRel: 'docs/superpowers', cwd: ROOT }
@@ -346,5 +346,19 @@ describe('cswap accounts', () => {
     expect(normDir('~/.claude-personal/', HOMEDIR)).toBe('/Users/me/.claude-personal')
     expect(normDir('$HOME/.claude-sphere', HOMEDIR)).toBe('/Users/me/.claude-sphere')
     expect(normDir('"/Users/me/.claude-x"', HOMEDIR)).toBe('/Users/me/.claude-x')
+  })
+})
+
+describe('machine text in the reply field', () => {
+  test("Orca's nudge and STAR's own prompts are never an answer", () => {
+    for (const t of ['You have 1 orchestration message. Run orca orchestration check --run run_c538777b6a11.', 'You have 3 orchestration messages.', 'STAR heartbeat: if you are not already in a tick, run one.', 'inbox', '  INBOX  ']) {
+      expect(isMachineText(t), t).toBe(true)
+    }
+  })
+
+  test("the owner's words are", () => {
+    for (const t of ['go', 'drop SPH-17', 'inbox it later', 'you have my go', 'accept']) {
+      expect(isMachineText(t), t).toBe(false)
+    }
   })
 })

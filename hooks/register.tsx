@@ -20,7 +20,7 @@ import type { Proc } from './cswap'
 import type { BandActions, Ui } from './band'
 import { fallbackDeny, guardRmVars, judge, protectedWhy } from './guards'
 import type { Protect, Verdict } from './guards'
-import { WORKER_STATES, bandOf, parseLedger, parseQueue, parseStar } from './star'
+import { WORKER_STATES, bandOf, isMachineText, parseLedger, parseQueue, parseStar } from './star'
 import type { LedgerRow, Parsed, Queue, Star } from './star'
 
 type Api = EngineInterface
@@ -164,6 +164,11 @@ async function wake($: Api): Promise<void> {
 
 const lastLine = (text: string): string => text.trim().split('\n').pop() ?? ''
 
+/** Forget what the owner typed for one item: it was sent, or it was never theirs. */
+function clearDraft($: Api, id: string): Promise<unknown> {
+  return update($, drafts, d => Object.fromEntries(Object.entries(d).filter(([key]) => key !== id)))
+}
+
 /** What the owner is told when loops.sh did not set the answer: kept, closed, a broken queue, or its error. */
 function notRecorded(id: string, run: { exitCode: number; stdout: string; stderr: string }): string {
   if (run.exitCode === 0 && run.stdout.trim() === 'kept') return `${id} already has an answer: STAR acts on that one`
@@ -181,6 +186,14 @@ async function sendAnswer($: Api, id: string, typed: string): Promise<void> {
   const p = place
   if (!p) return
   const text = typed.replace(/\s+/g, ' ').trim()
+  // Orca's nudge, typed into the field while it held the focus: never recorded. The nudge was for
+  // STAR, so STAR is woken in its place.
+  if (isMachineText(text)) {
+    await clearDraft($, id)
+    void $.ui.toast(`${id}: that was Orca's message for STAR, not your answer, so nothing was sent`)
+    if (await isCoordinator($, p)) await wake($)
+    return
+  }
   // STAR's own rule: an answer with no letter or digit in it is not an answer.
   if (!/[\p{L}\p{N}]/u.test(text)) {
     void $.ui.toast(`${id}: type an answer in words first`)
@@ -195,7 +208,7 @@ async function sendAnswer($: Api, id: string, typed: string): Promise<void> {
   }
   const said = run.stdout.trim()
   if (run.exitCode === 0 && said === 'set') {
-    await update($, drafts, d => Object.fromEntries(Object.entries(d).filter(([key]) => key !== id)))
+    await clearDraft($, id)
     await refresh($)
     void $.ui.toast(`Sent “${fit(text, 60)}” to STAR for ${id}`)
     // The card moves on to the next open item; the reply field there takes the focus.
@@ -394,6 +407,7 @@ export const register: Register = (on, options) => {
       drafts: await read($, drafts),
       accounts: await read($, accounts),
       columns: e.props.bodyColumns,
+      isFullscreen: e.viewport?.isFullscreen,
     }
     return drawBand(ui, view, actionsFor($))
   })

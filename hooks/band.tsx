@@ -29,6 +29,8 @@ export type BandView = {
   drafts: Readonly<Record<string, string>>
   /** e.props.bodyColumns */
   columns: number
+  /** e.viewport.isFullscreen: only the fullscreen layout reports clicks; absent when unknown */
+  isFullscreen?: boolean
 }
 
 // Each kind of ask has a color of its own: a chip on the card being answered, a colored word on
@@ -344,7 +346,9 @@ export function drawBand(ui: Ui, view: BandView, actions: BandActions): RenderEl
         {next.map(n => row(ui, n, itemWidth, columns, actions))}
         {more ? <Text dimColor>{`  ${more} more after these`}</Text> : ''}
         <Text dimColor wrap="truncate-end">
-          {'  ctrl+x tab to reply, tab to move between items, esc to go back'}
+          {view.isFullscreen === false
+            ? '  ctrl+x tab to reply (clicks need fullscreen: /tui fullscreen), tab to move, esc to go back'
+            : '  click here to reply (or ctrl+x tab), tab to move between items, esc to go back'}
         </Text>
       </Box>
     </Box>
