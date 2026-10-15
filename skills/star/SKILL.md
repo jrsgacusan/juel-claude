@@ -468,6 +468,7 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `start=<n>`, `live=<n>` | written by `stage-start.sh`: the attempt number, and an attempt still being started | `live=` when that start ends; never `start=` |
 | `kept=1` | the worktree of a finished row was kept (`worktree-clean.sh`): STAR does not try again by itself | its held item is answered `done` |
 | `capacity=<n>` | retry nudges sent to a worker stalled on a model at capacity (`stalled:`) in one silent stretch | the probe prints anything else, a report from it is processed, or a new worker starts |
+| `prompted=<n>` | Claude Code safety prompts STAR answered on this row's worker screen (`prompt bounded`, #114) | a new worker starts |
 | `mismatch=<n>` | `DONE` reports `done-check.sh` could not check | the row reaches `babysit-queued` |
 | `mergefail=<n>` | merge-gate `FAIL`s sent back to babysitting | the row is `done`, or the user answers its escalation |
 | `rescoped=1` | the item was narrowed once by a re-scope | never: a second re-scope request escalates |
@@ -895,15 +896,24 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      and `counters.capacity=+1`; at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as
      a lost worker (the reconcile rule: a `briefing`, `posting` or `babysitting` row restarts once;
      a `building` row gets `--kind restart-or-drop`) (#41).
+     `prompt bounded <terminal> <path>` (#114): the worker sits on Claude Code's safety prompt for an
+     `rm` or `rmdir` of a variable path, and `worker-probe.sh` found every operand inside the item's
+     worktree or a Claude Code session scratchpad. Below `prompted=3`, send
+     `orca terminal send --terminal <terminal> --text "1" --json` (no `--enter`: the digit picks the
+     option, and an Enter could answer what comes next), append
+     `- <date> STAR answered a permission prompt for the <stage> worker: Yes (<path>)` to the brief's
+     `## Decisions` (a row with no brief yet: the status line only), name it in the status line, and
+     `counters.prompted=+1`. At `prompted=3`, a fourth `prompt bounded` takes the `stuck:` path below.
      `stuck: <what>` → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
-     `--kind escalation` "<stage> worker stuck: <what>". `settled failed agent_prompt_stalled` (the
+     `--kind escalation` "<stage> worker stuck: <what>" (a prompt the probe would not answer reads
+     `stuck: confirmation dialog: <its line>`, so the escalation names it). `settled failed agent_prompt_stalled` (the
      worker never took its prompt) → `failed`, release, queue `--kind escalation` "<stage> worker
      never received its prompt: most likely Claude Code's trust dialog for <worktree>. Trust it once
      (run `claude` there and accept), then answer restart". Any other `settled …` with no processed
      report: `silent=1` in `counters` the first time; the second time in a row → `failed`, release,
      queue it. `gone` → the reconcile rule for a lost worker. `unknown <why>` → `unknown=<n>` in
      `counters`; three ticks in a row → `failed`, queue it with `<why>` (the worker is not stopped:
-     nothing is known about it). Never answer a worker's prompt for it.
+     nothing is known about it). Never answer a worker's prompt for it, except `prompt bounded` (above, #114).
    - `sh S/loops.sh list` printing a `missing` line (an id that was handed out and is now in
      neither the queue nor the archive: removed by hand, or lost when an editor saved an older
      copy of the file): say so in the status line, and add again any ask a row still needs (an
@@ -1580,12 +1590,17 @@ no more check-ins; the worker is not stopped. Any probe result other than `quiet
 silent stretch is over.
 
 The probe never says `quiet` or `stale` while a question with numbered options is on the worker's
-screen (that is `stuck: confirmation dialog`), because the check-in ends with Enter and Enter would
-answer the prompt. Send a check-in or an instruction only on this tick's probe and `step-check.sh`
+screen (that is `stuck: confirmation dialog`, or `prompt bounded` for the one prompt STAR answers),
+because the check-in ends with Enter and Enter would answer the prompt. It reads the rendered
+screen (`orca terminal read --screen`), not Orca's transcript, which shows no prompt (#114). Send a
+check-in or an instruction only on this tick's probe and `step-check.sh`
 lines, never from memory of an earlier one.
 
 A blocking screen is a different thing (`stuck:`): that worker is stopped and the row goes to the
-user, and STAR never answers a worker's screen for it. A model at capacity is a third thing
+user, and STAR never answers a worker's screen for it, with one exception (#114): `prompt bounded`,
+Claude Code's safety prompt for an `rm` or `rmdir` whose every operand `worker-probe.sh` found
+inside the item's worktree or a session scratchpad, gets the digit `1` (Housekeeping). A model at
+capacity is a third thing
 (`stalled:`): STAR nudges it to retry, three times at most, then restarts it (the capacity rule in
 Housekeeping).
 
@@ -1885,7 +1900,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
 | Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
-| Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it |
+| Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
 | Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |
 | Picking a row for a message by its `item=` name | By dispatch id; the name only confirms it |

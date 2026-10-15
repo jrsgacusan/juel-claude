@@ -141,5 +141,6 @@ grep -qF 'A gate round on a base that moved and changed the branch'"'"'s own fil
 grep -qF 'a push that only merges the base runs the sweep, after a clean merge too.' "$PAGE" && pass "LH111 a push that only merges the base runs the sweep (#111)" || fail "LH111 sweep after a base merge on the page"
 grep -qF 'runs the tests for the files its conflicts changed' "$PAGE" && fail "LH111 the conflicted-files rule is gone (#111)" || pass "LH111 the conflicted-files rule is gone (#111)"
 grep -qF 'Feedback you give while an item'"'"'s brief is still drafting lands in that brief.' "$PAGE" && pass "LH112 feedback given while a brief drafts lands in it (#112)" || fail "LH112 feedback while drafting on the page"
+grep -qF 'A worker sitting on a prompt is seen on its screen. STAR answers Claude Code'"'"'s safety prompt for an <code>rm</code> inside the item'"'"'s worktree or a scratchpad, and any other prompt comes to you.' "$PAGE" && pass "LH114 a prompt is seen, the bounded one answered (#114)" || fail "LH114 prompts on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

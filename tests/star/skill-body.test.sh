@@ -639,5 +639,16 @@ g "LH112j draft-brief reads the side file at step 1 (#112)" 'Read `<--out>.feedb
 g "LH112k draft-brief copies it right before writing (#112)" 'as below), then write the brief to `--out`. Right before writing, read `<--out>.feedback.md`'
 g "LH112l only the lines the brief lacks are copied (#112)" 'again when it exists, and copy each of its lines the brief does not already hold, verbatim, under'
 g "LH112m the edge case (#112)" '| The owner gives feedback while an item'"'"'s brief is drafting |'
+g "LH114a a bounded prompt is the probe's own result (#114)" '`prompt bounded <terminal> <path>` (#114): the worker sits on Claude Code'"'"'s safety prompt for an'
+g "LH114b STAR sends the digit 1 with no Enter (#114)" '`orca terminal send --terminal <terminal> --text "1" --json` (no `--enter`: the digit picks the'
+g "LH114c the answer is on record (#114)" '`- <date> STAR answered a permission prompt for the <stage> worker: Yes (<path>)` to the brief'"'"'s'
+g "LH114d three answers at most per row (#114)" '`counters.prompted=+1`. At `prompted=3`, a fourth `prompt bounded` takes the `stuck:` path below.'
+g "LH114e the escalation names the prompt (#114)" '`stuck: confirmation dialog: <its line>`, so the escalation names it)'
+g "LH114f never answer, except prompt bounded (#114)" 'Never answer a worker'"'"'s prompt for it, except `prompt bounded` (above, #114).'
+g "LH114g the probe reads the rendered screen (#114)" 'screen (`orca terminal read --screen`), not Orca'"'"'s transcript, which shows no prompt (#114).'
+g "LH114h the one exception to never answering a screen (#114)" 'user, and STAR never answers a worker'"'"'s screen for it, with one exception (#114): `prompt bounded`,'
+g "LH114i the common mistake names the exception (#114)" 'The one exception is `prompt bounded` (#114): the digit `1`, never Enter |'
+g "LH114j the prompted counter (#114)" '| `prompted=<n>` | Claude Code safety prompts STAR answered on this row'"'"'s worker screen (`prompt bounded`, #114) | a new worker starts |'
+grep -qF 'user, and STAR never answers a worker'"'"'s screen for it. A model at capacity' "$SKILL" && fail "LH114k the old unqualified rule is gone (#114)" || pass "LH114k the old unqualified rule is gone (#114)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
