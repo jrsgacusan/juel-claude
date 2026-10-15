@@ -373,23 +373,22 @@ In reviewer mode, this phase is the re-review in "Reviewer mode"; the steps belo
    to one list), and never touches a lockfile or a binary file.
    - Exit 0 (`resolved <path>` lines): commit the merge with
      `git commit -m "Merge <remote>/<base> into <branch>; mechanical conflicts resolved in <files>"`,
-     then step 3's gates run as usual. A red gate there resets to the commit noted before the merge
-     (`git reset --hard <that sha>`; nothing is pushed) and stops with the conflicted files and the
-     failing gate: under `--unattended`,
-     `ESCALATION item=<item> phase=8 reason=merge-conflict needs=<files>; the mechanical resolution failed <gate>`
-     instead of the red-gate row. A green gate pushes, and the Phase 5 report names the resolved
-     files.
+     then step 3's gates run as usual. A red gate there keeps the merge commit and is step 3's red,
+     as for any other push (under `--unattended`, the red-gate row): the sweep may have caught a
+     break in a file that did not conflict, which a fix of your own repairs. A green gate pushes,
+     and the Phase 5 report names the resolved files.
    - Any other exit (`conflict <path> <why>` lines): list the conflicted files, stop and ask the
      user to resolve or abort (`git merge --abort`). Under `--unattended`: `git merge --abort`, then
      the `merge-conflict` escalation; nothing is asked.
    Never resolve a conflict that is not mechanical, and always name the files that were.
 2. Already up to date and nothing unpushed (`git status -sb` shows no `ahead`): go to step 5.
 3. Gate the push as `juel:ship-ticket`'s "Gate once per PR" says. A push that only merges the base
-   branch in runs the tests for the files step 1's conflict resolution changed (its `resolved <path>`
-   files), and none after a clean merge: CI carries the full suite. A push that also carries
-   unpushed commits of your own runs Phase 3 step 3's tests and sweep. Red: stop and report the
-   failing command and output. Push nothing. (Under `--unattended`: the red-gate row of
-   "Unattended mode".)
+   branch in runs the sweep, `sh <run-gates.sh> <the --gates-file manifest> --root <repo root> sweep`
+   (through the gate lock under `--unattended`, the `gates run directly` row; with no manifest, the
+   `test` command), after a clean merge too: the base can change a call that an untouched file on
+   this branch relies on, and no conflict shows it. A push that also carries unpushed commits of
+   your own runs Phase 3 step 3's tests and sweep. Red: stop and report the failing command and
+   output. Push nothing. (Under `--unattended`: the red-gate row of "Unattended mode".)
 4. `git push <remote> HEAD`. Never force-push. Under a `star:` brief the push is gated first (the
    "a push in Phase 3 or Phase 4" row of "Unattended mode"), and a merge that added nothing of its
    own carries the last SAFE with no codex round.
