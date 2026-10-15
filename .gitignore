@@ -2,6 +2,9 @@
 superpowers/
 .superpowers/
 
+# Type files Claude Code writes for an editor when it loads the plugin with --plugin-dir
+.claude-plugin/types/
+
 # Design docs, research, specs and plans — local only
 docs/*
 # The closed-loop design page is the one file under docs/ that is committed

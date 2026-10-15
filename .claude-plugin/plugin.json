@@ -15,6 +15,27 @@
     "worktrees",
     "cmux"
   ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "star_band": {
+      "type": "boolean",
+      "title": "STAR band",
+      "description": "Show STAR's pools and open queue items above the prompt in the STAR coordinator session",
+      "default": true
+    },
+    "star_guards": {
+      "type": "boolean",
+      "title": "STAR guards",
+      "description": "Refuse a direct gh pr merge in STAR's coordinator and workers, and reading review, evidence, report or log files into the coordinator",
+      "default": true
+    },
+    "star_rm_guard": {
+      "type": "boolean",
+      "title": "STAR rm guard",
+      "description": "In STAR worker sessions, write a bare $VAR in rm, rmdir and unlink paths as ${VAR:?} (#114)",
+      "default": false
+    }
+  },
   "dependencies": [
     "superpowers@claude-plugins-official",
     "pr-review-toolkit@claude-plugins-official",
