@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
 
@@ -206,4 +206,27 @@ test('the shown reply is every text of the turn, and mid-turn events carry the t
   const mid = events.map(event => event.turn as Record<string, unknown> | undefined).filter(turn => turn?.done === false)
   assert.deepEqual(mid.map(turn => turn!.text), ['I will read the sync code first.', 'I will read the sync code first.', 'I will read the sync code first.\n\nThen: who sees it?'])
   assert.deepEqual(mid.map(turn => turn!.files), [[], ['src/sync.ts'], ['src/sync.ts']])
+})
+
+test('a save whose transcript cannot be appended leaves no draft and no temp file (D7)', async () => {
+  await mkdir(join(dir, 'transcript.jsonl'))
+  await play(w, 'claude', [{ lines: [init('S1'), say(R1), done(R1)] }])
+  const result = await runTurn(ctx('one'))
+  assert.equal(result.ok, false)
+  assert.match(String(events.at(-1)!.error), /the turn could not be saved/)
+  assert.equal(await exists(join(dir, 'draft.json')), false)
+  assert.deepEqual((await readdir(dir)).filter(name => name.endsWith('.tmp')), [])
+})
+
+test('a save whose draft cannot be put in place cuts the transcript back (D7)', async () => {
+  await play(w, 'claude', [{ lines: [init('S1'), say(R1), done(R1)] }, { lines: [init('S1'), say(R2), done(R2)] }])
+  assert.equal((await runTurn(ctx('one'))).ok, true)
+  const [transcript] = await snapshot()
+  await rm(join(dir, 'draft.json'))
+  await mkdir(join(dir, 'draft.json'))
+  await writeFile(join(dir, 'draft.json', 'keep'), '')
+  const result = await runTurn(ctx('two'))
+  assert.equal(result.ok, false)
+  assert.equal(await readFile(join(dir, 'transcript.jsonl'), 'utf8'), transcript)
+  assert.deepEqual((await readdir(dir)).filter(name => name.endsWith('.tmp')), [])
 })

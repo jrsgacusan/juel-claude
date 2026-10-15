@@ -3,11 +3,11 @@
 // references/resolution.md gives. The first of them that names a tracker wins: the two JSON files are
 // not merged key by key. Saved as tracker.type in .claude/workflow.local.json, the form every juel
 // skill reads.
-import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { message } from './claude.ts'
-import { readText } from './store.ts'
+import { readText, replaceFile } from './store.ts'
 
 export const TRACKERS = ['synapse', 'linear', 'jira', 'github', 'none'] as const
 export type Tracker = (typeof TRACKERS)[number]
@@ -116,8 +116,6 @@ export async function saveTracker(repo: string, value: Tracker): Promise<SaveRes
   }
   const tracker = isRecord(config.tracker) ? { ...config.tracker, type: value } : { type: value }
   await mkdir(dir, { recursive: true })
-  const tmp = join(dir, `.workflow.local.json.${process.pid}.tmp`)
-  await writeFile(tmp, `${JSON.stringify({ ...config, tracker }, null, 2)}\n`)
-  await rename(tmp, path)
+  await replaceFile(path, `${JSON.stringify({ ...config, tracker }, null, 2)}\n`)
   return { ok: true }
 }

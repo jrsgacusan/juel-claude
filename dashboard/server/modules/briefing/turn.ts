@@ -1,13 +1,13 @@
 // One briefing turn (brief D2, D3, D6, D7, D10): runs the read-only agent on the owner's text,
 // streams its reply as briefing events and, only when the turn succeeds, saves the draft and appends
 // both turns to the transcript. A turn the CLI fails writes nothing but the session id its init event
-// gave; a disk error while saving can still leave the new draft without its turns.
+// gave, and a save the disk refuses is undone (saveTurn).
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, relative, sep } from 'node:path'
 
 import { contentOf, message, runCli, tail } from './claude.ts'
 import type { CliEvent } from './claude.ts'
-import { appendTurns, clearSession, readSession, writeDraft, writeSession } from './store.ts'
+import { clearSession, readSession, saveTurn, writeSession } from './store.ts'
 import { extractTicket, stripTickets } from './ticket.ts'
 import type { Ticket } from './ticket.ts'
 import type { ModuleApi } from './types.ts'
@@ -118,8 +118,7 @@ export async function runTurn(ctx: TurnContext): Promise<TurnResult> {
   if (!ticket) return fail('the reply had no valid ticket block')
   const at = new Date().toISOString()
   try {
-    await writeDraft(ctx.dir, ticket)
-    await appendTurns(ctx.dir, [{ who: 'me', text: ctx.text, files: [], at }, { who: 'agent', text: shown, files, at }])
+    await saveTurn(ctx.dir, [{ who: 'me', text: ctx.text, files: [], at }, { who: 'agent', text: shown, files, at }], ticket)
   } catch (err) {
     return fail(`the turn could not be saved: ${message(err)}`)
   }

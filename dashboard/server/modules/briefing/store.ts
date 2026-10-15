@@ -1,8 +1,9 @@
 // A briefing on disk: <STAR folder>/briefings/<id>/ holding transcript.jsonl, draft.json, session
 // and, once a ticket exists, created.json (brief D7, D8).
-import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, truncate, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
+import { message } from './claude.ts'
 import { isId, newId } from './ids.ts'
 import { parseTicket } from './ticket.ts'
 import type { Ticket } from './ticket.ts'
@@ -16,6 +17,11 @@ export type Created = {
   at: string
   /** STAR's inbox file for the ticket; null until it is written. Absent on a record this module could not read. */
   inbox?: string | null
+  /**
+   * 'creating' is written before anything is made and stays when the made ticket could not be
+   * recorded, so a later press never makes a second one (D8); 'made' once the ticket is recorded.
+   */
+  state?: 'creating' | 'made'
 }
 export type Summary = { id: string; title: string; updatedAt: string; ref: string | null }
 
@@ -128,15 +134,57 @@ export async function clearSession(dir: string): Promise<void> {
   await rm(join(dir, 'session'), { force: true })
 }
 
-/** Replaces draft.json in one rename, so a reader never sees half a draft. */
-export async function writeDraft(dir: string, draft: Ticket): Promise<void> {
-  const tmp = join(dir, `.draft.json.${process.pid}.tmp`)
-  await writeFile(tmp, `${JSON.stringify(draft, null, 2)}\n`)
-  await rename(tmp, join(dir, 'draft.json'))
+/** Replaces a file in one rename, so a reader never sees half of it; the temp file goes on a failure. */
+export async function replaceFile(path: string, content: string): Promise<void> {
+  const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.tmp`)
+  try {
+    await writeFile(tmp, content)
+    await rename(tmp, path)
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {}) // the write's own error is the one to report
+    throw err
+  }
 }
 
-export async function appendTurns(dir: string, turns: Turn[]): Promise<void> {
-  await appendFile(join(dir, 'transcript.jsonl'), turns.map(turn => `${JSON.stringify(turn)}\n`).join(''))
+/** Replaces draft.json in one rename, so a reader never sees half a draft. */
+export async function writeDraft(dir: string, draft: Ticket): Promise<void> {
+  await replaceFile(join(dir, 'draft.json'), `${JSON.stringify(draft, null, 2)}\n`)
+}
+
+async function sizeOf(path: string): Promise<number | null> {
+  try {
+    return (await stat(path)).size
+  } catch (err) {
+    if (errCode(err) === 'ENOENT') return null
+    throw err
+  }
+}
+
+/**
+ * Saves a finished turn as one change (D7): both transcript lines and the new draft land together,
+ * or neither does. The draft is staged in a temp file, the lines appended, then the draft renamed
+ * into place. On any failure the temp file goes and the transcript is cut back to its old length.
+ */
+export async function saveTurn(dir: string, turns: Turn[], draft: Ticket): Promise<void> {
+  const transcript = join(dir, 'transcript.jsonl')
+  const staged = join(dir, `.draft.json.${process.pid}.tmp`)
+  const before = await sizeOf(transcript)
+  try {
+    await writeFile(staged, `${JSON.stringify(draft, null, 2)}\n`)
+    await appendFile(transcript, turns.map(turn => `${JSON.stringify(turn)}\n`).join(''))
+    await rename(staged, join(dir, 'draft.json'))
+  } catch (err) {
+    await rm(staged, { force: true }).catch(() => {}) // the save's own error is the one to report
+    try {
+      if ((await sizeOf(transcript)) !== before) {
+        if (before === null) await rm(transcript, { force: true })
+        else await truncate(transcript, before)
+      }
+    } catch (undo) {
+      throw new Error(`${message(err)}; the transcript could not be put back: ${message(undo)}`)
+    }
+    throw err
+  }
 }
 
 /** Writes created.json unless it exists; false when it already did. */
@@ -146,9 +194,7 @@ export async function writeCreated(dir: string, created: Created): Promise<boole
 
 /** Replaces created.json in one rename, so a reader never sees half a record. */
 export async function rewriteCreated(dir: string, created: Created): Promise<void> {
-  const tmp = join(dir, `.created.json.${process.pid}.tmp`)
-  await writeFile(tmp, `${JSON.stringify(created, null, 2)}\n`)
-  await rename(tmp, join(dir, 'created.json'))
+  await replaceFile(join(dir, 'created.json'), `${JSON.stringify(created, null, 2)}\n`)
 }
 
 /** The list title (D8): the draft's title, else the owner's first turn cut to 60 characters. */
