@@ -1,8 +1,10 @@
 import "@testing-library/jest-dom/vitest"
 import { cleanup } from "@testing-library/react"
 import { setConnection } from "@/api/events"
+import { server } from "@/mocks/node"
+import { resetMockState } from "@/mocks/state"
 import { setConflict } from "@/lib/conflict"
-import { afterEach, beforeEach, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest"
 
 if (!window.matchMedia) {
   window.matchMedia = (query: string): MediaQueryList =>
@@ -28,6 +30,9 @@ Element.prototype.releasePointerCapture ??= () => {}
 URL.createObjectURL = () => "blob:mock"
 URL.revokeObjectURL = () => {}
 
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
+afterAll(() => server.close())
+
 beforeEach(() => {
   sessionStorage.setItem("star-token", "test-token")
 })
@@ -40,4 +45,6 @@ afterEach(() => {
   document.documentElement.className = ""
   setConflict(null)
   setConnection("connecting")
+  server.resetHandlers()
+  resetMockState()
 })
