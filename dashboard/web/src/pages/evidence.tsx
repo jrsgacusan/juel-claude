@@ -34,7 +34,7 @@ export function EvidencePage() {
         onRetry={() => void evidence.refetch()}
       />
     )
-  if (evidence.data.length === 0)
+  if (evidence.data!.length === 0)
     return (
       <>
         {refreshFailed(evidence) && (
@@ -51,8 +51,7 @@ export function EvidencePage() {
       </>
     )
   const selected =
-    evidence.data.find((item) => item.item === itemParam) ??
-    evidence.data[0]
+    evidence.data!.find((item) => item.item === itemParam) ?? evidence.data![0]
   const select = (item: string) => setItemParam(item)
   return (
     <>
@@ -75,10 +74,10 @@ export function EvidencePage() {
             </p>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-            {evidence.data.map((item, index) => {
+            {evidence.data!.map((item, index) => {
               const day =
                 item.mergedAt === null ? "Unknown" : dayLabel(item.mergedAt)
-              const previous = evidence.data[index - 1]
+              const previous = evidence.data![index - 1]
               const previousDay = previous
                 ? previous.mergedAt === null
                   ? "Unknown"

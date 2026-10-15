@@ -67,7 +67,7 @@ export function NeedsPage() {
       />
     )
   }
-  if (loops.data.length === 0) {
+  if (loops.data!.length === 0) {
     return (
       <>
         {refreshFailed(loops) && (
@@ -87,13 +87,13 @@ export function NeedsPage() {
 
   const count = (t: Tab) =>
     t === "all"
-      ? loops.data.length
-      : loops.data.filter((l) => groupOf(l.kind) === t).length
-  const list = loops.data.filter(
+      ? loops.data!.length
+      : loops.data!.filter((l) => groupOf(l.kind) === t).length
+  const list = loops.data!.filter(
     (l) => tab === "all" || groupOf(l.kind) === tab
   )
   const selected =
-    loops.data.find((l) => l.id === loopParam) ?? list[0] ?? loops.data[0]
+    loops.data!.find((l) => l.id === loopParam) ?? list[0] ?? loops.data![0]
   const select = (id: string) => setLoopParam(id)
   const sentOf = (loop: Loop) =>
     sent[loop.id]?.text ?? (isAnswered(loop) ? loop.answer : null)

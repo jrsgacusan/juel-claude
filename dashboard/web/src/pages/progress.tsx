@@ -74,7 +74,7 @@ export function ProgressPage() {
         onRetry={() => void items.refetch()}
       />
     )
-  if (items.data.length === 0) {
+  if (items.data!.length === 0) {
     return (
       <>
         {refreshFailed(items) && (
@@ -92,7 +92,7 @@ export function ProgressPage() {
     )
   }
 
-  const all = items.data
+  const all = items.data!
   const by = (status: ItemRow["status"]) =>
     all.filter((r) => r.status === status)
   const building = by("building").length

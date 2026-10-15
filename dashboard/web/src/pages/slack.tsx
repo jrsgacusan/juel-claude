@@ -107,8 +107,8 @@ export function SlackPage() {
         onRetry={() => void slack.refetch()}
       />
     )
-  const routed = slack.data.routed.filter((m) => m.project === project)
-  const unrouted = slack.data.unrouted
+  const routed = slack.data!.routed.filter((m) => m.project === project)
+  const unrouted = slack.data!.unrouted
   const all = [...routed, ...unrouted]
   const selectedId = messageParam
   const loopId = loopParam
@@ -120,9 +120,9 @@ export function SlackPage() {
   const select = (id: string) => setMessageParam(id)
   const markDone = (id: string, mark: string) =>
     setDone((current) => ({ ...current, [id]: mark }))
-  const model = slack.data.status.model
-    ? slack.data.status.model[0]?.toUpperCase() +
-      slack.data.status.model.slice(1)
+  const model = slack.data!.status.model
+    ? slack.data!.status.model[0]?.toUpperCase() +
+      slack.data!.status.model.slice(1)
     : null
   return (
     <>
@@ -143,14 +143,14 @@ export function SlackPage() {
               <MessageSquare className="size-4" />
               <h1 className="text-base font-semibold">Slack replies</h1>
             </div>
-            {slack.data.status.connected ? (
+            {slack.data!.status.connected ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Dot tone="done" pulse />
                 {model
-                  ? `Watching ${slack.data.status.workspace ?? "Slack"} with ${model}.`
-                  : `Watching ${slack.data.status.workspace ?? "Slack"}.`}{" "}
-                {slack.data.status.lastCheck &&
-                  `Checked ${agoText(slack.data.status.lastCheck)}.`}
+                  ? `Watching ${slack.data!.status.workspace ?? "Slack"} with ${model}.`
+                  : `Watching ${slack.data!.status.workspace ?? "Slack"}.`}{" "}
+                {slack.data!.status.lastCheck &&
+                  `Checked ${agoText(slack.data!.status.lastCheck)}.`}
               </p>
             ) : (
               <p className="flex items-center gap-1.5 text-xs text-stop-fg">
@@ -158,9 +158,9 @@ export function SlackPage() {
                 The watcher is not connected.
               </p>
             )}
-            {slack.data.status.error && (
+            {slack.data!.status.error && (
               <p className="text-xs text-stop-fg">
-                The last check failed: {slack.data.status.error}
+                The last check failed: {slack.data!.status.error}
               </p>
             )}
           </div>
@@ -197,7 +197,7 @@ export function SlackPage() {
           aria-label="Reply"
           className="min-h-0 min-w-0 md:overflow-y-auto"
         >
-          {!slack.data.status.connected && (
+          {!slack.data!.status.connected && (
             <Banner tone="stop" icon={<Unplug />}>
               <span className="font-medium">Slack isn&apos;t connected</span>
               <p className="mt-1 text-xs opacity-80">

@@ -65,7 +65,7 @@ export function BriefingPage() {
         onRetry={() => void briefings.refetch()}
       />
     )
-  if (briefings.data.length === 0) {
+  if (briefings.data!.length === 0) {
     return (
       <>
         {refreshFailed(briefings) && (
@@ -84,7 +84,7 @@ export function BriefingPage() {
     )
   }
 
-  const id = params.get("briefing") ?? briefings.data[0]?.id ?? null
+  const id = params.get("briefing") ?? briefings.data![0]?.id ?? null
   return (
     <>
       {refreshFailed(briefings) && (
@@ -99,7 +99,7 @@ export function BriefingPage() {
           key={id ?? "none"}
           project={project}
           id={id}
-          briefings={briefings.data}
+          briefings={briefings.data!}
           onPick={(next) => setParams({ briefing: next })}
           newButton={newButton}
         />
