@@ -1,5 +1,5 @@
-// The dashboard's module contract, copied from the server item ("Module contract" in
-// star-dashboard-server.md, brief D1). dashboard/server/types.ts holds the same text: change both
+// The dashboard's module contract, copied from the server item ("Module contract" in its brief; D1
+// of this item's brief). The server's dashboard/server/types.ts carries the same text: change both
 // together. Only ever imported with `import type`.
 export type Project = { name: string; repo: string; home: string; terminal: string | null; state: 'running' | 'idle' | 'stopped' }
 export type Req = { params: Record<string, string>; query: URLSearchParams; body: unknown }

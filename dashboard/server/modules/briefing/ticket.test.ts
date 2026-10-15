@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { block } from './test-helpers.ts'
 import { extractTicket, parseTicket, stripTickets } from './ticket.ts'
 
 const T = { title: 'Retry the sync', description: 'Why.', criteria: ['It retries'], outOfScope: ['Backoff'] }
-const block = (value: unknown): string => '```ticket\n' + JSON.stringify(value) + '\n```'
 
 test('a reply with a ticket block shows the text without it and gives the ticket', () => {
   const { shown, ticket } = extractTicket(`Which screen?\n\n${block(T)}`)

@@ -10,7 +10,7 @@ const OPEN = /^```ticket[ \t]*$/m
 
 const isStrings = (value: unknown): value is string[] => Array.isArray(value) && value.every(item => typeof item === 'string')
 
-/** The ticket in a block's JSON, or null when it does not parse or a field has the wrong type. */
+/** The ticket in a block's JSON (title trimmed), or null when it does not parse, a field has the wrong type or the title is empty. */
 export function parseTicket(json: string): Ticket | null {
   let value: unknown
   try {
