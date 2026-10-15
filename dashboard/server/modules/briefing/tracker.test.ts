@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
 
 import { cleanup, world } from './test-helpers.ts'
 import type { World } from './test-helpers.ts'
-import { fromWorkSource, isTracker, resolveTracker, saveTracker } from './tracker.ts'
+import { asTracker, fromWorkSource, isTracker, resolveTracker, saveTracker } from './tracker.ts'
 
 let w: World
 beforeEach(async () => {
@@ -92,4 +92,38 @@ test('a local file that is not a JSON object is refused and left as it was', asy
     assert.match(saved.ok ? '' : saved.error, /workflow\.local\.json/)
     assert.equal(await readFile(join(w.repo, '.claude/workflow.local.json'), 'utf8'), bad)
   }
+})
+
+test('workflow.json wins over the Work Source block', async () => {
+  await put('.claude/workflow.json', { tracker: { type: 'jira' } })
+  await put('CLAUDE.md', '## Work Source\n- type: linear\n')
+  assert.deepEqual(await resolveTracker(w.repo), { type: 'jira', project: null })
+})
+
+test('a CLAUDE.md with no Work Source block falls through to AGENTS.md', async () => {
+  await put('CLAUDE.md', '# Repo\n\nNo tracker here.\n')
+  await put('AGENTS.md', '## Work Source\n- type: github\n')
+  assert.deepEqual(await resolveTracker(w.repo), { type: 'github', project: null })
+})
+
+test('a config file that is not valid JSON is skipped with a warning', async () => {
+  await put('.claude/workflow.local.json', '{"tracker": "github",}')
+  await put('.claude/workflow.json', { tracker: 'linear' })
+  const warnings: string[] = []
+  assert.deepEqual(await resolveTracker(w.repo, line => { warnings.push(line) }), { type: 'linear', project: null })
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0], /workflow\.local\.json: not valid JSON/)
+})
+
+test('asTracker ignores case, maps file and inline to none, and refuses the rest', () => {
+  assert.equal(asTracker('Linear'), 'linear')
+  assert.equal(asTracker('GITHUB'), 'github')
+  assert.equal(asTracker('file'), 'none')
+  assert.equal(asTracker('inline'), 'none')
+  assert.equal(asTracker('gitlab'), null)
+})
+
+test('saving leaves no temp file behind', async () => {
+  await saveTracker(w.repo, 'github')
+  assert.deepEqual(await readdir(join(w.repo, '.claude')), ['workflow.local.json'])
 })

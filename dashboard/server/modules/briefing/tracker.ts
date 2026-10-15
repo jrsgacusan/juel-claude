@@ -1,9 +1,13 @@
 // Where a repo's tickets live (brief D4, B5): read from .claude/workflow.local.json, then
 // .claude/workflow.json, then a `## Work Source` block in CLAUDE.md or AGENTS.md, the order
-// references/resolution.md gives; saved as tracker.type in .claude/workflow.local.json, the form
-// every juel skill reads.
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+// references/resolution.md gives. The first of them that names a tracker wins: the two JSON files are
+// not merged key by key. Saved as tracker.type in .claude/workflow.local.json, the form every juel
+// skill reads.
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+
+import { message } from './claude.ts'
+import { readText } from './store.ts'
 
 export const TRACKERS = ['synapse', 'linear', 'jira', 'github', 'none'] as const
 export type Tracker = (typeof TRACKERS)[number]
@@ -14,19 +18,27 @@ export function isTracker(value: unknown): value is Tracker {
   return typeof value === 'string' && (TRACKERS as readonly string[]).includes(value)
 }
 
+/**
+ * A resolved tracker type as one of the five answers. Case is ignored; juel's `file` and `inline`
+ * (references/resolution.md:68) keep tickets as local specs, so they are `none`; anything else is null.
+ */
+export function asTracker(type: string): Tracker | null {
+  const value = type.toLowerCase()
+  if (isTracker(value)) return value
+  return value === 'file' || value === 'inline' ? 'none' : null
+}
+
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null)
-const errCode = (err: unknown): string | undefined => (err as { code?: string } | null)?.code
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** The tracker a workflow file's JSON names: `tracker` as a string, or an object's `type`. */
 export function fromConfig(config: unknown): ResolvedTracker | null {
-  if (typeof config !== 'object' || config === null) return null
-  const tracker = (config as Record<string, unknown>).tracker
-  const named = text(tracker)
+  if (!isRecord(config)) return null
+  const named = text(config.tracker)
   if (named) return { type: named, project: null }
-  if (typeof tracker !== 'object' || tracker === null) return null
-  const { type, project } = tracker as Record<string, unknown>
-  const kind = text(type)
-  return kind ? { type: kind, project: text(project) } : null
+  if (!isRecord(config.tracker)) return null
+  const kind = text(config.tracker.type)
+  return kind ? { type: kind, project: text(config.tracker.project) } : null
 }
 
 /** The `- type:` and `- project:` lines of a `## Work Source` block, up to the next heading. */
@@ -47,43 +59,51 @@ export function fromWorkSource(markdown: string): ResolvedTracker | null {
   return type ? { type, project } : null
 }
 
-async function readConfig(path: string): Promise<unknown> {
+/** A file's text; null when it is missing, and, with a warning, when it cannot be read. */
+async function readOrWarn(path: string, warn: (line: string) => void): Promise<string | null> {
   try {
-    return JSON.parse(await readFile(path, 'utf8'))
-  } catch {
-    return undefined // missing or not valid JSON: skipped, as references/resolution.md:79-80 says (B5)
+    return await readText(path)
+  } catch (err) {
+    warn(`tracker: skipped ${path}: ${message(err)}`)
+    return null
   }
 }
 
-export async function resolveTracker(repo: string): Promise<ResolvedTracker | null> {
+/** A workflow file's JSON, or undefined; a malformed file is warned about and ignored (resolution.md:84, B5). */
+async function readConfig(path: string, warn: (line: string) => void): Promise<unknown> {
+  const raw = await readOrWarn(path, warn)
+  if (raw === null) return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    warn(`tracker: skipped ${path}: not valid JSON`)
+    return undefined
+  }
+}
+
+export async function resolveTracker(repo: string, warn: (line: string) => void = () => {}): Promise<ResolvedTracker | null> {
   for (const name of ['workflow.local.json', 'workflow.json']) {
-    const found = fromConfig(await readConfig(join(repo, '.claude', name)))
+    const found = fromConfig(await readConfig(join(repo, '.claude', name), warn))
     if (found) return found
   }
   for (const name of ['CLAUDE.md', 'AGENTS.md']) {
-    let markdown: string
-    try {
-      markdown = await readFile(join(repo, name), 'utf8')
-    } catch {
-      continue
-    }
-    const found = fromWorkSource(markdown)
+    const markdown = await readOrWarn(join(repo, name), warn)
+    const found = markdown === null ? null : fromWorkSource(markdown)
     if (found) return found
   }
   return null
 }
 
-/** Sets tracker.type in .claude/workflow.local.json, keeping every other key; never overwrites a file it cannot parse. */
+/**
+ * Sets tracker.type in .claude/workflow.local.json, keeping every other key. A file that does not
+ * parse to a JSON object is refused and left as it is; an empty one counts as {}. The new text
+ * replaces the old in one rename, so a failed write never truncates the owner's config.
+ */
 export async function saveTracker(repo: string, value: Tracker): Promise<SaveResult> {
   const dir = join(repo, '.claude')
   const path = join(dir, 'workflow.local.json')
+  const raw = await readText(path)
   let config: Record<string, unknown> = {}
-  let raw: string | null = null
-  try {
-    raw = await readFile(path, 'utf8')
-  } catch (err) {
-    if (errCode(err) !== 'ENOENT') throw err
-  }
   if (raw !== null && raw.trim() !== '') {
     let parsed: unknown
     try {
@@ -91,14 +111,13 @@ export async function saveTracker(repo: string, value: Tracker): Promise<SaveRes
     } catch {
       return { ok: false, error: `${path} is not valid JSON: fix it by hand, then answer again` }
     }
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return { ok: false, error: `${path} is not a JSON object: fix it by hand, then answer again` }
-    }
-    config = parsed as Record<string, unknown>
+    if (!isRecord(parsed)) return { ok: false, error: `${path} is not a JSON object: fix it by hand, then answer again` }
+    config = parsed
   }
-  const current = config.tracker
-  const tracker = typeof current === 'object' && current !== null && !Array.isArray(current) ? { ...(current as Record<string, unknown>), type: value } : { type: value }
+  const tracker = isRecord(config.tracker) ? { ...config.tracker, type: value } : { type: value }
   await mkdir(dir, { recursive: true })
-  await writeFile(path, `${JSON.stringify({ ...config, tracker }, null, 2)}\n`)
+  const tmp = join(dir, `.workflow.local.json.${process.pid}.tmp`)
+  await writeFile(tmp, `${JSON.stringify({ ...config, tracker }, null, 2)}\n`)
+  await rename(tmp, path)
   return { ok: true }
 }
