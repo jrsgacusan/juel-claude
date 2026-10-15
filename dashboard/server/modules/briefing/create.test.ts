@@ -245,3 +245,41 @@ test('a spec title with a newline stays one frontmatter line', async () => {
   const text = await readFile(outcome.created.specPath!, 'utf8')
   assert.equal(text.split('\n').slice(0, 4).join('\n'), '---\nstatus: todo\ntitle: Fix the sync status: done\n---')
 })
+
+test('a create that cannot record what it made stays marked as creating, so no second ticket is made', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  await mkdir(join(dir, `.created.json.${process.pid}.tmp`)) // the record's rewrite cannot write its temp file
+  const outcome = await createTicket(ctx('github'))
+  assert.equal(outcome.ok, false)
+  if (outcome.ok) return
+  assert.equal(outcome.made?.ref, '#42')
+  assert.match(outcome.error, /#42 was made, but it could not be recorded/)
+  assert.equal((await readCreated(dir))?.state, 'creating')
+  assert.deepEqual(await inboxFiles(), [])
+  assert.ok(logs.some(line => line.includes('made #42')))
+})
+
+test('queueCreated takes its inbox file back when created.json cannot record it', async () => {
+  const made = { tracker: 'github', ref: '#42', specPath: null, url: 'https://github.com/o/r/issues/42', at: '2026-10-16T00:00:00.000Z', state: 'made' as const, inbox: null }
+  await writeFile(join(dir, 'created.json'), JSON.stringify(made))
+  await mkdir(join(dir, `.created.json.${process.pid}.tmp`))
+  const failed = await queueCreated({ home: w.home, repo: w.repo, dir }, made)
+  assert.equal(failed.ok, false)
+  assert.match(failed.ok ? '' : failed.error, /could not record its inbox file/)
+  assert.deepEqual(await inboxFiles(), [])
+  assert.equal((await readCreated(dir))?.inbox, null)
+  await rm(join(dir, `.created.json.${process.pid}.tmp`), { recursive: true })
+  const queued = await queueCreated({ home: w.home, repo: w.repo, dir }, made)
+  if (!queued.ok) assert.fail(queued.error)
+  assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: ['#42'] })
+})
+
+test('a spec item that cannot be written is a failed create, and its mark is cleared', async () => {
+  await mkdir(join(w.home, 'items'), { recursive: true })
+  await writeFile(join(w.home, 'items', 'proj'), 'not a folder')
+  const outcome = await createTicket(ctx('none'))
+  assert.equal(outcome.ok, false)
+  assert.match(outcome.ok ? '' : outcome.error, /the spec item could not be written/)
+  assert.equal(await readCreated(dir), null)
+  assert.deepEqual(await inboxFiles(), [])
+})

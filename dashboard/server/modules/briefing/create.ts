@@ -1,7 +1,7 @@
 // Turns a briefing's draft into a ticket (brief D5, D9, B6-B8): an issue through gh for github, an
 // issue through the tracker's MCP create tool in a headless haiku run for linear and jira when that
 // tool is connected, else a STAR spec item. Then created.json, and an inbox file so STAR picks it up.
-import { mkdir } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import { contentOf, message, parseObject, runCli, tail } from './claude.ts'
@@ -195,49 +195,80 @@ async function createViaMcp(ctx: CreateContext, tracker: 'linear' | 'jira'): Pro
   return { ok: false, error: reason }
 }
 
+/** A create that made nothing clears its mark, so the owner can try again or save it as a spec. */
+async function unmark(dir: string, failed: { ok: false; error: string; maybeMade?: boolean }): Promise<CreateOutcome> {
+  try {
+    await rm(join(dir, 'created.json'), { force: true })
+  } catch (err) {
+    return { ...failed, error: `${failed.error}; the create's mark could not be cleared either: ${message(err)}` }
+  }
+  return failed
+}
+
 /**
- * Makes the ticket, records it in created.json with `inbox: null`, then sends it to STAR with
- * queueCreated. A tracker failure writes nothing. Once the ticket exists it is logged first, and a
- * failure to record it comes back with `made`.
+ * Makes the ticket and sends it to STAR (D8: one ticket per briefing). created.json is written as
+ * `state: 'creating'` before anything is made; a create that makes nothing clears it, and a made
+ * ticket rewrites it as `state: 'made'`. When that rewrite fails the mark stays, so the next press
+ * answers 409 instead of making a second ticket; the made ticket is logged first either way.
  */
 export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
+  const at = new Date().toISOString()
+  const mark: Created = { tracker: ctx.tracker, ref: null, specPath: null, url: null, at, state: 'creating', inbox: null }
+  try {
+    if (!(await writeCreated(ctx.dir, mark))) return { ok: false, error: 'this briefing already has a create, running or done' }
+  } catch (err) {
+    return { ok: false, error: `the create could not start: ${message(err)}` }
+  }
   let made: Made | 'absent' = 'absent'
   if (ctx.tracker === 'github') made = await createGithub(ctx)
   else if (ctx.tracker === 'linear' || ctx.tracker === 'jira') made = await createViaMcp(ctx, ctx.tracker)
-  if (made !== 'absent' && !made.ok) return made
-  const at = new Date().toISOString()
+  if (made !== 'absent' && !made.ok) return unmark(ctx.dir, made)
   let created: Created
   if (made === 'absent') {
-    const specPath = await writeSpecItem(ctx.home, ctx.project, ctx.draft)
-    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at, inbox: null }
+    let specPath: string
+    try {
+      specPath = await writeSpecItem(ctx.home, ctx.project, ctx.draft)
+    } catch (err) {
+      return unmark(ctx.dir, { ok: false, error: `the spec item could not be written: ${message(err)}` })
+    }
+    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at, state: 'made', inbox: null }
   } else {
-    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at, inbox: null }
+    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at, state: 'made', inbox: null }
   }
   const name = created.ref ?? created.specPath ?? ''
   ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: made ${name} (${created.url})`)
   try {
-    if (!(await writeCreated(ctx.dir, created))) {
-      return { ok: false, error: `${name} was made, but this briefing already had a ticket`, made: created }
-    }
+    await rewriteCreated(ctx.dir, created)
   } catch (err) {
-    return { ok: false, error: `${name} was made, but it could not be recorded: ${message(err)}`, made: created }
+    return { ok: false, error: `${name} was made, but it could not be recorded: ${message(err)}. The briefing stays marked, so no second ticket is made`, made: created }
   }
   return queueCreated(ctx, created)
 }
 
 /**
  * Tells STAR about a made ticket: a new inbox file, then created.json rewritten with its path. On a
- * failure created.json keeps `inbox: null`, so pressing Create again runs this again (the create
- * route) instead of answering 409, and no second ticket is made.
+ * failure created.json keeps `inbox: null` and no inbox file is left behind, so pressing Create
+ * again runs this again (the create route) and STAR gets exactly one inbox file for the ticket.
  */
 export async function queueCreated(ctx: Pick<CreateContext, 'home' | 'repo' | 'dir'>, created: Created): Promise<CreateOutcome> {
   const name = created.ref ?? created.specPath ?? ''
+  let inbox: string
   try {
-    const inbox = await writeInbox(ctx.home, ctx.repo, name)
-    const queued: Created = { ...created, inbox }
-    await rewriteCreated(ctx.dir, queued)
-    return { ok: true, created: queued }
+    inbox = await writeInbox(ctx.home, ctx.repo, name)
   } catch (err) {
     return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: created }
   }
+  const queued: Created = { ...created, inbox }
+  try {
+    await rewriteCreated(ctx.dir, queued)
+  } catch (err) {
+    // Take the inbox file back, so the next press writes exactly one.
+    try {
+      await rm(inbox, { force: true })
+    } catch (undo) {
+      return { ok: false, error: `${name} is in STAR's inbox (${inbox}), but created.json could not record it (${message(err)}) and the inbox file could not be taken back (${message(undo)}): remove it before pressing Create again`, made: created }
+    }
+    return { ok: false, error: `${name} was made, but created.json could not record its inbox file: ${message(err)}. Press Create again to send it to STAR.`, made: created }
+  }
+  return { ok: true, created: queued }
 }
