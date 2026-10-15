@@ -556,6 +556,7 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
     `post-pass` printed `ERROR` twice, a minute apart. `needs=` quotes its `ERROR` line, whole.
+    An `ERROR base-moved` never counts: the gate loop's step 6 merges the base and runs the round again.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
@@ -1188,7 +1189,14 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
    item.
-6. `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
+6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.
+   Fetch the base and merge it in as `juel:babysit-pr`'s Phase 4 step 1 does (`../babysit-pr/SKILL.md`
+   from this file: `merge-union.sh` resolves a mechanical conflict; any other conflict is
+   `git merge --abort` and the `merge-conflict` escalation), run the sweep as "Gate once per PR"
+   item 2 says, commit the merge, push (never force), read the PR's merge state as "Gate once per PR"
+   says, then run the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and
+   it casts no vote toward `gate.maxRounds`.
+   Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
    (an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move); a second `ERROR` is
    `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`, the line
    quoted whole: an `ERROR gate-down …` line tells STAR that the gate itself is down (Sol and its

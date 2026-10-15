@@ -273,5 +273,11 @@ g "L111a a base-only merge push runs the sweep" '2. A push that only merges the 
 g "L111b after a clean merge too" 'runs it, after a clean merge too. A red sweep keeps the merge: the fix is a push of the worker'"'"'s'
 g "L111c the fix of a red sweep is a push of the worker's own changes" 'own changes, and item 1 applies to it.'
 grep -qF 'and none after a clean merge' "$SKILL" && fail "L111d no base-only merge push skips the tests" || pass "L111d no base-only merge push skips the tests"
+g "L113a a base-moved round merges the base before it runs" '6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.'
+g "L113b the merge follows babysit's Phase 4 step 1" 'Fetch the base and merge it in as `juel:babysit-pr`'"'"'s Phase 4 step 1 does'
+g "L113c then the same round runs again, not as an ERROR retry" 'the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and'
+g "L113d it casts no maxRounds vote" 'it casts no vote toward `gate.maxRounds`.'
+g "L113e any other ERROR still waits 10 minutes" 'Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more'
+g "L113f review-unavailable never counts a base-moved round" 'An `ERROR base-moved` never counts: the gate loop'"'"'s step 6 merges the base and runs the round again.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
