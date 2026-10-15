@@ -104,10 +104,12 @@ EFFORTS = ["max", "xhigh", "high", "medium", "low"]
 REFUSED = ("not installed", "unknown agent", "model", "access", "credit", "quota", "not available")
 ENV_NAMES = (".env", ".envrc", ".npmrc", ".tool-versions")
 LIVE_MS = 10 * 60 * 1000  # a terminal that printed output this recently is a working session (#76)
-# Claude Code 2.1.301's screen, as `orca terminal read --screen` renders it (#119): the prompt is a
-# rule row, the prompt row ("❯" alone when empty) and another rule row, with the footer below; a
-# footer row says "esc to interrupt" while a turn runs. Its recap is "※ recap: <text>" (the "※" in a
-# two-column box, then a dim bold "recap:"), wrapped onto indented rows under it.
+# Claude Code 2.1.301's screen, as `orca terminal read --screen` renders it (#119); keep these shapes
+# in step with worker-probe.sh. The prompt is a rule row, the prompt row and another rule row, with
+# the footer below: the prompt row is "❯" (or ">", inside a "│" frame on a boxed prompt), alone when
+# empty, a no-break space or trailing spaces after it included. A footer row says "esc to interrupt"
+# while a turn runs. The recap Claude Code prints on an idle terminal is a "※ recap: <text>" row,
+# wrapped onto indented rows under it.
 RULE = re.compile(r"^\s*[╭╰]?─{3,}[╮╯]?\s*$")
 PROMPT_ROW = re.compile(r"^\s*│?\s*[❯>](\s|$)")
 EMPTY_PROMPT = re.compile(r"^\s*│?\s*[❯>]\s*│?\s*$")
@@ -616,21 +618,27 @@ def recent(last):
     return not isinstance(last, (int, float)) or time.time() * 1000 - last <= LIVE_MS
 
 
-def listed(handle):
-    """Whether Orca's terminal list holds this handle (#119); None when the list cannot be read, is
-    not a list, or is cut short (truncated): then a missing handle proves nothing."""
+def orca_lists(handle):
+    """Whether Orca's terminal list holds this handle (#119); None unless the list proves it is whole:
+    it reads, does not say ok: false, is a list, is marked truncated: false, holds totalCount entries
+    when it names a count, and leaves out no host (hostScope.omittedHostIds). Then a missing handle
+    proves nothing."""
     shown = run([orca, "terminal", "list", "--limit", "500", "--json"], 60)
     data = lenient(shown.stdout)
-    result = data.get("result") if isinstance(data, dict) else None
+    result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
     terminals = result.get("terminals") if isinstance(result, dict) else None
-    if shown.returncode != 0 or not isinstance(terminals, list) or result.get("truncated") is True:
+    if shown.returncode != 0 or not isinstance(terminals, list) or result.get("truncated") is not False:
+        return None
+    count, scope = result.get("totalCount"), result.get("hostScope")
+    if (isinstance(count, int) and count > len(terminals)) or (isinstance(scope, dict) and scope.get("omittedHostIds")):
         return None
     return any(isinstance(t, dict) and t.get("handle") == handle for t in terminals)
 
 
 def screen_rows(handle):
-    """The terminal's rendered screen rows, as worker-probe.sh reads them; None when the screen
-    cannot be read or Orca reports anything but "screen"."""
+    """The terminal's rendered screen rows, read with the same command and checks as worker-probe.sh's
+    screen_tail() (without its 25-row cut); None when the screen cannot be read or Orca reports
+    anything but "screen"."""
     read = run([orca, "terminal", "read", "--terminal", handle, "--screen", "--json"], 60)
     data = lenient(read.stdout)
     result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
@@ -642,18 +650,18 @@ def screen_rows(handle):
 
 
 def recap_only(rows):
-    """True when the newest rows above the screen's empty prompt are one recap block (#119): its
-    "※ recap:" row, then only wrapped rows, with no turn running. Any other screen is False."""
-    for i in range(len(rows or []) - 2, 0, -1):
-        if PROMPT_ROW.match(rows[i]) and RULE.match(rows[i - 1]) and RULE.match(rows[i + 1]):
-            if not EMPTY_PROMPT.match(rows[i]) or any("esc to interrupt" in r for r in rows[i + 2:]):
-                return False
-            above = [r for r in rows[:i - 1] if r.strip()]
-            for j in range(len(above) - 1, max(len(above) - 9, -1), -1):
-                if RECAP.match(above[j]):
-                    return all(CONTINUED.match(r) for r in above[j + 1:])
-            return False
-    return False
+    """True when the newest rows above the screen's empty prompt are Claude Code's recap (#119): its
+    "※ recap:" row among the last 8 non-blank rows, then only its wrapped rows, with no turn running.
+    Any other screen, an unreadable one included, is False."""
+    rows = rows or []
+    prompt = next((i for i in range(len(rows) - 2, 0, -1)
+                   if PROMPT_ROW.match(rows[i]) and RULE.match(rows[i - 1]) and RULE.match(rows[i + 1])), None)
+    if prompt is None or not EMPTY_PROMPT.match(rows[prompt]) \
+            or any("esc to interrupt" in r for r in rows[prompt + 2:]):
+        return False
+    above = [r for r in rows[:prompt - 1] if r.strip()][-8:]  # the recap row and at most 7 wrapped rows
+    head = next((j for j in range(len(above) - 1, -1, -1) if RECAP.match(above[j])), None)
+    return head is not None and all(CONTINUED.match(r) for r in above[head + 1:])
 
 
 def checks_previous():
@@ -663,9 +671,10 @@ def checks_previous():
 
 def previous_session():
     """The row's previous dispatch's terminal (#76): close its own, or a released one's (#95), keep a
-    quiet one it cannot prove is its own, and hold on a working one. A terminal Orca no longer lists
-    is gone, and a screen whose only news is Claude Code's recap line is quiet (#119). Returns that
-    terminal's handle, or None when there is none left."""
+    quiet one it cannot prove is its own, and hold on a working one. A terminal Orca's whole list no
+    longer holds is gone, and the terminal Orca kept after it released the dispatch is quiet when its
+    newest rows above an empty prompt are Claude Code's recap, with no turn running (#119). Returns
+    that terminal's handle, or None when there is none left."""
     if not checks_previous():
         return None
     prev = row["dispatch"]
@@ -687,20 +696,24 @@ def previous_session():
         run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
         NOTES.append(f"ended previous session {handle}")
         return handle
-    if listed(handle) is False:
-        return None  # Orca lists no such terminal any more: it is gone, whatever worker-show says (#119)
     if res.get("ownershipState") != "owned" or res.get("ownerDispatchId") != prev:
         state = reason or res.get("ownershipState") or "unowned"
     elif reason or seen.get("exactWorker") is not True:
         state = reason or "identity_unproven"
     if state:
-        # Claude Code's recap line alone is not a session at work (#119): only a recent terminal is read
-        if recent(terminal.get("lastOutputAt")) and not recap_only(screen_rows(handle)):
+        if orca_lists(handle) is False:
+            return None  # Orca's whole list holds no such terminal: it is gone, whatever worker-show says (#119)
+        # a recap on the terminal Orca kept after it released the dispatch is not a session at work
+        # (#119); an active dispatch's terminal is never judged by its recap, and only a recent one is read
+        released = res.get("releaseState") in ("retained", "released")
+        if recent(terminal.get("lastOutputAt")) and not (released and recap_only(screen_rows(handle))):
             out(f"hold session {handle} ({state})")
         NOTES.append(f"kept previous session {handle} ({state})")  # never close a terminal a person may own
         return handle
     closed = run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
     if closed.returncode != 0:
+        if orca_lists(handle) is False:
+            return None  # the close failed because the terminal is gone: nothing of it is left (#119)
         out(f"hold session {handle} (close failed: {why(closed)})")
     NOTES.append(f"ended previous session {handle}")
     return handle

@@ -446,7 +446,7 @@ started_only "$out" && grep -q 'terminal list --limit 500 --json' "$TMP/calls" &
 reset; L set SPH-40 state=inbox dispatch=ctx_i119b >/dev/null; show ctx_i119b term_i119b owned identity_unproven true 2; others
 out=$(ST brief SPH-40); started_only "$out" && pass "#119 an unlisted unproven terminal starts too" || fail "#119 unlisted unproven ($out)"
 reset; L set SPH-40 state=inbox dispatch=ctx_i119c >/dev/null; show ctx_i119c term_i119c owned - true; others; touch "$TMP/close-fail"
-out=$(ST brief SPH-40); started_only "$out" && ! grep -q 'terminal close' "$TMP/calls" && pass "#119 the dispatch's own terminal, no longer listed, is not closed and does not hold" || fail "#119 unlisted owned ($out)"
+out=$(ST brief SPH-40); started_only "$out" && grep -q 'terminal close --terminal term_i119c --json' "$TMP/calls" && pass "#119 the dispatch's own terminal is still closed first, and a failed close of a terminal Orca no longer lists does not hold" || fail "#119 unlisted owned ($out)"
 reset; L set SPH-40 state=inbox dispatch=ctx_i119g >/dev/null; show ctx_i119g term_i119g user_owned user_takeover false 20 "$APP" retained; others
 out=$(ST brief SPH-40); started_only "$out" && pass "#119 an unlisted quiet terminal gets no kept line: it is gone" || fail "#119 unlisted quiet ($out)"
 reset; L set SPH-40 state=inbox dispatch=ctx_i119d >/dev/null; show ctx_i119d term_i119d user_owned user_takeover false 1 "$APP" retained
@@ -483,6 +483,34 @@ recap_hold "a recap above a running turn" "※ recap: Fixed the login redirect."
 recap_hold "work output after the recap" "※ recap: Fixed the login redirect." "" "⏺ Running the tests again." "  ⎿  12 passed" "$PROMPT_RULE" "❯ " "$PROMPT_RULE" "$PROMPT_FOOT"
 recap_hold "a footer that says a turn runs" "※ recap: Fixed the login redirect." "$PROMPT_RULE" "❯ " "$PROMPT_RULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
 recap_hold "a recap with no prompt under it" "※ recap: Fixed the login redirect."
+
+# review fixes (#119): a list that cannot prove it is whole proves nothing, a recap counts only once
+# Orca released the dispatch, a screen Orca does not call a screen is not read, and the boxed prompt
+# and the babysit start of the issue work too
+listing() { printf '%s\n' "$1" > "$TMP/list-all.json"; }
+hold_case() { # hold_case <name> <handle>: the start must still hold on that terminal
+  out=$(ST brief SPH-40); [ "$out" = "hold session $2 (user_takeover)" ] && pass "#119 $1 keeps the hold" || fail "#119 $1 ($out)"
+}
+taken_over() { reset; L set SPH-40 state=inbox dispatch=ctx_i119k >/dev/null; show ctx_i119k term_i119k user_owned user_takeover false 1 "$APP" retained; }
+taken_over; listing '{"ok":true,"result":{"terminals":[],"hostScope":{"hostIds":["local"],"omittedHostIds":["remote-1"]},"totalCount":0,"truncated":false}}'
+hold_case "a list that left out a host" term_i119k
+taken_over; listing '{"ok":false,"error":{"message":"runtime restarting"},"result":{"terminals":[]}}'
+hold_case "an ok:false list printed with exit 0" term_i119k
+taken_over; listing '{"ok":true,"result":{"terminals":[{"handle":"term_other"}],"totalCount":3,"truncated":false}}'
+hold_case "a list with fewer rows than its totalCount" term_i119k
+taken_over; listing '{"ok":true,"result":{"terminals":[{"handle":"term_other"}],"totalCount":1}}'
+hold_case "a list that does not say it is untruncated" term_i119k
+reset; L set SPH-40 state=inbox dispatch=ctx_i119l >/dev/null; show ctx_i119l term_i119l user_owned user_takeover false 1
+screen_of term_i119l "※ recap: Waiting for the codex executor to finish." "$PROMPT_RULE" "❯ " "$PROMPT_RULE" "$PROMPT_FOOT"
+out=$(ST brief SPH-40); [ "$out" = "hold session term_i119l (user_takeover)" ] && pass "#119 a recap on the terminal of a dispatch Orca has not released still holds" || fail "#119 active recap ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_i119m >/dev/null; show ctx_i119m term_i119m user_owned user_takeover false 1 "$APP" retained
+python3 -c 'import json; print(json.dumps({"ok":True,"result":{"terminal":{"handle":"term_i119m","source":"scrollback","tail":["※ recap: x.","──────────","❯ ","──────────"]}}}))' > "$TMP/screen-term_i119m.json"
+out=$(ST brief SPH-40); [ "$out" = "hold session term_i119m (user_takeover)" ] && pass "#119 a recap Orca does not call a screen keeps the hold" || fail "#119 scrollback ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_i119n >/dev/null; show ctx_i119n term_i119n user_owned user_takeover false 1 "$APP" retained
+screen_of term_i119n "※ recap: Fixed the login redirect." "╭────────────────────────╮" "│ >                      │" "╰────────────────────────╯" "  ? for shortcuts"
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "kept previous session term_i119n (user_takeover)" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "#119 a recap above a boxed prompt is quiet" || fail "#119 boxed prompt ($out)"
+reset; L set SPH-50 state=babysit-queued dispatch=ctx_i119o >/dev/null; show ctx_i119o term_i119o user_owned user_takeover false 1 "$WT50" retained; others
+out=$(ST babysit SPH-50); started_only "$out" && pass "#119 the babysit start of the issue goes on past an unlisted takeover terminal" || fail "#119 babysit ($out)"
 
 # lane a: the .claude copy skips a nested worktree and anything that is not a regular file, and goes on past a file it cannot read (#98)
 # the ignore rules go in .git/info/exclude, so the committed .gitignore is untouched
