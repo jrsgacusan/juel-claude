@@ -41,14 +41,6 @@ export const BUILD_FIRST = [
   '</body></html>',
 ].join('\n')
 
-const isFile = (p: string): boolean => {
-  try {
-    return fs.statSync(p).isFile()
-  } catch {
-    return false
-  }
-}
-
 function sendFile(res: ServerResponse, file: string, head: boolean): void {
   const size = fs.statSync(file).size
   res.writeHead(200, { 'content-type': typeOf(file), 'content-length': size, 'cache-control': 'no-cache' })
@@ -61,9 +53,19 @@ function sendFile(res: ServerResponse, file: string, head: boolean): void {
 
 /**
  * dashboard/web/dist: a file by its path; index.html for every other path, so the web app's deep
- * links and reloads work; the build-first page while dist/index.html is missing. A path is served
- * only when its real path, symbolic links resolved, is inside dist.
+ * links and reloads work; the build-first page while dist/index.html is missing.
+ * Every file it serves, index.html included, has its real path, symbolic links resolved, inside dist; an index.html that is missing or links out of dist answers the build-first page.
  */
+/** The real path of p when it is a regular file inside the real folder root; undefined otherwise (missing, a folder, or a link out). */
+function inside(root: string, p: string): string | undefined {
+  try {
+    const real = fs.realpathSync(p)
+    return real.startsWith(root + path.sep) && fs.statSync(real).isFile() ? real : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function serveStatic(req: IncomingMessage, res: ServerResponse, dist: string): void {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { allow: 'GET, HEAD' })
@@ -71,23 +73,16 @@ export function serveStatic(req: IncomingMessage, res: ServerResponse, dist: str
     return
   }
   const head = req.method === 'HEAD'
-  const index = path.join(dist, 'index.html')
-  if (!isFile(index)) {
+  const buildFirst = () => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
     res.end(head ? undefined : BUILD_FIRST)
-    return
   }
+  let root: string
+  try { root = fs.realpathSync(dist) } catch { buildFirst(); return }
+  const index = inside(root, path.join(root, 'index.html'))
+  if (!index) { buildFirst(); return }
   let pathname: string
   try { pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://127.0.0.1').pathname) } catch { pathname = '/' }
-  const root = fs.realpathSync(dist)
-  const requested = path.resolve(root, `.${pathname}`)
-  let target: string | undefined
-  try {
-    if (fs.existsSync(requested)) {
-      const real = fs.realpathSync(requested)
-      if (real.startsWith(root + path.sep) && isFile(real)) target = real
-    }
-  } catch {}
-  if (target) sendFile(res, target, head)
-  else sendFile(res, index, head)
+  const requested = inside(root, path.resolve(root, `.${pathname}`))
+  sendFile(res, requested ?? index, head)
 }

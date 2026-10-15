@@ -123,6 +123,25 @@ test("/ serves the build-first page with no dist, and the app with one, for ever
     await withDist.close();
     fs.rmSync(box, { recursive: true, force: true });
   }
+
+  const box2 = fs.mkdtempSync(path.join(os.tmpdir(), "star-dist-"));
+  const dist2 = path.join(box2, "dist");
+  fs.mkdirSync(path.join(dist2, "assets"), { recursive: true });
+  fs.writeFileSync(path.join(box2, "secret.json"), '{"token":"leak"}');
+  fs.symlinkSync(path.join(box2, "secret.json"), path.join(dist2, "index.html"));
+  const linkedIndex = await setup({ webDist: dist2 });
+  try {
+    for (const p of ["/", "/app/needs", "/assets/missing.js"]) {
+      const r = await fetch(linkedIndex.url(p));
+      assert.equal(r.status, 200, p);
+      const body = await r.text();
+      assert.doesNotMatch(body, /leak/, p);
+      assert.match(body, /Build the web app first/, p);
+    }
+  } finally {
+    await linkedIndex.close();
+    fs.rmSync(box2, { recursive: true, force: true });
+  }
 });
 
 test("GET /api/projects lists each project with its state; a broken or deleted one never breaks the list", async () => {
