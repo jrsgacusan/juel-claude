@@ -55,8 +55,12 @@ curl -s "http://127.0.0.1:$port/" | grep -q 'Build the web app first' && pass "t
 # run again: the same server, the URL opened again, nothing started
 out2=$(D 2>&1)
 [ "$(conf pid)" = "$pid" ] && [ "$(grep -c . "$TMP/opened")" = 2 ] && printf '%s\n' "$out2" | grep -qF "STAR dashboard: $url" && pass "a second run only opens the URL" || fail "second run: $out2"
-count=$(pgrep -f "$R/dashboard/server/main.ts" 2>/dev/null | wc -l | tr -d ' ')
-[ "$count" = 1 ] && pass "one server process" || { [ "$count" = 0 ] && kill -0 "$pid" 2>/dev/null && pass "one server process (process listing unavailable)" || fail "server processes: $count"; }
+if command -v pgrep >/dev/null 2>&1 && pgrep -f "$R/dashboard/server/main.ts" >/dev/null 2>&1; then
+  count=$(pgrep -f "$R/dashboard/server/main.ts" 2>/dev/null | wc -l | tr -d ' ')
+  [ "$count" = 1 ] && pass "one server process" || fail "server processes: $count"
+else
+  kill -0 "$pid" 2>/dev/null && pass "one server process (process listing unavailable)" || fail "server process is gone"
+fi
 
 # a web app: built when dist/ is missing, not when it is fresh, again when a source is newer
 W="$R/dashboard/web"; mkdir -p "$W/src"
@@ -75,6 +79,50 @@ out=$(STAR_FREE_GB=1 D 2>&1); rc=$?
 rm -rf "$W/dist"
 out=$(STAR_FREE_GB=1 D 2>&1); rc=$?
 [ "$rc" = 1 ] && [ ! -s "$TMP/npm.log" ] && printf '%s\n' "$out" | grep -q 'GB free' && pass "low memory with no dist/ refuses to build and exits 1" || fail "low memory with no dist (rc=$rc): $out"
+
+# the real memory reading: a fake vm_stat with little free memory holds the build
+cat > "$TMP/bin/vm_stat" <<'EOF'
+#!/bin/sh
+echo 'Mach Virtual Memory Statistics: (page size of 16384 bytes)'
+echo 'Pages free:                               1000.'
+echo 'Pages inactive:                           1000.'
+EOF
+chmod +x "$TMP/bin/vm_stat"
+: > "$TMP/npm.log"; mkdir -p "$W/dist"; echo old > "$W/dist/index.html"; touch -t 202001010000 "$W/dist/index.html"
+out=$(env -u STAR_FREE_GB HOME="$TMP/home" PATH="$TMP/bin:$PATH" sh "$R/skills/star/dashboard.sh" 2>&1)
+printf '%s\n' "$out" | grep -q 'only 0 GB free' && [ ! -s "$TMP/npm.log" ] && pass "vm_stat's free + inactive pages are read" || fail "vm_stat reading: $out"
+printf '#!/bin/sh\necho "Pages free: x"\n' > "$TMP/bin/vm_stat"
+out=$(env -u STAR_FREE_GB HOME="$TMP/home" PATH="$TMP/bin:$PATH" sh "$R/skills/star/dashboard.sh" 2>&1)
+printf '%s\n' "$out" | grep -q 'could not read free memory' && pass "an unreadable memory reading is said" || fail "no memory line: $out"
+rm -f "$TMP/bin/vm_stat"
+
+# a pid that is alive but not a dashboard (reused after a reboot): a new server starts
+pid=$(conf pid); kill "$pid"; n=0; while kill -0 "$pid" 2>/dev/null && [ "$n" -lt 40 ]; do sleep 0.25; n=$((n + 1)); done
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["pid"]=int(sys.argv[2]); json.dump(d,open(p,"w"))' "$TMP/home/.juel/dashboard.json" "$$"
+out=$(STAR_FREE_GB=8 D 2>&1)
+np=$(conf pid)
+[ "$np" != "$$" ] && kill -0 "$np" 2>/dev/null && pass "a reused pid starts a new server" || fail "reused pid: $out"
+
+# a server another checkout started is replaced by this checkout's, on the same port and token
+R2="$TMP/repo2"; cp -R "$R" "$R2"
+oldpid=$(conf pid); oldport=$(conf port)
+out=$(HOME="$TMP/home" PATH="$TMP/bin:$PATH" STAR_FREE_GB=8 sh "$R2/skills/star/dashboard.sh" 2>&1)
+newpid=$(conf pid)
+newcommand=$(ps -p "$newpid" -o command= 2>/dev/null || true)
+if [ -n "$newcommand" ]; then
+  ! kill -0 "$oldpid" 2>/dev/null && [ "$newpid" != "$oldpid" ] && printf '%s\n' "$newcommand" | grep -qF "$R2/dashboard/server/main.ts" && [ "$(conf port)" = "$oldport" ] \
+    && pass "another checkout's server is replaced by this one's" || fail "other checkout: $out"
+else
+  [ "$newpid" = "$oldpid" ] && kill -0 "$newpid" 2>/dev/null && [ "$(conf port)" = "$oldport" ] \
+    && pass "another checkout's server identity is checked by its live endpoint (process listing unavailable)" || fail "other checkout: $out"
+fi
+
+# a server that cannot start: said at once, with its error, not the node version line
+R3="$TMP/repo3"; cp -R "$R" "$R3"; printf "throw new Error('boom at start')\n" > "$R3/dashboard/server/main.ts"
+mkdir -p "$TMP/home3"
+start=$(date +%s)
+out=$(HOME="$TMP/home3" PATH="$TMP/bin:$PATH" sh "$R3/skills/star/dashboard.sh" 2>&1); rc=$?
+[ "$rc" = 1 ] && printf '%s\n' "$out" | grep -q 'boom at start' && [ $(( $(date +%s) - start )) -lt 10 ] && pass "a server that cannot start is said at once, with its error" || fail "failed start (rc=$rc): $out"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

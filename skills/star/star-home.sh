@@ -10,8 +10,10 @@
 #   star-home.sh [--cwd <dir>] register  list the folder in ~/.juel/star-homes.json ({"name", "repo",
 #                                        "home"}, once per home, under a lock): the registry the STAR
 #                                        dashboard reads. Prints "registered <home>" (added or changed)
-#                                        or "listed <home>". init does the same and, when the registry
-#                                        cannot be written, says so on stderr and still succeeds.
+#                                        or "listed <home>". An entry with the same name whose folder
+#                                        is gone (a moved project) is dropped. init does the same write
+#                                        but prints only the folder; when the registry cannot be read or
+#                                        written it says so on stderr and still succeeds.
 # The folder is <main checkout>/<docsRoot>/context/star. The main checkout is the first worktree
 # git lists, so a linked worktree and a subfolder give the same answer. docsRoot follows the
 # plugin's rule: "docsRoot" in .claude/workflow.local.json, else .claude/workflow.json; else
@@ -37,8 +39,9 @@
 # string "fallback" (v2.0.0's codex fallback) becomes {"agent": "claude", "model": "opus",
 # "effort": "xhigh"}. Any other gate value is the owner's and is left alone. init and migrate both
 # create every folder, evidence/ included (worktree-clean.sh copies a worktree's evidence there).
-# Exit: 0 ok, 1 not inside a usable git checkout, register with no STAR folder or a registry it cannot read or write, or a STAR folder migrate cannot read, or
-# ledger.sh or loops.sh failing during migrate (the message names it), 64 usage.
+# Exit: 0 ok; 1 not inside a usable git checkout, register with no STAR folder or a registry it
+# cannot read or write, a STAR folder migrate cannot read, or ledger.sh or loops.sh failing during
+# migrate (the message names it); 64 usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
 import fcntl
 import json
@@ -340,16 +343,27 @@ def register():
             data = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
         except (OSError, ValueError):
             data = None
+        if not isinstance(data, dict) and any(
+                isinstance(e, dict) and e.get("home") == home for e in entries):
+            # star.json cannot be read now: keep the entry as it is rather than rename the project
+            return "listed"
         project = data.get("project") if isinstance(data, dict) else None
         project = project if isinstance(project, dict) else {}
         name = project.get("name") if isinstance(project.get("name"), str) and project.get("name") else os.path.basename(main)
         repo = project.get("repo") if isinstance(project.get("repo"), str) and project.get("repo") else main
         entry = {"name": name, "repo": repo, "home": home}
         mine = [e for e in entries if isinstance(e, dict) and e.get("home") == home]
-        if mine == [entry]:
+
+        def moved(e):
+            return (isinstance(e, dict) and e.get("name") == name and e.get("home") != home and
+                    not os.path.isfile(os.path.join(str(e.get("home") or ""), "star.json")))
+
+        if mine == [entry] and not any(moved(e) for e in entries):
             return "listed"
         out, placed = [], False
         for e in entries:
+            if moved(e):
+                continue
             if isinstance(e, dict) and e.get("home") == home:
                 if not placed:
                     out.append(entry)
@@ -363,7 +377,11 @@ def register():
 
 
 def register_why(e):
-    return getattr(e, "strerror", None) or str(e)
+    filename = getattr(e, "filename", None)
+    strerror = getattr(e, "strerror", None)
+    if filename and strerror:
+        return f"{filename}: {strerror}"
+    return strerror or str(e)
 
 
 if cmd == "register":

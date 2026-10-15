@@ -259,5 +259,20 @@ setgate '{"model": "gpt-6-astra", "effort": "high", "fallback": {"agent": "claud
 sh "$SCRIPT" --cwd "$GT" migrate >/dev/null
 python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["gate"]; assert g == {"model": "latest-sol", "effort": "high", "fallback": {"agent": "claude", "model": "fable", "effort": "max"}, "maxRounds": 2}, g' "$HG/star.json" && pass "only astra and a string fallback change; the owner's effort and own fallback stay" || fail "partial gate ($(cat "$HG/star.json"))"
 rmdir "$HG/evidence" && sh "$SCRIPT" --cwd "$GT" migrate >/dev/null && [ -d "$HG/evidence" ] && pass "migrate adds evidence/ to an existing folder (#73)" || fail "evidence folder on migrate"
+
+# a moved project: its old entry, whose folder is gone, leaves the registry
+mkrepo "$TMP/mv1"; MV1=$(real "$TMP/mv1")
+MH1=$(sh "$SCRIPT" --cwd "$MV1" init)
+mkdir -p "$TMP/moved"; mv "$MV1" "$TMP/moved/mv1"; MV2=$(real "$TMP/moved/mv1")
+MH2=$(sh "$SCRIPT" --cwd "$MV2" init)
+python3 - "$HOME/.juel/star-homes.json" "$MH1" "$MH2" <<'PY' && pass "a moved project's old entry is dropped" || fail "moved project: $(cat "$HOME/.juel/star-homes.json")"
+import json, sys
+homes = [e["home"] for e in json.load(open(sys.argv[1]))]
+assert sys.argv[2] not in homes and homes.count(sys.argv[3]) == 1, homes
+PY
+# an unreadable star.json keeps the entry as it is, rather than renaming the project
+printf '{broken' > "$MH2/star.json"
+[ "$(sh "$SCRIPT" --cwd "$MV2" register)" = "listed $MH2" ] && python3 -c 'import json,sys; assert [e["name"] for e in json.load(open(sys.argv[1])) if e["home"] == sys.argv[2]] == ["mv1"]' "$HOME/.juel/star-homes.json" "$MH2" && pass "an unreadable star.json keeps the entry" || fail "unreadable star.json renamed the entry"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

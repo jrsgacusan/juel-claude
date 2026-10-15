@@ -137,7 +137,7 @@ escalation.
 
 ## Preflight
 
-`status`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start: they skip this table (each
+`status`, `dashboard`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start: they skip this table (each
 states its own needs below) and the task list, and announce their own mode. So does a
 `/juel:star`, with or without refs, that finds STAR already running for this project in another
 terminal: it hands over and ends. Finding that out takes steps 1 and 2 of "Coordinator, or
@@ -268,9 +268,11 @@ project." Otherwise `sh S/loops.sh --file HOME_DIR/open-loops.md list`, then cou
 (after checking free memory), starts the one dashboard server on this Mac when it is not running
 (`node <plugin>/dashboard/server/main.ts`, on 127.0.0.1 only, its port and token in
 `~/.juel/dashboard.json`), prints `STAR dashboard: <url>` and opens it. Print that line. It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder. The page lists
-every project in `~/.juel/star-homes.json`, records answers with `loops.sh set-answer` and wakes STAR
-with `orca terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. A non-zero
-exit: print its last line, nothing else.
+every project in `~/.juel/star-homes.json` (one per project name: a folder that still exists wins
+over one that is gone), records answers with `loops.sh set-answer` and wakes STAR with `orca
+terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. A dashboard server that
+another checkout or plugin version started is stopped and replaced by this one's, on the same port
+and token. A non-zero exit: print its last line, nothing else.
 
 ### `away`, `back` and `stop` from another session
 
@@ -340,7 +342,7 @@ gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
 evidence/<item>/                     the item's evidence folder, copied from its worktree before worktree-clean.sh removes it
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
-drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack reply STAR drafted: first line "to: slack <channelId> <ts>", then the reply
+drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack reply STAR drafted: first line "to: slack <channelId> <threadTs, or ts>", then the reply
 memory/<project>.md
 ```
 
@@ -821,7 +823,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `held` "could not move <item> to <status>…" | done | `counters.tracker=<status>` (the user moved it), then close it |
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
-   | `slack-reply` | send | post the draft's reply (everything after its first line) as the owner with the connected Slack MCP's send tool (load it with `ToolSearch`), in the channel and as a thread reply to the ts on the draft's first line (`thread_ts`). Before posting, append `<iso>\tSTAR\tslack\tslack reply <draft name>` to `sent.log`; when that line is already there the reply was posted and only the close was lost: just close the item. Then close it. Quiet hours do not hold it: the owner pressed send. No Slack send tool in this session: keep the item open and queue `--kind held` "connect Slack in Claude Code to send <draft name>" |
+   | `slack-reply` | send | load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. Otherwise, when `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Else append that line, then post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`), then close the item. A post that fails: remove that `sent.log` line, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
    | `slack-reply` | `rewrite: <how>` | rewrite the draft's reply as `<how>` asks (the Inbox step's rules for a reply, first line kept), close the item and add the `slack-reply` item again with the new reply's first line on its Suggest line |
    | `slack-reply` | skip | close it |
    | `slack-reply` | anything else | close it and add it again with "(answer send, rewrite: <how> or skip)" at the end of its title |

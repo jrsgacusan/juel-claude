@@ -115,7 +115,7 @@ grep -q 'STAR answered' "$SKILL" && pass "what STAR decided for a worker is on r
 grep -q 'Answer on' "$T/open-loops.md" && pass "the queue file says how to answer" || fail "template answer hint"
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
-g "V1 away, back and stop are not a start" '`status`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start'
+g "V1 away, back and stop are not a start" '`status`, `dashboard`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start'
 g "V3 every tick checks it still owns the home" "is not this session's handle"
 g "V4 the heartbeat is renewed before it expires" 'heartbeatAt'
 g "V5 a lost build leaves its pool" 'and set the row to `failed`'
@@ -680,5 +680,19 @@ g "DASH18 no Slack connector holds the send" 'connect Slack in Claude Code to se
 g "DASH19 rewrite redrafts" '| `slack-reply` | `rewrite: <how>` |'
 g "DASH20 skip closes it" '| `slack-reply` | skip | close it |'
 g "DASH21 the home lists the Slack drafts" 'drafts/<YYYY-MM-DD>-<project>-slack-<id>.md'
+g "DASH22 dashboard skips the preflight like status" '`status`, `dashboard`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start'
+g "DASH23 the slack block's thread field" 'threadTs: <ts, or ->'
+g "DASH24 the slack block's channel id" 'channelId: <id>'
+g "DASH25 the slack block's permalink" 'permalink: <url>'
+g "DASH26 a draft for a top-level message names its own ts" '(the block'"'"'s `ts` when `threadTs` is `-`)'
+g "DASH27 the reply's rules" 'at most two sentences, no greeting'
+g "DASH28 a reply STAR cannot answer says the owner will check" 'reply says the owner will check'
+g "DASH29 a slack: file adds no row" 'not a work item: it adds no row'
+g "DASH30 the sent.log line for a Slack reply" '`<iso>\tSTAR\tslack\tslack reply <draft name>`'
+g "DASH31 the reply goes in the message's thread" '(`thread_ts`)'
+g "DASH32 no Slack tool writes nothing to sent.log" 'and write nothing to `sent.log`'
+g "DASH33 a failed post is not marked sent" 'A post that fails: remove that `sent.log` line'
+g "DASH34 anything else asks again" '(answer send, rewrite: <how> or skip)'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
