@@ -309,6 +309,19 @@ export function judge(command: string, p: Protect | undefined, depth = 0): Verdi
   return undefined
 }
 
+/**
+ * What a guard still refuses when it failed (a timeout, a throw) and cannot tell the session's role:
+ * a direct merge, which the coordinator and every STAR worker forbid, or undefined. A read of a
+ * protected file is never refused here: the guard is the coordinator's only, and the session may be
+ * a worker reading its own review file or a person's own session. A Read tool call has no command,
+ * so it always passes. The protected-path rules are left out (`judge` with none), so a command that
+ * reads a protected file and then merges is still refused for its merge.
+ */
+export function fallbackDeny(call: { tool: string; command?: unknown }): Extract<Verdict, { kind: 'merge' }> | undefined {
+  const verdict = judge(typeof call.command === 'string' ? call.command : '', undefined)
+  return verdict?.kind === 'merge' ? verdict : undefined
+}
+
 // --- #114: rm / rmdir on a bare variable ---------------------------------------------------------
 
 const RM = new Set(['rm', 'rmdir', 'unlink'])

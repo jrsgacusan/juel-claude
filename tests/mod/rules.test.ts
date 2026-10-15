@@ -2,7 +2,7 @@
 // the guard exists to stop.
 import { describe, expect, test } from 'claude-code/testing'
 
-import { guardRmVars, judge, protectedWhy } from '../../hooks/guards'
+import { fallbackDeny, guardRmVars, judge, protectedWhy } from '../../hooks/guards'
 import type { Protect } from '../../hooks/guards'
 import { bandOf, parseLedger, parseQueue, parseStar } from '../../hooks/star'
 import { HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
@@ -83,6 +83,38 @@ describe('read guard', () => {
     expect(protectedWhy(`${HOME}/reviews/app/issue-7-r2.md`, P)).toBe('a review file')
     expect(protectedWhy('docs/superpowers/context/star/sent.log', P)).toBe('a log file')
     expect(protectedWhy(`${HOME}/ledger.md`, P)).toBeUndefined()
+  })
+})
+
+describe('fallback guard (the session\'s role is unknown)', () => {
+  const review = `${HOME}/reviews/app/issue-7-r2.md`
+  const bash = (command: string) => ({ tool: 'Bash', command })
+
+  test('refuses a merge: every guarded role forbids a direct merge', () => {
+    for (const c of ['gh pr merge 12 --squash', "bash -c 'gh pr merge 12 --auto'", 'gh api -X PUT repos/o/r/pulls/12/merge']) {
+      expect(fallbackDeny(bash(c))?.kind, c).toBe('merge')
+    }
+    expect(fallbackDeny({ tool: 'Monitor', command: 'gh pr merge 12' })?.kind).toBe('merge')
+  })
+
+  test('refuses the merge in a command that also reads a protected file', () => {
+    const command = `cat ${review} && gh pr merge 12`
+    expect(judge(command, P)?.kind).toBe('read') // the first verdict is the read
+    expect(fallbackDeny(bash(command))?.kind).toBe('merge')
+  })
+
+  test('passes a read: a worker or a person may read its own review file', () => {
+    for (const c of [`cat ${review}`, `tail -n 20 ${HOME}/progress/issue-7.log`, `cat ${HOME}/reports/app/issue-9.md`]) {
+      expect(judge(c, P)?.kind, c).toBe('read')
+      expect(fallbackDeny(bash(c)), c).toBeUndefined()
+    }
+    expect(fallbackDeny(bash('gh pr view 12'))).toBeUndefined()
+  })
+
+  test('passes a Read tool call, a protected path included', () => {
+    const read = { tool: 'Read', file_path: review }
+    expect(protectedWhy(review, P)).toBe('a review file')
+    expect(fallbackDeny(read)).toBeUndefined()
   })
 })
 
