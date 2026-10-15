@@ -430,7 +430,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <ul>
           <li>Before READY, the babysit worker judges Greptile's review from guidelines: it reviewed the head commit, scores 4/5 or better, and has no open P0/P1 and nothing advising against merging</li>
           <li>The merge gate reads no review text: it trusts that READY came on a head the worker judged clean</li>
-          <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment). When the record of passes is missing, babysit rebuilds it from the PR's reviews first, so a pass already made still counts</li>
+          <li>At most 2 passes: one when marked ready, one on the single fix push (automatic with <code>triggerOnUpdates</code>, else an <code>@greptileai</code> comment). When the record of passes is missing, babysit rebuilds it from the PR's reviews and Greptile's summary comments first, so a pass already made still counts</li>
           <li>Pass 2 still not clean: back to STAR to re-scope</li>
           <li>A base sync after a clean pass gets one status refresh (<code>@greptileai</code>) on the new head; it is not a pass, unless the project counts every run (<code>refreshOutsideCap: false</code>): then that head comes to you</li>
           <li>When one pass is left, babysit merges the base in before asking for it, so the last pass reviews a current head</li>

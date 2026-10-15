@@ -124,7 +124,7 @@ grep -qF '(a session Orca reports released with no retained reason is ended; one
 grep -qF 'The full regression gate and every live check run once per PR, before the first draft push.' "$PAGE" && pass "LH5 the full gate runs once per PR (#102)" || fail "LH5 gate once on the page"
 grep -qF 'plus a sweep that runs every test file once' "$PAGE" && pass "LH5 later pushes run the sweep (#102)" || fail "LH5 sweep on the page"
 grep -qF 'A head GitHub ran no CI on, while the PR does not conflict, comes to you.' "$PAGE" && pass "LH5 a head with no CI comes to you (#102)" || fail "LH5 ci-missing on the page"
-grep -qF 'When the record of passes is missing, babysit rebuilds it from the PR'"'"'s reviews first' "$PAGE" && pass "LH6 a missing pass record is rebuilt (#96)" || fail "LH6 hosted log on the page"
+grep -qF 'When the record of passes is missing, babysit rebuilds it from the PR'"'"'s reviews and Greptile'"'"'s summary comments first' "$PAGE" && pass "LH6 a missing pass record is rebuilt (#96, #116)" || fail "LH6 hosted log on the page"
 grep -qF '>gates · push · ≤ 3 NOT-SAFE</text>' "$PAGE" && grep -qF '>3 NOT-SAFE in a row</text>' "$PAGE" && pass "LH6 the drawing counts NOT-SAFE rounds in a row (#108)" || fail "LH6 round budget in the drawing"
 grep -qF 'after 3 NOT-SAFE rounds in a row or a second Greptile pass' "$PAGE" && pass "LH6 the drawing's label says the same (#108)" || fail "LH6 round budget in the aria-label"
 grep -qF 'In babysit the count starts over at each SAFE round and each push' "$PAGE" && pass "LH6 a base merge after a SAFE round gets a fresh budget (#108)" || fail "LH6 round budget on the page"

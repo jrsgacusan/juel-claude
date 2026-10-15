@@ -309,7 +309,7 @@ reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the ver
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
-reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`; when it is missing, babysit rebuilds it from the PR's reviews (`pr-state.sh --hosted-passes`) before it counts a pass
+reviews/<project>/<item>-hosted.log      one line per hosted-reviewer request a babysit worker made: `<iso> pass <n> head=<sha>` or `<iso> refresh head=<sha>`; when it is missing, babysit rebuilds it from the PR's reviews and the reviewer's summary comments (`pr-state.sh --hosted-passes`) before it counts a pass
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)

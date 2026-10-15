@@ -597,7 +597,7 @@ g "LH4g the owner may ask for a second slot (#97)" 'The owner may ask for `sh S/
 g "LH4h the shared gate lock's order, in the edge cases (#97)" 'the gate lock (strict arrival order with one slot, the default;'
 g "LH5a a missing CI run is the owner's to look at (#102)" '`reason=ci-missing` (babysit found no CI run on the PR'"'"'s head while the PR does not conflict with its base, #102) is the owner'"'"'s to look at'
 g "LH5b missing checks are never a pass (#102)" 'missing checks are never a pass, so STAR neither answers it nor restarts the stage on its own'
-g "LH6a a missing hosted log is rebuilt by babysit (#96)" 'when it is missing, babysit rebuilds it from the PR'"'"'s reviews (`pr-state.sh --hosted-passes`)'
+g "LH6a a missing hosted log is rebuilt by babysit (#96, #116)" 'when it is missing, babysit rebuilds it from the PR'"'"'s reviews and the reviewer'"'"'s summary comments (`pr-state.sh --hosted-passes`)'
 g "LH6b babysit counts NOT-SAFE rounds since the newest SAFE round or push (#108)" 'A babysit run counts its NOT-SAFE rounds since the newest SAFE round or its last'
 g "LH6c an unpushed SAFE round starts a fresh count (#108)" 'that could not be pushed, because the PR needed a base merge first, starts a fresh count'
 g "LH7a a denied fallback run is retried once inside the round (#100)" 'is retried once inside the round, told which call was denied'
