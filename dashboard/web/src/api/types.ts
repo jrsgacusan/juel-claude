@@ -1,8 +1,6 @@
-// The dashboard server's API, kept by hand (spec D9): the Core API in star-dashboard-server.md,
-// the briefing routes in star-dashboard-briefing.md and the Slack routes in star-dashboard-slack.md.
-// Field names are the specs' own. Where a spec names a response only in words, the shape is spec
-// D18's. A server that settles a shape differently is fixed here, and the fixtures that stop
-// type-checking show what else moves.
+// The dashboard server's API, kept by hand: the shape is spec D18's, as amended by STAR's API
+// contract of 2026-10-16 and brief D11; once dashboard/server/ is merged, its routes are the source
+// of truth.
 
 export type ProjectState = "running" | "idle" | "stopped"
 export type Project = {
@@ -105,7 +103,6 @@ export type EvidenceDetail = {
   item: string
   title: string | null
   /** The release record's PR URL. */
-  pr: string | null
   pr: string | null
   sha: string | null
   mergedAt: string | null

@@ -1,4 +1,4 @@
-// Fails the build when the mock layer reached dist/ (spec D3): no mockServiceWorker.js, and no
+// Fails the build when the mock layer reached dist/ (brief D3): no mockServiceWorker.js, and no
 // file that carries MSW's code. Run by `npm run build` after `vite build`.
 import { readdir, readFile } from "node:fs/promises"
 import { basename, extname, join } from "node:path"

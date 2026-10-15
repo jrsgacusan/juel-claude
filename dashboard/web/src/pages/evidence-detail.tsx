@@ -30,6 +30,7 @@ import { errorMessage } from "@/lib/errors"
 import { prLabel } from "@/lib/status"
 
 // The four check cards read the release record the server sends (API contract, 2026-10-16).
+// Go, Codex gate, CI and Approval, one card per release-record key, each "Not recorded" when missing (brief D11). No Claude review card: the release record has no such line.
 const RECORD: Record<
   keyof EvidenceRecord,
   { icon: LucideIcon; label: string }
@@ -41,7 +42,7 @@ const RECORD: Record<
 }
 const RECORD_KEYS = Object.keys(RECORD) as Array<keyof EvidenceRecord>
 
-export function Thumb({
+function Thumb({
   file,
   onOpen,
 }: {
@@ -133,15 +134,24 @@ function FullSize({ file }: { file: EvidenceFile }) {
   if (content.isLoading) return <Skeleton className="aspect-video w-full" />
   if (content.error)
     return (
-      <div role="alert" className="flex flex-wrap items-center gap-3 text-sm text-stop-fg">
+      <div
+        role="alert"
+        className="flex flex-wrap items-center gap-3 text-sm text-stop-fg"
+      >
         <span>{`Couldn't load ${file.name}: ${errorMessage(content.error)}`}</span>
-        <Button variant="outline" size="sm" onClick={() => void content.refetch()}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void content.refetch()}
+        >
           Try again
         </Button>
       </div>
     )
   if (mediaError)
-    return <p className="text-sm text-stop-fg">{file.name} could not be shown.</p>
+    return (
+      <p className="text-sm text-stop-fg">{file.name} could not be shown.</p>
+    )
   if (file.kind === "image")
     return (
       <img

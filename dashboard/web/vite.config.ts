@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 
-// https://vite.dev/config/
 export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -12,6 +11,7 @@ export default defineConfig(({ command }) => ({
       "@": resolve(import.meta.dirname, "./src"),
     },
   },
+  // The build has no public folder at all, so the MSW worker never reaches dist/ (brief D3).
   publicDir: command === "serve" ? "dev-public" : false,
   server:
     process.env.VITE_MOCK === "off"

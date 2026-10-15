@@ -59,7 +59,7 @@ export function SearchDialog({
   const navigate = useNavigate()
   const results = q ? (search.data ?? []) : []
   const groups = [...new Set(results.map((r) => r.group))]
-  const open_ = (result: SearchResult) => {
+  const openResult = (result: SearchResult) => {
     onOpenChange(false)
     void navigate(resultPath(result))
   }
@@ -73,6 +73,7 @@ export function SearchDialog({
         <DialogDescription className="sr-only">
           Search items, decisions, Slack, briefings and evidence
         </DialogDescription>
+        {/* cmdk would filter again what the server already matched (brief D8). */}
         <Command shouldFilter={false} className="rounded-none">
           <CommandInput
             value={query}
@@ -105,27 +106,30 @@ export function SearchDialog({
                 <CommandGroup key={group} heading={group}>
                   {results
                     .filter((r) => r.group === group)
-                    .map((r) => (
-                      <CommandItem
-                        key={`${r.project}\u0000${r.group}\u0000${r.ref}\u0000${r.title}`}
-                        value={`${r.project}\u0000${r.group}\u0000${r.ref}\u0000${r.title}`}
-                        onSelect={() => open_(r)}
-                      >
-                        <Icon className="text-muted-foreground" />
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate">
-                            <Highlight text={r.title} query={q} />
+                    .map((r) => {
+                      const value = `${r.project}\u0000${r.group}\u0000${r.ref}\u0000${r.title}`
+                      return (
+                        <CommandItem
+                          key={value}
+                          value={value}
+                          onSelect={() => openResult(r)}
+                        >
+                          <Icon className="text-muted-foreground" />
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate">
+                              <Highlight text={r.title} query={q} />
+                            </span>
+                            <span className="truncate text-xs text-muted-foreground">
+                              <Highlight text={r.sub} query={q} />
+                              {r.project !== project ? `, in ${r.project}` : ""}
+                            </span>
                           </span>
-                          <span className="truncate text-xs text-muted-foreground">
-                            <Highlight text={r.sub} query={q} />
-                            {r.project !== project ? `, in ${r.project}` : ""}
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {r.ref}
                           </span>
-                        </span>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {r.ref}
-                        </span>
-                      </CommandItem>
-                    ))}
+                        </CommandItem>
+                      )
+                    })}
                 </CommandGroup>
               )
             })}

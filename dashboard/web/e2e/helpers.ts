@@ -9,7 +9,7 @@ export type Scenario =
   | "stopped"
   | "slack-off"
 
-/** Opens the app the way the launcher does (/?t=<token>), then goes to `path`. */
+/** Sets the mock scenario before load, opens /?t=test-token like the launcher, checks the redirect to /sphere-app/needs, then goes to `path`. */
 export async function openApp(
   page: Page,
   path = "/sphere-app/needs",

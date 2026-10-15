@@ -67,7 +67,7 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = React.useState<Theme>(() => {
-    let storedTheme: string | null = null
+    let storedTheme: string | null
     try {
       storedTheme = localStorage.getItem(storageKey)
     } catch {

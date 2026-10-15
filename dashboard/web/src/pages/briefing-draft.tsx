@@ -23,7 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { errorMessage } from "@/lib/errors"
 import { agoText } from "@/lib/format"
 
-export const TRACKER_LABEL: Record<Tracker, string> = {
+const TRACKER_LABEL: Record<Tracker, string> = {
   synapse: "Synapse",
   linear: "Linear",
   jira: "Jira",

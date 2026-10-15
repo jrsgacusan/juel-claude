@@ -1,6 +1,8 @@
 import type { ItemRow, ItemStatus, ProjectState } from "@/api/types"
 
-// Color only for state (brief): amber needs you, blue running, green done, red stopped.
+// Color only for state (brief): amber needs you, blue running, green done, red stopped. Blue marks
+// an item at work (Building, In review); a running STAR project shows the green pulsing dot, as in
+// the mock.
 export type Tone = "wait" | "run" | "done" | "stop" | "muted"
 
 export const STATUS: Record<ItemStatus, { label: string; tone: Tone }> = {

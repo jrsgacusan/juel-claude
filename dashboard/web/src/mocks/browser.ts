@@ -10,8 +10,9 @@ import {
   type Scenario,
 } from "./state"
 
-// Development only (main.tsx imports this behind import.meta.env.DEV, spec D3).
-// window.__starMock lets Playwright drop the event stream and switch scenarios (spec D17).
+// Development only (main.tsx imports this behind import.meta.env.DEV, brief D3).
+// Playwright uses events.drop() and restore(); emit(), use(), reset() and failNextBriefingTurn()
+// are for tests and a dev console. Scenarios come from localStorage['star-mock'] (readScenario).
 declare global {
   interface Window {
     __starMock?: {

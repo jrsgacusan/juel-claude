@@ -1,4 +1,4 @@
-export const TOKEN_KEY = "star-token"
+const TOKEN_KEY = "star-token"
 let memory: string | null = null
 
 export function getToken(): string | null {

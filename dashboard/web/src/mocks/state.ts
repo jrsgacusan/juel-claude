@@ -1,8 +1,8 @@
 import type { StarEvent } from "@/api/types"
 import { createDb, type MockDb } from "./fixtures"
 
-// The mock layer's mutable state: the db the handlers read and write, the scenario that switches
-// them (spec D17), and the hub behind GET /api/events.
+// The mock layer's mutable state: the db the handlers read and write, the scenario developers can
+// set with localStorage['star-mock'] too, and the hub behind GET /api/events.
 
 export type Scenario =
   | "default"
@@ -22,7 +22,7 @@ const SCENARIOS = [
   "slack-off",
 ]
 let failBriefingTurn = false
-export const isScenario = (value: unknown): value is Scenario =>
+const isScenario = (value: unknown): value is Scenario =>
   typeof value === "string" && (SCENARIOS as readonly string[]).includes(value)
 
 let db: MockDb = createDb()

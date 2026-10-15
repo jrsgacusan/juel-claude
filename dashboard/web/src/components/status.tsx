@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge"
 import { statusOf, type Tone } from "@/lib/status"
 import { cn } from "@/lib/utils"
 
-/** STAR's mark (mock:124-126). */
+/** STAR's mark (star-dashboard-mock.html:124-126). */
 export function StarMark({ className }: { className?: string }) {
   return (
     <svg

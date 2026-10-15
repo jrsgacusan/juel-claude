@@ -1,5 +1,5 @@
 import { RefreshCw, Send } from "lucide-react"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { ApiError } from "@/api/client"
 import {
@@ -67,12 +67,15 @@ export function RoutedDetail({
   const when = slackTime(message.id)
   const editedRef = useRef(edited)
   const savedRef = useRef(saved)
-  editedRef.current = edited
-  savedRef.current = saved
+  useEffect(() => {
+    editedRef.current = edited
+    savedRef.current = saved
+  }, [edited, saved])
   const ready = draft.isSuccess
 
-  // D7: saved on blur when changed, and before Send reply; a failed save never sends.
+  // brief D7: saved on blur when changed, and before Send reply; a failed save never sends.
   const persist = async (): Promise<boolean> => {
+    // Wait for that save and then save again when the text changed while it was in flight.
     if (pendingSave.current && !(await pendingSave.current)) return false
     const currentEdited = editedRef.current
     const currentSaved = savedRef.current

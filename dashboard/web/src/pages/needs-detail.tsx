@@ -225,10 +225,7 @@ export function LoopDetail({
               </Link>
             </Button>
           )}
-          <Button
-            onClick={() => void send()}
-            disabled={answer.isPending || sending.current}
-          >
+          <Button onClick={() => void send()} disabled={answer.isPending}>
             Send to STAR
             <span className="opacity-60">⌘↵</span>
           </Button>

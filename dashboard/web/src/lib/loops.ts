@@ -17,7 +17,7 @@ import type { Loop } from "@/api/types"
 
 export type LoopGroup = "blocked" | "slack" | "others"
 
-// The server's order (star-dashboard-server.md): blocked work, then slack-reply, then the rest.
+// The kinds the server lists first. The page keeps the server's order; these only pick the tab.
 const BLOCKED = new Set([
   "go-batch",
   "question",
@@ -53,7 +53,7 @@ export function kindOf(kind: string): { label: string; icon: LucideIcon } {
   )
 }
 
-/** The body lines to show: never the Options or Suggest lines; for a slack-reply, never its file lines. */
+/** The body lines to show: never blank, Options: or Suggest: lines; for a slack-reply, never its draft: and message: lines (the page shows the draft and the message itself). */
 export function visibleBody(loop: Loop): string[] {
   return loop.body.filter((line) => {
     const text = line.trim()

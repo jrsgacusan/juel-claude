@@ -16,8 +16,8 @@ import type {
   TrackerInfo,
 } from "@/api/types"
 
-// Sample data for the mock layer: the dashboard mock's data (star-dashboard-mock.html) in the API's
-// shapes. None of it is real. Relative times are computed when the db is built, so "12m" stays 12m.
+// Sample data for the mock layer in the API's shapes. None of it is real. Times are relative to
+// when the db is built (load or resetMockState), so a 12m-old fixture reads 12m on any day.
 
 export const HOME = "sphere-app"
 const MINUTE = 60_000

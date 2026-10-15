@@ -17,7 +17,7 @@ const THEMES = [
   label: string
 }>
 
-/** System / Light / Dark (mock:349-366), kept in localStorage['star-theme'] by the provider. */
+/** System / Light / Dark (star-dashboard-mock.html:349-366), kept in localStorage['star-theme'] by the provider. */
 export function ThemeSwitch() {
   const { theme, setTheme } = useTheme()
   return (

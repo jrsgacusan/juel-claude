@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { ArrowUp, FileText, RotateCcw } from "lucide-react"
-import { type ReactNode, useEffect, useRef, useState } from "react"
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { ApiError } from "@/api/client"
 import { subscribeBriefing } from "@/api/events"
@@ -86,12 +86,12 @@ export function Conversation({
   const pending = usePendingBriefing(project, id)
   const end = useRef<HTMLLIElement>(null)
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     void Promise.all([
       qc.invalidateQueries({ queryKey: keys.briefing(project, id ?? "") }),
       qc.invalidateQueries({ queryKey: keys.briefings(project) }),
     ])
-  }
+  }, [id, project, qc])
 
   // The reply streams in as briefing events (spec D18: turn.text is the reply so far).
   useEffect(
@@ -117,7 +117,7 @@ export function Conversation({
           setStreaming(event.turn)
         }
       }),
-    [project, id, pending, qc]
+    [id, pending, project, refresh]
   )
 
   useEffect(() => {
@@ -133,7 +133,7 @@ export function Conversation({
         ? null
         : { ...pending, failed: "The turn did not finish." }
     )
-    setStreaming(null)
+    queueMicrotask(() => setStreaming(null))
   }, [briefing.data, id, pending, project])
 
   useEffect(() => {

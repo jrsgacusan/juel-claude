@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react"
 import { apiHeaders, apiUrl } from "./client"
 import { paths } from "./paths"
 import type { BriefingEvent, ChangeEvent } from "./types"
+// GET /api/events is read with fetch because EventSource cannot send X-Star-Token (brief D2).
 export type ConnectionState = "connecting" | "open" | "lost" | "refused"
 let connection: ConnectionState = "connecting"
 const connectionListeners = new Set<() => void>()
