@@ -137,5 +137,6 @@ grep -qF 'one a person kept is still kept or held' "$PAGE" && pass "F95 the page
 grep -qF 'carried to it from a gated head by a base merge that changed none of the files the branch changes' "$PAGE" && pass "LH110 the merge gate's carry names the rule (#110)" || fail "LH110 carry rule in the merge gate"
 grep -qF 'A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it.' "$PAGE" && pass "LH110 a base merge keeps the PASS only when it changed none of the branch's files (#110)" || fail "LH110 carry rule in Never stalls"
 grep -qF 'a script proves adds nothing of its own' "$PAGE" && fail "LH110 the old carry wording is gone (#110)" || pass "LH110 the old carry wording is gone (#110)"
+grep -qF 'A gate round on a base that moved and changed the branch'"'"'s own files merges the base in first, so the round reviews a current head.' "$PAGE" && pass "LH113 a moved base that touches the branch is merged before the round (#113)" || fail "LH113 base-moved on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -1003,13 +1003,22 @@ cannot be judged never lets something out.
 `sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>` runs
 one headless `codex review` of the branch against its base, read-only and with no MCP server, on
 `star.json`'s `gate` model (the newest sol at xhigh, resolved like the executor's
-`latest-<family>`). A capacity error is retried after 60 and 180 seconds. After that, or at once
+`latest-<family>`). Each round pins the base to one commit and records it in the review's `Gate:`
+line. A round whose base moved past the branch and changed a file the branch changes refuses
+before any review runs, with
+`ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>`
+(#113): the worker merges the base in, runs the sweep and runs the same round again.
+That is not an `ERROR` retry: it counts toward no escalation and casts no `gate.maxRounds` vote.
+A base that moved without touching the branch's files is not acted on. A capacity error is retried
+after 60 and 180 seconds. After that, or at once
 when the Codex account is out of usage, the same prompt runs through `gate.fallback`: a headless
 `claude -p` review on Opus at xhigh, with read-only tools and no MCP server. The review's `Gate:`
 line and the PASS comment then name it (`claude:opus xhigh`). A fallback run with a denied tool
 call (it may not have read the diff) is retried once inside the round, told which call was denied
 (#100). When the fallback fails too, or a second denial follows, the gate prints
-`ERROR gate-down <why>`, never a verdict. Its prompt, `S/template/gate-prompt.md`, kept as
+`ERROR gate-down <why>`, never a verdict. The fallback searches with Grep and Glob, never
+`git grep`, whose `-O` runs a program; its retry line says so too (#117). Its prompt,
+`S/template/gate-prompt.md`, kept as
 `HOME_DIR/specs/<project>/<item>-gate-r<k>.md`, carries the brief's criteria and `## Decisions`, the
 project's notes, the previous round's review and `-fix.md` from round 2, and the review rules from
 the base branch, so a PR cannot change its own rules. Only a `[P0]` or `[P1]` finding makes the round
@@ -1887,6 +1896,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
 | The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |
+| The base moves under a gate loop and changes the branch's own files | The round prints `ERROR base-moved`: the worker merges the base in, runs the sweep and runs the same round again; it is not an error, and STAR does nothing (#113) |
 | The review gate is down on every model (`ERROR gate-down`) | STAR parks each build and babysit that reports it, starts no new ones, asks the owner once, and checks the gate every 30 minutes until it is back |
 | A worktree Orca created inside the repository | `.git/info/exclude` gets a line for its top folder |
 | A new worktree Claude Code has never trusted | `stage-start.sh` clears the dialogs; only when it cannot does the queue ask |

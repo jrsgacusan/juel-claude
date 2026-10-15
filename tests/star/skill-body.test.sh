@@ -618,5 +618,13 @@ grep -qF 'never a dispatch Orca reports `released`' "$SKILL" && fail "F95d a rel
 g "LH110a a merge carries only when the base changed none of the branch's files (#110)" 'none of the files the branch changes, so a merge with a conflict never carries) carries the last'
 grep -qF 'git merged it cleanly, or every' "$SKILL" && fail "LH110b a mechanical conflict no longer carries (#110)" || pass "LH110b a mechanical conflict no longer carries (#110)"
 g "LH110c done-check accepts a carry by the same rule (#110)" '`carry-check.sh` carries it to the PR'"'"'s head, by the rule above (#110).'
+g "LH113a a round pins its base (#113)" 'Each round pins the base to one commit and records it in the review'"'"'s `Gate:`'
+g "LH113b a moved base that touches the branch refuses the round (#113)" '`ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>`'
+g "LH113c the worker merges the base and runs the round again (#113)" '(#113): the worker merges the base in, runs the sweep and runs the same round again.'
+g "LH113d the refusal is not an ERROR retry (#113)" 'That is not an `ERROR` retry: it counts toward no escalation and casts no `gate.maxRounds` vote.'
+g "LH113e a disjoint base move is not acted on (#113)" 'A base that moved without touching the branch'"'"'s files is not acted on.'
+g "LH113f the edge case (#113)" '| The base moves under a gate loop and changes the branch'"'"'s own files |'
+g "LH117a the fallback searches with Grep and Glob (#117)" '`ERROR gate-down <why>`, never a verdict. The fallback searches with Grep and Glob, never'
+g "LH117b never git grep, whose -O runs a program (#117)" '`git grep`, whose `-O` runs a program; its retry line says so too (#117).'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
