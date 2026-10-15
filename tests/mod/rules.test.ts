@@ -223,21 +223,77 @@ describe('the queue as the band reads it', () => {
   test("turns an Options line into picks, templates to finish, and the words it asks for", () => {
     expect(optionsOf(['Options: go / go except <items> / drop <item> / or say what to change'])).toEqual({
       options: [
-        { label: 'go', text: 'go' },
-        { label: 'go except …', text: 'go except ' },
-        { label: 'drop …', text: 'drop ' },
+        { label: 'go', text: 'go', recommended: false },
+        { label: 'go except …', text: 'go except ', recommended: false },
+        { label: 'drop …', text: 'drop ', recommended: false },
       ],
       hint: 'say what to change',
     })
     expect(optionsOf(['Options: answer with your decision to run the stage again / drop'])).toEqual({
-      options: [{ label: 'drop', text: 'drop' }],
+      options: [{ label: 'drop', text: 'drop', recommended: false }],
       hint: 'answer with your decision to run the stage again',
     })
     expect(optionsOf(["Options: <the value> / can't now"])).toEqual({
-      options: [{ label: "can't now", text: "can't now" }],
+      options: [{ label: "can't now", text: "can't now", recommended: false }],
       hint: 'type the value',
     })
     expect(optionsOf(['msg: m-1', 'deadline: 2026-10-15T08:30:00Z'])).toEqual({ options: [], hint: '' })
+  })
+
+  test('marks the recommended option, and sends its words without the suffix', () => {
+    expect(optionsOf(["Options: done (recommended) / can't now"])).toEqual({
+      options: [
+        { label: 'done', text: 'done', recommended: true },
+        { label: "can't now", text: "can't now", recommended: false },
+      ],
+      hint: '',
+    })
+    expect(optionsOf(['Options: send / rewrite: <how> (Recommended) / skip']).options).toEqual([
+      { label: 'send', text: 'send', recommended: false },
+      { label: 'rewrite: …', text: 'rewrite: ', recommended: true },
+      { label: 'skip', text: 'skip', recommended: false },
+    ])
+  })
+
+  test("reads the Suggest line as the item's suggestion, not as a detail", () => {
+    const need = needOf(
+      {
+        id: 'N-30', kind: 'person', project: 'app', item: 'issue-4', title: 'confirm the host',
+        body: ['brief: /h/briefs/app/issue-4.md', 'step: 1', '> kind: confirm-id', 'Suggest: staging.example.com: the brief names it', "Options: done (recommended) / can't now"],
+        answer: '',
+      },
+      at('2026-10-15T08:07:00Z'),
+    )
+    expect(need.suggestion).toBe('staging.example.com: the brief names it')
+    expect(need.details.map(d => d.key)).toEqual(['brief', 'step', 'kind'])
+    expect(need.options[0]).toEqual({ label: 'done', text: 'done', recommended: true })
+    const plain = needOf({ id: 'N-32', kind: 'held', project: 'app', item: 'issue-4', title: 't', body: ['Options: done'], answer: '' }, at('2026-10-15T08:07:00Z'))
+    expect(plain.suggestion).toBe(null)
+  })
+
+  test('a secret step never carries a suggestion or a recommended option', () => {
+    const need = needOf(
+      {
+        id: 'N-31', kind: 'person', project: 'app', item: 'issue-4', title: 'add the key',
+        body: ['brief: /h/briefs/app/issue-4.md', 'step: 2', '> kind: secret (value)', 'Suggest: sk_test_123', "Options: done (recommended) / can't now"],
+        answer: '',
+      },
+      at('2026-10-15T08:07:00Z'),
+    )
+    expect(need.suggestion).toBe(null)
+    expect(need.options.map(o => o.recommended)).toEqual([false, false])
+    expect(need.details.some(d => d.value.includes('sk_test'))).toBe(false)
+    expect(need.names.some(n => n.includes('sk_test'))).toBe(false)
+  })
+
+  test('reads every ledger column, as ledger.sh writes them', () => {
+    const parsed = parseLedger(LEDGER)
+    if (!parsed.ok) throw new Error(parsed.why)
+    expect(parsed.value[0]).toEqual({
+      item: 'issue-1', ref: '#1', project: 'app', worktree: '/w/app-issue-1', state: 'building', stage: 'build',
+      round: '1', task: 't-issue-1', dispatch: 'd-issue-1', restarts: '0', pr: '-', head: '-', cursor: '-',
+      verify: '-', counters: '-', updated: '2026-10-15T08:00:00Z',
+    })
   })
 
   test("shows a question's deadline, and leaves the Orca message id out", () => {

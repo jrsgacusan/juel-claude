@@ -19,10 +19,21 @@ export const WAITING_STATES = ['inbox', 'brief-ready', 'queued', 'babysit-queued
 
 export type LedgerRow = {
   item: string
+  ref: string
+  project: string
+  worktree: string
   state: string
   stage: string
-  worktree: string
+  round: string
+  task: string
+  dispatch: string
+  restarts: string
   pr: string
+  head: string
+  cursor: string
+  verify: string
+  counters: string
+  updated: string
 }
 
 /**
@@ -77,7 +88,12 @@ export function parseLedger(text: string): Parsed<LedgerRow[]> {
     if (!line.startsWith('|')) break
     const c = line.endsWith('|') ? cells(line) : []
     if (c.length !== LEDGER_COLS.length) return { ok: false, why: `line ${i + 1} has ${c.length} cells, not ${LEDGER_COLS.length}` }
-    rows.push({ item: c[0] ?? '', worktree: c[3] ?? '-', state: c[4] ?? '', stage: c[5] ?? '', pr: c[10] ?? '-' })
+    const at = (k: number): string => c[k] ?? '-'
+    rows.push({
+      item: c[0] ?? '', ref: at(1), project: at(2), worktree: at(3), state: c[4] ?? '', stage: c[5] ?? '',
+      round: at(6), task: at(7), dispatch: at(8), restarts: at(9), pr: at(10), head: at(11), cursor: at(12),
+      verify: at(13), counters: at(14), updated: at(15),
+    })
   }
   return { ok: true, value: rows }
 }
@@ -197,24 +213,29 @@ const IN_WORDS = /^(or\b|answer with\b|tell me\b|say\b)|\byour (decision|answer)
  * template (`go except <items>`) as the words before its placeholder, ready to finish, and the
  * options that only ask for words as the field's placeholder.
  */
-export function optionsOf(body: readonly string[]): { options: { label: string; text: string }[]; hint: string } {
+// STAR's pick on an item: its option in the Options line ends in " (recommended)". The words the
+// band and the dashboard send never carry the suffix.
+const RECOMMENDED = /\s*\(recommended\)\s*$/i
+
+export function optionsOf(body: readonly string[]): { options: { label: string; text: string; recommended: boolean }[]; hint: string } {
   const line = body.find(l => /^options\s*:/i.test(l))
-  const options: { label: string; text: string }[] = []
+  const options: { label: string; text: string; recommended: boolean }[] = []
   const hints: string[] = []
   for (const raw of line ? line.replace(/^options\s*:/i, '').split(' / ') : []) {
-    const part = raw.trim()
+    const recommended = RECOMMENDED.test(raw.trim())
+    const part = raw.trim().replace(RECOMMENDED, '').trim()
     if (!part) continue
     const open = part.indexOf('<')
     if (open >= 0) {
       const head = part.slice(0, open).trimEnd()
       const close = part.indexOf('>', open)
       const what = part.slice(open + 1, close > open ? close : undefined).trim()
-      if (head) options.push({ label: `${head} …`, text: `${head} ` })
+      if (head) options.push({ label: `${head} …`, text: `${head} `, recommended })
       else hints.push(`type ${what || 'the value'}`)
     } else if (IN_WORDS.test(part)) {
       hints.push(part.replace(/^or\s+/i, ''))
     } else {
-      options.push({ label: part, text: part })
+      options.push({ label: part, text: part, recommended })
     }
   }
   return { options, hint: hints.join(', or ') }
@@ -236,13 +257,24 @@ function ago(ms: number): string {
 
 const span = (ms: number): string => (ms < 3_600_000 ? `${Math.max(1, Math.round(ms / 60_000))}m` : `${Math.round(ms / 3_600_000)}h`)
 
+// A person step whose kind line says secret: never a suggested value, never a recommended pick.
+const SECRET = /^kind\s*:\s*secret\b/i
+const SUGGEST = /^suggest\s*:/i
+
 /** One queue item as the band shows it: what it is, what the owner can pick, what is due. */
 export function needOf(n: NeedItem, nowMs: number): StarNeed {
-  const { options, hint } = optionsOf(n.body)
+  const isSecret = n.body.some(l => SECRET.test(l.replace(/^> /, '')))
+  const picked = optionsOf(n.body)
+  const options = isSecret ? picked.options.map(o => ({ ...o, recommended: false })) : picked.options
   const details: { key: string; value: string }[] = []
   const names: string[] = []
   let due: string | null = null
+  let suggestion: string | null = null
   for (const raw of n.body) {
+    if (SUGGEST.test(raw)) {
+      if (suggestion === null && !isSecret) suggestion = raw.replace(SUGGEST, '').trim() || null
+      continue
+    }
     const line = raw.replace(/^> /, '')
     if (/^options\s*:/i.test(line)) continue
     const kv = /^([a-z][a-z -]{0,20}):\s*(.*)$/i.exec(line)
@@ -268,8 +300,9 @@ export function needOf(n: NeedItem, nowMs: number): StarNeed {
     names,
     details,
     options,
-    hint: hint || (options.length ? 'or type an answer in words' : 'type your answer'),
+    hint: picked.hint || (options.length ? 'or type an answer in words' : 'type your answer'),
     due,
+    suggestion,
   }
 }
 

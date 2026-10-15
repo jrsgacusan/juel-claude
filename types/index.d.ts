@@ -16,10 +16,12 @@ export type StarDetail = {
   value: string
 }
 
-/** A pick from the item's `Options:` line: the button's label, and the text it puts in the field. */
+/** A pick from the item's `Options:` line: the button's label, the text it puts in the field, and whether STAR recommends it. */
 export type StarOption = {
   label: string
   text: string
+  /** The option ended in " (recommended)" (STAR's pick); the suffix is not in label or text. Never true on a secret step. */
+  recommended: boolean
 }
 
 /** One Needs-you item as the band shows it. */
@@ -38,6 +40,8 @@ export type StarNeed = {
   hint: string
   /** For a worker's question: "23m left" or "5m overdue"; null otherwise. */
   due: string | null
+  /** The item's `Suggest:` line (STAR's pick and why), null when it has none or the step is a secret. */
+  suggestion: string | null
 }
 
 export type StarBand = {
