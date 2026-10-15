@@ -66,6 +66,33 @@ for k in COLS ITEM_RE ANSWER_RE COMMENT_RE SECTIONS; do
   [ "$line" = "$k same" ] && pass "parity: hooks/star.ts $k is STAR's own" || fail "parity: ${line:-$k not printed}"
 done
 
+# validate.mjs check 15: a hooks.json that lost the session hook, or names a module that is not there, fails
+V="$TMP/v"; mkdir -p "$V"
+for d in .claude-plugin assets hooks references skills types; do [ -e "$ROOT/$d" ] && cp -R "$ROOT/$d" "$V/$d"; done
+# (only check 15 is asked about: another lane's skill text may fail an unrelated check until the merge)
+node "$ROOT/scripts/validate.mjs" "$V" > "$TMP/v0.txt" 2>&1
+grep -qE '^(✔|✘) ' "$TMP/v0.txt" && ! grep -q '^ERROR hooks:' "$TMP/v0.txt" \
+  && pass "validate.mjs finds nothing wrong with the plugin's own hooks.json" || fail "validate.mjs on a plain copy: $(grep '^ERROR hooks:' "$TMP/v0.txt" | head -3)"
+cp "$V/hooks/hooks.json" "$TMP/hooks.json"
+python3 -c 'import json, sys; p = sys.argv[1]; d = json.load(open(p)); d["hooks"] = {}; json.dump(d, open(p, "w"))' "$V/hooks/hooks.json"
+node "$ROOT/scripts/validate.mjs" "$V" 2>&1 | grep -qF 'ERROR hooks: hooks/hooks.json: the SessionStart block no longer runs hooks/star-session.sh' \
+  && pass "validate.mjs fails a hooks.json without the session hook" || fail "validate.mjs missed the lost session hook"
+cp "$TMP/hooks.json" "$V/hooks/hooks.json"; rm "$V/hooks/register.tsx"
+node "$ROOT/scripts/validate.mjs" "$V" 2>&1 | grep -qF 'ERROR hooks: hooks/hooks.json: module "./register.tsx" does not exist next to hooks.json' \
+  && pass "validate.mjs fails a module path that is not there" || fail "validate.mjs missed the missing module"
+
+# The requirement STAR declares for the mod has its definition (master plan I-11)
+python3 - "$ROOT/scripts/gen-requirements.mjs" <<'PY' && pass "gen-requirements.mjs defines claude-mods" || fail "gen-requirements.mjs: no claude-mods definition"
+import sys
+want = """  'claude-mods': {
+    kind: 'cli',
+    label: 'Claude Code mods (2.1.287 or later)',
+    install: 'Update Claude Code: https://code.claude.com/docs/en/setup#update-claude-code',
+  },
+"""
+sys.exit(0 if want in open(sys.argv[1], encoding="utf-8").read() else 1)
+PY
+
 # The plugin validates and the mod's own tests pass, on a Claude Code that loads mods
 ver=$(claude --version 2>/dev/null | awk 'NR == 1 {print $1}')
 if [ -z "$ver" ] || ! python3 -c 'import sys; v = tuple(int(x) for x in sys.argv[1].split(".")); sys.exit(0 if v >= (2, 1, 287) else 1)' "$ver" 2>/dev/null; then
