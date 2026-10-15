@@ -26,8 +26,13 @@ export function draftRoutes(router: Router, ctx: Ctx): void {
     const first = current.split("\n")[0] ?? "";
     const reply = body.text.replace(/\r\n?/g, "\n").replace(/\s+$/, "");
     const tmp = `${file}.tmp.${process.pid}`;
-    fs.writeFileSync(tmp, `${first}\n${reply}\n`);
-    fs.renameSync(tmp, file);
+    try {
+      fs.writeFileSync(tmp, `${first}\n${reply}\n`);
+      fs.renameSync(tmp, file);
+    } catch (err) {
+      fs.rmSync(tmp, { force: true });
+      throw new Unreadable(`drafts/${name}`, `could not save (${whyOf(err)})`);
+    }
     return { json: { saved: true } };
   });
 }

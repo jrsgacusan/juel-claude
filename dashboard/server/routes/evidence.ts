@@ -24,7 +24,7 @@ export function evidenceSummary(
     sha: rel.sha,
     mergedAt: rel.mergedAt,
     goAt: brief?.approved ?? null,
-    files: listFiles(evidenceDir(home, item)).length,
+    files: listFiles(evidenceDir(home, item), `evidence/${item}`).length,
   };
 }
 
@@ -48,11 +48,13 @@ export function evidenceRoutes(router: Router, ctx: Ctx): void {
     if (!isDir(evidenceDir(p.home, item)))
       throw new HttpError(404, `no evidence for ${item}`);
     const { files: _count, ...summary } = evidenceSummary(p.home, p.name, item);
-    const files = listFiles(evidenceDir(p.home, item)).map((name) => ({
-      name,
-      kind: kindOf(name),
-      url: fileUrl(p.name, `evidence/${item}/${name}`),
-    }));
+    const files = listFiles(evidenceDir(p.home, item), `evidence/${item}`).map(
+      (name) => ({
+        name,
+        kind: kindOf(name),
+        url: fileUrl(p.name, `evidence/${item}/${name}`),
+      }),
+    );
     return { json: { ...summary, groups: [{ criterion: null, files }] } };
   });
 }

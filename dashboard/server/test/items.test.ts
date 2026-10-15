@@ -185,3 +185,39 @@ test("GET evidence: merged items with evidence, and one item's files in one grou
     await env.close();
   }
 });
+
+test("an unreadable release record or evidence folder makes the evidence routes 502, naming it", async () => {
+  const env = await setup();
+  try {
+    const record = path.join(env.star, "releases", "2026-10-15-app-issue-4.md");
+    fs.chmodSync(record, 0o000);
+    for (const p of [
+      "/api/projects/app/evidence",
+      "/api/projects/app/evidence/issue-4",
+    ]) {
+      const r = await env.api(p);
+      assert.equal(r.status, 502, p);
+      assert.deepEqual(await r.json(), {
+        error: "releases/2026-10-15-app-issue-4.md: permission denied",
+      });
+    }
+    fs.chmodSync(record, 0o644);
+    const shots = path.join(
+      env.star,
+      "evidence",
+      "issue-4",
+      "2026-10-15-fix-rounding",
+      "screenshots",
+    );
+    fs.chmodSync(shots, 0o000);
+    const r = await env.api("/api/projects/app/evidence/issue-4");
+    assert.equal(r.status, 502);
+    assert.match(
+      ((await r.json()) as { error: string }).error,
+      /^evidence\/issue-4\/2026-10-15-fix-rounding\/screenshots: permission denied/,
+    );
+    fs.chmodSync(shots, 0o755);
+  } finally {
+    await env.close();
+  }
+});

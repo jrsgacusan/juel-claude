@@ -83,7 +83,10 @@ function searchProject(p: Project, q: string): Hit[] {
     items = [];
   }
   for (const item of items)
-    for (const f of listFiles(path.join(p.home, "evidence", item)))
+    for (const f of listFiles(
+      path.join(p.home, "evidence", item),
+      `evidence/${item}`,
+    ))
       add(
         "Evidence",
         path.basename(f),

@@ -124,3 +124,44 @@ test("PUT drafts/:name replaces everything after the first line and keeps the fi
     await env.close();
   }
 });
+
+test("an html evidence file is served as text, and a file the server cannot read is 502", async () => {
+  const env = await setup();
+  try {
+    const htmlPath = path.join(env.star, "evidence", "issue-4", "page.html");
+    fs.writeFileSync(htmlPath, "<script>alert(1)</script>");
+    const html = await env.api(file("evidence/issue-4/page.html"));
+    assert.match(html.headers.get("content-type") ?? "", /^text\/plain/);
+    fs.chmodSync(htmlPath, 0o000);
+    const locked = await env.api(file("evidence/issue-4/page.html"));
+    assert.equal(locked.status, 502);
+    assert.match(
+      ((await locked.json()) as { error: string }).error,
+      /^evidence\/issue-4\/page\.html: permission denied/,
+    );
+  } finally {
+    await env.close();
+  }
+});
+
+test("search on one project with an unreadable draft is 502 naming it", async () => {
+  const env = await setup();
+  try {
+    fs.chmodSync(
+      path.join(
+        env.star,
+        "drafts",
+        "2026-10-15-app-slack-C1-1700000000.000100.md",
+      ),
+      0o000,
+    );
+    const r = await env.api("/api/search?q=x&project=app");
+    assert.equal(r.status, 502);
+    assert.match(
+      ((await r.json()) as { error: string }).error,
+      /^drafts\/2026-10-15-app-slack-C1-1700000000\.000100\.md: permission denied/,
+    );
+  } finally {
+    await env.close();
+  }
+});
