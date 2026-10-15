@@ -14,6 +14,8 @@ import { loopRoutes } from './routes/loops.ts'
 import { projectRoutes } from './routes/projects.ts'
 import { evidenceRoutes } from './routes/evidence.ts'
 import { itemRoutes } from './routes/items.ts'
+import { draftRoutes } from './routes/drafts.ts'
+import { fileRoutes } from './routes/files.ts'
 import { serveStatic } from './static.ts'
 import type { Project } from './types.ts'
 
@@ -42,6 +44,8 @@ export async function startApp(opts: AppOptions): Promise<App> {
   loopRoutes(router, ctx)
   itemRoutes(router, ctx)
   evidenceRoutes(router, ctx)
+  fileRoutes(router, ctx)
+  draftRoutes(router, ctx)
   const dist = opts.webDist ?? WEB_DIST
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
