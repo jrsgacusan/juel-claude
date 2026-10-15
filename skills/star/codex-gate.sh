@@ -57,7 +57,8 @@
 # git log, also after --no-pager or -P; git ls-tree, ls-files, rev-parse, merge-base and cat-file
 # (#100); each also as git -C <this worktree's path> <command>, the path literal; never git -c or
 # git grep; --output is refused), access to <home>, an appended system prompt that fixes the
-# finding format and says to single-quote a shell metacharacter (#100), no MCP server and no
+# finding format, says to search with Grep and Glob and never git grep (#117) and to single-quote
+# a shell metacharacter (#100), no MCP server and no
 # saved session. The JSON's "result" is the review, read by the same rules, and the review's line is
 # "Gate: claude:<model> <effort> (fallback: <why>)". A fallback that did not review is
 # "ERROR gate-down <why>", and so is gate.fallback null: a non-zero exit, no output, output that is
@@ -65,9 +66,11 @@
 # "permission_denials" on the second try. claude -p exits 0 and answers in prose when a tool is
 # denied, and that prose has no tag to read, so a denial is never taken for a clean review. A run
 # whose only failure is a denial runs once more in the same round (#100), its prompt ending with
-# one line per denied command: "Your previous run was denied: <command>. Run it again as one plain
-# command, single-quoting any argument that holds a shell metacharacter, or read the file with
-# Read." The second run's result is the one read, and the first run's output stays in
+# one line per denied command: "Your previous run was denied: <command>. Search with Grep and find
+# files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command
+# as one plain command, single-quoting any argument that holds a shell metacharacter." No git grep
+# rule is safe, since its -O runs a program, so a denied search is sent to Grep (#117). The second
+# run's result is the one read, and the first run's output stays in
 # <item>-r<k>.log under "--- stdout", beside the second's. An ERROR reason is one
 # line: its whitespace is collapsed, since it can quote model text. Anything else is ERROR,
 # so a review the gate cannot read is never SAFE: any other codex failure, an empty review, an
@@ -169,12 +172,15 @@ FORMAT = ("Write the review as plain text: first one short paragraph with your o
           "finding as one bullet line, \"- [P<n>] <title> — <path>:<line>\", with any detail indented on the "
           "lines below it. Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, "
           "git rev-parse, git merge-base and git cat-file, one command per call with no pipe, redirect, && or "
-          "||: any other command is refused, and a refused command fails the review. Single-quote any argument "
-          "that holds a shell metacharacter (`& | ; < > ( ) [ ] * ? $`), and never use `$(…)`. Write nothing "
-          "else, and change nothing.")
-# the line a fallback run's prompt gets for each command its previous run was denied (#100)
-DENIED = ("Your previous run was denied: {}. Run it again as one plain command, single-quoting any argument that "
-          "holds a shell metacharacter, or read the file with Read.")
+          "||: any other command is refused, and a refused command fails the review. Search with Grep and find "
+          "files with Glob, never git grep, grep or rg. Single-quote any argument that holds a shell "
+          "metacharacter (`& | ; < > ( ) [ ] * ? $`), and never use `$(…)`. Write nothing else, and change "
+          "nothing.")
+# the line a fallback run's prompt gets for each command its previous run was denied (#100). It sends a search to
+# Grep and Glob: no git grep rule is safe, since git grep -O runs a program (#117)
+DENIED = ("Your previous run was denied: {}. Search with Grep and find files with Glob (never git grep, grep or rg), "
+          "read a file with Read, and run any other git command as one plain command, single-quoting any argument "
+          "that holds a shell metacharacter.")
 try:
     PAUSE = float(os.environ.get("CODEX_GATE_SLEEP", "1"))
 except ValueError:

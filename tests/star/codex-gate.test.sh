@@ -566,8 +566,8 @@ grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Use only Rea
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "one denial, then a clean run in the same round, gives a verdict (#100)" || fail "denial then clean ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
-grep -qxF 'Your previous run was denied: git diff --word-diff=porcelain --word-diff-regex=[^[:space:]&]+ origin/main...HEAD -- package.json. Run it again as one plain command, single-quoting any argument that holds a shell metacharacter, or read the file with Read.' "$TMP/claude-calls" \
-  && grep -qxF 'Your previous run was denied: git ls-tree --name-only origin/dev docs/decisions/. Run it again as one plain command, single-quoting any argument that holds a shell metacharacter, or read the file with Read.' "$TMP/claude-calls" \
+grep -qxF 'Your previous run was denied: git diff --word-diff=porcelain --word-diff-regex=[^[:space:]&]+ origin/main...HEAD -- package.json. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" \
+  && grep -qxF 'Your previous run was denied: git ls-tree --name-only origin/dev docs/decisions/. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" \
   && [ "$(grep -c '^Your previous run was denied: ' "$TMP/claude-calls")" = 2 ] \
   && pass "the second run's prompt names each denied command on a line of its own, and the first run's names none (#100)" || fail "retry prompt ($(grep 'denied' "$TMP/claude-calls"))"
 L1="$H/reviews/app/ITEM-1-r1.log"
@@ -644,6 +644,16 @@ reset; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -qF "git diff $GONLY...HEAD" "$H/specs/app/ITEM-1-gate-r1.md" && grep -q "^Gate: gpt-6.1-sol xhigh · base main $GONLY · " "$R1" && pass "a base that moved only in files the branch never changes is reviewed, pinned to its new commit (Review Focus 3)" || fail "disjoint move ($rc $out)"
 git -C "$APP" update-ref refs/heads/main "$MAINSHA"
+reset
+
+# lane b: the fallback searches with Grep and Glob, and a denied git grep is sent there (#117)
+reset; plan "1 - You've hit your usage limit."; cplan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'any other command is refused, and a refused command fails the review. Search with Grep and find files with Glob, never git grep, grep or rg. Single-quote any argument' && pass "the fallback is told to search with Grep and Glob, never git grep, grep or rg (#117)" || fail "search rule ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-grep.json" "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit whose fallback was denied git grep still ends in a verdict, not gate-down (#117)" || fail "git grep denial ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
+grep -qxF 'Your previous run was denied: git grep -n chain origin/main -- package.json. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" && pass "the retry sends the denied git grep to Grep and Glob (#117)" || fail "git grep retry line ($(grep 'denied' "$TMP/claude-calls"))"
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
