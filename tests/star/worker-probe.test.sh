@@ -407,6 +407,17 @@ b "#123 an API error above further output is not a stall" "stale 40 term_w1" - "
 b "#123 a Retrying line is not a stall" "stale 40 term_w1" - "  ⎿  API Error: Connection lost mid-response · Retrying in 4 seconds… (attempt 2/10)" "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
 b "#123 an API error under a running turn is not a stall" "stale 40 term_w1" - "  ⎿  API Error: Server error mid-response. The response above may be incomplete." "$APIRULE" "❯ " "$APIRULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
 b "#123 an API error above a prompt a person is typing in is not a stall" "stale 40 term_w1" - "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "$APIRULE" "❯ continue" "$APIRULE" "$APIFOOT"
+# review fixes (#123): the timer of the issue keeps the progress log fresh, Claude Code prints its
+# recap under an idle error, a boxed prompt counts, and only Claude Code's own error row is an error
+age "$H114/progress/ITEM-1.log" 1
+b "#123 a fresh progress log does not hide an API error" "stalled: api error" - "⏺ Running the regression gate." "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a fresh progress log and a plain prompt stay ok" "ok" - "⏺ Running the regression gate." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a recap under the API error is still stalled" "stalled: api error" - "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "" "※ recap: Was running the gate when the call failed." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a wrapped recap under the API error is still stalled" "stalled: api error" - "  ⎿  API Error: Server error mid-response. The response above may be incomplete." "※ recap: Was writing the fix plan for the second gate round when the model call failed and" "  nothing has run since." "$APIRULE" "❯" "$APIRULE" "$APIFOOT"
+b "#123 an API error above a boxed prompt is stalled" "stalled: api error" - "  ⎿  API Error: Connection lost mid-response." "╭────────────────────────╮" "│ >                      │" "╰────────────────────────╯" "  ? for shortcuts"
+b "#123 a recap alone is not an API error" "ok" - "⏺ Opened the PR." "※ recap: Opened PR #12." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a wrapped row of the worker's own text is not an API error row" "ok" - "⏺ The handler now logs the line" "  API Error: Connection lost mid-response and retries." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+age "$H114/progress/ITEM-1.log" 40
 # the screen decides: a stale worker on a prompt is never stale, and a screen that cannot be read falls back
 rm -f "$TMP/screen.json"
 printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
