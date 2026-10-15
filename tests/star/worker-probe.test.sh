@@ -62,7 +62,7 @@ t "a question in prose is not a dialog" "ok" ready running "Do you want to proce
 printf '{"result":{"worker":{"stage":"ready","state":"running"}}}\n' > "$TMP/show.json"
 python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Do you want to proceed?", "❯ 1. Yes", "  2. No"]}}}))' > "$TMP/read.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
-[ "$out" = "stuck: confirmation dialog" ] && echo "ok   a question with numbered options is a dialog" || { echo "FAIL real dialog ($out)"; fails=$((fails + 1)); }
+[ "$out" = "stuck: confirmation dialog: Do you want to proceed?" ] && echo "ok   a question with numbered options is a dialog" || { echo "FAIL real dialog ($out)"; fails=$((fails + 1)); }
 python3 -c 'import json; print(json.dumps({"result":{"messages":[{"text":"Please run /login"},{"text":"I fixed the login form and pushed."}]}}))' > "$TMP/read.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1)
 [ "$out" = "ok" ] && echo "ok   only the newest transcript message counts" || { echo "FAIL old transcript message ($out)"; fails=$((fails + 1)); }
@@ -95,7 +95,7 @@ for v in 0 -1 nan inf; do out=$(q env STAR_QUIET_MINUTES=$v); [ "$out" = "ok" ] 
 printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$((1791374400000 - 40 * 60000))" > "$TMP/list.json"
 python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Please run /login"]}}}))' > "$TMP/read.json"
 python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Do you want to make this edit to a.py?", "❯ 1. Yes", "  2. No"]}}}))' > "$TMP/read.json"
-out=$(q env); [ "$out" = "stuck: confirmation dialog" ] && echo "ok   a permission prompt on a silent terminal is stuck, never quiet" || { echo "FAIL dialog reported as ($out)"; fails=$((fails + 1)); }
+out=$(q env); [ "$out" = "stuck: confirmation dialog: Do you want to make this edit to a.py?" ] && echo "ok   a permission prompt on a silent terminal is stuck, never quiet" || { echo "FAIL dialog reported as ($out)"; fails=$((fails + 1)); }
 python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Please run /login"]}}}))' > "$TMP/read.json"
 out=$(q env); [ "$out" = "stuck: login" ] && echo "ok   a blocking screen wins over quiet" || { echo "FAIL stuck vs quiet ($out)"; fails=$((fails + 1)); }
 
@@ -134,7 +134,7 @@ s "codex credit limit" "stuck: usage limit" "You've reached your workspace credi
 s "codex out of credits" "stuck: usage limit" "Your workspace is out of credits. Notify owner?"
 s "claude model switch options" "stuck: model switch" "❯ 1. Switch to Opus 5.5 and continue" "  2. No, keep my current model"
 s "codex model switch" "stuck: model switch" "Switch to gpt-6-luna for lower credit usage?" "  Keep current model"
-s "codex approval prompt" "stuck: confirmation dialog" "Would you like to run the following command?" "  1. Yes, proceed"
+s "codex approval prompt" "stuck: confirmation dialog: Would you like to run the following command?" "Would you like to run the following command?" "  1. Yes, proceed"
 s "a blocking line inside a wide box" "stuck: login" "│ Please run /login$(printf '%250s' '')│"
 s "prose that asks to run a command is not a dialog" "ok" "Would you like to run the following command? I can also skip it."
 s "a worker's own sentence about keeping a model is not a dialog" "ok" "No, keep my current model"
@@ -146,8 +146,8 @@ s "a sentence that mentions a password is not a prompt" "ok" "the password: fiel
 s "a worker saying it will press Enter is not a prompt" "ok" "⏺ Next I fill the email field and press Enter to submit the form."
 s "a worker describing a y/n prompt is not at one" "ok" "⏺ Phase 6: the CLI prompt shows Continue (y/n)" "⏺ Now checking the exit code."
 s "a y/n prompt on the last line is one" "stuck: waiting for input" "⏺ running the installer" "Continue? (y/n)"
-s "an edit permission prompt is a dialog" "stuck: confirmation dialog" "Do you want to make this edit to loops.sh?" "❯ 1. Yes"
-s "a create permission prompt is a dialog" "stuck: confirmation dialog" "Do you want to create notes.md?" "  2. No, and tell Claude what to do differently"
+s "an edit permission prompt is a dialog" "stuck: confirmation dialog: Do you want to make this edit to loops.sh?" "Do you want to make this edit to loops.sh?" "❯ 1. Yes"
+s "a create permission prompt is a dialog" "stuck: confirmation dialog: Do you want to create notes.md?" "Do you want to create notes.md?" "  2. No, and tell Claude what to do differently"
 s "a numbered list in prose is not a dialog" "ok" "Plan:" "1. Yes, rename the column first"
 for raw in '{"ok":false,"error":"dispatch_not_found"}' '{"ok":false,"error":{"code":"DISPATCH_NOT_FOUND"}}' '{"ok":false,"error":{"code":"runtime_error","data":{"code":"dispatch_not_found"}}}'; do
   out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_RAW="$raw" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
@@ -249,6 +249,81 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_N
 [ "$out" = "ok holds-screen 25" ] && echo "ok   the holder's row says how many minutes it has held the screen" || { echo "FAIL holds-screen minutes ($out)"; fails=$((fails + 1)); }
 sh "$ROOT/skills/ship-ticket/screen-lock.sh" release --holder ITEM-1 >/dev/null; kill $WS 2>/dev/null; wait $WS 2>/dev/null
 unset JUEL_SCREEN_LOCK JUEL_SCREEN_LOCK_POLL
+
+# lane d: the probe reads the rendered screen, and answers only a bounded rm/rmdir prompt (#114)
+export JUEL_SCREEN_LOCK="$TMP/screen.lock"
+cat > "$TMP/bin/orca" <<'EOF6'
+#!/bin/sh
+case "$*" in
+  *"terminal read"*) [ -f "$STUB_DIR/screen.json" ] || exit 1; cat "$STUB_DIR/screen.json" ;;
+  *"terminal list"*) exit 1 ;;
+  *worker-show*) cat "$STUB_DIR/show.json" ;;
+  *worker-read*) cat "$STUB_DIR/read.json" ;;
+  *) echo "unexpected: $*" >&2; exit 9 ;;
+esac
+EOF6
+H114="$TMP/home114"; mkdir -p "$H114/progress"; : > "$H114/progress/ITEM-1.log"; age "$H114/progress/ITEM-1.log" 40
+SP=/private/tmp/claude-501/-Users-x-proj/0a1b2c3d/scratchpad
+WT114="$TMP/w/app"; mkdir -p "$WT114" "$TMP/w/app2"
+# Orca 1.4.198's worker-read: the hook transcript, which never shows a prompt
+printf '{"ok":true,"result":{"source":"transcript","transcript":{"messages":[{"role":"assistant","blocks":[{"type":"text","text":"Running the test-coverage review."}]}]}}}\n' > "$TMP/read.json"
+# b <name> <expected> <worktree or -> <screen line>...: a worker with a terminal whose screen shows the lines
+b() {
+  bname=$1 bwant=$2 bwt=$3; shift 3
+  printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
+  python3 -c 'import json,sys; print(json.dumps({"ok":True,"result":{"terminal":{"handle":"term_w1","source":"screen","tail":sys.argv[1:]}}}))' "$@" > "$TMP/screen.json"
+  if [ "$bwt" = - ]; then set --; else set -- --worktree "$bwt"; fi
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$H114" "$@")
+  if [ "$out" = "$bwant" ]; then echo "ok   $bname"; else echo "FAIL $bname (got: $out)"; fails=$((fails + 1)); fi
+}
+# p <name> <expected> <worktree or -> <command line> [<operand>]: the safety prompt for one Bash command
+p() {
+  pname=$1 pwant=$2 pwt=$3 pcmd=$4 pop=${5:-'$S/$v'}
+  b "$pname" "$pwant" "$pwt" "⏺ Task(Analyze test coverage)" "╭──────────────────────────────╮" "│ Bash command" "│   $pcmd" \
+    "│   Remove the empty scratch folder" "│ Dangerous rmdir operation on possibly-empty variable path: $pop" \
+    "│ Do you want to proceed?" "│ ❯ 1. Yes" "│   2. No" "╰──────────────────────────────╯"
+}
+STUCK='stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $S/$v'
+p "the issue's prompt, inside the session scratchpad, is answered" "prompt bounded term_w1 $SP/x" "$WT114" "S=$SP; v=x; rmdir \$S/\$v"
+p "a scratchpad spelled under /tmp is answered too" "prompt bounded term_w1 /tmp/claude-501/-Users-x-proj/0a1b2c3d/scratchpad/x" - "S=/tmp/claude-501/-Users-x-proj/0a1b2c3d/scratchpad; v=x; rmdir \$S/\$v"
+p "an operand inside the row's worktree is answered" "prompt bounded term_w1 $WT114/build/out" "$WT114" "W=$WT114; v=out; rm -rf \$W/build/\$v" '$W/build/$v'
+p "quoted values and the \${NAME} form are read" "prompt bounded term_w1 $SP/x" "$WT114" "S=\"$SP\"; v='x'; rmdir \${S}/\${v}" '${S}/${v}'
+p "an operand outside both roots goes to the owner" "$STUCK" "$WT114" "S=/Users/x/Documents; v=x; rmdir \$S/\$v"
+p "a worktree path without --worktree goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $W/build/$v' - "W=$WT114; v=out; rm -rf \$W/build/\$v" '$W/build/$v'
+# Review Focus 2: near misses never answer
+p "a scratchpad look-alike user folder goes to the owner" "$STUCK" - "S=/tmp/claude-501x/-Users-x-proj/0a1b2c3d/scratchpad; v=x; rmdir \$S/\$v"
+p "a scratchpad look-alike folder name goes to the owner" "$STUCK" - "S=/tmp/claude-501/a/b/scratchpadx; v=x; rmdir \$S/\$v"
+p "a worktree prefix trick goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $W/x' "$WT114" "W=$TMP/w/app2; rmdir \$W/x" '$W/x'
+b "a variable assigned twice to different values goes to the owner" "$STUCK" "$WT114" "⏺ Bash(S=/etc; ls \$S)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+b "the same command in the transcript line and the dialog is answered" "prompt bounded term_w1 $SP/x" "$WT114" "⏺ Bash(S=$SP; v=x; rmdir \$S/\$v)" "Bash command" "  S=$SP; v=x; rmdir \$S/\$v" \
+  "Dangerous rmdir operation on possibly-empty variable path: \$S/\$v" "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+p "a value holding .. goes to the owner" "$STUCK" - "S=$SP/../../..; v=x; rmdir \$S/\$v"
+p "a value holding \$(...) goes to the owner" "$STUCK" - "S=\$(mktemp -d); v=x; rmdir \$S/\$v"
+p "a value holding a backtick goes to the owner" "$STUCK" - "S=\`mktemp -d\`; v=x; rmdir \$S/\$v"
+p "a value holding ~ goes to the owner" "$STUCK" - "S=~/scratch; v=x; rmdir \$S/\$v"
+p "an operand variable never assigned on screen goes to the owner" "$STUCK" "$WT114" "v=x; rmdir \$S/\$v"
+p "a .. in the operand itself goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: $S/../$v' - "S=$SP; v=x; rmdir \$S/../\$v" '$S/../$v'
+p "a default-value expansion goes to the owner" 'stuck: confirmation dialog: Dangerous rmdir operation on possibly-empty variable path: ${S:-/}/$v' - "v=x; rmdir \${S:-/}/\$v" '${S:-/}/$v'
+b "a permission prompt with no safety line names its question" "stuck: confirmation dialog: Do you want to make this edit to a.py?" - "Do you want to make this edit to a.py?" "❯ 1. Yes" "  2. No"
+# the screen decides: a stale worker on a prompt is never stale, and a screen that cannot be read falls back
+rm -f "$TMP/screen.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$H114" 2>&1)
+[ "$out" = "stale 40 term_w1" ] && echo "ok   a screen that cannot be read falls back to worker-read, without a crash" || { echo "FAIL failed screen read ($out)"; fails=$((fails + 1)); }
+printf '{"ok":true,"result":{"terminal":{"handle":"term_w1","source":"screen-unavailable","tail":[]}}}\n' > "$TMP/screen.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$H114" 2>&1)
+[ "$out" = "stale 40 term_w1" ] && echo "ok   an unavailable screen falls back to worker-read" || { echo "FAIL unavailable screen ($out)"; fails=$((fails + 1)); }
+rm -f "$TMP/screen.json"
+printf '{"ok":true,"result":{"source":"transcript","transcript":{"messages":[{"role":"user","blocks":[{"type":"text","text":"hello"}]},{"role":"assistant","blocks":[{"type":"text","text":"Not logged in · Please run /login"}]}]}}}\n' > "$TMP/read.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=2026-10-07T12:00:00Z sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$H114" 2>&1)
+[ "$out" = "stuck: login" ] && echo "ok   the 1.4.198 transcript's newest message is read when there is no screen" || { echo "FAIL transcript shape ($out)"; fails=$((fails + 1)); }
+# no terminal handle: the old tail is still read, and a prompt there is never answered (nothing to answer it in)
+printf '{"result":{"worker":{"stage":"ready","state":"running"}}}\n' > "$TMP/show.json"
+python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"tail":["S=" + sys.argv[1] + "; v=x; rmdir $S/$v", "Dangerous rmdir operation on possibly-empty variable path: $S/$v", "Do you want to proceed?", "❯ 1. Yes", "  2. No"]}}}))' "$SP" > "$TMP/read.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
+[ "$out" = "$STUCK" ] && echo "ok   with no terminal to answer in, a bounded prompt still goes to the owner" || { echo "FAIL no handle ($out)"; fails=$((fails + 1)); }
+unset JUEL_SCREEN_LOCK
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
