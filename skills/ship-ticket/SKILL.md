@@ -464,7 +464,7 @@ Thirty minutes with no progress line, no commit and no changed file gets a check
 A progress line is written only by the step it names, at that step, never by a background or
 detached timer loop the worker starts: such a timer keeps writing after the turn it belongs to
 ends (a model call that failed with an API error, say), and STAR would read a stalled worker as
-moving (#123). `gate-lock.sh --progress` stays the one writer that repeats, since it lives only as
+moving (#123). `gate-lock.sh --progress` stays the one writer on a timer, since it lives only as
 long as the gate it waits for.
 A run without a `star:` brief has no `star.home` and keeps no progress log.
 
@@ -1164,7 +1164,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    review on ready, so the review and CI overlap with STAR's hand-over instead of following it.
    The build never pings or comments to the hosted reviewer on the PR at any point (no
    `@greptileai`, no review request): marking the PR ready is the only thing that starts its run,
-   and a ping on top of it spends a second hosted pass on the same head (#122). A PR that is
+   and a ping on top of it would start a second run on the same head (#122). A PR that is
    already ready is left as it is. Inside quiet hours (`quiet-hours.sh` says `inside`,
    or anything but `outside`), leave the PR a draft and print no `HELD` line for it: the babysit
    stage marks it ready after the window. Then end the run with

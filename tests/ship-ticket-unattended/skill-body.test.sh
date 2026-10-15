@@ -291,7 +291,8 @@ g "L122b marking ready is the only thing that starts its run (#122)" '`@greptile
 # #123: progress lines come only from the step they name
 g "L123a a progress line comes only from its own step (#123)" 'A progress line is written only by the step it names, at that step, never by a background or'
 g "L123b never from a detached timer loop (#123)" 'detached timer loop the worker starts: such a timer keeps writing after the turn it belongs to'
-g "L123c gate-lock.sh --progress stays the one repeating writer (#123)" 'moving (#123). `gate-lock.sh --progress` stays the one writer that repeats, since it lives only as'
+g "L123c gate-lock.sh --progress stays the one timer writer (#123)" 'moving (#123). `gate-lock.sh --progress` stays the one writer on a timer, since it lives only as'
+g "L122c a ping would start a second run (#122)" 'and a ping on top of it would start a second run on the same head (#122). A PR that is'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

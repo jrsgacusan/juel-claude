@@ -661,19 +661,25 @@ g "FIX2b an escalation answer counts a prompt bounded worker as still running (#
 # #121: a draft brief's branch never collides with another item's or a remote branch
 g "LH121a draft-brief checks the branch for a collision (#121)" 'old PR. Then check the branch for a collision (#121): compare the branch you would name against'
 g "LH121b against the brief of every other ledger row (#121)" 'the `branch:` line of the brief of every other row in `<HOME_DIR>/ledger.md` (each row has its'
-g "LH121c and the branches of the remote (#121)" '(`git ls-remote --heads <remote>`). The branch the brief at `--out` already names, and the head'
-g "LH121d next title words, then the item's own words (#121)" 'slug with the next words of the title, one at a time, then with distinguishing words of the item'
-g "LH121e the chosen slug is recorded (#121)" 'that parent. Record the chosen slug in the brief front matter as `item.slug`.'
+g "LH121c the remote and the local branches (#121)" '(`git ls-remote --heads <remote>`) and against the local branches of the main checkout'
+g "LH121d next title words, then the item's own words (#121)" 'one at a time, then with distinguishing words of the item itself (a word of its ref or description'
+g "LH121e the chosen slug is recorded, and checked again before writing (#121)" 'Record the chosen slug in the brief front matter as `item.slug`. Check again right before writing'
+g "LH121g the item's own branch and its existingPr head are no collision (#121)" 'The branch the brief at `--out` already names, and the head branch of an `existingPr`, belong to'
+g "LH121h a numeric suffix when the words run out (#121)" 'that no other item title has), then with `-2`, `-3` and so on, until the branch is unique, so a'
 g "LH121f the slug rule points at the collision rule (#121)" '6 words, unless the collision rule of step 5 extends it), `title`, `url`, `path` (a `file`'
 # #122: STAR's merge order counts hosted passes per distinct head
-g "LH122a the merge order counts distinct heads (#122)" '`updated`. The count is of distinct heads with a `pass` line, not of raw `pass` lines (#122): it'
-g "LH122b the count relies on one pass line per head (#122)" 'relies on the rule of `juel:babysit-pr` that a head gets at most one `pass` line (a later hosted'
+g "LH122a the merge order counts distinct heads (#122)" '`updated`. The count is of distinct heads with a `pass` line (#122). `grep -c` counts `pass` lines,'
+g "LH122b the count relies on one pass line per head (#122)" 'and each one is a distinct head because `juel:babysit-pr` gives a head at most one `pass` line (a'
+g "LH122c the hosted log keeps one pass line per head (#122)" '`<iso> pass <n> head=<sha>` (at most one per head) or `<iso> refresh head=<sha>` (a status refresh, or a second run on a head that already has a `pass` line, #122)'
 # #123: an API error at the prompt gets the capacity rule's nudges
 g "LH123a the capacity rule covers stalled: api error (#123)" '`stalled: model at capacity` or `stalled: api error` (#123) → the'
-g "LH123b the API error nudge, with Enter (#123)" 'orca terminal send --terminal <terminal> --text "STAR: your last model call failed with an API error. Continue where you stopped." --enter --json'
-g "LH123c both share the capacity counter (#123)" 'and `counters.capacity=+1` (both lines share the counter); at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as'
+g "LH123b the API error nudge, with Enter (#123)" 'orca terminal send --terminal <terminal> --text "STAR: your last model call failed with an API error. Continue where you stopped; a background command you started may still be running, so check it before you start it again." --enter --json'
+g "LH123c both share the capacity counter (#123)" 'Either way `counters.capacity=+1` (both lines share the counter); at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as'
 g "LH123d the counter row names the API error (#123)" '| `capacity=<n>` | retry nudges sent to a worker stalled on a model at capacity or an API error (`stalled:`, #123) in one silent stretch |'
 g "LH123e looking after the workers names it (#123)" 'capacity, or a worker left at an empty prompt under an `API Error:` line (#123), is a third thing'
+g "LH123f the matching nudge, never both (#123)" 'capacity rule: below `capacity=3`, send the nudge that matches the line: for `stalled: model at capacity`'
+g "LH123g a stalled worker becomes a lost worker (#123)" '(`stalled:`): STAR nudges it to retry, three times at most, then treats it as a lost worker (the capacity rule in'
+g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
