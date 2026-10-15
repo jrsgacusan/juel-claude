@@ -61,7 +61,8 @@ function sendFile(res: ServerResponse, file: string, head: boolean): void {
 
 /**
  * dashboard/web/dist: a file by its path; index.html for every other path, so the web app's deep
- * links and reloads work; the build-first page while dist/index.html is missing.
+ * links and reloads work; the build-first page while dist/index.html is missing. A path is served
+ * only when its real path, symbolic links resolved, is inside dist.
  */
 export function serveStatic(req: IncomingMessage, res: ServerResponse, dist: string): void {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -78,8 +79,15 @@ export function serveStatic(req: IncomingMessage, res: ServerResponse, dist: str
   }
   let pathname: string
   try { pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://127.0.0.1').pathname) } catch { pathname = '/' }
-  const root = path.resolve(dist)
-  const target = path.resolve(root, `.${pathname}`)
-  if (target.startsWith(root + path.sep) && isFile(target)) sendFile(res, target, head)
+  const root = fs.realpathSync(dist)
+  const requested = path.resolve(root, `.${pathname}`)
+  let target: string | undefined
+  try {
+    if (fs.existsSync(requested)) {
+      const real = fs.realpathSync(requested)
+      if (real.startsWith(root + path.sep) && isFile(real)) target = real
+    }
+  } catch {}
+  if (target) sendFile(res, target, head)
   else sendFile(res, index, head)
 }

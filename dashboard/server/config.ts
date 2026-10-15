@@ -56,9 +56,9 @@ export async function pickPort(recorded: unknown): Promise<number> {
     (await isFree(recorded))
   )
     return recorded;
-  for (let port = DEFAULT_PORT; port < DEFAULT_PORT + 100; port += 1)
+  for (let port = DEFAULT_PORT; port <= 65535; port += 1)
     if (await isFree(port)) return port;
-  throw new Error(`no free port in ${DEFAULT_PORT}-${DEFAULT_PORT + 99}`);
+  throw new Error(`no free port from ${DEFAULT_PORT} up`);
 }
 export async function probe(port: unknown, token: unknown): Promise<boolean> {
   if (typeof port !== "number" || !isToken(token)) return false;

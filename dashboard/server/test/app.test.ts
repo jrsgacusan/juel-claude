@@ -115,6 +115,10 @@ test("/ serves the build-first page with no dist, and the app with one, for ever
       });
       assert.doesNotMatch(body, /leak/, raw);
     }
+    fs.symlinkSync(path.join(box, "secret.json"), path.join(dist, "assets", "link.js"));
+    const linked = await fetch(withDist.url("/assets/link.js"));
+    assert.equal(linked.status, 200);
+    assert.doesNotMatch(await linked.text(), /leak/);
   } finally {
     await withDist.close();
     fs.rmSync(box, { recursive: true, force: true });
