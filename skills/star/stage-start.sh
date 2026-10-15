@@ -63,7 +63,9 @@
 # counters still hold live= for this stage is a start that died: it is replayed with the same ids.
 # A brief with existingPr: <url> and no local branch yet gets its branch fetched from the
 # project's remote and checked out tracking it (an open PR's head), instead of a renamed branch.
-# The brief stage gets --rescope <reviews>/<file> when the row's counters hold rescope=<file>; the
+# The brief stage gets --feedback when its brief has a "## Feedback" section, or when STAR left
+# feedback for it in <brief>.feedback.md while it was still drafting (#112). It gets
+# --rescope <reviews>/<file> when the row's counters hold rescope=<file>; the
 # babysit stage gets --reviewed <the newest round's <item>-r<k>-carried.md when the owner carried
 # that round (#82), else its <item>-r<k>.md>. The executor, gate and hosted-reviewer
 # settings are not in any prompt: workers read them from star.json through their brief.
@@ -503,6 +505,9 @@ def window():
 
 
 def has_feedback(path):
+    """The brief has a ## Feedback section, or STAR's side file for it exists (#112)."""
+    if os.path.isfile(path + ".feedback.md"):
+        return True
     try:
         return re.search(r"^## Feedback\s*$", open(path, encoding="utf-8").read(), re.M) is not None
     except OSError:
