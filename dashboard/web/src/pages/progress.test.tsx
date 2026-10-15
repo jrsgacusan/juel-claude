@@ -1,6 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { getDb, setScenario } from "@/mocks/state"
+import { getConnection } from "@/api/events"
+import { getDb, mockEvents, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
 
 const rows = () => screen.getAllByRole("row")
@@ -136,6 +137,23 @@ describe("Progress", () => {
     expect(within(sheet).queryByText(/null/)).not.toBeInTheDocument()
     expect(
       within(sheet).getByText(".worktrees/sphere-app/sph-13")
+    ).toBeInTheDocument()
+  })
+
+  it("refreshes when STAR changes the ledger", async () => {
+    renderApp("/sphere-app/progress")
+    await screen.findByRole("tab", { name: /^All\s*11$/ })
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    const sph13 = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-13"
+    )
+    if (!sph13) throw new Error("fixture SPH-13 missing")
+    sph13.row.status = "merged"
+    act(() =>
+      mockEvents.emit({ type: "change", project: "sphere-app", what: "ledger" })
+    )
+    expect(
+      await screen.findByRole("tab", { name: /^Merged\s*3$/ })
     ).toBeInTheDocument()
   })
 })

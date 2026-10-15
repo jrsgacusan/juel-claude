@@ -69,7 +69,15 @@ export function ConflictBanner({ project }: { project: string }) {
 }
 
 export function ConnectionBanner() {
-  if (useConnection() !== "lost") return null
+  const connection = useConnection()
+  if (connection === "refused")
+    return (
+      <Banner tone="stop" icon={<Unplug />}>
+        The dashboard server refused the token. Open the dashboard again with
+        /juel:star dashboard.
+      </Banner>
+    )
+  if (connection !== "lost") return null
   return (
     <Banner tone="stop" icon={<Unplug />}>
       <span>Lost the connection to the dashboard server</span>

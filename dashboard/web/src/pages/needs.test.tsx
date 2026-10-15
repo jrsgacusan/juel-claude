@@ -1,8 +1,9 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
 import { describe, expect, it } from "vitest"
+import { getConnection } from "@/api/events"
 import { server } from "@/mocks/node"
-import { getDb, setScenario } from "@/mocks/state"
+import { getDb, mockEvents, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
 
 const loopAnswer = (id: string) =>
@@ -228,5 +229,29 @@ describe("Needs you", () => {
       )
     ).toBeInTheDocument()
     expect(box).toHaveValue("go except SPH-14")
+  })
+
+  it("refreshes when STAR changes the queue (a loops event)", async () => {
+    renderApp("/sphere-app/needs")
+    await screen.findByRole("tab", { name: /^All\s*9$/ })
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    getDb().loops["sphere-app"]?.push({
+      id: "N-50",
+      kind: "question",
+      item: "SPH-20",
+      title: "A new question from the build worker",
+      body: [],
+      options: [],
+      suggestion: null,
+      answer: "",
+      askedAt: null,
+    })
+    act(() =>
+      mockEvents.emit({ type: "change", project: "sphere-app", what: "loops" })
+    )
+    expect(
+      await screen.findByText("A new question from the build worker")
+    ).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: /^All\s*10$/ })).toBeInTheDocument()
   })
 })

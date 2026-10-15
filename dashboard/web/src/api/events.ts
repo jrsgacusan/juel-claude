@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react"
 import { apiHeaders, apiUrl } from "./client"
 import { paths } from "./paths"
 import type { BriefingEvent, ChangeEvent } from "./types"
-export type ConnectionState = "connecting" | "open" | "lost"
+export type ConnectionState = "connecting" | "open" | "lost" | "refused"
 let connection: ConnectionState = "connecting"
 const connectionListeners = new Set<() => void>()
 export const getConnection = (): ConnectionState => connection
@@ -25,7 +25,10 @@ export function subscribeBriefing(
   briefingListeners.add(listener)
   return () => briefingListeners.delete(listener)
 }
-export function parseFrames(buffer: string): {
+export function parseFrames(
+  buffer: string,
+  onMalformed?: () => void
+): {
   events: unknown[]
   rest: string
 } {
@@ -42,7 +45,7 @@ export function parseFrames(buffer: string): {
     try {
       events.push(JSON.parse(data))
     } catch {
-      // Ignore malformed frames from the stream.
+      onMalformed?.()
     }
   }
   return { events, rest }
@@ -52,7 +55,7 @@ export function keysFor(event: ChangeEvent): QueryKey[] {
     event.project ? [key, event.project] : [key]
   switch (event.what) {
     case "loops":
-      return [scoped("loops"), ["projects"]]
+      return [scoped("loops"), ["projects"], ["slack"]]
     case "ledger":
     case "progress":
       return [scoped("items"), scoped("item"), scoped("overview"), ["projects"]]
@@ -63,8 +66,11 @@ export function keysFor(event: ChangeEvent): QueryKey[] {
       return [["slack"], ["draft"]]
     case "briefings":
       return [scoped("briefings"), scoped("briefing")]
-    default:
+    default: {
+      const unknown: never = event.what
+      void unknown
       return []
+    }
   }
 }
 function dispatch(client: QueryClient, raw: unknown): void {
@@ -74,7 +80,13 @@ function dispatch(client: QueryClient, raw: unknown): void {
     for (const queryKey of keysFor(raw as ChangeEvent))
       void client.invalidateQueries({ queryKey })
   else if (event.type === "briefing")
-    briefingListeners.forEach((listener) => listener(raw as BriefingEvent))
+    briefingListeners.forEach((listener) => {
+      try {
+        listener(raw as BriefingEvent)
+      } catch (error) {
+        console.error("[events] briefing listener failed", error)
+      }
+    })
 }
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -98,6 +110,7 @@ export function startEvents(
   const fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init))
   const controller = new AbortController()
   let lostOnce = false
+  let warnedMalformed = false
   const run = async () => {
     while (!controller.signal.aborted) {
       try {
@@ -105,10 +118,17 @@ export function startEvents(
           headers: apiHeaders({ Accept: "text/event-stream" }),
           signal: controller.signal,
         })
+        if (res.status === 401) {
+          setConnection("refused")
+          return
+        }
         if (!res.ok || !res.body)
           throw new Error(`the event stream answered ${res.status}`)
         setConnection("open")
-        if (lostOnce) void client.invalidateQueries()
+        if (lostOnce)
+          void client.invalidateQueries({
+            predicate: (query) => query.queryKey[0] !== "file",
+          })
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ""
@@ -116,14 +136,19 @@ export function startEvents(
           const { value, done } = await reader.read()
           if (done) break
           buffer += decoder.decode(value, { stream: true })
-          const parsed = parseFrames(buffer)
+          const parsed = parseFrames(buffer, () => {
+            if (warnedMalformed) return
+            warnedMalformed = true
+            console.warn("[events] dropped a frame that is not JSON")
+          })
           buffer = parsed.rest
           parsed.events.forEach((event) => dispatch(client, event))
         }
         throw new Error("the event stream ended")
-      } catch {
+      } catch (error) {
         if (controller.signal.aborted) return
         lostOnce = true
+        console.warn("[events] lost the stream:", error)
         setConnection("lost")
         await sleep(retryMs, controller.signal)
       }

@@ -88,6 +88,20 @@ describe("the app shell", () => {
     ).not.toBeInTheDocument()
   })
 
+  it("shows the refused-token banner and does not promise a reconnect", async () => {
+    renderApp("/sphere-app/needs")
+    await screen.findByRole("list", { name: "Projects" })
+    act(() => setConnection("refused"))
+    expect(
+      screen.getByText(
+        "The dashboard server refused the token. Open the dashboard again with /juel:star dashboard."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText("Lost the connection to the dashboard server")
+    ).not.toBeInTheDocument()
+  })
+
   it("a 401 says the token was refused", async () => {
     sessionStorage.clear()
     renderApp("/sphere-app/needs")

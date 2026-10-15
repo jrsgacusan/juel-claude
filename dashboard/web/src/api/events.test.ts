@@ -43,6 +43,7 @@ describe("the event stream", () => {
     expect(keysFor({ type: "change", project: p, what: "loops" })).toEqual([
       ["loops", p],
       ["projects"],
+      ["slack"],
     ])
     for (const what of ["ledger", "progress"] as const)
       expect(keysFor({ type: "change", project: p, what })).toEqual([
@@ -123,7 +124,9 @@ describe("the event stream", () => {
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3))
     await vi.waitFor(() => expect(getConnection()).toBe("open"))
     expect(states).toEqual(["open", "lost", "open"])
-    expect(invalidate).toHaveBeenCalledWith()
+    expect(invalidate).toHaveBeenCalledWith({
+      predicate: expect.any(Function),
+    })
   })
   it("waits retryMs between tries", async () => {
     vi.useFakeTimers()
@@ -142,5 +145,58 @@ describe("the event stream", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+  it("a refused token stops the retries", async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(null, { status: 401 }))
+      stops.push(startEvents(new QueryClient(), { fetchImpl }))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(getConnection()).toBe("refused")
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("never shows lost when it is stopped on purpose", async () => {
+    const states: string[] = []
+    stops.push(subscribeConnection(() => states.push(getConnection())))
+    const fetchImpl = vi.fn<typeof fetch>(
+      (_input, init) =>
+        new Promise((_resolve, reject) =>
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError"))
+          )
+        )
+    )
+    const stop = startEvents(new QueryClient(), { fetchImpl, retryMs: 10 })
+    stop()
+    await new Promise((r) => setTimeout(r, 30))
+    expect(states).not.toContain("lost")
+  })
+
+  it("does not refetch evidence files on reconnect", async () => {
+    const first = stream()
+    const second = stream()
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(first.response)
+      .mockResolvedValueOnce(second.response)
+    const client = new QueryClient()
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    stops.push(startEvents(client, { fetchImpl, retryMs: 10 }))
+    await vi.waitFor(() => expect(getConnection()).toBe("open"))
+    first.end()
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled())
+    const call = invalidate.mock.calls.at(-1)?.[0] as {
+      predicate?: (q: { queryKey: readonly unknown[] }) => boolean
+    }
+    expect(call?.predicate?.({ queryKey: ["file", "/x"] })).toBe(false)
+    expect(call?.predicate?.({ queryKey: ["loops", "p"] })).toBe(true)
   })
 })
