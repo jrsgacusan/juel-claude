@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On, RenderElement } from 'claude-code'
 
-import { HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
+import { CSWAP_LIST, HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
 
 const SHA = 'b'.repeat(40)
 const BAND_PROPS = {
@@ -21,6 +21,21 @@ type World = {
   mtimes: Map<string, number>
   ran: string[]
   looked: (readonly string[])[]
+  /** loops.sh set-answer calls, as `<id> <text>` */
+  answered: string[]
+  /** prompts the mod submitted */
+  prompts: string[]
+  toasts: string[]
+  /** what `cswap list --json` prints; null when cswap is not installed */
+  cswap: string | null
+  /** what `ps -Ao command` prints */
+  ps: string
+  /** cswap list calls made */
+  listed: number
+  /** commands the mod started detached (`cswap auto`) */
+  started: string[][]
+  /** while true, a started cswap auto exits at once instead of showing up in ps */
+  isStartDying: boolean
   /** while true, the guard's `$.clock.now()` is refused, which fails the guard's handler */
   isClockDown: boolean
 }
@@ -36,7 +51,7 @@ function brokenClock(on: On, w: World): Clock {
   return { settle: () => new Promise<void>(done => setTimeout(done, 50)) }
 }
 
-function world(on: On, handle: string, root = ROOT, isClockBroken = false): { clock: Clock; w: World } {
+function world(on: On, handle: string, root = ROOT, isClockBroken = false, env: Record<string, string> = {}): { clock: Clock; w: World } {
   const w: World = {
     files: new Map([
       [`${HOME}/star.json`, STAR('term_A')],
@@ -46,10 +61,18 @@ function world(on: On, handle: string, root = ROOT, isClockBroken = false): { cl
     mtimes: new Map(),
     ran: [],
     looked: [],
+    answered: [],
+    prompts: [],
+    toasts: [],
+    cswap: null,
+    ps: '',
+    listed: 0,
+    started: [],
+    isStartDying: false,
     isClockDown: false,
   }
   // An empty handle stands for a session outside Orca: the variable is unset.
-  mock.env(on, handle ? { ORCA_TERMINAL_HANDLE: handle } : {})
+  mock.env(on, handle ? { ORCA_TERMINAL_HANDLE: handle, ...env } : env)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   // The engine's own band, which a plugin that passes leaves in place.
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
@@ -58,8 +81,53 @@ function world(on: On, handle: string, root = ROOT, isClockBroken = false): { cl
   })
   const clock = isClockBroken ? brokenClock(on, w) : mock.clock(on, { now: Date.parse('2026-10-15T08:05:00Z') })
   on('process.run', ($, e) => {
-    w.looked.push(e.argv)
-    return { value: { exitCode: 0, stdout: `${HOME}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const out = (stdout: string, exitCode = 0) => ({
+      value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+    })
+    if (e.argv[0]?.endsWith('cswap')) {
+      w.listed += 1
+      return w.cswap === null ? out('', 127) : out(w.cswap)
+    }
+    if (e.argv[0] === 'ps') {
+      // w.ps holds one process per line, its environment after the command as `NAME=value` words:
+      // `ps -Ao pid=,command=` prints the command alone, `ps eww ... -p <pids>` the environment too.
+      const lines = w.ps.split('\n').filter(Boolean).map((line, k) => [String(k + 1), line] as const)
+      if (e.argv[1] !== 'eww') return out(lines.map(([pid, line]) => `${pid} ${line.replace(/\s[A-Z_][A-Z0-9_]*=\S+/g, '')}`).join('\n'))
+      const asked = (e.argv[e.argv.indexOf('-p') + 1] ?? '').split(',')
+      return out(lines.filter(([pid]) => asked.includes(pid)).map(([pid, line]) => `${pid} ${line}`).join('\n'))
+    }
+    if (e.argv[0] === 'python3') {
+      // the detach launcher: python3 -c <script> <argv...>
+      const argv = e.argv.slice(3)
+      w.started.push(argv)
+      // the started loop inherits the session's environment, and with it its Claude login
+      const login = env['CLAUDE_CONFIG_DIR'] ? ` CLAUDE_CONFIG_DIR=${env['CLAUDE_CONFIG_DIR']}` : ''
+      if (!w.isStartDying) w.ps += `/Users/me/.local/bin/${argv.join(' ')}${login}\n`
+      return out('')
+    }
+    if (e.argv[0] === 'crontab') return out('', 1)
+    const at = e.argv.indexOf('set-answer')
+    if (at < 0) {
+      w.looked.push(e.argv)
+      return { value: { exitCode: 0, stdout: `${HOME}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    // loops.sh set-answer: the item's Answer line gets the text, as the script writes it.
+    const [id, text] = [e.argv[at + 1] ?? '', e.argv[at + 2] ?? '']
+    w.answered.push(`${id} ${text}`)
+    const path = `${HOME}/open-loops.md`
+    const queue = w.files.get(path) ?? ''
+    const item = new RegExp(`(### ${id} · [^\\n]*\\n(?:(?!### )[^\\n]*\\n)*?)Answer:\\n`)
+    w.files.set(path, queue.replace(item, `$1Answer: ${text}\n`))
+    w.mtimes.set(path, (w.mtimes.get(path) ?? 1) + 1)
+    return { value: { exitCode: 0, stdout: 'set\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('prompt.submit', ($, e) => {
+    w.prompts.push(e.text)
+    return { text: e.text }
+  })
+  on('ui.toast', ($, e) => {
+    w.toasts.push(e.text)
+    return { value: undefined }
   })
   on('session.root', () => ({ value: root }))
   on('fs.read', ($, e) => {
@@ -86,15 +154,201 @@ test('the coordinator gets the band, and it follows the ledger', async ($, on) =
   await start($)
   await clock.settle()
   const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
-  const line = await ui.find({ type: 'Text', text: /^STAR/ })
-  expect(line?.text).toBe('STAR · 2 building · 1 babysitting · 1 verifying · 1 escalated · 2 waiting · 2 need you')
-  expect(await ui.find({ type: 'Text', text: /N-12 go-batch/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /2 needs? you/ })).toBeDefined()
+  // the first open item is the card; the next one is a row
+  expect(await ui.find({ type: 'Input', key: 'answer:N-12' })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'row:N-14' })).toBeDefined()
+  // N-13 is answered: STAR acts on it next, so the band does not list it
+  expect(await ui.find({ type: 'Text', text: /N-13/ })).toBeUndefined()
+  // the build gauge: two building rows of three slots
+  expect(await ui.find({ type: 'Text', text: /^ 2\/3$/ })).toBeDefined()
 
   w.files.set(`${HOME}/ledger.md`, ledger([['issue-1', 'building', '/w/app-issue-1']]))
   w.mtimes.set(`${HOME}/ledger.md`, 2)
   await clock.advance(5_000)
-  const after = await ui.find({ type: 'Text', text: /^STAR/ })
-  expect(after?.text).toBe('STAR · 1 building · 2 need you')
+  expect(await ui.find({ type: 'Text', text: /^ 2\/3$/ })).toBeUndefined()
+  expect((await ui.findAll({ type: 'Text', text: /^ [0-9]\/[0-9]$/ })).map(t => t.text)).toEqual([' 0/4', ' 1/3', ' 0/3'])
+  await ui.unmount()
+})
+
+test('the card for the first open item carries its options and a reply field', async ($, on) => {
+  const { clock } = world(on, 'term_A')
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  const labels = (await ui.findAll({ type: 'Button' })).filter(b => b.key?.startsWith('opt:')).map(b => b.props['label'])
+  expect(labels).toEqual(['go', 'go except …', 'drop …'])
+  expect((await ui.find({ type: 'Input', key: 'answer:N-12' }))?.props['placeholder']).toBe('or type an answer in words')
+
+  // An option fills the field; it sends nothing by itself.
+  await ui.press({ key: 'opt:N-12:1' })
+  expect((await ui.find({ type: 'Input', key: 'answer:N-12' }))?.props['value']).toBe('go except ')
+
+  // Another row makes that item the card.
+  await ui.press({ key: 'row:N-14' })
+  expect(await ui.find({ type: 'Input', key: 'answer:N-12' })).toBeUndefined()
+  expect((await ui.find({ type: 'Input', key: 'answer:N-14' }))?.props['placeholder']).toBe('answer with your decision')
+  await ui.unmount()
+})
+
+test('Enter records the answer through loops.sh and wakes STAR with inbox', async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  await ui.input({ key: 'answer:N-12', text: '  go  ' })
+  expect(w.answered).toEqual(['N-12 go'])
+  expect(w.prompts).toEqual(['inbox'])
+  expect(w.toasts).toEqual(['Sent “go” to STAR for N-12'])
+  // The sent item leaves the list, and the card moves on to the next open one.
+  expect(await ui.find({ type: 'Text', text: /N-12/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Input', key: 'answer:N-14' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the band lists three items at a time, and the next one moves up after a send', async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  const extra = [15, 16, 17].map(n => `### N-${n} · app · issue-${n} · ask ${n}\nkind: question\nAnswer:\n\n`).join('')
+  w.files.set(`${HOME}/open-loops.md`, QUEUE.replace('## Waiting on others', `${extra}## Waiting on others`))
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  const rows = async (): Promise<(string | undefined)[]> =>
+    (await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('row:'))
+  // three at a time: the one being answered as the card, the next two as rows
+  expect(await ui.find({ type: 'Input', key: 'answer:N-12' })).toBeDefined()
+  expect(await rows()).toEqual(['row:N-14', 'row:N-15'])
+  expect(await ui.find({ type: 'Text', text: /^ {2}2 more after these$/ })).toBeDefined()
+  await ui.input({ key: 'answer:N-12', text: 'go' })
+  expect(await ui.find({ type: 'Input', key: 'answer:N-14' })).toBeDefined()
+  expect(await rows()).toEqual(['row:N-15', 'row:N-16'])
+  expect(await ui.find({ type: 'Text', text: /^ {2}1 more after these$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test("the band shows cswap's accounts and its auto-switch, read once a minute", { options: { star_cswap_auto: false } }, async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  w.cswap = CSWAP_LIST
+  w.ps = '/Users/me/.local/bin/cswap auto --threshold 80\n'
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  for (const alias of ['personal', 'sphere', 'carol', 'old']) expect(await ui.find({ type: 'Text', text: alias })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '98%' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' ↺ 1d 23h' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' token expired' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' auto on (cswap auto)' })).toBeDefined()
+  expect(w.listed).toBe(1)
+
+  // the loop stops: the band says so at the next read, a minute on, not at the next 5-second tick
+  w.ps = ''
+  await clock.advance(5_000)
+  expect(w.listed).toBe(1)
+  expect(await ui.find({ type: 'Text', text: ' auto on (cswap auto)' })).toBeDefined()
+  await clock.advance(60_000)
+  expect(w.listed).toBe(2)
+  expect(await ui.find({ type: 'Text', text: ' auto off' })).toBeDefined()
+  await ui.unmount()
+})
+
+test("a session whose login cswap does not manage says none is in use", async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  w.cswap = CSWAP_LIST.replace('"active":true', '"active":false')
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await ui.find({ type: 'Text', text: /none in use here/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test("STAR's session starts cswap auto when it is off, and the band says so", async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  w.cswap = CSWAP_LIST
+  await start($)
+  await clock.settle()
+  expect(w.started).toEqual([['cswap', 'auto']])
+  expect(w.toasts).toEqual(['Started cswap auto: it switches accounts before one hits its limit'])
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await ui.find({ type: 'Text', text: ' auto on (cswap auto)' })).toBeDefined()
+  // running now: the next reads start nothing more
+  await clock.advance(65_000)
+  expect(w.started.length).toBe(1)
+  await ui.unmount()
+})
+
+test("a cswap auto for another Claude login does not count: STAR starts one for its own", async ($, on) => {
+  const sphere = { CLAUDE_CONFIG_DIR: '/Users/me/.claude-sphere', HOME: '/Users/me' }
+  const { clock, w } = world(on, 'term_A', ROOT, false, sphere)
+  w.cswap = CSWAP_LIST
+  w.ps = '/Users/me/.local/bin/cswap auto CLAUDE_CONFIG_DIR=/Users/me/.claude-personal\n'
+  await start($)
+  await clock.settle()
+  expect(w.started).toEqual([['cswap', 'auto']])
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await ui.find({ type: 'Text', text: ' auto on (cswap auto)' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a cswap auto that does not stay up is started again only after ten minutes', async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  w.cswap = CSWAP_LIST
+  w.isStartDying = true
+  await start($)
+  await clock.settle()
+  expect(w.started.length).toBe(1)
+  expect(w.toasts).toEqual([])
+  await clock.advance(5 * 60_000)
+  expect(w.started.length).toBe(1)
+  await clock.advance(5 * 60_000)
+  expect(w.started.length).toBe(2)
+})
+
+test('cswap auto is not started while a dry run of it runs', async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  w.cswap = CSWAP_LIST
+  w.ps = '/Users/me/.local/bin/cswap auto --dry-run\n'
+  await start($)
+  await clock.settle()
+  expect(w.started).toEqual([])
+})
+
+test('cswap auto is not started with star_cswap_auto off', { options: { star_cswap_auto: false } }, async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  w.cswap = CSWAP_LIST
+  await start($)
+  await clock.settle()
+  await clock.advance(65_000)
+  expect(w.started).toEqual([])
+})
+
+test('without cswap the band has no accounts row', async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(w.listed).toBe(1)
+  expect(await ui.find({ type: 'Text', text: /auto (on|off)/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a session that is not the coordinator never runs cswap', async ($, on) => {
+  const { clock, w } = world(on, 'term_B')
+  w.cswap = CSWAP_LIST
+  await start($)
+  await clock.settle()
+  await clock.advance(65_000)
+  expect(w.listed).toBe(0)
+})
+
+test('an answer with no letter or digit is not sent', async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  await ui.input({ key: 'answer:N-12', text: '?!' })
+  expect(w.answered).toEqual([])
+  expect(w.prompts).toEqual([])
+  expect(w.toasts).toEqual(['N-12: type an answer in words first'])
   await ui.unmount()
 })
 

@@ -58,3 +58,19 @@ export const QUEUE = [
   '## Waiting on others',
   '',
 ].join('\n')
+
+// `cswap list --json` (claude-swap's schemaVersion 1): the active account, one near its weekly limit,
+// a disabled one with only last-known usage and no alias, and one whose token expired.
+export const CSWAP_LIST = JSON.stringify({
+  schemaVersion: 1,
+  activeAccountNumber: 2,
+  accounts: [
+    { number: 1, email: 'a@example.com', alias: 'sphere', active: false, usageStatus: 'ok',
+      usage: { fiveHour: { pct: 0.0 }, sevenDay: { pct: 98.0, countdown: '1d 23h' } } },
+    { number: 2, email: 'b@example.com', alias: 'personal', active: true, usageStatus: 'ok',
+      usage: { fiveHour: { pct: 5.0, countdown: '4h 36m' }, sevenDay: { pct: 64.4, countdown: '4d 3h' } } },
+    { number: 3, email: 'carol@example.com', active: false, disabled: true, usageStatus: 'unavailable', usage: null,
+      lastGoodUsage: { fiveHour: { pct: 24.0 }, sevenDay: { pct: 7.0 } } },
+    { number: 4, email: 'd@example.com', alias: 'old', active: false, usageStatus: 'token_expired', usage: null },
+  ],
+})

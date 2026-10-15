@@ -4,8 +4,10 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { fallbackDeny, guardRmVars, judge, protectedWhy } from '../../hooks/guards'
 import type { Protect } from '../../hooks/guards'
-import { bandOf, parseLedger, parseQueue, parseStar } from '../../hooks/star'
-import { HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
+import { autoOf, normDir, parseAccounts } from '../../hooks/cswap'
+import type { Proc } from '../../hooks/cswap'
+import { bandOf, needOf, optionsOf, parseLedger, parseQueue, parseStar } from '../../hooks/star'
+import { CSWAP_LIST, HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
 
 const P: Protect = { homes: [HOME], docsRel: 'docs/superpowers', cwd: ROOT }
 const SHA = 'a'.repeat(40)
@@ -146,14 +148,32 @@ describe('band text', () => {
   const star = parseStar(STAR('term_A'))
   if (!star.ok) throw new Error(star.why)
 
-  test('counts the pools and the open queue items, and lists the open ones', () => {
+  test('counts the pools and the open queue items, and lists the open ones only', () => {
     const band = bandOf(star.value, parseLedger(LEDGER), parseQueue(QUEUE), at('2026-10-15T08:05:00Z'))
     expect(band.line).toBe('STAR · 2 building · 1 babysitting · 1 verifying · 1 escalated · 2 waiting · 2 need you')
     expect(band.tone).toBe('attention')
-    expect(band.needs).toEqual([
-      'N-12 go-batch · B-1: go for batch B-1: 3 items',
-      'N-14 escalation · issue-5: NOT-SAFE again after a re-scope',
+    expect(band.open).toBe(2)
+    // N-13 is answered: STAR acts on it at its next tick, so the band leaves it out
+    expect(band.needs.map(n => [n.id, n.kind, n.item])).toEqual([
+      ['N-12', 'go-batch', 'B-1'],
+      ['N-14', 'escalation', 'issue-5'],
     ])
+    expect(band.project).toBe('app')
+    expect(band.state).toBe('running')
+    expect(band.tick).toBe('5m ago')
+  })
+
+  test('draws the pools from the ledger, against the sizes in star.json', () => {
+    const band = bandOf(star.value, parseLedger(LEDGER), parseQueue(QUEUE), at('2026-10-15T08:05:00Z'))
+    expect(band.gauges).toEqual([
+      { name: 'brief', used: 0, max: 4 },
+      { name: 'build', used: 2, max: 3 },
+      { name: 'babysit', used: 1, max: 3 },
+    ])
+    const wide = parseStar(JSON.stringify({ terminal: 'term_A', maxParallel: 6, maxBriefs: 2, maxInReview: 5 }))
+    if (!wide.ok) throw new Error(wide.why)
+    const sized = bandOf(wide.value, parseLedger(LEDGER), parseQueue(QUEUE), at('2026-10-15T08:05:00Z'))
+    expect(sized.gauges.map(g => g.max)).toEqual([2, 6, 5])
   })
 
   test('says a stale tick and gate down', () => {
@@ -161,6 +181,7 @@ describe('band text', () => {
     const band = bandOf(down, parseLedger(LEDGER), parseQueue(QUEUE), at('2026-10-15T08:45:00Z'))
     expect(band.line).toBe('STAR · 2 building · 1 babysitting · 1 verifying · 1 escalated · 2 waiting · 2 need you · gate down · last tick 45m ago')
     expect(band.tone).toBe('warn')
+    expect(band.flags).toEqual(['gate down', 'last tick 45m ago'])
   })
 
   test('is one quiet line when nothing runs and nothing waits on the owner', () => {
@@ -168,11 +189,162 @@ describe('band text', () => {
     const band = bandOf(star.value, parseLedger(ledger([['issue-7', 'done', '-']])), parseQueue(idleQueue), at('2026-10-15T08:05:00Z'))
     expect(band.line).toBe('STAR idle · 1 done · nothing needs you')
     expect(band.tone).toBe('idle')
+    expect(band.open).toBe(0)
   })
 
   test('names a file it cannot parse and keeps the rest', () => {
     const band = bandOf(star.value, parseLedger('# Ledger\n'), parseQueue(QUEUE), at('2026-10-15T08:05:00Z'))
     expect(band.line).toBe('STAR · ledger.md unreadable: no ledger table · 2 need you')
     expect(band.tone).toBe('error')
+    expect(band.problems).toEqual(['ledger.md unreadable: no ledger table'])
+    expect(band.gauges).toEqual([])
+  })
+})
+
+describe('the queue as the band reads it', () => {
+  const at = (iso: string): number => Date.parse(iso)
+
+  test("reads each item's body between its kind line and its Answer line, never a note under the answer", () => {
+    const queue = QUEUE.replace("Answer: done\n", "Answer: done\n\nmy own note, not the body\n")
+    const parsed = parseQueue(queue)
+    if (!parsed.ok) throw new Error(parsed.why)
+    const byId = new Map(parsed.value.needs.map(n => [n.id, n]))
+    expect(byId.get('N-12')?.body).toEqual(['issue-1', 'Options: go / go except <items> / drop <item>'])
+    expect(byId.get('N-13')?.body).toEqual(["Options: done / can't now"])
+    expect(byId.get('N-13')?.answer).toBe('done')
+  })
+
+  test('reads Waiting on others, quoted lines unquoted', () => {
+    const parsed = parseQueue(QUEUE.replace('## Waiting on others\n', '## Waiting on others\nPR #12: a review from the team\n> ### a quoted line\n'))
+    if (!parsed.ok) throw new Error(parsed.why)
+    expect(parsed.value.waiting).toEqual(['PR #12: a review from the team', '### a quoted line'])
+  })
+
+  test("turns an Options line into picks, templates to finish, and the words it asks for", () => {
+    expect(optionsOf(['Options: go / go except <items> / drop <item> / or say what to change'])).toEqual({
+      options: [
+        { label: 'go', text: 'go' },
+        { label: 'go except …', text: 'go except ' },
+        { label: 'drop …', text: 'drop ' },
+      ],
+      hint: 'say what to change',
+    })
+    expect(optionsOf(['Options: answer with your decision to run the stage again / drop'])).toEqual({
+      options: [{ label: 'drop', text: 'drop' }],
+      hint: 'answer with your decision to run the stage again',
+    })
+    expect(optionsOf(["Options: <the value> / can't now"])).toEqual({
+      options: [{ label: "can't now", text: "can't now" }],
+      hint: 'type the value',
+    })
+    expect(optionsOf(['msg: m-1', 'deadline: 2026-10-15T08:30:00Z'])).toEqual({ options: [], hint: '' })
+  })
+
+  test("shows a question's deadline, and leaves the Orca message id out", () => {
+    const need = needOf(
+      { id: 'N-20', kind: 'question', project: 'app', item: 'issue-1', title: 'which date format?', body: ['msg: m-77', 'deadline: 2026-10-15T08:30:00Z'], answer: '' },
+      at('2026-10-15T08:07:00Z'),
+    )
+    expect(need.due).toBe('23m left')
+    expect(need.details).toEqual([])
+    expect(need.hint).toBe('type your answer')
+    const late = needOf({ id: 'N-20', kind: 'question', project: 'app', item: 'issue-1', title: 'q', body: ['deadline: 2026-10-15T08:30:00Z'], answer: '' }, at('2026-10-15T08:35:00Z'))
+    expect(late.due).toBe('5m overdue')
+  })
+
+  test("splits a person step's body into its fields, and a batch's into its item names", () => {
+    const step = needOf(
+      { id: 'N-21', kind: 'person', project: 'app', item: 'issue-4', title: 'add the key', body: ['brief: /h/briefs/app/issue-4.md', 'step: 2', '> kind: secret', "Options: done / can't now"], answer: '' },
+      at('2026-10-15T08:07:00Z'),
+    )
+    expect(step.details).toEqual([
+      { key: 'brief', value: '/h/briefs/app/issue-4.md' },
+      { key: 'step', value: '2' },
+      { key: 'kind', value: 'secret' },
+    ])
+    expect(step.names).toEqual([])
+    expect(step.hint).toBe('or type an answer in words')
+    const batch = needOf(
+      { id: 'N-22', kind: 'go-batch', project: 'app', item: 'B-1', title: 'go for batch B-1: 2 items', body: ['issue-1', 'issue-2', 'Options: go / drop <item>'], answer: '' },
+      at('2026-10-15T08:07:00Z'),
+    )
+    expect(batch.names).toEqual(['issue-1', 'issue-2'])
+  })
+})
+
+describe('cswap accounts', () => {
+  test('reads cswap list --json: the active account first, aliases, usage and when a spent window resets', () => {
+    const parsed = parseAccounts(CSWAP_LIST)
+    if (!parsed.ok) throw new Error(parsed.why)
+    expect(parsed.value.map(a => [a.alias, a.isActive, a.fiveHour, a.sevenDay, a.resets])).toEqual([
+      ['personal', true, 5, 64, null],
+      ['sphere', false, 0, 98, '1d 23h'],
+      ['carol', false, 24, 7, null],
+      ['old', false, null, null, null],
+    ])
+    const [, , carol, old] = parsed.value
+    expect([carol?.isDisabled, carol?.isStale, carol?.status]).toEqual([true, true, 'unavailable'])
+    expect([old?.isStale, old?.status]).toEqual([false, 'token expired'])
+  })
+
+  test('says why a payload cannot be read', () => {
+    expect(parseAccounts('not json')).toEqual({ ok: false, why: 'cswap list --json printed no JSON' })
+    expect(parseAccounts(JSON.stringify({ schemaVersion: 1, error: { message: 'no accounts file' } }))).toEqual({ ok: false, why: 'cswap: no accounts file' })
+    expect(parseAccounts(JSON.stringify({ schemaVersion: 2, accounts: [] }))).toEqual({ ok: false, why: 'cswap list --json: an unknown schema' })
+  })
+
+  // Processes under this session's login, '' (unset, so ~/.claude) unless a test says otherwise.
+  const HOMEDIR = '/Users/me'
+  const procs = (text: string, configDir = ''): Proc[] => text.split('\n').filter(Boolean).map(command => ({ command, configDir }))
+  const auto = (ps: Proc[], menubar: string | null = null, cron = '', mine = '') => autoOf(ps, menubar, cron, mine, HOMEDIR)
+
+  test('auto is on while a cswap auto loop runs, and in dry run when that is all there is', () => {
+    const py = '/opt/homebrew/Cellar/python@3.12/3.12.13_4/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python'
+    expect(auto(procs(`${py} /Users/me/.local/bin/cswap auto --threshold 80`))).toEqual({ state: 'on', via: 'cswap auto' })
+    expect(auto(procs('cswap auto --dry-run'))).toEqual({ state: 'dry run', via: 'cswap auto' })
+    expect(auto(procs('cswap auto --once --json'))).toEqual({ state: 'off', via: '' })
+    // a shell or a grep that only mentions it is not cswap
+    expect(auto(procs("grep cswap auto\nzsh -c 'cswap auto'"))).toEqual({ state: 'off', via: '' })
+    // the dashboard is not the loop
+    expect(auto(procs(`${py} /Users/me/.local/bin/cswap`))).toEqual({ state: 'off', via: '' })
+  })
+
+  test("auto is on through the menu bar only while it runs with its toggle on", () => {
+    const menubar = procs('/Users/me/.local/bin/cswap menubar')
+    expect(auto(menubar, '{"auto_switch_enabled": true}')).toEqual({ state: 'on', via: 'menu bar' })
+    expect(auto(menubar, '{"auto_switch_enabled": false}')).toEqual({ state: 'off', via: '' })
+    expect(auto([], '{"auto_switch_enabled": true}')).toEqual({ state: 'off', via: '' })
+    expect(auto(procs('cswap menubar --service-status'), '{"auto_switch_enabled": true}')).toEqual({ state: 'off', via: '' })
+  })
+
+  test('auto is on through a cron entry that runs cswap auto --once', () => {
+    expect(auto([], null, '*/5 * * * * cswap auto --once --json >> ~/.cswap-auto.log 2>&1\n')).toEqual({ state: 'on', via: 'cron' })
+    expect(auto([], null, '# */5 * * * * cswap auto --once\n')).toEqual({ state: 'off', via: '' })
+  })
+
+  test("only what runs under this session's Claude login counts", () => {
+    const personal = '/Users/me/.claude-personal'
+    const sphere = '/Users/me/.claude-sphere'
+    // a loop for the personal login does nothing for a sphere session
+    expect(auto(procs('cswap auto', personal), null, '', sphere)).toEqual({ state: 'off', via: '' })
+    expect(auto(procs('cswap auto', personal), null, '', personal)).toEqual({ state: 'on', via: 'cswap auto' })
+    // ~ and a trailing slash are the same folder; unset is ~/.claude
+    expect(auto(procs('cswap auto', '~/.claude-personal/'), null, '', personal)).toEqual({ state: 'on', via: 'cswap auto' })
+    expect(auto(procs('cswap auto', ''), null, '', '/Users/me/.claude')).toEqual({ state: 'on', via: 'cswap auto' })
+    expect(auto(procs('cswap auto', ''), null, '', sphere)).toEqual({ state: 'off', via: '' })
+    // the menu bar under launchd has no CLAUDE_CONFIG_DIR: it switches ~/.claude
+    expect(auto(procs('cswap menubar'), '{"auto_switch_enabled": true}', '', personal)).toEqual({ state: 'off', via: '' })
+    // a crontab's variable line applies to the jobs under it; an inline one to its own job
+    const cron = `CLAUDE_CONFIG_DIR=${personal}\n*/5 * * * * cswap auto --once\n`
+    expect(auto([], null, cron, personal)).toEqual({ state: 'on', via: 'cron' })
+    expect(auto([], null, cron, sphere)).toEqual({ state: 'off', via: '' })
+    expect(auto([], null, `*/5 * * * * CLAUDE_CONFIG_DIR=${sphere} cswap auto --once\n`, sphere)).toEqual({ state: 'on', via: 'cron' })
+  })
+
+  test('a config folder has one spelling', () => {
+    expect(normDir('', HOMEDIR)).toBe('/Users/me/.claude')
+    expect(normDir('~/.claude-personal/', HOMEDIR)).toBe('/Users/me/.claude-personal')
+    expect(normDir('$HOME/.claude-sphere', HOMEDIR)).toBe('/Users/me/.claude-sphere')
+    expect(normDir('"/Users/me/.claude-x"', HOMEDIR)).toBe('/Users/me/.claude-x')
   })
 })

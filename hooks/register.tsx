@@ -14,6 +14,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { StarBand } from '../types'
+import { drawBand, fit } from './band'
+import { autoOf, configDirOf, isCswapProc, parseAccounts } from './cswap'
+import type { Proc } from './cswap'
+import type { BandActions, Ui } from './band'
 import { fallbackDeny, guardRmVars, judge, protectedWhy } from './guards'
 import type { Protect, Verdict } from './guards'
 import { WORKER_STATES, bandOf, parseLedger, parseQueue, parseStar } from './star'
@@ -22,7 +26,16 @@ import type { LedgerRow, Parsed, Queue, Star } from './star'
 type Api = EngineInterface
 
 const band = atom({ plugin: 'juel', key: 'band' } as const, null)
+const selected = atom({ plugin: 'juel', key: 'selected' } as const, null)
+const drafts = atom({ plugin: 'juel', key: 'drafts' } as const, {})
+const accounts = atom({ plugin: 'juel', key: 'accounts' } as const, null)
 const TICK_MS = 5_000
+// cswap reads usage through its own cache and 429 back-off; once a minute keeps the band from
+// adding traffic of its own. Without cswap, look again now and then, in case it gets installed.
+const ACCOUNTS_MS = 60_000
+const NO_CSWAP_MS = 600_000
+// A cswap auto loop the mod started that did not stay up is started again at most this often.
+const AUTO_RETRY_MS = 600_000
 const ROLE_TTL_MS = 60_000
 
 type Place = {
@@ -39,6 +52,16 @@ let lastBand = 'null'
 const cache = new Map<string, { mtimeMs: number; value: unknown }>()
 let workerAt = 0
 let isWorkerCached = false
+/** The band's requestId as last drawn, so a press can move the focus onto the reply field. */
+let bandSite = ''
+/** True while an `inbox` prompt waits for the session to go idle: one wakes STAR, a second adds nothing. */
+let isWaking = false
+let accountsAt = 0
+let isReadingAccounts = false
+let hasCswap = true
+/** star_cswap_auto: start cswap auto whenever STAR's band finds it off */
+let isAutoStarting = false
+let autoTriedAt = -AUTO_RETRY_MS
 
 async function realOf($: Api, path: string): Promise<string | undefined> {
   return $.fs.stat(path, { resolve: true }).then(s => s.realPath).catch(() => undefined)
@@ -126,6 +149,181 @@ async function refresh($: Api): Promise<void> {
   await update($, band, () => next)
 }
 
+/** Wake STAR for one tick, as the skill reads a message that says only `inbox`. */
+async function wake($: Api): Promise<void> {
+  if (isWaking) return
+  isWaking = true
+  try {
+    await $.prompt.submit({ text: 'inbox', asUser: true })
+  } catch {
+    // The answer is in the queue either way: STAR's next tick, or its heartbeat, picks it up.
+  } finally {
+    isWaking = false
+  }
+}
+
+const lastLine = (text: string): string => text.trim().split('\n').pop() ?? ''
+
+/** What the owner is told when loops.sh did not set the answer: kept, closed, a broken queue, or its error. */
+function notRecorded(id: string, run: { exitCode: number; stdout: string; stderr: string }): string {
+  if (run.exitCode === 0 && run.stdout.trim() === 'kept') return `${id} already has an answer: STAR acts on that one`
+  if (run.exitCode === 4) return `${id} is closed already: STAR has acted on it`
+  if (run.exitCode === 3) return 'open-loops.md has git conflict markers: resolve them, then send again'
+  return `${id} was not recorded: ${lastLine(run.stderr) || `loops.sh exited ${run.exitCode}`}`
+}
+
+/**
+ * Record the owner's answer on the item's Answer line, through loops.sh (the queue's one writer
+ * besides the owner's own hand), then wake STAR to act on it. Nothing is sent to a worker from
+ * here: STAR's Answers step does that, by the same rules as an answer typed into the file.
+ */
+async function sendAnswer($: Api, id: string, typed: string): Promise<void> {
+  const p = place
+  if (!p) return
+  const text = typed.replace(/\s+/g, ' ').trim()
+  // STAR's own rule: an answer with no letter or digit in it is not an answer.
+  if (!/[\p{L}\p{N}]/u.test(text)) {
+    void $.ui.toast(`${id}: type an answer in words first`)
+    return
+  }
+  const run = await $.process
+    .run(['sh', `${$.plugin.root}/skills/star/loops.sh`, '--file', `${p.home}/open-loops.md`, 'set-answer', id, text], { timeoutMs: 15_000 })
+    .catch(() => undefined)
+  if (!run) {
+    void $.ui.toast(`${id}: loops.sh did not run, so nothing was recorded. Try again`)
+    return
+  }
+  const said = run.stdout.trim()
+  if (run.exitCode === 0 && said === 'set') {
+    await update($, drafts, d => Object.fromEntries(Object.entries(d).filter(([key]) => key !== id)))
+    await refresh($)
+    void $.ui.toast(`Sent “${fit(text, 60)}” to STAR for ${id}`)
+    // The card moves on to the next open item; the reply field there takes the focus.
+    const next = (await read($, band))?.needs[0]
+    if (next && bandSite) void $.ui.focus({ requestId: bandSite, key: `answer:${next.id}` }).catch(() => undefined)
+    if (await isCoordinator($, p)) await wake($)
+    return
+  }
+  void $.ui.toast(notRecorded(id, run))
+  await refresh($)
+}
+
+function actionsFor($: Api): BandActions {
+  const focus = async (key: string): Promise<void> => {
+    if (bandSite) await $.ui.focus({ requestId: bandSite, key }).catch(() => undefined)
+  }
+  return {
+    select: id => {
+      void update($, selected, () => id).then(() => focus(`answer:${id}`))
+    },
+    stage: (id, text) => {
+      void update($, drafts, d => ({ ...d, [id]: text })).then(() => focus(`answer:${id}`))
+    },
+    type: (id, text) => {
+      void update($, drafts, d => ({ ...d, [id]: text }))
+    },
+    send: (id, text) => {
+      void sendAnswer($, id, text)
+    },
+  }
+}
+
+/** `cswap list --json`, from PATH or uv's default bin folder; undefined when cswap is not installed. */
+async function cswapList($: Api, home: string): Promise<{ bin: string; stdout: string } | undefined> {
+  for (const bin of ['cswap', ...(home ? [`${home}/.local/bin/cswap`] : [])]) {
+    const run = await $.process.run([bin, 'list', '--json'], { timeoutMs: 20_000 }).catch(() => undefined)
+    if (run && run.exitCode !== 127) return { bin, stdout: run.stdout }
+  }
+  return undefined
+}
+
+// A child in a session of its own (setsid), its output to /dev/null: cswap keeps its own log. It
+// outlives this session, as STAR's caffeinate does, so accounts keep switching after STAR stops.
+const DETACH = 'import subprocess, sys; d = subprocess.DEVNULL; subprocess.Popen(sys.argv[1:], stdin=d, stdout=d, stderr=d, start_new_session=True)'
+
+const PS_LINE = /^\s*(\d+)\s+(.*)$/
+
+/**
+ * The cswap processes (auto loops, the menu bar), each with the Claude config it runs under. Only
+ * those processes' environments are read (`ps eww`), and only for CLAUDE_CONFIG_DIR.
+ */
+async function cswapProcs($: Api): Promise<Proc[]> {
+  const all = await $.process.run(['ps', '-Ao', 'pid=,command='], { timeoutMs: 10_000 }).catch(() => undefined)
+  const found = (all?.stdout ?? '')
+    .split('\n')
+    .map(line => PS_LINE.exec(line))
+    .filter((m): m is RegExpExecArray => m !== null && isCswapProc(m[2] ?? ''))
+  if (!found.length) return []
+  const pids = found.map(m => m[1] ?? '')
+  const env = await $.process.run(['ps', 'eww', '-o', 'pid=,command=', '-p', pids.join(',')], { timeoutMs: 10_000 }).catch(() => undefined)
+  const dirs = new Map<string, string>()
+  for (const line of (env?.stdout ?? '').split('\n')) {
+    const m = PS_LINE.exec(line)
+    if (m) dirs.set(m[1] ?? '', configDirOf(m[2] ?? ''))
+  }
+  return found.map(m => ({ command: m[2] ?? '', configDir: dirs.get(m[1] ?? '') ?? '' }))
+}
+
+/** The menu bar's own settings, where its auto-switch toggle lives (macOS, then Linux). */
+async function menubarSettings($: Api, home: string): Promise<string | null> {
+  if (!home) return null
+  const xdg = (await $.env.get('XDG_DATA_HOME')) || `${home}/.local/share`
+  for (const dir of [`${home}/.claude-swap-backup`, `${xdg}/claude-swap`]) {
+    const text = await $.fs.read(`${dir}/menubar_settings.json`).catch(() => undefined)
+    if (typeof text === 'string') return text
+  }
+  return null
+}
+
+/**
+ * cswap's accounts and its auto-switch, for the band. Read only while this session draws the band
+ * (it is STAR's coordinator), at most once a minute.
+ */
+async function refreshAccounts($: Api): Promise<void> {
+  if (isReadingAccounts) return
+  const now = await $.clock.now()
+  if (now - accountsAt < (hasCswap ? ACCOUNTS_MS : NO_CSWAP_MS)) return
+  if ((await read($, band)) === null) return
+  isReadingAccounts = true
+  accountsAt = now
+  try {
+    const home = (await $.env.get('HOME')) ?? ''
+    // This session's Claude login: cswap list marks its account active, and a loop counts only for it.
+    const mine = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? ''
+    const listed = await cswapList($, home)
+    hasCswap = listed !== undefined
+    if (listed === undefined) {
+      await update($, accounts, () => null)
+      return
+    }
+    const [procs, crontab, menubar] = await Promise.all([
+      cswapProcs($),
+      $.process.run(['crontab', '-l'], { timeoutMs: 10_000 }).then(r => (r.exitCode === 0 ? r.stdout : '')).catch(() => ''),
+      menubarSettings($, home),
+    ])
+    const parsed = parseAccounts(listed.stdout)
+    let auto = autoOf(procs, menubar, crontab, mine, home)
+    // Fully off for this login (no loop, not even a dry run; no menu bar or cron doing it) and
+    // accounts to switch between: start the loop. It inherits this session's CLAUDE_CONFIG_DIR, so
+    // it switches this login. One that does not stay up is tried again only after AUTO_RETRY_MS.
+    if (isAutoStarting && auto.state === 'off' && parsed.ok && parsed.value.length > 1 && now - autoTriedAt >= AUTO_RETRY_MS) {
+      autoTriedAt = now
+      const run = await $.process.run(['python3', '-c', DETACH, listed.bin, 'auto'], { timeoutMs: 10_000 }).catch(() => undefined)
+      if (run?.exitCode === 0) {
+        auto = autoOf(await cswapProcs($), menubar, crontab, mine, home)
+        if (auto.state === 'on') void $.ui.toast('Started cswap auto: it switches accounts before one hits its limit')
+      }
+    }
+    await update($, accounts, prev =>
+      parsed.ok
+        ? { ...auto, accounts: parsed.value, problem: '' }
+        : { ...auto, accounts: prev?.accounts ?? [], problem: parsed.why },
+    )
+  } finally {
+    isReadingAccounts = false
+  }
+}
+
 /** The deny text a STAR worker gets for a direct merge: only STAR merges, through merge.sh. */
 function workerMergeText(how: string): string {
   return (
@@ -157,6 +355,7 @@ const commandOfCall = (e: { tool: string; command?: unknown }): string =>
 
 export const register: Register = (on, options) => {
   const isBandOn = options['star_band'] !== false
+  isAutoStarting = options['star_cswap_auto'] !== false
   const isGuardOn = options['star_guards'] !== false
   const isRmOn = options['star_rm_guard'] === true
 
@@ -171,33 +370,32 @@ export const register: Register = (on, options) => {
       place = await lookUp($, e.cwd, handle).catch(() => null)
       if (!place || !isBandOn) return
       await refresh($).catch(() => undefined)
+      await refreshAccounts($).catch(() => undefined)
       $.clock.every(TICK_MS, () => {
-        void refresh($).catch(() => undefined)
+        void refresh($)
+          .then(() => refreshAccounts($))
+          .catch(() => undefined)
       })
     })()
     return started
   })
 
-  // The band: only while this session is the coordinator; a survey always wins the band.
+  // The band: only while this session is the coordinator; a survey always wins the band. The
+  // owner answers the queue in it, so it draws only where the surface has a text field.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const value = await read($, band)
     if (value === null || e.props.hasSurvey) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
-    const color = { ok: 'success', idle: 'subtle', attention: 'warning', warn: 'warning', error: 'error' }[value.tone]
-    return (
-      <Box key="star" flexDirection="column" width={e.props.bodyColumns}>
-        <Text color={color} wrap="truncate-end">
-          {value.line}
-        </Text>
-        {value.needs.map(line => (
-          <Text dimColor wrap="truncate-end">
-            {'  '}
-            {line}
-          </Text>
-        ))}
-        {value.more > 0 && <Text dimColor>{`  +${value.more} more in open-loops.md`}</Text>}
-      </Box>
-    )
+    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
+    bandSite = e.requestId
+    const ui: Ui = $.ui.resolve(e)
+    const view = {
+      band: value,
+      selected: await read($, selected),
+      drafts: await read($, drafts),
+      accounts: await read($, accounts),
+      columns: e.props.bodyColumns,
+    }
+    return drawBand(ui, view, actionsFor($))
   })
 
   // Guard 1 and 2 for shell commands: a direct merge (the coordinator and STAR's workers), and a

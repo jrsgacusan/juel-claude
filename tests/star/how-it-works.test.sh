@@ -143,7 +143,8 @@ grep -qF 'a push that only merges the base runs the sweep, after a clean merge t
 grep -qF 'runs the tests for the files its conflicts changed' "$PAGE" && fail "LH111 the conflicted-files rule is gone (#111)" || pass "LH111 the conflicted-files rule is gone (#111)"
 grep -qF 'Feedback you give while an item'"'"'s brief is still drafting lands in that brief.' "$PAGE" && pass "LH112 feedback given while a brief drafts lands in it (#112)" || fail "LH112 feedback while drafting on the page"
 grep -qF 'A worker sitting on a prompt is seen on its screen. STAR answers Claude Code'"'"'s safety prompt for an <code>rm</code> inside the item'"'"'s worktree or a scratchpad, and any other prompt comes to you.' "$PAGE" && pass "LH114 a prompt is seen, the bounded one answered (#114)" || fail "LH114 prompts on the page"
-grep -qF 'On Claude Code 2.1.287 and later, a band above STAR'"'"'s prompt shows what is building and what needs you' "$PAGE" && pass "LHmod the page shows the band" || fail "LHmod band on the page"
+grep -qF 'On Claude Code 2.1.287 and later, a band above STAR'"'"'s prompt shows the pools and what needs you, three items at a time, and you answer them right there' "$PAGE" && pass "LHmod the page shows the band, answered in place" || fail "LHmod band on the page"
+grep -qF 'With cswap installed it also shows each account'"'"'s usage and the one in use, and starts <code>cswap auto</code> for STAR'"'"'s Claude login when it is off.' "$PAGE" && pass "LHmod the page shows the cswap accounts" || fail "LHmod cswap on the page"
 grep -qF 'a direct <code>gh pr merge</code> is refused in STAR'"'"'s session and its workers, and so is reading a review, evidence, report or log file into STAR'"'"'s session.' "$PAGE" && pass "LHmod the page shows the guards" || fail "LHmod guards on the page"
 # the docs copy: docs/star-closed-loop.html changes in the same commit as this page
 DOCS="$ROOT/docs/star-closed-loop.html"
