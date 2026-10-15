@@ -1,0 +1,36 @@
+{
+  "plugin": "slack@anthropic-plugin-directory",
+  "model": "haiku",
+  "timeoutMin": 4,
+  "allowedTools": [
+    "mcp__plugin_slack_slack__slack_search_public_and_private",
+    "mcp__plugin_slack_slack__slack_read_channel",
+    "mcp__plugin_slack_slack__slack_read_thread",
+    "mcp__plugin_slack_slack__slack_read_user_profile",
+    "mcp__plugin_slack_slack__slack_search_users",
+    "mcp__plugin_slack_slack__slack_list_user_channels"
+  ],
+  "disallowedTools": [
+    "mcp__plugin_slack_slack__slack_add_list_record",
+    "mcp__plugin_slack_slack__slack_add_reaction",
+    "mcp__plugin_slack_slack__slack_complete_file_upload",
+    "mcp__plugin_slack_slack__slack_create_canvas",
+    "mcp__plugin_slack_slack__slack_create_conversation",
+    "mcp__plugin_slack_slack__slack_create_list",
+    "mcp__plugin_slack_slack__slack_get_file_upload_url",
+    "mcp__plugin_slack_slack__slack_get_reactions",
+    "mcp__plugin_slack_slack__slack_list_channel_members",
+    "mcp__plugin_slack_slack__slack_read_canvas",
+    "mcp__plugin_slack_slack__slack_read_file",
+    "mcp__plugin_slack_slack__slack_read_list",
+    "mcp__plugin_slack_slack__slack_schedule_message",
+    "mcp__plugin_slack_slack__slack_search_channels",
+    "mcp__plugin_slack_slack__slack_search_emojis",
+    "mcp__plugin_slack_slack__slack_search_public",
+    "mcp__plugin_slack_slack__slack_send_message",
+    "mcp__plugin_slack_slack__slack_send_message_draft",
+    "mcp__plugin_slack_slack__slack_update_canvas",
+    "mcp__plugin_slack_slack__slack_update_list",
+    "mcp__plugin_slack_slack__slack_update_list_record"
+  ]
+}
