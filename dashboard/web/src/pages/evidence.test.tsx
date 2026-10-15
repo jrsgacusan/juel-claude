@@ -21,8 +21,11 @@ describe("Evidence", () => {
     ).toBeInTheDocument()
     expect(within(detail).getByText("Merged")).toBeInTheDocument()
     expect(within(detail).getByText("0b8e4c3")).toBeInTheDocument()
-    for (const check of ["Claude review", "Codex gate", "CI", "Approval"])
+    for (const check of ["Go", "Codex gate", "CI", "Approval"])
       expect(within(detail).getByText(check)).toBeInTheDocument()
+    expect(within(detail).queryByText("Claude review")).not.toBeInTheDocument()
+    expect(within(detail).getByText(/^Merged 0b8e4c3 at /)).toBeInTheDocument()
+    expect(within(detail).queryByText(/under your go/)).not.toBeInTheDocument()
     expect(within(detail).getByText("14 checks green")).toBeInTheDocument()
     expect(
       within(detail).getByText("Totals round half up to the cent")
@@ -30,6 +33,36 @@ describe("Evidence", () => {
     expect(
       within(detail).getByRole("button", { name: "Open invoice-pdf.png" })
     ).toBeInTheDocument()
+  })
+
+  it("a flat group and a missing record key", async () => {
+    const { user } = renderApp("/sphere-app/evidence?item=SPH-3")
+    const detail = await screen.findByRole("region", {
+      name: "Evidence detail",
+    })
+    expect(
+      await within(detail).findByRole("heading", {
+        name: "Empty state for reports",
+      })
+    ).toBeInTheDocument()
+    expect(within(detail).getByText("Files")).toBeInTheDocument()
+    expect(within(detail).queryByText(/Passed:/)).not.toBeInTheDocument()
+    expect(
+      within(detail).getByRole("button", { name: "Open empty-state.png" })
+    ).toBeInTheDocument()
+    expect(
+      within(detail).getByRole("button", {
+        name: "Open empty-state-click.webm",
+      })
+    ).toBeInTheDocument()
+    expect(within(detail).getByText("Not recorded")).toBeInTheDocument()
+    await user.click(
+      within(detail).getByRole("button", { name: /Release record/ })
+    )
+    const dialog = await screen.findByRole("dialog", { name: "Release record" })
+    expect(within(dialog).queryByText("Approval")).not.toBeInTheDocument()
+    expect(within(dialog).getByText("CI")).toBeInTheDocument()
+    expect(within(dialog).getByText("13 checks green")).toBeInTheDocument()
   })
 
   it("opens an image, a video and a text file full size", async () => {

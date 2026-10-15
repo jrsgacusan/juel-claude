@@ -77,6 +77,17 @@ describe("Needs you", () => {
     expect(within(list).getAllByText("Sent to STAR")).toHaveLength(1)
   })
 
+  it("a loop with no time shows no age", async () => {
+    renderApp("/sphere-app/needs?loop=N-39")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(
+      await within(detail).findByRole("heading", {
+        name: "SPH-5 needs an approval from a teammate",
+      })
+    ).toBeInTheDocument()
+    expect(within(detail).queryByText(/^Asked/)).not.toBeInTheDocument()
+  })
+
   it("asks for an answer before sending", async () => {
     const { user } = renderApp("/sphere-app/needs?loop=N-43")
     await user.click(

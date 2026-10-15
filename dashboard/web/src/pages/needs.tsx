@@ -136,10 +136,19 @@ export function NeedsPage() {
                     <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                       <Icon className="size-3.5 shrink-0" />
                       <span className="shrink-0">{label}</span>
-                      <span className="truncate font-mono">{loop.item}</span>
-                      <span className="ml-auto shrink-0 tabular-nums">
-                        {age(loop.askedAt)}
+                      <span
+                        className={cn(
+                          "truncate font-mono",
+                          loop.askedAt === null && "ml-auto"
+                        )}
+                      >
+                        {loop.item}
                       </span>
+                      {loop.askedAt !== null && (
+                        <span className="ml-auto shrink-0 tabular-nums">
+                          {age(loop.askedAt)}
+                        </span>
+                      )}
                     </span>
                     <span className="line-clamp-2 text-sm leading-snug font-medium break-words">
                       {loop.title}

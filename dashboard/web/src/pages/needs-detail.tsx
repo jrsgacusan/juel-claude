@@ -83,9 +83,11 @@ export function LoopDetail({
           <span className="font-mono text-xs text-muted-foreground">
             {loop.item}
           </span>
-          <span className="text-xs text-muted-foreground">
-            Asked {agoText(loop.askedAt)}
-          </span>
+          {loop.askedAt !== null && (
+            <span className="text-xs text-muted-foreground">
+              Asked {agoText(loop.askedAt)}
+            </span>
+          )}
         </div>
         <h2 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">
           {loop.title}

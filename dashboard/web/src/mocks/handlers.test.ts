@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest"
 import { apiFetch, apiJson, ApiError, sendJson } from "@/api/client"
 import { paths } from "@/api/paths"
 import type {
+  EvidenceDetail,
   ItemDetail,
   ItemRow,
   Loop,
+  Overview,
   Project,
   SlackState,
 } from "@/api/types"
@@ -36,6 +38,31 @@ describe("the mock API", () => {
       loops.find((l) => l.id === "N-41")?.options.find((o) => o.recommended)
         ?.answer
     ).toBe("go")
+  })
+  it("serves the shapes of the server's contract", async () => {
+    const overview = await apiJson<Overview>(paths.overview(HOME))
+    expect(overview.quietHours).toEqual({
+      tz: "Asia/Manila",
+      start: "22:00",
+      end: "07:00",
+    })
+    const loops = await apiJson<Loop[]>(paths.loops(HOME))
+    expect(loops.find((l) => l.id === "N-39")?.askedAt).toBeNull()
+    for (const item of ["SPH-8", "SPH-4", "SPH-3"]) {
+      const detail = await apiJson<EvidenceDetail>(
+        paths.evidenceItem(HOME, item)
+      )
+      expect(
+        Object.keys(detail.record).every((k) =>
+          ["approval", "ci", "gate", "go"].includes(k)
+        )
+      ).toBe(true)
+    }
+    const flat = await apiJson<EvidenceDetail>(
+      paths.evidenceItem(HOME, "SPH-3")
+    )
+    expect(flat.groups).toHaveLength(1)
+    expect(flat.groups[0]?.criterion).toBeNull()
   })
   it("records an answer and emits a loops change", async () => {
     const res = await sendJson("POST", paths.answer(HOME, "N-41"), {

@@ -3,6 +3,7 @@ import type {
   Briefing,
   BriefingSummary,
   EvidenceDetail,
+  EvidenceRecord,
   FileKind,
   ItemDetail,
   ItemStatus,
@@ -106,8 +107,8 @@ function evidence(
     sha: string
     mergedAgo: number
     goAgo: number
-    record: Record<string, string>
-    groups: Array<[criterion: string, files: FileSeed[]]>
+    record: EvidenceRecord
+    groups: Array<[criterion: string | null, files: FileSeed[]]>
   }
 ): EvidenceDetail {
   return {
@@ -245,7 +246,7 @@ export function createDb(): MockDb {
         workers: { brief: [1, 4], build: [3, 3], babysit: [1, 3] },
         gateDown: null,
         away: null,
-        quietHours: null,
+        quietHours: { tz: "Asia/Manila", start: "22:00", end: "07:00" },
       },
       "sphere-api": emptyOverview(),
       "juel-claude": emptyOverview(),
@@ -373,7 +374,7 @@ export function createDb(): MockDb {
           suggestion:
             "Ask in #sphere-eng. STAR merges it within a tick of the approval.",
           answer: null,
-          askedAt: ago(120),
+          askedAt: null,
         },
         {
           id: "N-46",
@@ -736,11 +737,10 @@ export function createDb(): MockDb {
       mergedAgo: 10,
       goAgo: 60 * 13,
       record: {
-        review: "1 finding, fixed",
+        go: "go",
         gate: "Passed round 1, sol xhigh",
         ci: "14 checks green",
         approval: "A teammate, on 0b8e4c3",
-        go: "go",
       },
       groups: [
         [
@@ -770,11 +770,10 @@ export function createDb(): MockDb {
       mergedAgo: 150,
       goAgo: 60 * 13,
       record: {
-        review: "3 findings, all fixed",
+        go: "go",
         gate: "Passed round 2, sol xhigh",
         ci: "14 checks green",
         approval: "A teammate, on 7d2a91c",
-        go: "go",
       },
       groups: [
         [
@@ -806,20 +805,17 @@ export function createDb(): MockDb {
       mergedAgo: 60 * 24 * 2,
       goAgo: 60 * 24 * 2 + 480,
       record: {
-        review: "No findings",
+        go: "go",
         gate: "Passed round 1, sol xhigh",
         ci: "13 checks green",
-        approval: "A teammate, on a41f0de",
-        go: "go",
       },
       groups: [
         [
-          "New teams see how to make their first report",
-          [["empty-state.png", "image"]],
-        ],
-        [
-          "The button opens the report builder",
-          [["empty-state-click.webm", "video"]],
+          null,
+          [
+            ["empty-state.png", "image"],
+            ["empty-state-click.webm", "video"],
+          ],
         ],
       ],
     }),

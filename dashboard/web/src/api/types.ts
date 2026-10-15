@@ -13,6 +13,8 @@ export type Project = {
   lastTick: string | null
   needsYou: number
 }
+/** The quiet window, as the server sends it. */
+export type QuietHours = { tz: string; start: string; end: string }
 export type Overview = {
   resume: {
     state: string
@@ -28,7 +30,7 @@ export type Overview = {
   }
   gateDown: null | { since: string; why: string }
   away: string | boolean | null
-  quietHours: string | null
+  quietHours: QuietHours | null
 }
 export type LoopOption = { label: string; answer: string; recommended: boolean }
 export type Loop = {
@@ -40,7 +42,8 @@ export type Loop = {
   options: LoopOption[]
   suggestion: string | null
   answer: string | null
-  askedAt: string
+  /** null when the queue item carries no time. */
+  askedAt: string | null
 }
 export type AnswerRequest = { text: string }
 export type AnswerResponse = { recorded: true; nudged: boolean }
@@ -86,7 +89,18 @@ export type EvidenceSummary = {
 }
 export type FileKind = "image" | "video" | "text"
 export type EvidenceFile = { name: string; kind: FileKind; url: string }
-export type EvidenceGroup = { criterion: string; files: EvidenceFile[] }
+/** The release record's fields the server sends; any of them may be missing. */
+export type EvidenceRecord = {
+  approval?: string
+  ci?: string
+  gate?: string
+  go?: string
+}
+/** criterion null: the files are not mapped to criteria, one flat group. */
+export type EvidenceGroup = {
+  criterion: string | null
+  files: EvidenceFile[]
+}
 export type EvidenceDetail = {
   item: string
   title: string
@@ -94,7 +108,8 @@ export type EvidenceDetail = {
   sha: string | null
   mergedAt: string
   goAt: string | null
-  record: Record<string, string>
+  /** go, gate, ci and approval feed the four check cards. */
+  record: EvidenceRecord
   groups: EvidenceGroup[]
 }
 export type DraftRequest = { text: string }

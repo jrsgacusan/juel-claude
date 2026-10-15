@@ -1,8 +1,8 @@
 import type { LucideIcon } from "lucide-react"
 import {
-  Bot,
   CircleCheck,
   FileText,
+  Flag,
   GitMerge,
   GitPullRequest,
   Play,
@@ -12,7 +12,7 @@ import {
 import { useState } from "react"
 import { useFileBlob } from "@/api/files"
 import { useEvidenceItem, useItems } from "@/api/queries"
-import type { EvidenceFile } from "@/api/types"
+import type { EvidenceFile, EvidenceRecord } from "@/api/types"
 import { ErrorState } from "@/components/page-state"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -27,12 +27,21 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { clock, dateTime, dayLabel } from "@/lib/format"
 
-const CHECKS: Array<[icon: LucideIcon, label: string, key: string]> = [
-  [Bot, "Claude review", "review"],
+// The four check cards read the release record the server sends (API contract, 2026-10-16).
+const CHECKS: Array<
+  [icon: LucideIcon, label: string, key: keyof EvidenceRecord]
+> = [
+  [Flag, "Go", "go"],
   [ShieldCheck, "Codex gate", "gate"],
   [CircleCheck, "CI", "ci"],
   [UserCheck, "Approval", "approval"],
 ]
+const RECORD_LABELS: Record<keyof EvidenceRecord, string> = {
+  go: "Go",
+  gate: "Codex gate",
+  ci: "CI",
+  approval: "Approval",
+}
 
 export function Thumb({
   file,
@@ -165,7 +174,6 @@ export function EvidenceDetailView({
     )
   const d = detail.data
   const prUrl = items.data?.find((r) => r.item === d.item)?.prUrl ?? null
-  const go = d.record.go ? `: "${d.record.go}"` : ""
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-4 sm:p-6 lg:p-8">
@@ -188,9 +196,11 @@ export function EvidenceDetailView({
         <h2 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">
           {d.title}
         </h2>
-        {d.goAt && (
-          <p className="text-sm text-muted-foreground">{`Merged under your go of ${dateTime(d.goAt)}${go}.`}</p>
-        )}
+        <p className="text-sm text-muted-foreground">
+          {d.sha
+            ? `Merged ${d.sha} at ${dateTime(d.mergedAt)}.`
+            : `Merged at ${dateTime(d.mergedAt)}.`}
+        </p>
         <div className="flex flex-wrap gap-2">
           {d.pr && prUrl ? (
             <Button variant="outline" size="sm" asChild>
@@ -232,16 +242,20 @@ export function EvidenceDetailView({
         <h3 className="text-sm font-medium">Acceptance criteria</h3>
         {d.groups.map((group) => (
           <div
-            key={group.criterion || "files"}
+            key={group.criterion ?? "files"}
             className="flex flex-col gap-3 rounded-xl border p-4"
           >
-            <p className="flex items-start gap-2 text-sm font-medium">
-              <CircleCheck className="mt-0.5 size-4 shrink-0 text-done" />
-              <span className="min-w-0 break-words">
-                <span className="sr-only">Passed: </span>
-                {group.criterion || "Files"}
-              </span>
-            </p>
+            {group.criterion === null ? (
+              <p className="text-sm font-medium">Files</p>
+            ) : (
+              <p className="flex items-start gap-2 text-sm font-medium">
+                <CircleCheck className="mt-0.5 size-4 shrink-0 text-done" />
+                <span className="min-w-0 break-words">
+                  <span className="sr-only">Passed: </span>
+                  {group.criterion}
+                </span>
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {group.files.map((file) => (
                 <Thumb key={file.url} file={file} onOpen={setZoom} />
@@ -273,12 +287,16 @@ export function EvidenceDetailView({
             <DialogDescription>{`${d.item}, merged ${dateTime(d.mergedAt)}`}</DialogDescription>
           </DialogHeader>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-            {Object.entries(d.record).map(([key, value]) => (
-              <div key={key} className="contents">
-                <dt className="text-muted-foreground">{key}</dt>
-                <dd className="break-words">{value}</dd>
-              </div>
-            ))}
+            {(Object.keys(RECORD_LABELS) as Array<keyof EvidenceRecord>)
+              .filter((key) => d.record[key] !== undefined)
+              .map((key) => (
+                <div key={key} className="contents">
+                  <dt className="text-muted-foreground">
+                    {RECORD_LABELS[key]}
+                  </dt>
+                  <dd className="break-words">{d.record[key]}</dd>
+                </div>
+              ))}
           </dl>
         </DialogContent>
       </Dialog>
