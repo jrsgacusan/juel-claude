@@ -38,9 +38,16 @@
 # separator and agrees with either; ", " when every side has one name. Sides that differ, or any
 # other spacing (two spaces, a tab, a space before the comma), stay a conflict, since a brace glob
 # or a shell brace expansion ({a,b}) changes meaning with a space (#103).
-# Never mechanical: any other hunk shape (edited on both sides), a file with no base version
-# (added on both sides), a delete or rename conflict, a mode change, a binary file, a lockfile,
-# a file whose last line has no newline. Hunks are found with
+# An edit next to an insertion (#120): one side inserted a block of whole lines at a point of the
+# hunk's base and changed nothing else, and the other side rewrote, line for line, only base lines
+# ending at the one directly before that point. The hunk resolves to the edited lines, then the
+# inserted block, then the base after the point. It stays a conflict when the block's last line is
+# the base line before the point, since the same insertion then also fits before the edited line.
+# Never mechanical: any other hunk shape (edited on both sides: both sides editing one line, an edit
+# that does not end right before the other side's insertion, an insertion before the edited line,
+# an edit that adds or drops lines), a file with no base version (added on both sides), a delete or
+# rename conflict, a mode change, a binary file, a lockfile, a file whose last line has no newline.
+# Hunks are found with
 # `git merge-file --diff3 --marker-size=31`, so a file's own 7-character marker-like lines are
 # never mistaken for a hunk, and with `--diff-algorithm=histogram`, the one `git merge` uses.
 # --resolve merges one file from three files with the same rules and needs no repository or merge
@@ -260,6 +267,24 @@ def resolve_names(base, ours, theirs):
     return m.group(1) + "{" + inside + "}" + m.group(6) + "\n"
 
 
+def resolve_adjacent(base, ours, theirs):
+    """#120: one side inserted a block of whole lines at a point and changed nothing else, and the
+    other side rewrote, line for line, only base lines ending at the one directly before that point:
+    the edited lines, then the block, then the base after the point. None for any other shape, and
+    when the block's last line is the base line before the point (the same insertion then also fits
+    before the edited line)."""
+    b = base.splitlines(keepends=True)
+    for edit, added in ((ours, theirs), (theirs, ours)):
+        e, found = edit.splitlines(keepends=True), insertion(b, added.splitlines(keepends=True))
+        if found is None or not found[1] or found[0] < 1 or len(e) != len(b):
+            continue
+        point, block = found
+        changed = [i for i in range(len(b)) if e[i] != b[i]]
+        if changed and changed[-1] == point - 1 and block[-1] != b[point - 1]:
+            return "".join(e[:point] + block + b[point:])
+    return None
+
+
 def marker(line, ch):
     body = line.rstrip("\r\n")
     return body.startswith(ch * MARK) and (len(body) == MARK or body[MARK] == " ")
@@ -305,6 +330,8 @@ def merged(texts, scripts=None):
                 done = resolve_chains(*hunk, scripts)
             if done is None:
                 done = resolve_names(*hunk)
+            if done is None:
+                done = resolve_adjacent(*hunk)
             if done is None:
                 return None, "edited on both sides"
             out.append(done)
