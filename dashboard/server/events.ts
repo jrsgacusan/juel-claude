@@ -165,11 +165,12 @@ export function watchHomes(
     log(
       `watch ${e.name} failed (${why}): polling every ${opts.pollMs / 1000}s`,
     );
-    stops.set(e.home, poll(e));
+    stops.set(`${e.home}\u0000${e.name}`, poll(e));
   };
 
   const add = (e: Entry): void => {
-    if (stops.has(e.home)) return;
+    const key = `${e.home}\u0000${e.name}`;
+    if (stops.has(key)) return;
     try {
       const w = watch(e.home, { recursive: true }, (_event, filename) => {
         for (const what of whatOf(
@@ -179,10 +180,10 @@ export function watchHomes(
       });
       w.on("error", (err: Error) => {
         w.close();
-        stops.delete(e.home);
+        stops.delete(key);
         if (!closed) fallBack(e, err.message);
       });
-      stops.set(e.home, () => w.close());
+      stops.set(key, () => w.close());
     } catch (err) {
       fallBack(e, err instanceof Error ? err.message : String(err));
     }
@@ -190,11 +191,11 @@ export function watchHomes(
 
   const sync = (): void => {
     const now = entries();
-    const homes = new Set(now.map((e) => e.home));
-    for (const [home, stop] of stops) {
-      if (!homes.has(home)) {
+    const keys = new Set(now.map((e) => `${e.home}\u0000${e.name}`));
+    for (const [key, stop] of stops) {
+      if (!keys.has(key)) {
         stop();
-        stops.delete(home);
+        stops.delete(key);
       }
     }
     for (const e of now) add(e);

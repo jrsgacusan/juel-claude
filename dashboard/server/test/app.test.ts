@@ -94,7 +94,6 @@ test("GET /api/projects lists each project with its state; a broken or deleted o
     fs.rmSync(gone, { recursive: true, force: true });
     const locked = await env.addProject("locked");
     fs.chmodSync(path.join(locked, "open-loops.md"), 0o000);
-    fs.appendFileSync(path.join(env.juel, "star-homes.json"), ""); // still valid JSON
     env.setTerminals(["term_star", "term_quiet", "term_locked"]);
     await env.app.registry.refresh();
     const list = (await (await env.api("/api/projects")).json()) as Record<
@@ -346,7 +345,14 @@ test("a module that throws is logged and skipped while a working one serves, see
   fs.mkdirSync(path.join(mods, "good"));
   fs.writeFileSync(
     path.join(mods, "good", "index.ts"),
-    "export function register(api) {\n  api.route('GET', '/api/good/projects', async () => ({ json: api.projects().map(p => [p.name, p.state]) }))\n  api.route('POST', '/api/good/emit', async () => { api.emit({ type: 'good', project: 'app' }); return { status: 202 } })\n}\n",
+    [
+      "export function register(api) {",
+      "  api.route('GET', '/api/good/projects', async () => ({ json: api.projects().map(p => [p.name, p.state]) }))",
+      "  api.route('GET', '/api/good/nudge', async () => ({ json: [await api.nudge('app'), await api.nudge('ghost')] }))",
+      "  api.route('POST', '/api/good/emit', async () => { api.emit({ type: 'good', project: 'app' }); return { status: 202 } })",
+      "}",
+      "",
+    ].join("\n"),
   );
   const env = await setup({ modulesDir: mods });
   const events = await openEvents(env);
@@ -354,6 +360,17 @@ test("a module that throws is logged and skipped while a working one serves, see
     assert.deepEqual(await (await env.api("/api/good/projects")).json(), [
       ["app", "running"],
     ]);
+    assert.deepEqual(await (await env.api("/api/good/nudge")).json(), [
+      true,
+      false,
+    ]);
+    assert.ok(
+      env
+        .orcaCalls()
+        .includes(
+          "terminal send --terminal term_star --text inbox --enter --json",
+        ),
+    );
     assert.equal((await fetch(env.url("/api/good/projects"))).status, 401);
     assert.equal((await env.api("/api/bad/ping")).status, 404);
     assert.equal(

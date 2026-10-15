@@ -31,6 +31,7 @@ export type AppOptions = {
   watch?: WatchFn;
   pollMs?: number;
   rescanMs?: number;
+  refreshMs?: number;
 };
 export type Ctx = {
   registry: Registry;
@@ -53,10 +54,16 @@ const tokenOk = (got: string | string[] | undefined, want: string): boolean => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 
-async function nudgeProject(project: Project): Promise<boolean> {
+async function nudgeProject(
+  project: Project,
+  log: (line: string) => void,
+): Promise<boolean> {
   try {
-    return await nudge(readStar(project.home).star.terminal);
-  } catch {
+    return await nudge(readStar(project.home).star.terminal, log);
+  } catch (err) {
+    log(
+      `nudge ${project.name}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return false;
   }
 }
@@ -71,7 +78,7 @@ export async function startApp(opts: AppOptions): Promise<App> {
     registry,
     log,
     loopsSh: opts.loopsSh ?? LOOPS_SH,
-    nudge: nudgeProject,
+    nudge: (project) => nudgeProject(project, log),
   };
   projectRoutes(router, ctx);
   loopRoutes(router, ctx);
@@ -173,7 +180,7 @@ export async function startApp(opts: AppOptions): Promise<App> {
       projects: () => registry.snapshot(),
       nudge: async (name) => {
         const p = (await registry.current()).find((x) => x.name === name);
-        return p ? nudgeProject(p) : false;
+        return p ? nudgeProject(p, log) : false;
       },
     },
     log,
@@ -184,6 +191,16 @@ export async function startApp(opts: AppOptions): Promise<App> {
     log,
     { watch: opts.watch, pollMs: opts.pollMs ?? 5000, rescanMs: opts.rescanMs },
   );
+  const ticker = setInterval(() => {
+    registry
+      .refresh()
+      .catch((err: unknown) =>
+        log(
+          `registry refresh failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+  }, opts.refreshMs ?? 5000);
+  ticker.unref();
   const address = server.address();
   const port =
     typeof address === "object" && address ? address.port : opts.port;
@@ -194,6 +211,7 @@ export async function startApp(opts: AppOptions): Promise<App> {
     hub,
     close: () =>
       new Promise<void>((resolve) => {
+        clearInterval(ticker);
         watcher.close();
         hub.close();
         server.close(() => resolve());
