@@ -1,4 +1,11 @@
-import { Images, Inbox, ListChecks, MessageSquare, PenLine } from "lucide-react"
+import {
+  Images,
+  Inbox,
+  ListChecks,
+  MessageSquare,
+  PenLine,
+  type LucideIcon,
+} from "lucide-react"
 import { Link, NavLink } from "react-router"
 import { useOverview, useProjects, useSlack } from "@/api/queries"
 import { Progress } from "@/components/ui/progress"
@@ -18,16 +25,16 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { type Page, projectPath } from "@/lib/routes"
+import { PAGE_LABELS, type Page, projectPath } from "@/lib/routes"
 import { projectStateOf } from "@/lib/status"
 import { Dot, StarMark } from "./status"
 
-const NAV: Array<{ page: Page; label: string; icon: typeof Inbox }> = [
-  { page: "needs", label: "Needs you", icon: Inbox },
-  { page: "progress", label: "Progress", icon: ListChecks },
-  { page: "slack", label: "Slack replies", icon: MessageSquare },
-  { page: "briefing", label: "Briefing", icon: PenLine },
-  { page: "evidence", label: "Evidence", icon: Images },
+const NAV: Array<{ page: Page; icon: LucideIcon }> = [
+  { page: "needs", icon: Inbox },
+  { page: "progress", icon: ListChecks },
+  { page: "slack", icon: MessageSquare },
+  { page: "briefing", icon: PenLine },
+  { page: "evidence", icon: Images },
 ]
 
 export function AppSidebar({ project, page }: { project: string; page: Page }) {
@@ -79,12 +86,12 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu aria-label="Sections">
-              {NAV.map(({ page: target, label, icon: Icon }) => (
+              {NAV.map(({ page: target, icon: Icon }) => (
                 <SidebarMenuItem key={target}>
                   <SidebarMenuButton asChild isActive={page === target}>
                     <NavLink to={projectPath(project, target)} onClick={close}>
                       <Icon />
-                      <span>{label}</span>
+                      <span>{PAGE_LABELS[target]}</span>
                     </NavLink>
                   </SidebarMenuButton>
                   {target === "needs" &&
@@ -136,34 +143,42 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      {pools.length > 0 && (
+      {overview.isError && !overview.data ? (
         <SidebarFooter>
-          <div className="flex flex-col gap-3 rounded-lg border bg-background p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium">Workers</span>
-              {overview.data?.resume.next && (
-                <span className="text-xs text-muted-foreground">
-                  {overview.data.resume.next}
-                </span>
-              )}
-            </div>
-            {pools.map(([label, [n, max]]) => (
-              <div key={label} className="flex flex-col gap-1.5">
-                <div className="flex justify-between text-xs">
-                  <span>{label}</span>
-                  <span className="text-muted-foreground tabular-nums">
-                    {n} of {max}
-                  </span>
-                </div>
-                <Progress
-                  value={max > 0 ? (n / max) * 100 : 0}
-                  aria-label={`${label}: ${n} of ${max}`}
-                  className="h-1.5"
-                />
-              </div>
-            ))}
-          </div>
+          <p className="px-2 text-xs text-muted-foreground">
+            Couldn&apos;t load the workers.
+          </p>
         </SidebarFooter>
+      ) : (
+        pools.length > 0 && (
+          <SidebarFooter>
+            <div className="flex flex-col gap-3 rounded-lg border bg-background p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium">Workers</span>
+                {overview.data?.resume.next && (
+                  <span className="text-xs text-muted-foreground">
+                    {overview.data.resume.next}
+                  </span>
+                )}
+              </div>
+              {pools.map(([label, [n, max]]) => (
+                <div key={label} className="flex flex-col gap-1.5">
+                  <div className="flex justify-between text-xs">
+                    <span>{label}</span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {n} of {max}
+                    </span>
+                  </div>
+                  <Progress
+                    value={max > 0 ? (n / max) * 100 : 0}
+                    aria-label={`${label}: ${n} of ${max}`}
+                    className="h-1.5"
+                  />
+                </div>
+              ))}
+            </div>
+          </SidebarFooter>
+        )
       )}
     </Sidebar>
   )

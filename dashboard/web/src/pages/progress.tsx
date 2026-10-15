@@ -1,6 +1,6 @@
 import { GitPullRequest, Search } from "lucide-react"
 import { useState } from "react"
-import { useParams, useSearchParams } from "react-router"
+import { useParams } from "react-router"
 import { useItems, useOverview } from "@/api/queries"
 import type { ItemRow } from "@/api/types"
 import {
@@ -11,6 +11,7 @@ import {
   RefreshNotice,
   refreshFailed,
 } from "@/components/page-state"
+import { CountTabs } from "@/components/count-tabs"
 import { Dot, StateBadge } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -24,9 +25,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { age, dayLabel } from "@/lib/format"
 import { prLabel, type ProgressTab, stepText, TAB_OF } from "@/lib/status"
+import { useSearchParam } from "@/lib/use-search-param"
 import { ItemSheet } from "./progress-sheet"
 
 const TABS: Array<{ id: ProgressTab; label: string }> = [
@@ -46,20 +47,12 @@ export function ProgressPage() {
   const { project = "" } = useParams()
   const items = useItems(project)
   const overview = useOverview(project)
-  const [params, setParams] = useSearchParams()
+  const [itemParam, setItemParam] = useSearchParam("item")
   const [tab, setTab] = useState<ProgressTab>("all")
   const [q, setQ] = useState("")
-  const open = params.get("item")
+  const open = itemParam
   const setOpen = (item: string | null) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        if (item) next.set("item", item)
-        else next.delete("item")
-        return next
-      },
-      { replace: item === null }
-    )
+    setItemParam(item, { replace: item === null })
 
   if (items.isPending) {
     return (
@@ -108,6 +101,7 @@ export function ProgressPage() {
     (r) => r.updated && dayLabel(r.updated) === "Today"
   )
   const waiting = all.filter((r) => TAB_OF[r.status] === "needs").length
+  const overviewFailed = queryFailed(overview) || refreshFailed(overview)
   const [busy, slots] = overview.data?.workers.build ?? [0, 0]
   const count = (t: ProgressTab) =>
     t === "all" ? all.length : all.filter((r) => TAB_OF[r.status] === t).length
@@ -117,10 +111,12 @@ export function ProgressPage() {
   const cards: Array<[label: string, value: string, sub: string]> = [
     [
       "Build slots",
-      `${busy} of ${slots}`,
-      slots > 0 && busy >= slots
-        ? "All busy"
-        : `${Math.max(0, slots - busy)} free`,
+      overviewFailed ? "–" : `${busy} of ${slots}`,
+      overviewFailed
+        ? "Couldn't load the workers"
+        : slots > 0 && busy >= slots
+          ? "All busy"
+          : `${Math.max(0, slots - busy)} free`,
     ],
     ["Waiting on you", String(waiting), "Answers, approvals and stops"],
     ["In review", String(inReview), "Hosted review or an approval"],
@@ -161,10 +157,11 @@ export function ProgressPage() {
               <p className="text-sm text-muted-foreground">{`${building} building, ${inReview} in review, ${mergedToday.length} merged today`}</p>
             </div>
             {overview.data &&
+              !overviewFailed &&
               (gateDown ? (
                 <Badge variant="stop">
                   <Dot tone="stop" />
-                  Review gate down: {gateDown.why}
+                  Review gate down{gateDown.why ? `: ${gateDown.why}` : ""}
                 </Badge>
               ) : (
                 <Badge variant="outline">
@@ -189,18 +186,12 @@ export function ProgressPage() {
           </section>
           <Card className="gap-0 overflow-hidden p-0">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
-              <Tabs value={tab} onValueChange={(v) => setTab(v as ProgressTab)}>
-                <TabsList>
-                  {TABS.map((t) => (
-                    <TabsTrigger key={t.id} value={t.id} className="gap-1.5">
-                      {t.label}{" "}
-                      <span className="text-muted-foreground tabular-nums">
-                        {count(t.id)}
-                      </span>
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
+              <CountTabs
+                tabs={TABS}
+                value={tab}
+                onChange={setTab}
+                count={count}
+              />
               <div className="relative w-full sm:w-60">
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input

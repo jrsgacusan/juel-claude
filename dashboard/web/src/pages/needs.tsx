@@ -1,6 +1,6 @@
 import { Check } from "lucide-react"
 import { useState } from "react"
-import { useParams, useSearchParams } from "react-router"
+import { useParams } from "react-router"
 import { useLoops } from "@/api/queries"
 import type { Loop } from "@/api/types"
 import {
@@ -11,13 +11,14 @@ import {
   RefreshNotice,
   refreshFailed,
 } from "@/components/page-state"
+import { CountTabs } from "@/components/count-tabs"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { age } from "@/lib/format"
 import { groupOf, isAnswered, kindOf, type LoopGroup } from "@/lib/loops"
 import { cn } from "@/lib/utils"
+import { useSearchParam } from "@/lib/use-search-param"
 import { LoopDetail } from "./needs-detail"
 
 type Tab = "all" | LoopGroup
@@ -31,10 +32,12 @@ const TABS: Array<{ id: Tab; label: string }> = [
 export function NeedsPage() {
   const { project = "" } = useParams()
   const loops = useLoops(project)
-  const [params, setParams] = useSearchParams()
+  const [loopParam, setLoopParam] = useSearchParam("loop")
   const [tab, setTab] = useState<Tab>("all")
   // Answers sent from this page, by loop id, until STAR closes the item.
-  const [sent, setSent] = useState<Record<string, string>>({})
+  const [sent, setSent] = useState<
+    Record<string, { text: string; nudged: boolean }>
+  >({})
 
   if (loops.isPending) {
     return (
@@ -90,20 +93,10 @@ export function NeedsPage() {
     (l) => tab === "all" || groupOf(l.kind) === tab
   )
   const selected =
-    loops.data.find((l) => l.id === params.get("loop")) ??
-    list[0] ??
-    loops.data[0]
-  const select = (id: string) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        next.set("loop", id)
-        return next
-      },
-      { replace: true }
-    )
+    loops.data.find((l) => l.id === loopParam) ?? list[0] ?? loops.data[0]
+  const select = (id: string) => setLoopParam(id)
   const sentOf = (loop: Loop) =>
-    sent[loop.id] ?? (isAnswered(loop) ? loop.answer : null)
+    sent[loop.id]?.text ?? (isAnswered(loop) ? loop.answer : null)
 
   return (
     <>
@@ -126,18 +119,12 @@ export function NeedsPage() {
                 Blocked work first
               </span>
             </div>
-            <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
-              <TabsList>
-                {TABS.map((t) => (
-                  <TabsTrigger key={t.id} value={t.id} className="gap-1.5">
-                    {t.label}{" "}
-                    <span className="text-muted-foreground tabular-nums">
-                      {count(t.id)}
-                    </span>
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+            <CountTabs
+              tabs={TABS}
+              value={tab}
+              onChange={setTab}
+              count={count}
+            />
           </div>
           <ScrollArea className="min-h-0 flex-1">
             <ul className="flex flex-col gap-1 px-2 pb-3">
@@ -199,8 +186,12 @@ export function NeedsPage() {
               key={selected.id}
               project={project}
               loop={selected}
-              sentText={sentOf(selected)}
-              onSent={(text) => setSent((s) => ({ ...s, [selected.id]: text }))}
+              sentText={sent[selected.id]?.text ?? null}
+              sentNudged={sent[selected.id]?.nudged}
+              serverAnswer={sent[selected.id] ? null : selected.answer}
+              onSent={(text, nudged) =>
+                setSent((s) => ({ ...s, [selected.id]: { text, nudged } }))
+              }
             />
           )}
         </section>

@@ -1,6 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
+import { http, HttpResponse } from "msw/http"
 import { describe, expect, it } from "vitest"
 import { getConnection } from "@/api/events"
+import { server } from "@/mocks/node"
 import { getDb, mockEvents, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
 
@@ -154,6 +156,44 @@ describe("Progress", () => {
     )
     expect(
       await screen.findByRole("tab", { name: /^Merged\s*3$/ })
+    ).toBeInTheDocument()
+  })
+
+  it("shows a dash, not 0 of 0, when the workers could not be read", async () => {
+    server.use(
+      http.get("*/api/projects/:p/overview", () =>
+        HttpResponse.json(
+          { error: "Could not read star.json" },
+          { status: 502 }
+        )
+      )
+    )
+    renderApp("/sphere-app/progress")
+    const summary = await screen.findByRole("region", { name: "Summary" })
+    expect(within(summary).getByText("–")).toBeInTheDocument()
+    expect(
+      within(summary).getByText("Couldn't load the workers")
+    ).toBeInTheDocument()
+    expect(within(summary).queryByText("0 of 0")).not.toBeInTheDocument()
+  })
+
+  it("closes a sheet for an item that is gone with a clear message", async () => {
+    renderApp("/sphere-app/progress?item=SPH-99")
+    const sheet = await screen.findByRole("dialog")
+    expect(
+      await within(sheet).findByText(
+        "It may have been removed or renamed. Pick another one."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("says the empty state's how", async () => {
+    setScenario("empty")
+    renderApp("/sphere-app/progress")
+    expect(
+      await screen.findByText(
+        "Items show here once STAR takes work: type /juel:star <brief> in the project."
+      )
     ).toBeInTheDocument()
   })
 })

@@ -207,6 +207,58 @@ describe("Needs you", () => {
     )
   })
 
+  it("says when STAR was not reached (a stopped project)", async () => {
+    const { user } = renderApp("/juel-claude/needs?loop=N-7")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    await user.click(
+      (await within(detail).findAllByRole("radio"))[0] as HTMLElement
+    )
+    await user.click(
+      within(detail).getByRole("button", { name: /Send to STAR/ })
+    )
+    expect(
+      await screen.findByText(
+        'Sent to STAR: "go". STAR reads it on its next tick.'
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(detail).getByText('Sent "go". STAR reads it when it next runs.')
+    ).toBeInTheDocument()
+  })
+
+  it("sends once on a double ⌘Enter", async () => {
+    const { user } = renderApp("/sphere-app/needs?loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    await user.click(
+      (await within(detail).findAllByRole("radio"))[0] as HTMLElement
+    )
+    let posts = 0
+    server.events.on("request:start", ({ request }) => {
+      if (request.method === "POST" && request.url.includes("/answer"))
+        posts += 1
+    })
+    await user.keyboard("{Control>}{Enter}{Enter}{/Control}")
+    await screen.findAllByText('Sent to STAR: "go". It acts on it now.')
+    expect(posts).toBe(1)
+    server.events.removeAllListeners()
+  })
+
+  it("shows an answer already waiting for STAR", async () => {
+    const loop = getDb().loops["sphere-app"]?.find(
+      (candidate) => candidate.id === "N-41"
+    )
+    if (!loop) throw new Error("fixture N-41 missing")
+    loop.answer = "go"
+    const { user } = renderApp("/sphere-app/needs?loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(
+      within(detail).getByText('Sent "go". Waiting for STAR to pick it up.')
+    ).toBeInTheDocument()
+    await user.click(
+      (await within(detail).findAllByRole("radio"))[0] as HTMLElement
+    )
+  })
+
   it("keeps the loaded page when a refetch fails", async () => {
     const { user, client } = renderApp("/sphere-app/needs?loop=N-41")
     const detail = await screen.findByRole("region", { name: "Answer" })

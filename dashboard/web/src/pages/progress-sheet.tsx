@@ -43,6 +43,20 @@ function StepIcon({ tone }: { tone: StepTone }) {
   return <CircleX className="size-4 text-stop" aria-label="Stopped" />
 }
 
+function BulletList({ title, lines }: { title: string; lines: string[] }) {
+  if (lines.length === 0) return null
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium">{title}</h3>
+      <ul className="list-disc pl-5 text-sm leading-6">
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function ItemSheet({
   project,
   item,
@@ -135,26 +149,11 @@ export function ItemSheet({
                 ))}
               </ol>
             </div>
-            {detail.data.criteria.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <h3 className="text-sm font-medium">Acceptance criteria</h3>
-                <ul className="list-disc pl-5 text-sm leading-6">
-                  {detail.data.criteria.map((c) => (
-                    <li key={c}>{c}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {detail.data.decisions.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <h3 className="text-sm font-medium">Decisions</h3>
-                <ul className="list-disc pl-5 text-sm leading-6">
-                  {detail.data.decisions.map((d) => (
-                    <li key={d}>{d}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            <BulletList
+              title="Acceptance criteria"
+              lines={detail.data.criteria}
+            />
+            <BulletList title="Decisions" lines={detail.data.decisions} />
             <div className="mt-auto flex flex-wrap gap-2">
               {waiting && (
                 <Button asChild>

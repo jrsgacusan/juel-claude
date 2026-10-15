@@ -1,5 +1,5 @@
 import { CircleCheck, PenLine } from "lucide-react"
-import { type KeyboardEvent, useState } from "react"
+import { type KeyboardEvent, useRef, useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 import { ApiError } from "@/api/client"
@@ -21,17 +21,23 @@ export function LoopDetail({
   project,
   loop,
   sentText,
+  sentNudged,
+  serverAnswer,
   onSent,
 }: {
   project: string
   loop: Loop
   sentText: string | null
-  onSent: (text: string) => void
+  sentNudged?: boolean
+  serverAnswer: string | null
+  onSent: (text: string, nudged: boolean) => void
 }) {
   const answer = useAnswer(project)
   const items = useItems(project)
   const slack = useSlack()
   const [reply, setReply] = useState("")
+  const sending = useRef(false)
+  const lastSent = useRef<string | null>(null)
   const { label, icon: Icon } = kindOf(loop.kind)
   const body = visibleBody(loop)
   const chosen = loop.options.find((o) => o.answer === reply)?.answer ?? ""
@@ -42,23 +48,34 @@ export function LoopDetail({
 
   const send = async () => {
     const text = reply.trim()
-    if (!text) {
+    if (
+      !text ||
+      sending.current ||
+      lastSent.current === text ||
+      (sentText !== null && sentText === text)
+    ) {
       toast("Pick an answer or write one first.")
       return
     }
+    sending.current = true
+    let res: { nudged: boolean }
     try {
-      const res = await answer.mutateAsync({ id: loop.id, text })
-      onSent(text)
-      toast.success(
-        res?.nudged === false
-          ? `Sent to STAR: "${text}". STAR reads it on its next tick.`
-          : `Sent to STAR: "${text}". It acts on it now.`
-      )
+      res = await answer.mutateAsync({ id: loop.id, text })
     } catch (error) {
       // A 409 raises the conflict banner (useAnswer); anything else is said here.
       if (error instanceof ApiError && error.status === 409) return
       toast.error(`Couldn't send the answer: ${errorMessage(error)}`)
+      return
+    } finally {
+      sending.current = false
     }
+    onSent(text, res.nudged)
+    lastSent.current = text
+    toast.success(
+      res.nudged === false
+        ? `Sent to STAR: "${text}". STAR reads it on its next tick.`
+        : `Sent to STAR: "${text}". It acts on it now.`
+    )
   }
 
   // ⌘Enter / Ctrl+Enter sends from anywhere in the answer pane (a picked radio has the focus).
@@ -194,6 +211,11 @@ export function LoopDetail({
         <p className="text-xs text-muted-foreground">
           Goes into STAR's queue, the same one as open-loops.md.
         </p>
+        {items.isError && (
+          <p className="text-xs text-muted-foreground">
+            Couldn't load the items&apos; status.
+          </p>
+        )}
         <div className="flex items-center gap-2">
           {loop.kind === "slack-reply" && (
             <Button variant="outline" asChild>
@@ -203,7 +225,10 @@ export function LoopDetail({
               </Link>
             </Button>
           )}
-          <Button onClick={() => void send()} disabled={answer.isPending}>
+          <Button
+            onClick={() => void send()}
+            disabled={answer.isPending || sending.current}
+          >
             Send to STAR
             <span className="opacity-60">⌘↵</span>
           </Button>
@@ -216,7 +241,20 @@ export function LoopDetail({
           className="flex items-center gap-2 rounded-lg border border-done-line bg-done-bg px-3 py-2 text-sm text-done-fg"
         >
           <CircleCheck className="size-4 shrink-0" />
-          <span className="min-w-0 break-words">{`Sent "${sentText}". STAR picked it up.`}</span>
+          <span className="min-w-0 break-words">
+            {sentNudged
+              ? `Sent "${sentText}". STAR picked it up.`
+              : `Sent "${sentText}". STAR reads it when it next runs.`}
+          </span>
+        </p>
+      )}
+      {!sentText && serverAnswer && (
+        <p
+          role="status"
+          className="flex items-center gap-2 rounded-lg border border-done-line bg-done-bg px-3 py-2 text-sm text-done-fg"
+        >
+          <CircleCheck className="size-4 shrink-0" />
+          <span className="min-w-0 break-words">{`Sent "${serverAnswer}". Waiting for STAR to pick it up.`}</span>
         </p>
       )}
     </div>
