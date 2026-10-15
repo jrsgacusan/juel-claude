@@ -134,10 +134,13 @@ of the two; that is normal and not a problem to report.
     half applied. Finish it, and never apply its edits a second time.
   - With no ledger, or one whose first line names another plan file, start a fresh one whose
     first line is `# SDD ledger — plan: <plan file path>` (superpowers' literal, dash included).
-  - When a task's verification passes, append one line, `<a7>` and `<b7>` being `HEAD` before and
-    after the task: `Task <N>: complete (commits <a7>..<b7>, tests: <command> → <result>)`.
+  - Right after the task's commit, before the next task's first step, append one line, `<a7>` and
+    `<b7>` being `HEAD` before and after the task:
+    `Task <N>: complete (commits <a7>..<b7>, tests: <command> → <result>)`. Never hold the lines
+    back for the end of the plan: a run that a capacity error or a kill stops resumes from them.
     When the sandbox denies commits, append
-    `Task <N>: complete (uncommitted, tests: <command> → <result>)` instead.
+    `Task <N>: complete (uncommitted, tests: <command> → <result>)` as soon as the task's
+    verification passes instead.
   - `<N>` is the number in the task's `### Task <N>` heading. The ledger is git-ignored scratch,
     and the one scratch file you write: never commit it.
 - **A plan with a `**Base:**` line is a delta.** Its header says

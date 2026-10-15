@@ -22,8 +22,8 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
   F="$ROOT/skills/$s/SKILL.md"
   grep -E '^codex exec ' "$F" | grep -vqF '<add-dirs>' && fail "#57 $s: a dispatch line without <add-dirs>" || pass "#57 $s: every dispatch line takes <add-dirs>"
   grep -qF -- '`--add-dir <git-dir> --add-dir <common-dir>`' "$F" && grep -qF -- '--git-common-dir' "$F" && pass "#57 $s: a linked worktree adds its git dirs" || fail "#57 $s: a linked worktree adds its git dirs"
-  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$F" && pass "#60 $s: checks that the executor skill resolves" || fail "#60 $s: checks that the executor skill resolves"
-  grep -qF 'Right before the line, check that the skill resolves' "$F" && pass "#60 $s: checks again right before each dispatch" || fail "#60 $s: checks again right before each dispatch"
+  grep -qF 'cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F" && pass "#118 $s: checks that the executor skill is this plugin's own copy" || fail "#118 $s: checks that the executor skill is this plugin's own copy"
+  grep -qF 'Right before the line, check that the skill is current' "$F" && pass "#118 $s: checks again right before each dispatch" || fail "#118 $s: checks again right before each dispatch"
 done
 for s in ship-ticket review-and-execute receive-review-and-execute; do
   F="$ROOT/skills/$s/SKILL.md"
@@ -87,6 +87,12 @@ printf 'changed\n' >> "$G/old.log"; mkdir -p "$G/evidence"; printf 'png\n' > "$G
 (cd "$G" && git add old.log new.txt && git add -f evidence/shot.png && git mv -f src.txt evidence/src.txt)
 out=$(cd "$G" && sh -c "$CHECK")
 [ -n "$CHECK" ] && [ "$out" = "$(printf 'evidence/shot.png\nevidence/src.txt')" ] && pass "#115 the check prints a new or renamed ignored path, never a tracked one an ignore rule matches" || fail "#115 the check in a scratch repo (got: $out)"
+
+# lane e: #118 a link that resolves into another version's copy is not current, and the ledger is written per task
+for s in ship-ticket review-and-execute receive-review-and-execute execute; do
+  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$ROOT/skills/$s/SKILL.md" && fail "#118 $s: a link that only resolves is still accepted" || pass "#118 $s: a link that only resolves is no longer enough"
+done
+grep -qF "Right after the task's commit, before the next task's first step, append" "$EX" && pass "#118 the executor writes each ledger line right after the task's commit" || fail "#118 ledger timing"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
