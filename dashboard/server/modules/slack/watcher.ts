@@ -106,6 +106,19 @@ export type Slack = {
 
 type Applied = { routed: number; unrouted: number; pruned: number; changed: boolean; files: Map<string, number> }
 
+type Listed = {
+  id: string
+  project: string
+  from: string
+  channel: string
+  text: string
+  permalink: string
+  thread: string[]
+  draftPath: string | null
+  loopId: string | null
+}
+type RouteDone = { res: Res } | { project: string }
+
 export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   const config = opts.config ?? loadConfig()
   const template = loadPrompt()
@@ -275,6 +288,126 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     if (timer !== null) clearInterval(timer)
     timer = null
   }
+
+  async function statusOrDefault(): Promise<Status> {
+    try {
+      return await readStatus(config.model)
+    } catch (err) {
+      return { ...defaultStatus(config.model), error: errorText(err) }
+    }
+  }
+
+  /** GET /api/slack: {status, routed, unrouted}; routed follows D5 and S7, both newest first. */
+  async function listing(): Promise<{ status: Status; routed: Listed[]; unrouted: Record<string, string>[] }> {
+    const status = await statusOrDefault()
+    let seen: Seen = {}
+    let ids: string[] = []
+    try {
+      seen = await readSeen()
+    } catch {
+      seen = {}
+    }
+    try {
+      ids = await readUnrouted()
+    } catch {
+      ids = []
+    }
+    const projects = api.projects()
+    const replies = new Map<string, { drafts: Draft[]; loops: OpenReply[] | null }>()
+    const routed: Listed[] = []
+    for (const [id, entry] of Object.entries(seen).sort(([, a], [, b]) => byTsDesc(a, b))) {
+      const project = entry.project === null || entry.project === 'none' ? undefined : projects.find(p => p.name === entry.project)
+      if (!project) continue
+      let found = replies.get(project.name)
+      if (!found) {
+        found = { drafts: await readDrafts(project.home), loops: await readOpenReplies(project.home) }
+        replies.set(project.name, found)
+      }
+      const reply = replyOf(entry, id, found.drafts, found.loops)
+      if (reply.finished) continue
+      routed.push({
+        id,
+        project: project.name,
+        from: entry.from,
+        channel: channelLabel(entry.channelId, entry.channel),
+        text: entry.text,
+        permalink: entry.permalink,
+        thread: entry.thread,
+        draftPath: reply.draftPath,
+        loopId: reply.loopId,
+      })
+    }
+    const unrouted = [...new Set(ids)]
+      .filter(id => Object.hasOwn(seen, id) && seen[id]?.project === null)
+      .map(id => ({ id, entry: seen[id] as Entry }))
+      .sort((a, b) => byTsDesc(a.entry, b.entry))
+      .map(({ id, entry }) => ({ id, from: entry.from, channel: channelLabel(entry.channelId, entry.channel), text: entry.text, permalink: entry.permalink }))
+    return { status, routed, unrouted }
+  }
+
+  /** POST /api/slack/:id/route {project} (S8): the inbox file first, then the state, then the nudge. */
+  async function routeOne(req: Req): Promise<Res> {
+    const id = req.params.id ?? ''
+    const body = req.body
+    const want = typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>).project : undefined
+    let done: RouteDone
+    try {
+      done = await locked(async (): Promise<RouteDone> => {
+        const seen = await readSeen()
+        const ids = await readUnrouted()
+        const entry = ids.includes(id) && Object.hasOwn(seen, id) && seen[id]?.project === null ? (seen[id] as Entry) : null
+        if (entry === null) return { res: { status: 404, json: { error: `no unrouted message ${id}` } } }
+        if (typeof want !== 'string' || want === '') return { res: { status: 400, json: { error: 'project must be a project name or "none"' } } }
+        const rest = ids.filter(other => other !== id)
+        const keepUnrouted = async (): Promise<void> => {
+          try {
+            await writeUnrouted(rest)
+          } catch (err) {
+            log(`slack: unrouted.json could not be written: ${errorText(err)}`)
+          }
+        }
+        if (want === 'none') {
+          await writeSeen({ ...seen, [id]: { ...entry, project: 'none' } })
+          await keepUnrouted()
+          return { project: 'none' }
+        }
+        const project = api.projects().find(p => p.name === want)
+        if (!project) return { res: { status: 400, json: { error: `unknown project ${want}` } } }
+        const file = await writeInbox(project.home, inboxText(project.repo, entry))
+        try {
+          // D3: the owner's route teaches the channel; seen.json's write is the commit.
+          await writeRoutes({ ...(await readRoutes()), [entry.channelId]: project.name })
+          await writeSeen({ ...seen, [id]: { ...entry, project: project.name } })
+        } catch (err) {
+          await rm(file, { force: true })
+          throw err
+        }
+        await keepUnrouted()
+        return { project: project.name }
+      })
+    } catch (err) {
+      log(`slack: a route failed: ${errorText(err)}`)
+      return { status: 500, json: { error: errorText(err) } }
+    }
+    if ('res' in done) return done.res
+    changed()
+    if (done.project === 'none') {
+      log('slack: 1 message dropped by hand')
+      return { status: 200, json: { project: 'none' } }
+    }
+    const nudged = await nudge(done.project)
+    log(`slack: 1 message routed by hand${nudged ? '' : '; STAR was not reached'}`)
+    return { status: 200, json: { project: done.project, nudged } }
+  }
+
+  api.route('GET', '/api/slack', async () => ({ status: 200, json: await listing() }))
+  api.route('POST', '/api/slack/check', async () => {
+    const outcome = await check()
+    if (outcome === null) return { status: 409, json: { error: 'a check is already running' } }
+    return { status: 200, json: { ...outcome, status: await statusOrDefault() } }
+  })
+  api.route('POST', '/api/slack/:id/route', routeOne)
+
 
   return { check, start, stop, everyMs }
 }
