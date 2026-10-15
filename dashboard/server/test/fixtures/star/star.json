@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "maxParallel": 3,
+  "maxInReview": 3,
+  "maxBriefs": 4,
+  "progressDeadlineMin": 30,
+  "gateDown": null,
+  "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" },
+  "terminal": "term_star",
+  "away": null,
+  "project": { "name": "app", "repo": "/w/app" }
+}
