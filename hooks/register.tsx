@@ -6,7 +6,8 @@
 //   coordinator  ORCA_TERMINAL_HANDLE is set and equals star.json's "terminal" (as hooks/star-session.sh)
 //   worker       ORCA_TERMINAL_HANDLE is set, STAR is running (terminal set, not this one), and the
 //                session's root is the worktree of a ledger row in a worker state
-//   anything else: every hook here passes the event on untouched.
+//   anything else: every hook here passes the event on untouched. Without ORCA_TERMINAL_HANDLE the
+//                session is never either, so nothing is looked up at all.
 
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
@@ -68,8 +69,7 @@ async function parsedFile<T>($: Api, path: string, parse: (text: string) => Pars
   }
 }
 
-async function lookUp($: Api, cwd: string): Promise<Place | null> {
-  const handle = (await $.env.get('ORCA_TERMINAL_HANDLE')) ?? ''
+async function lookUp($: Api, cwd: string, handle: string): Promise<Place | null> {
   const run = await $.process
     .run(['sh', `${$.plugin.root}/skills/star/star-home.sh`, '--cwd', cwd, 'path'], { timeoutMs: 10_000 })
     .catch(() => undefined)
@@ -154,9 +154,12 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     // Never hold the first prompt for a git and python3 call: look the folder up in the background.
     void (async () => {
-      place = await lookUp($, e.cwd).catch(() => null)
-      // STAR needs an Orca terminal, so a session without a handle can never become the coordinator.
-      if (!place || !place.handle || !isBandOn) return
+      // STAR's coordinator and its workers each run in an Orca terminal. A session without a
+      // handle is neither: it looks nothing up, and every hook below passes its events through.
+      const handle = (await $.env.get('ORCA_TERMINAL_HANDLE')) ?? ''
+      if (!handle) return
+      place = await lookUp($, e.cwd, handle).catch(() => null)
+      if (!place || !isBandOn) return
       await refresh($).catch(() => undefined)
       $.clock.every(TICK_MS, () => {
         void refresh($).catch(() => undefined)

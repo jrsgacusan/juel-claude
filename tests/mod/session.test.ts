@@ -16,7 +16,7 @@ const BAND_PROPS = {
   view: {},
 }
 
-type World = { files: Map<string, string>; mtimes: Map<string, number>; ran: string[] }
+type World = { files: Map<string, string>; mtimes: Map<string, number>; ran: string[]; looked: (readonly string[])[] }
 
 function world(on: On, handle: string, root = ROOT): { clock: ReturnType<typeof mock.clock>; w: World } {
   const w: World = {
@@ -27,8 +27,10 @@ function world(on: On, handle: string, root = ROOT): { clock: ReturnType<typeof 
     ]),
     mtimes: new Map(),
     ran: [],
+    looked: [],
   }
-  mock.env(on, { ORCA_TERMINAL_HANDLE: handle })
+  // An empty handle stands for a session outside Orca: the variable is unset.
+  mock.env(on, handle ? { ORCA_TERMINAL_HANDLE: handle } : {})
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   // The engine's own band, which a plugin that passes leaves in place.
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
@@ -36,9 +38,10 @@ function world(on: On, handle: string, root = ROOT): { clock: ReturnType<typeof 
     return h(Text, {}, 'engine band') as RenderElement
   })
   const clock = mock.clock(on, { now: Date.parse('2026-10-15T08:05:00Z') })
-  on('process.run', () => ({
-    value: { exitCode: 0, stdout: `${HOME}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
-  }))
+  on('process.run', ($, e) => {
+    w.looked.push(e.argv)
+    return { value: { exitCode: 0, stdout: `${HOME}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('session.root', () => ({ value: root }))
   on('fs.read', ($, e) => {
     const text = w.files.get(e.path)
@@ -120,4 +123,28 @@ test('#114: off by default', async ($, on) => {
   await clock.settle()
   await $.tool.call({ tool: 'Bash', command: 'rmdir $S/$v' })
   expect(w.ran).toEqual(['rmdir $S/$v'])
+})
+
+test('a session outside an Orca terminal looks nothing up and passes everything', async ($, on) => {
+  const { clock, w } = world(on, '')
+  await start($)
+  await clock.settle()
+  expect(w.looked).toEqual([])
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await ui.find({ type: 'Text', text: /^STAR/ })).toBeUndefined()
+  await ui.unmount()
+  const merged = await $.tool.call({ tool: 'Bash', command: 'gh pr merge 12 --squash' })
+  expect(merged.deny).toBeUndefined()
+  const read = await $.tool.call({ tool: 'Read', file_path: `${HOME}/reviews/app/issue-1-r1.md` })
+  expect(read.deny).toBeUndefined()
+  expect(w.ran).toEqual(['gh pr merge 12 --squash', 'Read'])
+})
+
+test('a session in an Orca terminal looks the STAR folder up once, with star-home.sh', async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  await start($)
+  await clock.settle()
+  expect(w.looked.length).toBe(1)
+  expect(w.looked[0]?.[1]?.endsWith('/skills/star/star-home.sh')).toBe(true)
+  expect(w.looked[0]?.slice(2)).toEqual(['--cwd', ROOT, 'path'])
 })
