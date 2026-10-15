@@ -10,6 +10,7 @@
 #   SAFE round=<k> findings=<n> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> head=<sha> review=<path>
 #   ERROR <why>
+#   ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>
 #   ERROR gate-down <why>    neither Sol nor the fallback could review: STAR holds new builds
 # post-pass prints: posted <url> | already <url> | ERROR <why>
 # check prints: up <agent:model> | down <why>. It sends "Reply with the single word ok." through the
@@ -20,6 +21,14 @@
 # reviews and gates. Model and effort come from the flags, else star.json's "gate" block, else
 # latest-sol and xhigh. A latest-<family> name, from a flag or from star.json, is resolved by
 # ../ship-ticket/executor-model.sh before codex sees it (#65); a plain id is used as given.
+# The round's base is pinned (#113): the commit --base names when the round starts replaces the ref
+# in the prompt, so a fetch during the round cannot move it, and the review's Gate line ends
+# "· base <ref> <full sha>". A base git cannot resolve is "ERROR the base <ref> is not a commit here".
+# When that commit is not in HEAD's history, and a file it changed since the merge base is one the
+# branch changed too, no agent runs and no round file is written. The gate prints the ERROR
+# base-moved line above (<path> is the first such file in byte order), and the caller merges the
+# base in and runs the same round again. A base that moved only in files the branch does not change
+# is reviewed as it is.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
 # --evidence names the folder of the live checks' evidence (ship-ticket's Phase 6): the prompt
 # points the reviewer at its report.md and says a criterion with no change in the diff behind it
@@ -542,7 +551,7 @@ def prompt_text():
         pending = []
     pending_text = ("Pending at the screen, verified separately with a person and never a finding here: "
                     + "; ".join(pending)) if pending else "No check is pending at the screen."
-    values = {"item": item, "round": str(k), "base": base, "brief": brief, "notes": ", ".join(notes) or "none",
+    values = {"item": item, "round": str(k), "base": base_sha, "brief": brief, "notes": ", ".join(notes) or "none",
               "previous": previous, "pending": pending_text, "evidence": evidence}
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), template)
 
@@ -552,6 +561,36 @@ def head():
     return r.stdout.strip().lower() if r.returncode == 0 else ""
 
 
+def pinned_base():
+    """The full sha --base names as the round starts (#113): the prompt and the review name it, so a fetch
+    during the round cannot move what the round reviews."""
+    r = run(["git", "rev-parse", "--verify", "--quiet", base + "^{commit}"], 30)
+    sha = r.stdout.strip().lower()
+    if r.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        error(f"the base {base} is not a commit here")
+    return sha
+
+
+def changed(a, b):
+    """The paths that differ between two commits, a rename counted as a delete and an add."""
+    r = run(["git", "diff", "--name-only", "--no-renames", "-z", a, b], 60)
+    if r.returncode != 0:
+        error(f"git diff {a[:7]} {b[:7]} failed: " + (last_line(r.stderr) or f"exit {r.returncode}"))
+    return {p for p in r.stdout.split("\0") if p}
+
+
+def base_moved(base_commit, here):
+    """The first path, in byte order, that the base changed since it and here last met and here changed too,
+    or None (#113). None when the base commit is already in here's history, or the two share none."""
+    if run(["git", "merge-base", "--is-ancestor", base_commit, here], 30).returncode == 0:
+        return None
+    met = run(["git", "merge-base", base_commit, here], 30).stdout.strip()
+    if not met:
+        return None
+    both = sorted(changed(met, base_commit) & changed(met, here))
+    return both[0] if both else None
+
+
 os.makedirs(reviews, exist_ok=True)
 specs = os.path.join(home, "specs", project)
 os.makedirs(specs, exist_ok=True)
@@ -559,12 +598,17 @@ review_path = os.path.join(reviews, f"{item}-r{k}.md")
 raw_path = os.path.join(reviews, f"{item}-r{k}.raw.md")
 log_path = os.path.join(reviews, f"{item}-r{k}.log")
 run_path = os.path.join(reviews, f"{item}-r{k}.run")
-prompt = prompt_text()
-with open(os.path.join(specs, f"{item}-gate-r{k}.md"), "w", encoding="utf-8") as f:
-    f.write(prompt)
 before = head()
 if not re.fullmatch(r"[0-9a-f]{40}", before):
     error("not inside a git checkout")
+base_sha = pinned_base()
+moved = base_moved(base_sha, before)
+if moved:  # merge the base in first, or the base's own change reads as the PR's (#113)
+    error(f"base-moved {base} at {base_sha[:7]} changes {moved}, a file this branch changes: merge it in, "
+          f"then run round {k}")
+prompt = prompt_text()
+with open(os.path.join(specs, f"{item}-gate-r{k}.md"), "w", encoding="utf-8") as f:
+    f.write(prompt)
 
 
 def codex_cmd(m, e):
@@ -803,7 +847,7 @@ if not findings:
     lines.append("none")
 lines += ["", "## Notes", " ".join(overall) or "-", "",
           f"Gate: {used[0]} {used[1]}" + (f" (fallback: {used[2]})" if used[2] else "")
-          + f" · base {base} · raw {raw_path} · log {log_path}"]
+          + f" · base {base} {base_sha} · raw {raw_path} · log {log_path}"]
 tmp = f"{review_path}.tmp.{os.getpid()}"
 with open(tmp, "w", encoding="utf-8") as f:
     f.write("\n".join(lines) + "\n")

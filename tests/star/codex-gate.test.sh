@@ -107,7 +107,7 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ -s "$H/reviews/app/ITEM-1-r1.raw.md" ] && [ -f "$H/reviews/app/ITEM-1-r1.log" ] && [ -z "$(git -C "$APP" status --porcelain)" ] && pass "raw and log land in STAR's home, nothing in the worktree (#35)" || fail "file places"
 grep -q 'review You are STAR' "$TMP/calls" && grep -q -- '--strict-config' "$TMP/calls" && grep -q 'model="gpt-6.1-sol"' "$TMP/calls" && grep -q 'model_reasoning_effort="xhigh"' "$TMP/calls" && grep -q 'sandbox_mode="read-only"' "$TMP/calls" && grep -q 'mcp_servers={}' "$TMP/calls" && pass "codex review runs read-only, with no MCP servers, on the gate settings" || fail "codex flags ($(cat "$TMP/calls"))"
 P1="$H/specs/app/ITEM-1-gate-r1.md"
-grep -q "git diff main...HEAD" "$P1" && grep -q "$BRIEF" "$P1" && grep -q 'This is round 1' "$P1" && grep -q 'No check is pending at the screen.' "$P1" && pass "the prompt is filled in and kept" || fail "prompt ($(cat "$P1"))"
+grep -qF "git diff $(git -C "$APP" rev-parse main)...HEAD" "$P1" && grep -q "$BRIEF" "$P1" && grep -q 'This is round 1' "$P1" && grep -q 'No check is pending at the screen.' "$P1" && pass "the prompt is filled in and kept" || fail "prompt ($(cat "$P1"))"
 
 # NOT-SAFE on a P1; round 2 names the previous review; pending screen checks are listed (#43)
 reset; plan "0 p1"; printf '1. sign in to the app as the test account\n' > "$H/gates/app/ITEM-1-screen.md"
@@ -612,6 +612,38 @@ out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD"
 receipts_pr "$CARRIED_LINE"
 out2=$(G post-pass --pr https://github.com/o/r/pull/5 --round 3 --head "$NEWHEAD" --review "$RC")
 [ "$out" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && [ "$out2" = "already https://github.com/o/r/pull/5#issuecomment-7" ] && ! grep -q 'pr comment' "$TMP/gh-calls" && pass "a carried post-pass keeps today's rule: any receipt on the head is already there (#104)" || fail "carried post-pass ($out / $out2)"
+reset
+
+# lane b: the round's base is pinned, and a base that moved under a file the branch changes is merged first (#113)
+MAINSHA=$(git -C "$APP" rev-parse main)
+reset; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q "^Gate: gpt-6.1-sol xhigh · base main $MAINSHA · raw " "$R1" && pass "the review's Gate line names the base and the commit the round pinned (#113)" || fail "pinned Gate line ($rc $out, $(grep '^Gate:' "$R1"))"
+P1="$H/specs/app/ITEM-1-gate-r1.md"
+grep -qF "git diff $MAINSHA...HEAD" "$P1" && grep -qF "git show $MAINSHA:AGENTS.md" "$P1" && ! grep -qF 'main...HEAD' "$P1" && pass "the prompt names the pinned commit in place of the ref, so a fetch during the round cannot move it (#113)" || fail "pinned prompt ($(grep -F 'git ' "$P1"))"
+reset; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base no-such-branch); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR the base no-such-branch is not a commit here" ] && [ ! -f "$TMP/n" ] && pass "a base git cannot resolve is ERROR before any agent runs (#113)" || fail "unknown base ($rc $out)"
+# the base changes f, the file the branch changes, and the branch does not have it yet
+(cd "$APP" && git checkout -q main && printf 'a\nbase\n' > f && git -c user.email=t@t -c user.name=t commit -qam "base changes f" && git checkout -q feat/item-1)
+MOVED=$(git -C "$APP" rev-parse main)
+reset; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 2 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR base-moved main at $(printf '%.7s' "$MOVED") changes f, a file this branch changes: merge it in, then run round 2" ] && pass "a base that moved under a file the branch changes refuses the round (#113)" || fail "base-moved ($rc $out)"
+[ ! -f "$TMP/n" ] && [ ! -f "$TMP/calls" ] && [ ! -f "$TMP/claude-calls" ] && [ -z "$(ls "$H/reviews/app" 2>/dev/null)" ] && [ ! -e "$H/specs/app/ITEM-1-gate-r2.md" ] && pass "the refusal runs no agent and leaves no round file, no error log and no prompt (Review Focus 3)" || fail "the refusal left something ($(ls "$H/reviews/app" "$H/specs/app" 2>/dev/null))"
+(cd "$APP" && git -c user.email=t@t -c user.name=t merge -q --no-edit -X ours main >/dev/null)
+MERGEDB=$(git -C "$APP" rev-parse HEAD)
+reset; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 2 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=2 findings=0 head=$MERGEDB review=$H/reviews/app/ITEM-1-r2.md" ] && [ "$(cat "$TMP/n")" = 1 ] && pass "once the branch holds the newest base, the same round runs and keeps its number (Review Focus 3)" || fail "after the merge ($rc $out)"
+# the base moves again, this time only in g, a file the branch never changes
+git -C "$APP" reset -q --hard "$HEAD"; git -C "$APP" update-ref refs/heads/main "$MAINSHA"
+(cd "$APP" && git checkout -q main && printf 'other\n' > g && git add g && git -c user.email=t@t -c user.name=t commit -qm "base adds g" && git checkout -q feat/item-1)
+GONLY=$(git -C "$APP" rev-parse main)
+reset; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -qF "git diff $GONLY...HEAD" "$H/specs/app/ITEM-1-gate-r1.md" && grep -q "^Gate: gpt-6.1-sol xhigh · base main $GONLY · " "$R1" && pass "a base that moved only in files the branch never changes is reviewed, pinned to its new commit (Review Focus 3)" || fail "disjoint move ($rc $out)"
+git -C "$APP" update-ref refs/heads/main "$MAINSHA"
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
