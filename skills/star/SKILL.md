@@ -732,7 +732,9 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    the row changes (`orca orchestration worker-stop --dispatch <id> --json`, then `worker-release` and the gone check);
    any other answer is appended to the brief's `## Decisions` and sent to that worker with
    `orca orchestration send --to dispatch:<id> --subject "decision" --body "<answer>" --json`, and
-   the row stays as it is. An answer never starts a second worker for a row that has one.
+   the row stays as it is. A `briefing` row's answer goes to the brief's feedback side file
+   instead, and is not sent ("Feedback while a brief drafts", in "The batch summary and go", #112).
+   An answer never starts a second worker for a row that has one.
    A `question` is always answered with `reply` (its worker is blocked waiting for exactly that),
    and `held` and `draft` answers never reach a worker.
 
@@ -788,7 +790,9 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    "<item>: report was cut at 12 lines".
 
    The first row that fits wins, top to bottom. A line that lacks a field its row names (`DONE`
-   without `pr=`, `RESCOPE` without `review=`) fits only the last row.
+   without `pr=`, `RESCOPE` without `review=`) fits only the last row. A brief stage's `BRIEF`,
+   `SPLIT` or `ESCALATION` settles the brief's feedback side file first (#112, "Feedback while a
+   brief drafts", in "The batch summary and go").
 
    | First line of the report | Action |
    |---|---|
@@ -1076,6 +1080,8 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
    a bare flag that says there is something new there; the text itself is never put in the prompt,
    where a quote or a line break could change it. An answer there settles the question it answers (which tracker holds the ref, what a
    term means): use it in the steps below and never ask or escalate the same thing again.
+   Read `<--out>.feedback.md` too when it exists (#112): one line per entry, feedback STAR took
+   while no brief was written yet. Its lines count as `## Feedback` entries. Never edit or delete it.
 2. Resolve the project's work source: an explicit source in the ref → `.claude/workflow.local.json`
    / `.claude/workflow.json` `tracker` → a `## Work Source` block in CLAUDE.md or AGENTS.md → the
    legacy `## Linear Worktrees Config` block → the ref's shape when unambiguous (`#412` is GitHub; an
@@ -1106,7 +1112,10 @@ again after its first item was dropped or finished), the branch gets the same su
 (`feat/savi-1162-add-auth-2`), so the new item never builds in the old item's worktree or on its
 old PR.
 6. Read enough of the code to choose an approach and to take the item's open decisions (grounded,
-   as below), then write the brief to `--out`. When a brief already exists at `--out`, read it
+   as below), then write the brief to `--out`. Right before writing, read `<--out>.feedback.md`
+   again when it exists, and copy each of its lines the brief does not already hold, verbatim, under
+   the brief's `## Feedback` (#112): STAR may have added one while you read the code. Answer every
+   one of them, as below. When a brief already exists at `--out`, read it
    first: revise it to answer every entry under its `## Feedback` section (the user's dated answers
    to earlier drafts, kept there by STAR), keep the `## Feedback` section as it is, and keep every
    entry under `## Decisions` (records and dated lines), adding new records after them with the
@@ -1747,6 +1756,29 @@ batch then runs without them.
 3. A go given before every step is answered starts the items whose steps are done; the others stay
    `brief-ready` and come back in the next summary, with what each waits for.
 
+**Feedback while a brief drafts** (#112). Feedback the owner gives on a row that is still
+`briefing`, in chat or as an answer for it, never goes into the brief, which its worker may be
+writing, and is never sent to the worker. STAR appends it to the brief's feedback side file,
+`<the brief path>.feedback.md` (`HOME_DIR/briefs/<project>/<item>.md.feedback.md`), one line per
+entry: `- <YYYY-MM-DD HH:MM> <the words, line breaks folded to spaces>`. STAR is its only writer.
+The brief worker copies it under the brief's `## Feedback` right before it writes (draft-brief
+steps 1 and 6). When the row's report arrives, STAR settles the side file before the report's row
+in Messages:
+
+- `BRIEF`: append under the brief's `## Feedback` each side-file line the brief lacks
+  (`grep -cxF '<line>' <brief>` prints 0), then delete the side file. When any line was missing,
+  the brief was written without it: after the `BRIEF` row's own action, handle those lines as a
+  `go-batch` "anything else" answer for that row, which they already are under `## Feedback` (a
+  small edit STAR makes itself, or row → `inbox` and the brief stage runs again with `--feedback`).
+- `ESCALATION`: put the lines under the brief file's `## Feedback`, creating the file with only that
+  section when the worker wrote no brief, then delete the side file. The brief stage that runs
+  again reads them there.
+- `SPLIT`: put the lines under `## Feedback` in each new row's brief file, creating each with only
+  that section, then delete the side file.
+
+A row that leaves `briefing` any other way (lost, `failed`) keeps the side file: its next brief run
+reads it.
+
 Refs handed over from another session: STAR's own session prints the summary, and the handing
 session says "answer STAR's batch summary in <terminal>".
 
@@ -1874,6 +1906,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | The same ref given twice | One row. The second time changes nothing |
 | The user merges or closes a PR before STAR merged it | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
 | The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
+| The owner gives feedback while an item's brief is drafting | STAR writes it to the brief's feedback side file, never to the brief; the worker copies it in right before writing, and the `BRIEF` row adds any line it missed (#112) |
 | The owner orders a merge while the item's worker is still fixing the PR | The worker is stopped and its terminal checked first, the head is read again, and a fresh babysit run replies and reports `READY`; `merge.sh` refuses a row in a worker stage (`FAIL live worker`) |
 | A stopped worker's terminal is still open when its stage starts again | `stage-start.sh` stops a gate the item's earlier session left holding the lock, and closes the terminal when Orca shows the stopped dispatch owns it. A terminal Orca cannot place holds the row while it still prints, and is left open once it has been quiet for 10 minutes |
 | A second `/juel:star` in another terminal of the same project | It hands its refs to the running STAR and ends; it never becomes a second coordinator |

@@ -626,5 +626,18 @@ g "LH113e a disjoint base move is not acted on (#113)" 'A base that moved withou
 g "LH113f the edge case (#113)" '| The base moves under a gate loop and changes the branch'"'"'s own files |'
 g "LH117a the fallback searches with Grep and Glob (#117)" '`ERROR gate-down <why>`, never a verdict. The fallback searches with Grep and Glob, never'
 g "LH117b never git grep, whose -O runs a program (#117)" '`git grep`, whose `-O` runs a program; its retry line says so too (#117).'
+g "LH112a feedback on a briefing row goes to a side file (#112)" '`<the brief path>.feedback.md` (`HOME_DIR/briefs/<project>/<item>.md.feedback.md`), one line per'
+g "LH112b one dated line per entry, and STAR is the only writer (#112)" 'entry: `- <YYYY-MM-DD HH:MM> <the words, line breaks folded to spaces>`. STAR is its only writer.'
+g "LH112c a BRIEF adds every line the brief lacks (#112)" '(`grep -cxF '"'"'<line>'"'"' <brief>` prints 0), then delete the side file. When any line was missing,'
+g "LH112d a missing line is handled as go-batch feedback (#112)" '`go-batch` "anything else" answer for that row, which they already are under `## Feedback`'
+g "LH112e an ESCALATION moves the lines into the brief file (#112)" '- `ESCALATION`: put the lines under the brief file'"'"'s `## Feedback`, creating the file with only that'
+g "LH112f a SPLIT copies them to each new row's brief (#112)" '- `SPLIT`: put the lines under `## Feedback` in each new row'"'"'s brief file, creating each with only'
+g "LH112g a row lost or failed keeps its side file (#112)" 'A row that leaves `briefing` any other way (lost, `failed`) keeps the side file: its next brief run'
+g "LH112h Messages settles the side file first (#112)" '`SPLIT` or `ESCALATION` settles the brief'"'"'s feedback side file first (#112,'
+g "LH112i a briefing row's answer is not sent to its worker (#112)" 'the row stays as it is. A `briefing` row'"'"'s answer goes to the brief'"'"'s feedback side file'
+g "LH112j draft-brief reads the side file at step 1 (#112)" 'Read `<--out>.feedback.md` too when it exists (#112): one line per entry, feedback STAR took'
+g "LH112k draft-brief copies it right before writing (#112)" 'as below), then write the brief to `--out`. Right before writing, read `<--out>.feedback.md`'
+g "LH112l only the lines the brief lacks are copied (#112)" 'again when it exists, and copy each of its lines the brief does not already hold, verbatim, under'
+g "LH112m the edge case (#112)" '| The owner gives feedback while an item'"'"'s brief is drafting |'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
