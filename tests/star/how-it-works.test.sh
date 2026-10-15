@@ -138,5 +138,7 @@ grep -qF 'carried to it from a gated head by a base merge that changed none of t
 grep -qF 'A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it.' "$PAGE" && pass "LH110 a base merge keeps the PASS only when it changed none of the branch's files (#110)" || fail "LH110 carry rule in Never stalls"
 grep -qF 'a script proves adds nothing of its own' "$PAGE" && fail "LH110 the old carry wording is gone (#110)" || pass "LH110 the old carry wording is gone (#110)"
 grep -qF 'A gate round on a base that moved and changed the branch'"'"'s own files merges the base in first, so the round reviews a current head.' "$PAGE" && pass "LH113 a moved base that touches the branch is merged before the round (#113)" || fail "LH113 base-moved on the page"
+grep -qF 'a push that only merges the base runs the sweep, after a clean merge too.' "$PAGE" && pass "LH111 a push that only merges the base runs the sweep (#111)" || fail "LH111 sweep after a base merge on the page"
+grep -qF 'runs the tests for the files its conflicts changed' "$PAGE" && fail "LH111 the conflicted-files rule is gone (#111)" || pass "LH111 the conflicted-files rule is gone (#111)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
