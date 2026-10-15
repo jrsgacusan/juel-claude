@@ -87,7 +87,7 @@ g "Z2 review bots are configurable" 'config.reviewBots'
 g "Z3 a token gh lacks is escalated at once" 'gh cannot see'
 # Issue #28
 g "U1 mechanical conflicts go through the script" 'merge-union.sh'
-g "U2 a red gate after a union resets" 'the mechanical resolution failed'
+grep -qF 'the mechanical resolution failed' "$SKILL" && fail "U2 a red gate after a union no longer resets and escalates" || pass "U2 a red gate after a union no longer resets and escalates"
 # STAR closed loop: the gate on every push, the hosted reviewer, dispositions (#40)
 for l in 'codex-gate.sh' 'post-pass' 'RESCOPE item=<item> reason=hosted-review review=' 'RESCOPE item=<item> reason=gate review=' '@greptileai' 'triggerOnUpdates' 'Disposition:' 'the way a person would' 'When you cannot tell, it is not clean' 'hosted-p<n>.md' '--executor-model' 'hostedReviewer' 'mark ready first' 'progress/<item>.log' 'stands in for this approval'; do
   grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
@@ -274,11 +274,11 @@ phase() { awk -v h="## Phase $1:" 'index($0, h) == 1 { f = 1; next } /^## / { f 
 phase 3 | grep -qF 'Gate the round as `juel:ship-ticket`'"'"'s "Gate once per PR" says' && pass "#97a Phase 3 gates a round once per PR" || fail "#97a Phase 3 gates a round once per PR"
 phase 3 | grep -qF -- '--root <repo root> sweep' && pass "#97b a round runs the sweep" || fail "#97b a round runs the sweep"
 phase 4 | grep -qF 'Gate the push as `juel:ship-ticket`'"'"'s "Gate once per PR" says' && pass "#97c Phase 4 gates the push once per PR" || fail "#97c Phase 4 gates the push once per PR"
-phase 4 | grep -qF 'and none after a clean merge' && pass "#97d a clean base merge runs no tests" || fail "#97d a clean base merge runs no tests"
+phase 4 | grep -qF 'and none after a clean merge' && fail "#97d a clean base merge no longer skips the tests" || pass "#97d a clean base merge no longer skips the tests"
 grep -qF 'Run every gate' "$SKILL" && fail "#97e no step runs every gate on every push" || pass "#97e no step runs every gate on every push"
-g "#97f the conflict wake runs only the merge's tests" 'the tests step 3 asks of a push that only merges the base'
+g "#97f the conflict wake runs what step 3 asks of a base-only merge push" 'the tests step 3 asks of a push that only merges the base'
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
-grow "#97g a carried merge runs only the merge's tests" 'no codex round: run the tests Phase 4 step 3 asks of a push that only merges the base branch in'
+grow "#97g a carried merge runs what Phase 4 step 3 asks of a base-only merge push" 'no codex round: run the tests Phase 4 step 3 asks of a push that only merges the base branch in'
 grow "#97h a gate fix round runs its tests and the sweep" 'Then run the tests for the files the plan changed and the sweep through the gate lock'
 printf '%s\n' "$gate_row" | grep -qF 'the regression gate through the gate lock' && fail "#97i no full gate on a carry or a fix round" || pass "#97i no full gate on a carry or a fix round"
 gates_row=$(grep -F '| gates run directly |' "$SKILL")
@@ -308,5 +308,19 @@ grep -qF 'with no `node_modules` folder and no' "$SKILL" && fail "F105d the old 
 report_row=$(grep -F '| Phase 5 report |' "$SKILL")
 printf '%s\n' "$report_row" | grep -qF '`NOTE: scope outside-merged <path>[, <path> ...]` once, relayed from `receive-review-and-execute`' && pass "F106a the report carries the outside-merged NOTE, relayed once" || fail "F106a the report carries the outside-merged NOTE, relayed once"
 printf '%s\n' "$report_row" | grep -qF 'That is 11 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
+# lane g: a base-only merge push runs the sweep, the carry and base-moved wording (#111, #110, #113)
+phase 4 | grep -qF 'branch in runs the sweep, `sh <run-gates.sh> <the --gates-file manifest> --root <repo root> sweep`' && pass "#111a a base-only merge push runs the sweep" || fail "#111a a base-only merge push runs the sweep"
+phase 4 | grep -qF '`test` command), after a clean merge too: the base can change a call that an untouched file on' && pass "#111b after a clean merge too" || fail "#111b after a clean merge too"
+phase 4 | grep -qF 'A red gate there keeps the merge commit and is step 3'"'"'s red,' && pass "#111c a red gate after a mechanical merge keeps the merge" || fail "#111c a red gate after a mechanical merge keeps the merge"
+grep -qF 'conflict resolution changed' "$SKILL" && fail "#111d no push tests only the conflict resolution's files" || pass "#111d no push tests only the conflict resolution's files"
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+grow "#110a a carry needs a merge that changes no file of this branch" 'is gated by a carry when a script proves the merge brings no change to a file this branch changes'
+printf '%s\n' "$gate_row" | grep -qF 'when a script proves the merge added nothing of its own' && fail "#110b the carry no longer says added nothing of its own" || pass "#110b the carry no longer says added nothing of its own"
+phase 4 | grep -qF 'file this branch changes, as `carry-check.sh` decides, carries the last SAFE with no codex round.' && pass "#110c Phase 4 step 4 names carry-check's rule" || fail "#110c Phase 4 step 4 names carry-check's rule"
+grow "#113a a base-moved round merges the base first" 'The gate printing `ERROR base-moved …`: the base changed a file this branch changes.'
+grow "#113b it merges as Phase 4 step 1 does and runs the sweep" 'Merge it in as Phase 4 step 1 does'
+grow "#113c it is not an ERROR retry" 'it is not an `ERROR` retry, never counts toward the second `ERROR`, and casts no vote toward `gate.maxRounds`.'
+grow "#113d any other ERROR still waits 10 minutes" 'The gate printing any other `ERROR`: wait 10 minutes and run the same round once more'
+g "#113e base-moved is the one behind merge outside Phase 4" 'A gate round that prints `ERROR base-moved` is the one case where a `behind` PR is merged outside Phase 4.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
