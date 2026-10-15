@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { ApiError, apiJson, sendJson } from "./client"
+import { ApiError, apiJson, NetworkError, sendJson } from "./client"
+import { errorMessage } from "@/lib/errors"
 import { paths } from "./paths"
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -50,6 +51,35 @@ describe("the API client", () => {
       new Response(null, { status: 202 })
     )
     await expect(sendJson("POST", "/api/x", { text: "hi" })).resolves.toBeNull()
+  })
+  it("turns a failed fetch into a NetworkError and keeps other TypeErrors as they are", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new TypeError("Failed to fetch")
+    )
+    const err = await apiJson("/api/projects").catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(NetworkError)
+    expect(errorMessage(err)).toBe("The dashboard server did not answer.")
+    expect(errorMessage(new TypeError("x is undefined"))).toBe("x is undefined")
+  })
+  it("refuses a body that is not JSON, and an empty one unless allowed", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(
+        new Response("<!doctype html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        })
+      )
+    )
+    await expect(apiJson("/api/projects")).rejects.toMatchObject({
+      message:
+        "The dashboard server sent something that is not JSON for /api/projects.",
+    })
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(new Response(null, { status: 200 }))
+    )
+    await expect(apiJson("/api/projects")).rejects.toMatchObject({
+      message: "The dashboard server sent an empty answer for /api/projects.",
+    })
   })
   it("encodes project names, ids and search params", () => {
     expect(paths.loops("sphere.api tools")).toBe(

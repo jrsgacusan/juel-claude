@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { captureToken, getToken } from "./token"
 
 describe("captureToken", () => {
   beforeEach(() => {
     sessionStorage.clear()
     window.history.replaceState(null, "", "/")
+  })
+  it("returns null when there is no token anywhere", () => {
+    expect(captureToken()).toBeNull()
+    expect(getToken()).toBeNull()
   })
   it("keeps ?t= in sessionStorage and drops it from the visible URL", () => {
     window.history.replaceState(
@@ -23,8 +27,15 @@ describe("captureToken", () => {
     expect(captureToken()).toBe("kept")
     expect(window.location.search).toBe("")
   })
-  it("returns null when there is no token anywhere", () => {
-    expect(captureToken()).toBeNull()
-    expect(getToken()).toBeNull()
+  it("keeps the token in memory when sessionStorage cannot store it", () => {
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw new DOMException("full", "QuotaExceededError")
+      })
+    window.history.replaceState(null, "", "/?t=mem")
+    expect(captureToken()).toBe("mem")
+    expect(getToken()).toBe("mem")
+    setItem.mockRestore()
   })
 })

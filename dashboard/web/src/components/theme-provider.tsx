@@ -67,7 +67,12 @@ export function ThemeProvider({
   ...props
 }: ThemeProviderProps) {
   const [theme, setThemeState] = React.useState<Theme>(() => {
-    const storedTheme = localStorage.getItem(storageKey)
+    let storedTheme: string | null = null
+    try {
+      storedTheme = localStorage.getItem(storageKey)
+    } catch {
+      storedTheme = null
+    }
     if (isTheme(storedTheme)) {
       return storedTheme
     }
@@ -77,7 +82,11 @@ export function ThemeProvider({
 
   const setTheme = React.useCallback(
     (nextTheme: Theme) => {
-      localStorage.setItem(storageKey, nextTheme)
+      try {
+        localStorage.setItem(storageKey, nextTheme)
+      } catch {
+        // Applying the theme still works when storage is unavailable.
+      }
       setThemeState(nextTheme)
     },
     [storageKey]

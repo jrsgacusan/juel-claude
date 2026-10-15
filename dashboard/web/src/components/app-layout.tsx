@@ -7,7 +7,13 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { isPage, projectPath } from "@/lib/routes"
 import { AppSidebar } from "./app-sidebar"
 import { ConflictBanner, ConnectionBanner, StoppedBanner } from "./banners"
-import { EmptyState, ErrorState } from "./page-state"
+import {
+  EmptyState,
+  ErrorState,
+  queryFailed,
+  RefreshNotice,
+  refreshFailed,
+} from "./page-state"
 import { SearchDialog } from "./search-dialog"
 import { SiteHeader } from "./site-header"
 
@@ -48,7 +54,14 @@ export function AppLayout() {
         <ConflictBanner project={project} />
         <ConnectionBanner />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col md:overflow-hidden">
-          {projects.isError ? (
+          {refreshFailed(projects) && (
+            <RefreshNotice
+              what="the projects"
+              error={projects.error}
+              onRetry={() => void projects.refetch()}
+            />
+          )}
+          {queryFailed(projects) ? (
             <ErrorState
               what="the projects"
               error={projects.error}

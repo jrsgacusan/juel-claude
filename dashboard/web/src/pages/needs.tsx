@@ -3,7 +3,14 @@ import { useState } from "react"
 import { useParams, useSearchParams } from "react-router"
 import { useLoops } from "@/api/queries"
 import type { Loop } from "@/api/types"
-import { EmptyState, ErrorState, LoadingState } from "@/components/page-state"
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  queryFailed,
+  RefreshNotice,
+  refreshFailed,
+} from "@/components/page-state"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -48,7 +55,7 @@ export function NeedsPage() {
       </LoadingState>
     )
   }
-  if (loops.isError) {
+  if (queryFailed(loops)) {
     return (
       <ErrorState
         what="the open loops"
@@ -59,10 +66,19 @@ export function NeedsPage() {
   }
   if (loops.data.length === 0) {
     return (
-      <EmptyState
-        title="Nothing needs you right now."
-        body="When STAR waits on an answer, a go or one of your steps, it shows here."
-      />
+      <>
+        {refreshFailed(loops) && (
+          <RefreshNotice
+            what="the open loops"
+            error={loops.error}
+            onRetry={() => void loops.refetch()}
+          />
+        )}
+        <EmptyState
+          title="Nothing needs you right now."
+          body="When STAR waits on an answer, a go or one of your steps, it shows here."
+        />
+      </>
     )
   }
 
@@ -90,96 +106,105 @@ export function NeedsPage() {
     sent[loop.id] ?? (isAnswered(loop) ? loop.answer : null)
 
   return (
-    <div className="grid min-h-0 flex-1 md:h-full md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
-      <section
-        aria-label="Open loops"
-        className="flex min-h-0 min-w-0 flex-col border-b md:border-r md:border-b-0"
-      >
-        <div className="flex flex-col gap-3 p-4 pb-3">
-          <div className="flex items-baseline justify-between gap-2">
-            <h1 className="text-base font-semibold">Needs you</h1>
-            <span className="text-xs text-muted-foreground">
-              Blocked work first
-            </span>
+    <>
+      {refreshFailed(loops) && (
+        <RefreshNotice
+          what="the open loops"
+          error={loops.error}
+          onRetry={() => void loops.refetch()}
+        />
+      )}
+      <div className="grid min-h-0 flex-1 md:h-full md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+        <section
+          aria-label="Open loops"
+          className="flex min-h-0 min-w-0 flex-col border-b md:border-r md:border-b-0"
+        >
+          <div className="flex flex-col gap-3 p-4 pb-3">
+            <div className="flex items-baseline justify-between gap-2">
+              <h1 className="text-base font-semibold">Needs you</h1>
+              <span className="text-xs text-muted-foreground">
+                Blocked work first
+              </span>
+            </div>
+            <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
+              <TabsList>
+                {TABS.map((t) => (
+                  <TabsTrigger key={t.id} value={t.id} className="gap-1.5">
+                    {t.label}{" "}
+                    <span className="text-muted-foreground tabular-nums">
+                      {count(t.id)}
+                    </span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
           </div>
-          <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
-            <TabsList>
-              {TABS.map((t) => (
-                <TabsTrigger key={t.id} value={t.id} className="gap-1.5">
-                  {t.label}{" "}
-                  <span className="text-muted-foreground tabular-nums">
-                    {count(t.id)}
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <ul className="flex flex-col gap-1 px-2 pb-3">
-            {list.map((loop) => {
-              const { label, icon: Icon } = kindOf(loop.kind)
-              const on = loop.id === selected?.id
-              return (
-                <li key={loop.id}>
-                  <button
-                    type="button"
-                    onClick={() => select(loop.id)}
-                    aria-current={on ? "true" : undefined}
-                    className={cn(
-                      "flex w-full min-w-0 flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                      on
-                        ? "border-border bg-card shadow-sm"
-                        : "border-transparent hover:bg-muted"
-                    )}
-                  >
-                    <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                      <Icon className="size-3.5 shrink-0" />
-                      <span className="shrink-0">{label}</span>
-                      <span
-                        className={cn(
-                          "truncate font-mono",
-                          loop.askedAt === null && "ml-auto"
-                        )}
-                      >
-                        {loop.item}
-                      </span>
-                      {loop.askedAt !== null && (
-                        <span className="ml-auto shrink-0 tabular-nums">
-                          {age(loop.askedAt)}
-                        </span>
+          <ScrollArea className="min-h-0 flex-1">
+            <ul className="flex flex-col gap-1 px-2 pb-3">
+              {list.map((loop) => {
+                const { label, icon: Icon } = kindOf(loop.kind)
+                const on = loop.id === selected?.id
+                return (
+                  <li key={loop.id}>
+                    <button
+                      type="button"
+                      onClick={() => select(loop.id)}
+                      aria-current={on ? "true" : undefined}
+                      className={cn(
+                        "flex w-full min-w-0 flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                        on
+                          ? "border-border bg-card shadow-sm"
+                          : "border-transparent hover:bg-muted"
                       )}
-                    </span>
-                    <span className="line-clamp-2 text-sm leading-snug font-medium break-words">
-                      {loop.title}
-                    </span>
-                    {sentOf(loop) && (
-                      <Badge variant="done">
-                        <Check className="size-3" />
-                        Sent to STAR
-                      </Badge>
-                    )}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </ScrollArea>
-      </section>
-      <section
-        aria-label="Answer"
-        className="min-h-0 min-w-0 md:overflow-y-auto"
-      >
-        {selected && (
-          <LoopDetail
-            key={selected.id}
-            project={project}
-            loop={selected}
-            sentText={sentOf(selected)}
-            onSent={(text) => setSent((s) => ({ ...s, [selected.id]: text }))}
-          />
-        )}
-      </section>
-    </div>
+                    >
+                      <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                        <Icon className="size-3.5 shrink-0" />
+                        <span className="shrink-0">{label}</span>
+                        <span
+                          className={cn(
+                            "truncate font-mono",
+                            loop.askedAt === null && "ml-auto"
+                          )}
+                        >
+                          {loop.item}
+                        </span>
+                        {loop.askedAt !== null && (
+                          <span className="ml-auto shrink-0 tabular-nums">
+                            {age(loop.askedAt)}
+                          </span>
+                        )}
+                      </span>
+                      <span className="line-clamp-2 text-sm leading-snug font-medium break-words">
+                        {loop.title}
+                      </span>
+                      {sentOf(loop) && (
+                        <Badge variant="done">
+                          <Check className="size-3" />
+                          Sent to STAR
+                        </Badge>
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </ScrollArea>
+        </section>
+        <section
+          aria-label="Answer"
+          className="min-h-0 min-w-0 md:overflow-y-auto"
+        >
+          {selected && (
+            <LoopDetail
+              key={selected.id}
+              project={project}
+              loop={selected}
+              sentText={sentOf(selected)}
+              onSent={(text) => setSent((s) => ({ ...s, [selected.id]: text }))}
+            />
+          )}
+        </section>
+      </div>
+    </>
   )
 }

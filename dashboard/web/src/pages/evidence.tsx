@@ -1,6 +1,13 @@
 import { useParams, useSearchParams } from "react-router"
 import { useEvidence } from "@/api/queries"
-import { EmptyState, ErrorState, LoadingState } from "@/components/page-state"
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  queryFailed,
+  RefreshNotice,
+  refreshFailed,
+} from "@/components/page-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { clock, dayLabel } from "@/lib/format"
 import { prLabel } from "@/lib/status"
@@ -18,7 +25,7 @@ export function EvidencePage() {
         </div>
       </LoadingState>
     )
-  if (evidence.isError)
+  if (queryFailed(evidence))
     return (
       <ErrorState
         what="the evidence"
@@ -28,10 +35,19 @@ export function EvidencePage() {
     )
   if (evidence.data.length === 0)
     return (
-      <EmptyState
-        title="No merged items yet."
-        body="After STAR merges an item, its screenshots, recordings and test output show here."
-      />
+      <>
+        {refreshFailed(evidence) && (
+          <RefreshNotice
+            what="the evidence"
+            error={evidence.error}
+            onRetry={() => void evidence.refetch()}
+          />
+        )}
+        <EmptyState
+          title="No merged items yet."
+          body="After STAR merges an item, its screenshots, recordings and test output show here."
+        />
+      </>
     )
   const selected =
     evidence.data.find((item) => item.item === params.get("item")) ??
@@ -46,76 +62,85 @@ export function EvidencePage() {
       { replace: true }
     )
   return (
-    <div className="grid min-h-0 flex-1 md:h-full md:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
-      <section
-        aria-label="Merged items"
-        className="flex min-h-0 min-w-0 flex-col border-b md:border-r md:border-b-0"
-      >
-        <div className="p-4 pb-3">
-          <h1 className="text-base font-semibold">Evidence</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Kept in STAR&apos;s folder after each merge
-          </p>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-          {evidence.data.map((item, index) => {
-            const day =
-              item.mergedAt === null ? "Unknown" : dayLabel(item.mergedAt)
-            const previous = evidence.data[index - 1]
-            const previousDay = previous
-              ? previous.mergedAt === null
-                ? "Unknown"
-                : dayLabel(previous.mergedAt)
-              : null
-            const heading = !previous || previousDay !== day ? day : null
-            return (
-              <div key={item.item}>
-                {heading && (
-                  <h2 className="px-2 pt-3 pb-1 text-xs font-medium text-muted-foreground">
-                    {heading}
-                  </h2>
-                )}
-                <button
-                  type="button"
-                  onClick={() => select(item.item)}
-                  aria-current={
-                    selected.item === item.item ? "true" : undefined
-                  }
-                  className="flex w-full min-w-0 flex-col gap-1 rounded-lg border border-transparent px-3 py-2.5 text-left hover:bg-muted"
-                >
-                  <span className="flex items-center gap-2 text-xs">
-                    <span className="font-mono text-muted-foreground">
-                      {item.item}
-                    </span>
-                    <span className="font-mono text-muted-foreground">
-                      {prLabel({ pr: "-", prUrl: item.pr }) ?? ""}
-                    </span>
-                    <span className="ml-auto text-muted-foreground tabular-nums">
-                      {clock(item.mergedAt)}
-                    </span>
-                  </span>
-                  <span className="truncate text-sm font-medium">
-                    {item.title ?? item.item}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {item.files} {item.files === 1 ? "file" : "files"}
-                  </span>
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      </section>
-      <section
-        aria-label="Evidence detail"
-        className="min-h-0 min-w-0 overflow-y-auto"
-      >
-        <EvidenceDetailView
-          key={selected.item}
-          project={project}
-          item={selected.item}
+    <>
+      {refreshFailed(evidence) && (
+        <RefreshNotice
+          what="the evidence"
+          error={evidence.error}
+          onRetry={() => void evidence.refetch()}
         />
-      </section>
-    </div>
+      )}
+      <div className="grid min-h-0 flex-1 md:h-full md:grid-cols-[minmax(260px,320px)_minmax(0,1fr)]">
+        <section
+          aria-label="Merged items"
+          className="flex min-h-0 min-w-0 flex-col border-b md:border-r md:border-b-0"
+        >
+          <div className="p-4 pb-3">
+            <h1 className="text-base font-semibold">Evidence</h1>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Kept in STAR&apos;s folder after each merge
+            </p>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+            {evidence.data.map((item, index) => {
+              const day =
+                item.mergedAt === null ? "Unknown" : dayLabel(item.mergedAt)
+              const previous = evidence.data[index - 1]
+              const previousDay = previous
+                ? previous.mergedAt === null
+                  ? "Unknown"
+                  : dayLabel(previous.mergedAt)
+                : null
+              const heading = !previous || previousDay !== day ? day : null
+              return (
+                <div key={item.item}>
+                  {heading && (
+                    <h2 className="px-2 pt-3 pb-1 text-xs font-medium text-muted-foreground">
+                      {heading}
+                    </h2>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => select(item.item)}
+                    aria-current={
+                      selected.item === item.item ? "true" : undefined
+                    }
+                    className="flex w-full min-w-0 flex-col gap-1 rounded-lg border border-transparent px-3 py-2.5 text-left hover:bg-muted"
+                  >
+                    <span className="flex items-center gap-2 text-xs">
+                      <span className="font-mono text-muted-foreground">
+                        {item.item}
+                      </span>
+                      <span className="font-mono text-muted-foreground">
+                        {prLabel({ pr: "-", prUrl: item.pr }) ?? ""}
+                      </span>
+                      <span className="ml-auto text-muted-foreground tabular-nums">
+                        {clock(item.mergedAt)}
+                      </span>
+                    </span>
+                    <span className="truncate text-sm font-medium">
+                      {item.title ?? item.item}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {item.files} {item.files === 1 ? "file" : "files"}
+                    </span>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+        <section
+          aria-label="Evidence detail"
+          className="min-h-0 min-w-0 overflow-y-auto"
+        >
+          <EvidenceDetailView
+            key={selected.item}
+            project={project}
+            item={selected.item}
+          />
+        </section>
+      </div>
+    </>
   )
 }

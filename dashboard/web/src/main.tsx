@@ -17,14 +17,23 @@ async function enableMocking(): Promise<void> {
   await startMockWorker()
 }
 
-void enableMocking().then(() => {
-  const root = document.getElementById("root")
-  if (!root) throw new Error("index.html has no #root")
-  createRoot(root).render(
-    <StrictMode>
-      <AppProviders client={createQueryClient()}>
-        <RouterProvider router={createAppRouter()} />
-      </AppProviders>
-    </StrictMode>
-  )
-})
+void enableMocking()
+  .then(() => {
+    const root = document.getElementById("root")
+    if (!root) throw new Error("index.html has no #root")
+    createRoot(root).render(
+      <StrictMode>
+        <AppProviders client={createQueryClient()}>
+          <RouterProvider router={createAppRouter()} />
+        </AppProviders>
+      </StrictMode>
+    )
+  })
+  .catch((error: unknown) => {
+    console.error(error)
+    document.getElementById("root")?.replaceChildren(
+      Object.assign(document.createElement("p"), {
+        textContent: `The mock layer failed to start: ${error instanceof Error ? error.message : String(error)}. Run npm run dev.`,
+      })
+    )
+  })

@@ -2,7 +2,14 @@ import { Plus } from "lucide-react"
 import { useParams, useSearchParams } from "react-router"
 import { toast } from "sonner"
 import { useBriefings, useNewBriefing } from "@/api/queries"
-import { EmptyState, ErrorState, LoadingState } from "@/components/page-state"
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  queryFailed,
+  RefreshNotice,
+  refreshFailed,
+} from "@/components/page-state"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { errorMessage } from "@/lib/errors"
@@ -50,7 +57,7 @@ export function BriefingPage() {
       </LoadingState>
     )
   }
-  if (briefings.isError)
+  if (queryFailed(briefings))
     return (
       <ErrorState
         what="the briefings"
@@ -60,26 +67,44 @@ export function BriefingPage() {
     )
   if (briefings.data.length === 0) {
     return (
-      <EmptyState
-        title="No briefings yet."
-        body="Start one to shape a piece of work with the briefing agent; it ends in a ticket STAR picks up."
-        action={newButton}
-      />
+      <>
+        {refreshFailed(briefings) && (
+          <RefreshNotice
+            what="the briefings"
+            error={briefings.error}
+            onRetry={() => void briefings.refetch()}
+          />
+        )}
+        <EmptyState
+          title="No briefings yet."
+          body="Start one to shape a piece of work with the briefing agent; it ends in a ticket STAR picks up."
+          action={newButton}
+        />
+      </>
     )
   }
 
   const id = params.get("briefing") ?? briefings.data[0]?.id ?? null
   return (
-    <div className="grid min-h-0 min-w-0 flex-1 md:h-full md:overflow-y-auto lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
-      <Conversation
-        key={id ?? "none"}
-        project={project}
-        id={id}
-        briefings={briefings.data}
-        onPick={(next) => setParams({ briefing: next })}
-        newButton={newButton}
-      />
-      <DraftPanel key={`draft-${id ?? "none"}`} project={project} id={id} />
-    </div>
+    <>
+      {refreshFailed(briefings) && (
+        <RefreshNotice
+          what="the briefings"
+          error={briefings.error}
+          onRetry={() => void briefings.refetch()}
+        />
+      )}
+      <div className="grid min-h-0 min-w-0 flex-1 md:h-full md:overflow-y-auto lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
+        <Conversation
+          key={id ?? "none"}
+          project={project}
+          id={id}
+          briefings={briefings.data}
+          onPick={(next) => setParams({ briefing: next })}
+          newButton={newButton}
+        />
+        <DraftPanel key={`draft-${id ?? "none"}`} project={project} id={id} />
+      </div>
+    </>
   )
 }

@@ -9,6 +9,13 @@ export class ApiError extends Error {
     this.status = status
   }
 }
+/** fetch itself failed: the server is down, unreachable or refused the connection. */
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "NetworkError"
+  }
+}
 export const apiUrl = (path: string): string =>
   new URL(path, window.location.origin).toString()
 export function apiHeaders(extra?: HeadersInit): Headers {
@@ -17,7 +24,7 @@ export function apiHeaders(extra?: HeadersInit): Headers {
   if (token) headers.set("X-Star-Token", token)
   return headers
 }
-async function errorMessage(res: Response): Promise<string> {
+async function bodyMessage(res: Response): Promise<string> {
   const text = await res.text().catch(() => "")
   try {
     const body = JSON.parse(text) as ApiErrorBody
@@ -34,25 +41,57 @@ export async function apiFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  const res = await fetch(apiUrl(path), {
-    ...init,
-    headers: apiHeaders(init.headers),
-  })
-  if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
+  let res: Response
+  try {
+    res = await fetch(apiUrl(path), {
+      ...init,
+      headers: apiHeaders(init.headers),
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError")
+      throw error
+    throw new NetworkError(
+      error instanceof Error ? error.message : String(error)
+    )
+  }
+  if (!res.ok) throw new ApiError(res.status, await bodyMessage(res))
   return res
 }
-export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const text = await (await apiFetch(path, init)).text()
-  return (text ? JSON.parse(text) : null) as T
+export async function apiJson<T>(
+  path: string,
+  init?: RequestInit,
+  options: { allowEmpty?: boolean } = {}
+): Promise<T> {
+  const response = await apiFetch(path, init)
+  const text = await response.text()
+  if (!text) {
+    if (options.allowEmpty) return null as T
+    throw new ApiError(
+      response.status,
+      `The dashboard server sent an empty answer for ${path}.`
+    )
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new ApiError(
+      response.status,
+      `The dashboard server sent something that is not JSON for ${path}.`
+    )
+  }
 }
 export function sendJson<T>(
   method: "POST" | "PUT",
   path: string,
   body: unknown
 ): Promise<T> {
-  return apiJson<T>(path, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
+  return apiJson<T>(
+    path,
+    {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+    { allowEmpty: true }
+  )
 }

@@ -43,14 +43,16 @@ export const keys = {
     ["search", q, all, p] as const,
   file: (url: string) => ["file", url] as const,
 }
+export const retryQuery = (count: number, error: unknown): boolean =>
+  !(error instanceof ApiError && error.status < 500) && count < 2
+
 export function createQueryClient(): QueryClient {
   const client = new QueryClient({
     defaultOptions: {
       queries: {
         staleTime: 15_000,
         refetchOnWindowFocus: false,
-        retry: (count, error) =>
-          !(error instanceof ApiError && error.status < 500) && count < 2,
+        retry: retryQuery,
       },
     },
   })
@@ -65,6 +67,7 @@ export const useProjects = () =>
   useQuery({
     queryKey: keys.projects,
     queryFn: () => apiJson<Project[]>(paths.projects()),
+    refetchInterval: 30_000,
   })
 export const useOverview = (p: string) =>
   useQuery({

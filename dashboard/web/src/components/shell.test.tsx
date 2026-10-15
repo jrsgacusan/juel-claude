@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { setConnection } from "@/api/events"
 import type { Project } from "@/api/types"
 import { server } from "@/mocks/node"
@@ -135,5 +135,31 @@ describe("the app shell", () => {
     expect(
       screen.getByRole("link", { name: "Go to the dashboard" })
     ).toHaveAttribute("href", "/")
+  })
+
+  it("shows a page crash inside the shell", async () => {
+    server.use(
+      http.get("*/api/projects/:p/loops", () =>
+        HttpResponse.json([
+          {
+            id: "N-1",
+            kind: "go-batch",
+            item: "x",
+            title: "t",
+            body: null,
+            options: [],
+            suggestion: null,
+            answer: "",
+            askedAt: null,
+          },
+        ])
+      )
+    )
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    renderApp("/sphere-app/needs")
+    expect(
+      await screen.findByText(/This page hit an error/)
+    ).toBeInTheDocument()
+    expect(screen.getByRole("list", { name: "Projects" })).toBeInTheDocument()
   })
 })

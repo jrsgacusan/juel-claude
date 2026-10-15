@@ -3,7 +3,7 @@ let memory: string | null = null
 
 export function getToken(): string | null {
   try {
-    return sessionStorage.getItem(TOKEN_KEY)
+    return sessionStorage.getItem(TOKEN_KEY) ?? memory
   } catch {
     return memory
   }

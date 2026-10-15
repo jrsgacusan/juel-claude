@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
 import { describe, expect, it } from "vitest"
 import { server } from "@/mocks/node"
@@ -96,7 +96,7 @@ describe("Needs you", () => {
     expect(
       await screen.findByText("Pick an answer or write one first.")
     ).toBeInTheDocument()
-    expect(loopAnswer("N-43")).toBeNull()
+    expect(loopAnswer("N-43")).toBe("")
   })
 
   it("an item with no options sends free text", async () => {
@@ -204,5 +204,29 @@ describe("Needs you", () => {
         within(alert).getByRole("button", { name: /Try again/ })
       ).toBeEnabled()
     )
+  })
+
+  it("keeps the loaded page when a refetch fails", async () => {
+    const { user, client } = renderApp("/sphere-app/needs?loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    const box = await within(detail).findByLabelText("Or write your own")
+    await user.type(box, "go except SPH-14")
+    server.use(
+      http.get("*/api/projects/:p/loops", () =>
+        HttpResponse.json(
+          { error: "Could not read open-loops.md" },
+          { status: 502 }
+        )
+      )
+    )
+    await act(() =>
+      client.refetchQueries({ queryKey: ["loops", "sphere-app"] })
+    )
+    expect(
+      await screen.findByText(
+        /Couldn't refresh the open loops: Could not read open-loops.md/
+      )
+    ).toBeInTheDocument()
+    expect(box).toHaveValue("go except SPH-14")
   })
 })

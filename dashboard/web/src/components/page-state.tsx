@@ -1,9 +1,19 @@
 import { RefreshCw } from "lucide-react"
 import type { ReactNode } from "react"
-import { ApiError } from "@/api/client"
+import { ApiError, NetworkError } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { errorMessage } from "@/lib/errors"
+
+type QueryLike = {
+  error: unknown
+  data: unknown
+  isError: boolean
+  refetch: () => unknown
+}
+
+export const queryFailed = (q: QueryLike) => q.isError && q.data === undefined
+export const refreshFailed = (q: QueryLike) => q.isError && q.data !== undefined
 
 export function LoadingState({
   label,
@@ -62,7 +72,16 @@ export function ErrorState({
   error: unknown
   onRetry: () => void
 }) {
-  const refused = error instanceof ApiError && error.status === 401
+  const advice =
+    error instanceof ApiError && error.status === 401
+      ? null
+      : error instanceof ApiError && error.status >= 500
+        ? "The dashboard server is running but could not read what it needs. Fix what it names, then try again."
+        : error instanceof ApiError && error.status === 404
+          ? "It may have been removed or renamed. Pick another one."
+          : error instanceof NetworkError
+            ? "Check that the dashboard server is running (/juel:star dashboard), then try again."
+            : "Try again."
   return (
     <div
       role="alert"
@@ -73,14 +92,36 @@ export function ErrorState({
       <p className="text-sm leading-6 text-muted-foreground">
         {errorMessage(error)}
       </p>
-      {!refused && (
-        <p className="text-sm leading-6 text-muted-foreground">
-          Check that the dashboard server is running (/juel:star dashboard),
-          then try again.
-        </p>
+      {advice && (
+        <p className="text-sm leading-6 text-muted-foreground">{advice}</p>
       )}
       <Button variant="outline" size="sm" onClick={onRetry}>
         <RefreshCw />
+        Try again
+      </Button>
+    </div>
+  )
+}
+
+/** A background refetch failed: the page keeps what it showed, and says so. */
+export function RefreshNotice({
+  what,
+  error,
+  onRetry,
+}: {
+  what: string
+  error: unknown
+  onRetry: () => void
+}) {
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-2 border-b border-wait-line bg-wait-bg px-4 py-2 text-sm text-wait-fg"
+    >
+      <span className="min-w-0 flex-1 break-words">
+        {`Couldn't refresh ${what}: ${errorMessage(error)}. Showing what was loaded before.`}
+      </span>
+      <Button variant="outline" size="sm" onClick={onRetry}>
         Try again
       </Button>
     </div>
