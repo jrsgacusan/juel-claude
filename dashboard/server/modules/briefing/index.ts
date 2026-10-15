@@ -2,7 +2,8 @@
 // one piece of work, and the create that turns its draft into a ticket STAR picks up. The server
 // imports dashboard/server/modules/*/index.ts and calls register(api).
 import { message } from './claude.ts'
-import { createTicket } from './create.ts'
+import { createTicket, queueCreated } from './create.ts'
+import type { CreateOutcome } from './create.ts'
 import { briefingDir, createBriefing, isDir, listBriefings, readCreated, readDraft, readTurns } from './store.ts'
 import { TRACKERS, asTracker, isTracker, resolveTracker, saveTracker } from './tracker.ts'
 import { runTurn } from './turn.ts'
@@ -80,6 +81,27 @@ export function register(api: ModuleApi): void {
     return answer({ accepted: true }, 202)
   })
 
+  /** The create's answer: 201 after the nudge, or the failure, never one that offers a second ticket. */
+  async function finish(at: Located, tracker: string, outcome: CreateOutcome): Promise<Res> {
+    const key = keyOf(at)
+    if (!outcome.ok) {
+      log(`briefing ${key}: ${tracker} create failed: ${outcome.error}`)
+      // The ticket exists but is not recorded: never the failure that offers to make it again.
+      if (outcome.made) return refuse(500, outcome.error, { tracker, made: outcome.made })
+      return refuse(502, outcome.error, outcome.maybeMade ? { tracker, maybeMade: true } : { tracker })
+    }
+    const { ref, specPath, url } = outcome.created
+    // A nudge that throws or rejects means STAR was not reached; the ticket stands either way.
+    const nudged = await Promise.resolve()
+      .then(() => api.nudge(at.project.name))
+      .catch((err: unknown) => {
+        log(`briefing ${key}: nudge failed: ${message(err)}`)
+        return false
+      })
+    log(`briefing ${key}: created ${ref ?? specPath} via ${tracker}; STAR ${nudged ? 'nudged' : 'not reached'}`)
+    return answer(ref ? { ref, url } : { specPath, url }, 201)
+  }
+
   api.route('POST', '/api/projects/:p/briefings/:id/create', async req => {
     const at = await locate(req)
     if (!isLocated(at)) return at
@@ -90,6 +112,10 @@ export function register(api: ModuleApi): void {
     busy.add(key)
     try {
       const created = await readCreated(at.dir)
+      // Made before, but STAR's inbox file was never written: send that ticket now, never a second one.
+      if (created?.inbox === null) {
+        return await finish(at, created.tracker, await queueCreated({ home: at.project.home, repo: at.project.repo, dir: at.dir }, created))
+      }
       if (created) return refuse(409, 'this briefing already made a ticket', { created })
       const draft = await readDraft(at.dir)
       if (!draft) return refuse(409, 'no draft yet')
@@ -104,22 +130,7 @@ export function register(api: ModuleApi): void {
         draft,
         log,
       })
-      if (!outcome.ok) {
-        log(`briefing ${key}: ${tracker} create failed: ${outcome.error}`)
-        // The ticket exists but is not recorded: never the failure that offers to make it again.
-        if (outcome.made) return refuse(500, outcome.error, { tracker, made: outcome.made })
-        return refuse(502, outcome.error, outcome.maybeMade ? { tracker, maybeMade: true } : { tracker })
-      }
-      const { ref, specPath, url } = outcome.created
-      // A nudge that throws or rejects means STAR was not reached; the ticket stands either way.
-      const nudged = await Promise.resolve()
-        .then(() => api.nudge(at.project.name))
-        .catch((err: unknown) => {
-          log(`briefing ${key}: nudge failed: ${message(err)}`)
-          return false
-        })
-      log(`briefing ${key}: created ${ref ?? specPath} via ${tracker}; STAR ${nudged ? 'nudged' : 'not reached'}`)
-      return answer(ref ? { ref, url } : { specPath, url }, 201)
+      return await finish(at, tracker, outcome)
     } finally {
       busy.delete(key)
     }

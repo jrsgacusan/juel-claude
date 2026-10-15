@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
 
@@ -328,4 +328,23 @@ test('a ticket made but not recorded is 500 with made, never the 502 that offers
   assert.equal(res.status, 500)
   assert.equal((json(res).made as Record<string, unknown>).ref, '#42')
   assert.deepEqual(s.nudges, [])
+})
+
+test('pressing Create again after a failed inbox write queues the same ticket, then a third press is 409', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = await newBriefing()
+  await withDraft(id)
+  await writeFile(join(w.home, 'inbox'), 'not a folder')
+  assert.equal((await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })).status, 500)
+  assert.deepEqual(s.nudges, [])
+  await rm(join(w.home, 'inbox'))
+  const again = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(again.status, 201)
+  assert.deepEqual(again.json, { ref: '#42', url: 'https://github.com/o/r/issues/42' })
+  assert.deepEqual(s.nudges, ['proj'])
+  assert.equal((await readdir(join(w.home, 'inbox'))).length, 1)
+  assert.equal((await calls(w, 'gh')).length, 1)
+  const third = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(third.status, 409)
+  assert.deepEqual(s.nudges, ['proj'])
 })
