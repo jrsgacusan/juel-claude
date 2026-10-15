@@ -1,8 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
 import { describe, expect, it } from "vitest"
 import { server } from "@/mocks/node"
-import { getDb, setScenario } from "@/mocks/state"
+import { getDb, mockEvents, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
 
 const loopAnswer = (id: string) =>
@@ -23,8 +23,12 @@ describe("Slack replies", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("For sphere-app")).toBeInTheDocument()
     expect(screen.getByText("Unrouted")).toBeInTheDocument()
-    const list = screen.getByRole("region", { name: "Messages" })
+    const list = await screen.findByRole("region", { name: "Messages" })
     expect(within(list).getAllByRole("button")).toHaveLength(5)
+    expect(within(list).getAllByRole("button")[0]).toHaveAttribute(
+      "aria-current",
+      "true"
+    )
     expect(await screen.findByLabelText("Your reply")).toHaveValue(RIA)
     const reply = screen.getByRole("region", { name: "Reply" })
     expect(
@@ -89,11 +93,15 @@ describe("Slack replies", () => {
     ).toBeInTheDocument()
     expect(loopAnswer("N-45")).toBe("skip")
 
-    const list = screen.getByRole("region", { name: "Messages" })
+    const list = await screen.findByRole("region", { name: "Messages" })
     await user.click(
       within(list).getByText("which PR fixes the invoice time zone?")
     )
     await user.click(await screen.findByRole("button", { name: "Shorter" }))
+    expect(screen.getByLabelText("Ask STAR to rewrite it")).toHaveValue(
+      "shorter"
+    )
+    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
     expect(
       await screen.findByText('STAR is rewriting it: "shorter".')
     ).toBeInTheDocument()
@@ -120,7 +128,7 @@ describe("Slack replies", () => {
 
   it("routes an unrouted message to a project", async () => {
     const { user } = renderApp("/sphere-app/slack")
-    const list = screen.getByRole("region", { name: "Messages" })
+    const list = await screen.findByRole("region", { name: "Messages" })
     await user.click(
       await within(list).findByText("who owns the staging deploy this week?")
     )
@@ -172,5 +180,111 @@ describe("Slack replies", () => {
     expect(await screen.findByTestId("page-error")).toHaveTextContent(
       "Couldn't load the Slack replies."
     )
+  })
+
+  it("does not send before the draft has loaded, or when it failed to load", async () => {
+    server.use(
+      http.get("*/api/projects/:p/file", () =>
+        HttpResponse.json({ error: "drafts/ unreadable" }, { status: 502 })
+      )
+    )
+    renderApp("/sphere-app/slack")
+    const reply = await screen.findByRole("region", { name: "Reply" })
+    expect(
+      await within(reply).findByText(
+        /Couldn't load the draft: drafts\/ unreadable/
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(reply).getByRole("button", { name: "Send reply" })
+    ).toBeDisabled()
+    expect(within(reply).getByRole("button", { name: "Skip" })).toBeDisabled()
+    expect(
+      within(reply).getByRole("button", { name: "Try again" })
+    ).toBeInTheDocument()
+  })
+
+  it("follows STAR's rewritten draft after an earlier edit was saved", async () => {
+    const { user } = renderApp("/sphere-app/slack")
+    const box = await screen.findByLabelText("Your reply")
+    await waitFor(() => expect(box).toHaveValue(RIA))
+    await user.clear(box)
+    await user.type(box, "My own words.")
+    await user.tab()
+    await waitFor(() =>
+      expect(draftFile("Ria").endsWith("My own words.")).toBe(true)
+    )
+    const path =
+      getDb().slack.routed.find((m) => m.from === "Ria")?.draftPath ?? ""
+    const file = getDb().files[`sphere-app/${path}`]
+    if (file) file.body = `${file.body.split("\n")[0]}\nSTAR's shorter rewrite.`
+    act(() =>
+      mockEvents.emit({ type: "change", project: "sphere-app", what: "drafts" })
+    )
+    await waitFor(() => expect(box).toHaveValue("STAR's shorter rewrite."))
+  })
+
+  it("a chip fills the rewrite box, and Rewrite sends it", async () => {
+    const { user } = renderApp("/sphere-app/slack")
+    await user.click(await screen.findByRole("button", { name: "Shorter" }))
+    expect(screen.getByLabelText("Ask STAR to rewrite it")).toHaveValue(
+      "shorter"
+    )
+    expect(loopAnswer("N-45")).toBe("")
+    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
+    await waitFor(() => expect(loopAnswer("N-45")).toBe("rewrite: shorter"))
+    expect(screen.getByLabelText("Ask STAR to rewrite it")).toHaveValue("")
+  })
+
+  it("routes a message as not for STAR", async () => {
+    const { user } = renderApp("/sphere-app/slack")
+    const list = await screen.findByRole("region", { name: "Messages" })
+    await user.click(
+      await within(list).findByText("who owns the staging deploy this week?")
+    )
+    await user.click(screen.getByRole("combobox", { name: "Project" }))
+    await user.click(
+      await screen.findByRole("option", { name: "Not for STAR" })
+    )
+    await user.click(screen.getByRole("button", { name: "Route it" }))
+    expect(
+      await screen.findByText("Dropped. STAR will not see it.")
+    ).toBeInTheDocument()
+    expect(getDb().slack.routed.some((m) => m.from === "Sam")).toBe(false)
+  })
+
+  it("shows the conflict banner and no Sent toast on a 409", async () => {
+    setScenario("conflict")
+    const { user } = renderApp("/sphere-app/slack")
+    const box = await screen.findByLabelText("Your reply")
+    await waitFor(() => expect(box).toHaveValue(RIA))
+    await user.click(screen.getByRole("button", { name: "Send reply" }))
+    expect(
+      await screen.findByText(
+        "open-loops.md has conflict markers. Resolve them, then answer here."
+      )
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByRole("region", { name: "Reply" })).queryByText(
+        /^Sent\. STAR posts it/
+      )
+    ).not.toBeInTheDocument()
+  })
+
+  it("says the reply is queued when STAR is not reached", async () => {
+    server.use(
+      http.post("*/api/projects/:p/loops/:id/answer", () =>
+        HttpResponse.json({ recorded: true, nudged: false })
+      )
+    )
+    const { user } = renderApp("/sphere-app/slack")
+    const box = await screen.findByLabelText("Your reply")
+    await waitFor(() => expect(box).toHaveValue(RIA))
+    await user.click(screen.getByRole("button", { name: "Send reply" }))
+    expect(
+      await screen.findByText(
+        "Queued. STAR posts it to #sphere-eng as you when it next runs."
+      )
+    ).toBeInTheDocument()
   })
 })

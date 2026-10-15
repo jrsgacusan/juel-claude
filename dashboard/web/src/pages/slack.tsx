@@ -1,6 +1,6 @@
 import { Check, CircleAlert, MessageSquare, Unplug } from "lucide-react"
 import { useState } from "react"
-import { useParams, useSearchParams } from "react-router"
+import { useParams } from "react-router"
 import { useSlack } from "@/api/queries"
 import type { RoutedMessage, UnroutedMessage } from "@/api/types"
 import { Banner } from "@/components/banners"
@@ -18,23 +18,31 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { age, agoText, slackTime } from "@/lib/format"
+import { useSearchParam } from "@/lib/use-search-param"
 import { RoutedDetail, UnroutedDetail } from "./slack-detail"
+
+const isRouted = (
+  message: RoutedMessage | UnroutedMessage
+): message is RoutedMessage => "thread" in message
 
 function Entry({
   message,
   mark,
+  selected,
   onClick,
 }: {
   message: RoutedMessage | UnroutedMessage
   mark?: string
+  selected: boolean
   onClick: () => void
 }) {
-  const routed = "project" in message
+  const routed = isRouted(message)
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full min-w-0 flex-col gap-1.5 rounded-lg border border-transparent px-3 py-2.5 text-left hover:bg-muted"
+      aria-current={selected ? "true" : undefined}
+      className={`flex w-full min-w-0 flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left ${selected ? "border-border bg-card shadow-sm" : "border-transparent hover:bg-muted"}`}
     >
       <span className="flex min-w-0 items-center gap-2">
         <Avatar className="size-6">
@@ -76,14 +84,11 @@ function Entry({
   )
 }
 
-const isRouted = (
-  message: RoutedMessage | UnroutedMessage
-): message is RoutedMessage => "thread" in message
-
 export function SlackPage() {
   const { project = "" } = useParams()
   const slack = useSlack()
-  const [params, setParams] = useSearchParams()
+  const [messageParam, setMessageParam] = useSearchParam("message")
+  const [loopParam] = useSearchParam("loop")
   const [done, setDone] = useState<Record<string, string>>({})
   if (slack.isPending)
     return (
@@ -105,22 +110,16 @@ export function SlackPage() {
   const routed = slack.data.routed.filter((m) => m.project === project)
   const unrouted = slack.data.unrouted
   const all = [...routed, ...unrouted]
-  const selectedId = params.get("message")
-  const loopId = params.get("loop")
+  const selectedId = messageParam
+  const loopId = loopParam
   const selected =
     all.find((m) => m.id === selectedId) ??
     routed.find((m) => m.loopId === loopId) ??
     routed[0] ??
     unrouted[0]
-  const select = (id: string) =>
-    setParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        next.set("message", id)
-        return next
-      },
-      { replace: true }
-    )
+  const select = (id: string) => setMessageParam(id)
+  const markDone = (id: string, mark: string) =>
+    setDone((current) => ({ ...current, [id]: mark }))
   const model = slack.data.status.model
     ? slack.data.status.model[0]?.toUpperCase() +
       slack.data.status.model.slice(1)
@@ -175,6 +174,7 @@ export function SlackPage() {
                   key={m.id}
                   message={m}
                   mark={done[m.id]}
+                  selected={selected?.id === m.id}
                   onClick={() => select(m.id)}
                 />
               ))}
@@ -186,6 +186,7 @@ export function SlackPage() {
                   key={m.id}
                   message={m}
                   mark={done[m.id]}
+                  selected={selected?.id === m.id}
                   onClick={() => select(m.id)}
                 />
               ))}
@@ -211,18 +212,14 @@ export function SlackPage() {
                 key={selected.id}
                 project={project}
                 message={selected}
-                onDone={(mark) =>
-                  setDone((current) => ({ ...current, [selected.id]: mark }))
-                }
+                onDone={(mark) => markDone(selected.id, mark)}
               />
             ) : (
               <UnroutedDetail
                 key={selected.id}
                 project={project}
                 message={selected}
-                onDone={(mark) =>
-                  setDone((current) => ({ ...current, [selected.id]: mark }))
-                }
+                onDone={(mark) => markDone(selected.id, mark)}
               />
             )
           ) : (

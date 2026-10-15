@@ -30,7 +30,7 @@ import { errorMessage } from "@/lib/errors"
 import { clock, slackTime } from "@/lib/format"
 
 const CHIPS = ["Shorter", "Add the PR link", "Less formal"]
-/** A draft file is "to: slack <channel> <ts>" and then the reply. */
+/** A draft file is "to: slack <channelId> <threadTs or ts>" and then the reply. */
 const replyOf = (file: string) => file.split("\n").slice(1).join("\n")
 const splitLine = (line: string): [string, string] => {
   const at = line.indexOf(": ")
@@ -65,14 +65,29 @@ export function RoutedDetail({
   const saved = draft.data !== undefined ? replyOf(draft.data) : ""
   const value = edited ?? saved
   const when = slackTime(message.id)
+  const editedRef = useRef(edited)
+  const savedRef = useRef(saved)
+  editedRef.current = edited
+  savedRef.current = saved
+  const ready = draft.isSuccess
 
   // D7: saved on blur when changed, and before Send reply; a failed save never sends.
   const persist = async (): Promise<boolean> => {
-    if (pendingSave.current) return pendingSave.current
-    if (!message.draftPath || edited === null || edited === saved) return true
+    if (pendingSave.current && !(await pendingSave.current)) return false
+    const currentEdited = editedRef.current
+    const currentSaved = savedRef.current
+    if (
+      !message.draftPath ||
+      currentEdited === null ||
+      currentEdited === currentSaved
+    )
+      return true
     const operation = save
-      .mutateAsync({ draftPath: message.draftPath, text: edited })
-      .then(() => true)
+      .mutateAsync({ draftPath: message.draftPath, text: currentEdited })
+      .then(() => {
+        if (editedRef.current === currentEdited) setEdited(null)
+        return true
+      })
       .catch((error: unknown) => {
         toast.error(`Couldn't save the draft: ${errorMessage(error)}`)
         return false
@@ -84,19 +99,31 @@ export function RoutedDetail({
     return operation
   }
 
-  const answerLoop = async (text: string, success: string, mark?: string) => {
+  const answerLoop = async (
+    text: string,
+    success: string,
+    mark?: string,
+    onSuccess?: () => void
+  ) => {
     if (!message.loopId) return
     try {
-      await answer.mutateAsync({ id: message.loopId, text })
+      const res = await answer.mutateAsync({ id: message.loopId, text })
       if (mark) onDone(mark)
-      toast.success(success)
+      onSuccess?.()
+      toast.success(
+        res.nudged === false && text === "send"
+          ? `Queued. STAR posts it to ${message.channel} as you when it next runs.`
+          : success
+      )
     } catch (error) {
+      // A 409 raises the conflict banner (useAnswer).
       if (!(error instanceof ApiError && error.status === 409))
         toast.error(`Couldn't send it to STAR: ${errorMessage(error)}`)
     }
   }
 
   const sendReply = async () => {
+    if (!ready || !message.loopId) return
     if (await persist())
       await answerLoop(
         "send",
@@ -105,14 +132,30 @@ export function RoutedDetail({
       )
   }
   const rewrite = (how: string) => {
+    if (!ready || !message.loopId) return
     const text = how.trim()
     if (!text) {
       toast("Tell STAR what to change first.")
       return
     }
-    void answerLoop(`rewrite: ${text}`, `STAR is rewriting it: "${text}".`)
+    void answerLoop(
+      `rewrite: ${text}`,
+      `STAR is rewriting it: "${text}".`,
+      undefined,
+      () => {
+        setEdited(null)
+        setAsk("")
+      }
+    )
   }
-  const disabled = !message.loopId || answer.isPending
+  const disabled = !ready || !message.loopId || answer.isPending
+  const saveStatus = () => {
+    if (save.isPending) return "Saving…"
+    if (save.isError) return "Not saved"
+    if (edited !== null) return ""
+    if (save.isSuccess) return "Saved"
+    return ""
+  }
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-5 p-4 sm:p-6 lg:p-8">
@@ -152,7 +195,7 @@ export function RoutedDetail({
         ))}
       </ol>
       {message.draftPath ? (
-        <Card className="gap-0 overflow-hidden p-0">
+        <Card className="gap-0 overflow-hidden p-0 focus-within:ring-2 focus-within:ring-ring">
           <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
             <span>Reply in {message.channel} as you</span>
             <Badge variant="secondary">
@@ -162,6 +205,20 @@ export function RoutedDetail({
           </div>
           {draft.isPending ? (
             <Skeleton className="m-4 h-20" />
+          ) : draft.isError ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 p-4 text-sm text-stop-fg"
+            >
+              <span>Couldn't load the draft: {errorMessage(draft.error)}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void draft.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
           ) : (
             <Textarea
               aria-label="Your reply"
@@ -174,15 +231,7 @@ export function RoutedDetail({
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
             <p className="text-xs text-muted-foreground" aria-live="polite">
-              {save.isPending
-                ? "Saving…"
-                : save.isError
-                  ? "Not saved"
-                  : save.isSuccess
-                    ? "Saved"
-                    : draft.isError
-                      ? `Couldn't load the draft: ${errorMessage(draft.error)}`
-                      : ""}
+              {saveStatus()}
             </p>
             <div className="flex gap-2">
               <Button
@@ -242,7 +291,7 @@ export function RoutedDetail({
               size="sm"
               className="h-7 rounded-full px-3 text-xs"
               disabled={disabled}
-              onClick={() => rewrite(chip.toLowerCase())}
+              onClick={() => setAsk(chip.toLowerCase())}
             >
               {chip}
             </Button>

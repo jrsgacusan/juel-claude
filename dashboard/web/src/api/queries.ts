@@ -158,8 +158,13 @@ export function useSaveDraft(p: string) {
   return useMutation({
     mutationFn: ({ draftPath, text }: { draftPath: string; text: string }) =>
       sendJson<unknown>("PUT", paths.draft(p, basename(draftPath)), { text }),
-    onSuccess: (_data, { draftPath }) =>
-      qc.invalidateQueries({ queryKey: keys.draft(p, draftPath) }),
+    onSuccess: (_data, { draftPath, text }) => {
+      qc.setQueryData<string>(
+        keys.draft(p, draftPath),
+        (old) => `${(old ?? "").split("\n")[0]}\n${text}`
+      )
+      return qc.invalidateQueries({ queryKey: keys.draft(p, draftPath) })
+    },
   })
 }
 export function useRouteMessage() {
