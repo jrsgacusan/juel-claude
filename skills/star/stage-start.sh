@@ -467,10 +467,14 @@ def trusted_in_config(path):
 
 
 def clear_trust(path):
-    """Clear Claude Code's folder-trust and bypass dialogs for path in a throwaway terminal."""
+    """Clear Claude Code's folder-trust and bypass dialogs for path in a throwaway terminal.
+
+    The throwaway session runs on the classic renderer: a fullscreen launch closed seconds after it
+    started counts as a failed fullscreen boot, and after two of those Claude Code turns fullscreen
+    off for the whole config (fullscreenAutoDisabled), so STAR's own session stops getting clicks."""
     poll = float(os.environ.get("STAR_TRUST_POLL") or 2)
     made = run([orca, "terminal", "create", "--worktree", f"path:{path}", "--title", f"STAR trust {item}",
-                "--command", "claude --dangerously-skip-permissions", "--json"], 60)
+                "--command", "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 claude --dangerously-skip-permissions", "--json"], 60)
     handle = re.search(r"term_[A-Za-z0-9-]+", made.stdout)
     if made.returncode != 0 or not handle:
         return False

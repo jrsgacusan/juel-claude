@@ -144,6 +144,9 @@ case "$out" in "started task=task_aa11 dispatch=ctx_bb1") pass "build starts" ;;
 [ -f "$WT/.env" ] && pass "the ignored .env is copied" || fail ".env"
 grep -qx '/.worktrees/' "$APP/.git/info/exclude" && [ -z "$(git -C "$APP" status --porcelain)" ] && pass "the main checkout stays clean (#9)" || fail "exclude ($(git -C "$APP" status --porcelain))"
 grep -q "terminal create --worktree path:$WT" "$TMP/calls" && grep -q 'terminal close --terminal term_tt1' "$TMP/calls" && pass "an untrusted worktree gets a trust terminal, then it closes" || fail "trust terminal"
+# a fullscreen launch closed seconds after it starts is a failed fullscreen boot: two of those turn
+# fullscreen off for the whole Claude config, and STAR's own session then gets no clicks
+grep -q -- '--command CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 claude --dangerously-skip-permissions' "$TMP/calls" && pass "the trust terminal runs Claude on the classic renderer" || fail "trust terminal renderer ($(grep 'terminal create' "$TMP/calls" | head -1))"
 grep -q "task-create --spec /juel:ship-ticket --unattended --brief $H/briefs/app/SPH-11.md --task-title" "$TMP/calls" && pass "the build prompt carries no executor flag" || fail "build prompt ($(grep task-create "$TMP/calls"))"
 
 # a dialog on screen is cleared with Down then Enter
