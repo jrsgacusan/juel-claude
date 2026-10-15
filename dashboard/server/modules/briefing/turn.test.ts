@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFile, rename, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { afterEach, beforeEach, test } from 'node:test'
 
@@ -139,7 +139,9 @@ test('a turn that fails before its init event leaves no session, so the next one
 })
 
 test('claude missing from PATH is a failed turn', async () => {
-  await rename(join(w.bin, 'claude'), join(w.bin, 'claude-gone'))
+  const empty = join(w.root, 'empty-bin')
+  await mkdir(empty)
+  process.env.PATH = empty // nothing at all on PATH, so no real claude can be found either
   const result = await runTurn(ctx('one'))
   assert.equal(result.ok, false)
   assert.match(String(events.at(-1)!.error), /could not start/)
@@ -165,4 +167,43 @@ test('prompt.md asks one question at a time, grounds it in the code and ends wit
   const example = /```ticket\n([\s\S]*?)\n```/.exec(prompt)
   assert.ok(example)
   assert.deepEqual(Object.keys(JSON.parse(example[1])), ['title', 'description', 'criteria', 'outOfScope'])
+})
+
+test('a saved session the CLI no longer has is forgotten, so the next message starts fresh', async () => {
+  const gone = { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['No conversation found with session ID: S1'] }
+  await play(w, 'claude', [
+    { lines: [init('S1'), say(R1), done(R1)] },
+    { lines: [gone], stderr: 'No conversation found with session ID: S1\n', exit: 1 },
+    { lines: [init('S2'), say(R2), done(R2)] },
+  ])
+  await runTurn(ctx('one'))
+  assert.equal((await runTurn(ctx('two'))).ok, false)
+  assert.match(String(events.at(-1)!.error), /session S1 is gone/)
+  assert.equal(await exists(join(dir, 'session')), false)
+  assert.equal((await readTurns(dir)).length, 2)
+  assert.equal((await runTurn(ctx('two'))).ok, true)
+  const third = (await calls(w, 'claude'))[2]
+  assert.equal(third.argv.includes('--resume'), false)
+  assert.equal((await readFile(join(dir, 'session'), 'utf8')).trim(), 'S2')
+})
+
+test('a first turn that fails after its init event keeps the session (D3)', async () => {
+  await play(w, 'claude', [
+    { lines: [init('S1'), say('Half')], stderr: 'API Error: overloaded\n', exit: 1 },
+    { lines: [init('S1'), say(R1), done(R1)] },
+  ])
+  assert.equal((await runTurn(ctx('one'))).ok, false)
+  assert.equal((await readFile(join(dir, 'session'), 'utf8')).trim(), 'S1')
+  assert.equal((await runTurn(ctx('one'))).ok, true)
+  assert.deepEqual((await calls(w, 'claude'))[1].argv.slice(-4), ['--resume', 'S1', '--', 'one'])
+})
+
+test('the shown reply is every text of the turn, and mid-turn events carry the text so far', async () => {
+  const last = `Then: who sees it?\n\n${block(T1)}`
+  await play(w, 'claude', [{ lines: [init('S1'), say('I will read the sync code first.'), reads(join(w.repo, 'src/sync.ts')), say(last), done(last)] }])
+  const result = await runTurn(ctx('one'))
+  assert.equal(result.ok ? result.text : null, 'I will read the sync code first.\n\nThen: who sees it?')
+  const mid = events.map(event => event.turn as Record<string, unknown> | undefined).filter(turn => turn?.done === false)
+  assert.deepEqual(mid.map(turn => turn!.text), ['I will read the sync code first.', 'I will read the sync code first.', 'I will read the sync code first.\n\nThen: who sees it?'])
+  assert.deepEqual(mid.map(turn => turn!.files), [[], ['src/sync.ts'], ['src/sync.ts']])
 })

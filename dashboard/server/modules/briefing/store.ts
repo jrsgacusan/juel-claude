@@ -1,6 +1,6 @@
 // A briefing on disk: <STAR folder>/briefings/<id>/ holding transcript.jsonl, draft.json, session
 // and, once a ticket exists, created.json (brief D7, D8).
-import { appendFile, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { isId, newId } from './ids.ts'
@@ -30,6 +30,17 @@ export async function isDir(path: string): Promise<boolean> {
   }
 }
 
+/** Writes a file that must not exist yet; false when it already did. */
+export async function writeNew(path: string, content: string): Promise<boolean> {
+  try {
+    await writeFile(path, content, { flag: 'wx' })
+    return true
+  } catch (err) {
+    if (errCode(err) === 'EEXIST') return false
+    throw err
+  }
+}
+
 /** Makes a new empty briefing folder and returns its id; an id already taken is drawn again. */
 export async function createBriefing(home: string): Promise<string> {
   await mkdir(briefingsDir(home), { recursive: true })
@@ -45,7 +56,8 @@ export async function createBriefing(home: string): Promise<string> {
   throw new Error('no free briefing id after 100 tries')
 }
 
-async function readText(path: string): Promise<string | null> {
+/** The file's text, or null when it does not exist; any other read error is thrown. */
+export async function readText(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8')
   } catch (err) {
@@ -54,15 +66,24 @@ async function readText(path: string): Promise<string | null> {
   }
 }
 
+const isTurn = (value: unknown): value is Turn => {
+  if (typeof value !== 'object' || value === null) return false
+  const { who, text, files, at } = value as Record<string, unknown>
+  return (who === 'me' || who === 'agent') && typeof text === 'string' && typeof at === 'string' && Array.isArray(files) && files.every(file => typeof file === 'string')
+}
+
 export async function readTurns(dir: string): Promise<Turn[]> {
   const turns: Turn[] = []
   for (const line of ((await readText(join(dir, 'transcript.jsonl'))) ?? '').split('\n')) {
     if (!line.trim()) continue
+    let value: unknown
     try {
-      turns.push(JSON.parse(line) as Turn)
+      value = JSON.parse(line)
     } catch {
-      // A line torn by a crash mid-append is skipped; the turns around it still show.
+      continue // a line torn by a crash mid-append
     }
+    // A line that is not a turn (a hand edit) is skipped as well, so one bad line never breaks the list.
+    if (isTurn(value)) turns.push(value)
   }
   return turns
 }
@@ -76,11 +97,13 @@ export async function readCreated(dir: string): Promise<Created | null> {
   const text = await readText(join(dir, 'created.json'))
   if (text === null) return null
   try {
-    return JSON.parse(text) as Created
+    const value: unknown = JSON.parse(text)
+    if (typeof value === 'object' && value !== null) return value as Created
   } catch {
-    // An unreadable created.json still counts as created: one briefing never makes two tickets.
-    return { tracker: 'unknown', ref: null, specPath: null, url: null, at: '' }
+    // not JSON: counted as created below
   }
+  // An unparseable created.json still counts as created: one briefing never makes two tickets.
+  return { tracker: 'unknown', ref: null, specPath: null, url: null, at: '' }
 }
 
 export async function readSession(dir: string): Promise<string | null> {
@@ -90,6 +113,11 @@ export async function readSession(dir: string): Promise<string | null> {
 
 export async function writeSession(dir: string, session: string): Promise<void> {
   await writeFile(join(dir, 'session'), `${session}\n`)
+}
+
+/** Forgets a session the CLI no longer has, so the next message starts a new one. */
+export async function clearSession(dir: string): Promise<void> {
+  await rm(join(dir, 'session'), { force: true })
 }
 
 /** Replaces draft.json in one rename, so a reader never sees half a draft. */
@@ -105,13 +133,7 @@ export async function appendTurns(dir: string, turns: Turn[]): Promise<void> {
 
 /** Writes created.json unless it exists; false when it already did. */
 export async function writeCreated(dir: string, created: Created): Promise<boolean> {
-  try {
-    await writeFile(join(dir, 'created.json'), `${JSON.stringify(created, null, 2)}\n`, { flag: 'wx' })
-    return true
-  } catch (err) {
-    if (errCode(err) === 'EEXIST') return false
-    throw err
-  }
+  return writeNew(join(dir, 'created.json'), `${JSON.stringify(created, null, 2)}\n`)
 }
 
 /** The list title (D8): the draft's title, else the owner's first turn cut to 60 characters. */
