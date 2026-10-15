@@ -473,7 +473,7 @@ as space-separated `key=n` pairs, `-` when there are none:
 | `synced=<sha7>` | not a count: the base head this row was last sent back to babysitting to sync with | never; the next sync overwrites it |
 | `start=<n>`, `live=<n>` | written by `stage-start.sh`: the attempt number, and an attempt still being started | `live=` when that start ends; never `start=` |
 | `kept=1` | the worktree of a finished row was kept (`worktree-clean.sh`): STAR does not try again by itself | its held item is answered `done` |
-| `capacity=<n>` | retry nudges sent to a worker stalled on a model at capacity (`stalled:`) in one silent stretch | the probe prints anything else, a report from it is processed, or a new worker starts |
+| `capacity=<n>` | retry nudges sent to a worker stalled on a model at capacity or an API error (`stalled:`, #123) in one silent stretch | the probe prints anything else, a report from it is processed, or a new worker starts |
 | `prompted=<n>` | Claude Code safety prompts STAR answered on this row's worker screen (`prompt bounded`, #114) | a new worker starts |
 | `mismatch=<n>` | `DONE` reports `done-check.sh` could not check | the row reaches `babysit-queued` |
 | `mergefail=<n>` | merge-gate `FAIL`s sent back to babysitting | the row is `done`, or the user answers its escalation |
@@ -892,14 +892,20 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      adding `--worktree <worktree>` (not for a `briefing` or `posting` row), `--pr <pr>` when the
      row has one, `--asked <counters.asked>` when that is set and `--hosted <hostedReviewer.login>`
      when `star.json` has a hosted reviewer, and act on its one line ("Checking in", in "Looking
-     after the workers"). `stalled: model at capacity` → the capacity rule:
-     below `capacity=3`, send
+     after the workers"). `stalled: model at capacity` or `stalled: api error` (#123) → the
+     capacity rule: below `capacity=3`, send the nudge for that line, for a model at capacity
 
      ```sh
      orca terminal send --terminal <terminal> --text "STAR: the model was at capacity. Retry now." --enter --json
      ```
 
-     and `counters.capacity=+1`; at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as
+     and for an API error (the worker sits at an empty prompt under an `API Error:` line)
+
+     ```sh
+     orca terminal send --terminal <terminal> --text "STAR: your last model call failed with an API error. Continue where you stopped." --enter --json
+     ```
+
+     and `counters.capacity=+1` (both lines share the counter); at `capacity=3`, `worker-stop`, `worker-release` and the gone check, and treat it as
      a lost worker (the reconcile rule: a `briefing`, `posting` or `babysitting` row restarts once;
      a `building` row gets `--kind restart-or-drop`) (#41).
      `prompt bounded <terminal> <path>` (#114): the worker sits on Claude Code's safety prompt for an
@@ -1113,10 +1119,11 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
 | `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels` (skip `status:in-progress` / `status:in-review`) | `gh issue view <n> --json number,title,body,url,labels` |
 | `file` | `*.md` in the spec directory whose status is explicitly `todo` | read the file |
 
-4. Normalize: `ref` (null when the source has none), `slug` (kebab-case from the title, at most 6
-   words), `title`, `url`, `path` (a `file` item's absolute spec path), `source`, `labels`,
-   description, acceptance criteria. The item's name is `--item`, exactly as given: STAR already
-   uses it for the row and the paths, and every later report line must carry it.
+4. Normalize: `ref` (null when the source has none), `slug` (kebab-case from the title, at most
+   6 words, unless the collision rule of step 5 extends it), `title`, `url`, `path` (a `file`
+   item's absolute spec path), `source`, `labels`, description, acceptance criteria. The item's
+   name is `--item`, exactly as given: STAR already uses it for the row and the paths, and every
+   later report line must carry it.
 5. Resolve the repo's conventions: remote (one → it, else `origin`, else ask), base branch
 (`config.baseBranch` → `git config --get claude.baseBranch` → `git symbolic-ref --short
 refs/remotes/<remote>/HEAD` → first existing of main/master/develop/dev/trunk → ask once), and branch
@@ -1126,7 +1133,15 @@ GitHub ref `#412` renders as `issue-412`; type is `fix` for bug/fix/error, `refa
 `feat`). When `--item` ends in a number the ref does not have (`SAVI-1162-2`: the same ref added
 again after its first item was dropped or finished), the branch gets the same suffix
 (`feat/savi-1162-add-auth-2`), so the new item never builds in the old item's worktree or on its
-old PR.
+old PR. Then check the branch for a collision (#121): compare the branch you would name against
+the `branch:` line of the brief of every other row in `<HOME_DIR>/ledger.md` (each row has its
+brief at `<HOME_DIR>/briefs/<project>/<item>.md`) and against the branches of the remote
+(`git ls-remote --heads <remote>`). The branch the brief at `--out` already names, and the head
+branch of an `existingPr`, belong to this item and are no collision. On a collision, extend the
+slug with the next words of the title, one at a time, then with distinguishing words of the item
+itself (a word of its ref or description that no other item title has), until the branch is
+unique, so a follow-up whose title starts with the title of its parent never takes the branch of
+that parent. Record the chosen slug in the brief front matter as `item.slug`.
 6. Read enough of the code to choose an approach and to take the item's open decisions (grounded,
    as below), then write the brief to `--out`. Right before writing, read `<--out>.feedback.md`
    again when it exists, and copy each of its lines the brief does not already hold, verbatim, under
@@ -1375,7 +1390,10 @@ row on that base starts one, and it waits for that line. Among the rows on one b
 prints `PASS` in a tick, merge first a row with no hosted pass left
 (`grep -c ' pass ' HOME_DIR/reviews/<project>/<item>-hosted.log` prints `hostedReviewer.maxPasses`
 or more: it cannot take another review run, so it must not be the one left behind), then the oldest
-`updated`. When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, for every other `verifying` row on that base: a
+`updated`. The count is of distinct heads with a `pass` line, not of raw `pass` lines (#122): it
+relies on the rule of `juel:babysit-pr` that a head gets at most one `pass` line (a later hosted
+run on that head is logged `refresh`), so each `pass` line that `grep -c` counts is one head.
+When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, for every other `verifying` row on that base: a
 `PENDING merge state: behind the base branch` or `FAIL conflicts` there goes to the sync rule now
 ("Sync after the base moved"), so its babysit run merges the new base in before any later pass.
 
@@ -1606,7 +1624,7 @@ A blocking screen is a different thing (`stuck:`): that worker is stopped and th
 user, and STAR never answers a worker's screen for it, with one exception (#114): `prompt bounded`,
 Claude Code's safety prompt for an `rm` or `rmdir` whose every operand `worker-probe.sh` found
 inside the item's worktree or a session scratchpad, gets the digit `1` (Housekeeping). A model at
-capacity is a third thing
+capacity, or a worker left at an empty prompt under an `API Error:` line (#123), is a third thing
 (`stalled:`): STAR nudges it to retry, three times at most, then restarts it (the capacity rule in
 Housekeeping).
 
