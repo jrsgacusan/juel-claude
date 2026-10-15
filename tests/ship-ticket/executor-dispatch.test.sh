@@ -22,8 +22,8 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
   F="$ROOT/skills/$s/SKILL.md"
   grep -E '^codex exec ' "$F" | grep -vqF '<add-dirs>' && fail "#57 $s: a dispatch line without <add-dirs>" || pass "#57 $s: every dispatch line takes <add-dirs>"
   grep -qF -- '`--add-dir <git-dir> --add-dir <common-dir>`' "$F" && grep -qF -- '--git-common-dir' "$F" && pass "#57 $s: a linked worktree adds its git dirs" || fail "#57 $s: a linked worktree adds its git dirs"
-  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$F" && pass "#60 $s: checks that the executor skill resolves" || fail "#60 $s: checks that the executor skill resolves"
-  grep -qF 'Right before the line, check that the skill resolves' "$F" && pass "#60 $s: checks again right before each dispatch" || fail "#60 $s: checks again right before each dispatch"
+  grep -qF 'cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F" && pass "#118 $s: checks that the executor skill is this plugin's own copy" || fail "#118 $s: checks that the executor skill is this plugin's own copy"
+  grep -qF 'Right before the line, check that the skill is current' "$F" && pass "#118 $s: checks again right before each dispatch" || fail "#118 $s: checks again right before each dispatch"
 done
 for s in ship-ticket review-and-execute receive-review-and-execute; do
   F="$ROOT/skills/$s/SKILL.md"
@@ -72,6 +72,27 @@ done
 F="$ROOT/skills/ship-ticket/SKILL.md"
 grep -qF 'sh <scope-check.sh> <the plan> <that sha> --before <the record>' "$F" && pass "#78 ship-ticket: the check line carries --before" || fail "#78 ship-ticket: check line"
 grep -qF 'Modify: `path/to/file.py:120-145`' "$F" && grep -qF 'Create: `path/to/new.py`' "$F" && grep -qF 'Test: `tests/test_file.py`' "$F" && pass "#78 ship-ticket: its Files example names each path in backticks" || fail "#78 ship-ticket: Files example backticks"
+
+# lane e: #115 the executor never force-adds, and its check unstages only newly added ignored paths
+grep -qF '**Never `git add -f` (`--force`).**' "$EX" && pass "#115 the executor never force-adds" || fail "#115 the executor never force-adds"
+grep -qF '`not committed: <path> is git-ignored`' "$EX" && pass "#115 an ignored path is reported, not committed" || fail "#115 the not-committed report line"
+grep -qF '`git diff --cached --no-renames --name-only --diff-filter=A | git check-ignore --no-index --stdin`' "$EX" && grep -qF '`git rm --cached -q -- <path>` (the file stays on disk), then commit.' "$EX" && pass "#115 the check runs before each commit and unstages what it prints" || fail "#115 the pre-commit check"
+grep -qF 'The executor never runs `git add -f`, and never commits a path the repository ignores.' "$PC" && pass "#115 the contract says it too" || fail "#115 the contract sentence"
+# Review Focus 4: run the check exactly as the skill writes it
+CHECK=$(sed -n 's/.*`\(git diff --cached [^`]*\)`.*/\1/p' "$EX" | head -1)
+G=$(mktemp -d); trap 'rm -rf "$G"' EXIT
+(cd "$G" && git init -q . && printf '*.log\nevidence/\n' > .gitignore && printf 'kept on purpose\n' > old.log && printf 'a\n' > src.txt \
+  && git add .gitignore src.txt && git add -f old.log && git -c user.email=t@t -c user.name=t commit -qm init)
+printf 'changed\n' >> "$G/old.log"; mkdir -p "$G/evidence"; printf 'png\n' > "$G/evidence/shot.png"; printf 'b\n' > "$G/new.txt"
+(cd "$G" && git add old.log new.txt && git add -f evidence/shot.png && git mv -f src.txt evidence/src.txt)
+out=$(cd "$G" && sh -c "$CHECK")
+[ -n "$CHECK" ] && [ "$out" = "$(printf 'evidence/shot.png\nevidence/src.txt')" ] && pass "#115 the check prints a new or renamed ignored path, never a tracked one an ignore rule matches" || fail "#115 the check in a scratch repo (got: $out)"
+
+# lane e: #118 a link that resolves into another version's copy is not current, and the ledger is written per task
+for s in ship-ticket review-and-execute receive-review-and-execute execute; do
+  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$ROOT/skills/$s/SKILL.md" && fail "#118 $s: a link that only resolves is still accepted" || pass "#118 $s: a link that only resolves is no longer enough"
+done
+grep -qF "Right after the task's commit, before the next task's first step, append" "$EX" && pass "#118 the executor writes each ledger line right after the task's commit" || fail "#118 ledger timing"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

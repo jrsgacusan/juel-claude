@@ -39,6 +39,8 @@ When invoked, the agent should:
 4. validate work against the plan's acceptance criteria
 5. state deviations, blockers, and incomplete items clearly
 
+The executor never runs `git add -f`, and never commits a path the repository ignores.
+
 ## Fix-round plans
 
 A plan that changes a spec which is already implemented (a review fix, a gate fix, any later
