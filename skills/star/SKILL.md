@@ -267,10 +267,15 @@ project." Otherwise `sh S/loops.sh --file HOME_DIR/open-loops.md list`, then cou
 `sh S/dashboard.sh`. It builds the dashboard's web app when it is missing or older than its sources
 (after checking free memory), starts the one dashboard server on this Mac when it is not running
 (`node <plugin>/dashboard/server/main.ts`, on 127.0.0.1 only, its port and token in
-`~/.juel/dashboard.json`), prints `STAR dashboard: <url>` and opens it. Print that line. It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder. The page lists
+`~/.juel/dashboard.json`), prints `STAR dashboard: <url>`, then `STAR dashboard on your tailnet: <https url>` when `tailscale serve` maps its port, and opens it. Print those lines. It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder. The page lists
 every project in `~/.juel/star-homes.json` (one per project name: a folder that still exists wins
 over one that is gone), records answers with `loops.sh set-answer` and wakes STAR with `orca
-terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. A dashboard server that
+terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. The page also has a
+Chat page per project, where the owner talks to this STAR (a chat message, in the Inbox step), an
+away switch that writes the same control files as `away` and `back` from another session, and an
+Accounts page with the machine's cswap accounts, read-only. From a phone the owner reaches it over
+their tailnet with `tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`), which
+they run once themselves, never `tailscale funnel`: the server stays on 127.0.0.1. A dashboard server that
 another checkout or plugin version started is stopped and replaced by this one's, on the same port
 and token. A non-zero exit: print its last line, nothing else.
 

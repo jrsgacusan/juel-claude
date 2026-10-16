@@ -838,5 +838,11 @@ grep -qF 'rewrite the draft'"'"'s reply as `<how>` asks' "$SKILL" && fail "LB4v 
 grep -qF 'a Slack reply STAR drafted' "$SKILL" && fail "LB4w the home listing no longer says STAR drafted" || pass "LB4w the home listing no longer says STAR drafted"
 has "LB4x a draft with no reply takes the no-reply row" 'A draft with nothing after its first line holds no reply: queue it with the no-reply row instead'
 has "LB4y new writes a first line, never reply text" 'a first line, never reply text.'
+# the dashboard command (spec 3.1, 3.3, 3.12, 3.13)
+has "LB5a dashboard.sh's lines are printed" 'prints `STAR dashboard: <url>`, then `STAR dashboard on your tailnet: <https url>` when `tailscale serve` maps its port, and opens it. Print those lines.'
+has "LB5b the Chat page" 'The page also has a Chat page per project, where the owner talks to this STAR'
+has "LB5c the away switch" 'an away switch that writes the same control files as `away` and `back` from another session'
+has "LB5d the Accounts page" 'an Accounts page with the machine'"'"'s cswap accounts, read-only'
+has "LB5e tailscale serve, never funnel" '`tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`), which they run once themselves, never `tailscale funnel`: the server stays on 127.0.0.1.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

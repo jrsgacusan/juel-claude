@@ -186,5 +186,6 @@ grep -qF 'a reply STAR drafted in your voice' "$PAGE" && fail "LB4 the page no l
 grep -qF '>Slack: drafted before STAR</text>' "$PAGE" && pass "LB4 the drawing shows the drafter" || fail "LB4 drafter in the drawing"
 grep -qF 'and a Slack message the dashboard routes arrives with a reply its drafter already wrote' "$PAGE" && pass "LB4 the drawing's label names the drafter" || fail "LB4 drafter in the aria-label"
 grep -qF '<td>Slack drafter, run by the dashboard</td>' "$PAGE" && pass "LB4 the Models table names the drafter" || fail "LB4 drafter in Models"
+grep -qF 'from a phone you reach it over your tailnet with <code>tailscale serve --bg &lt;port&gt;</code>, never <code>tailscale funnel</code>: the server itself stays on 127.0.0.1.' "$PAGE" && pass "LB5 the page says how to reach the dashboard from a phone" || fail "LB5 tailscale serve on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
