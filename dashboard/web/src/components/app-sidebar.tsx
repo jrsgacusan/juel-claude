@@ -157,7 +157,9 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
             <WorkersCard workers={overview.data.workers} />
             <AwaySwitch
               project={project}
-              running={current?.state === "running"}
+              // Only a stopped STAR misses the switch: an idle one wakes on the nudge (I-7), and while the
+              // projects still load nothing says it stopped.
+              running={current?.state !== "stopped"}
             />
           </SidebarFooter>
         )

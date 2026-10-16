@@ -1,7 +1,6 @@
 import { screen, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
 import { describe, expect, it } from "vitest"
-import { getConnection } from "@/api/events"
 import { server } from "@/mocks/node"
 import { getDb } from "@/mocks/state"
 import { renderApp } from "@/test/render"
@@ -31,15 +30,16 @@ describe("the away switch", () => {
     const bodies: unknown[] = []
     server.use(http.post("*/api/projects/:p/away", async ({ request }) => { bodies.push(await request.clone().json()) }))
     const { user } = renderApp("/sphere-app/needs")
-    await waitFor(() => expect(getConnection()).toBe("open"))
     await user.click(await awaySwitch())
     expect(
       await screen.findByRole("switch", { name: "Away", description: "Waiting for STAR to mark you away" })
     ).toHaveAttribute("aria-checked", "true")
     expect(bodies).toEqual([{ away: true }])
-    expect(await screen.findByText("STAR running · you're away", undefined, { timeout: 4_000 })).toBeInTheDocument()
+    // STAR's change reaches the page by the event stream or, failing that, the 5 s poll while a change is pending,
+    // so this does not depend on the mocked stream staying up across tests.
+    expect(await screen.findByText("STAR running · you're away", undefined, { timeout: 8_000 })).toBeInTheDocument()
     expect(screen.getByRole("switch", { name: "Away" })).toHaveAccessibleDescription("STAR keeps going and saves a summary")
-  }, 10_000)
+  }, 15_000)
 
   it("shows a change STAR has not applied yet, and none when it changes nothing", async () => {
     const overview = Object.assign(overviewOf("sphere-app"), { away: "2026-10-17T01:00:00Z", awayPending: "back" as const })
@@ -65,6 +65,18 @@ describe("the away switch", () => {
     expect(overviewOf("juel-claude").awayPending).toBe("away")
     expect(overviewOf("juel-claude").away).toBeNull()
     expect(screen.getByRole("switch", { name: "Away" })).toHaveAccessibleDescription("Waits for STAR's next start")
+  })
+
+  it("treats an idle STAR as one that hears the switch, since the nudge wakes it", async () => {
+    const project = getDb().projects.find((p) => p.name === "sphere-app")
+    if (!project) throw new Error("no sphere-app project")
+    project.state = "idle"
+    renderApp("/sphere-app/needs")
+    await screen.findByRole("list", { name: "Projects" })
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Away" })).toHaveAccessibleDescription("STAR keeps going and saves a summary")
+    )
+    expect(screen.queryByText("Waits for STAR's next start")).not.toBeInTheDocument()
   })
 
   it("says why when the dashboard could not record it", async () => {
