@@ -26,10 +26,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
+import { evidenceTiles, type EvidenceTile, isMedia } from "@/lib/evidence"
 import { clock, dateTime, dayLabel } from "@/lib/format"
 import { errorMessage } from "@/lib/errors"
 import { usePage } from "@/lib/paginate"
 import { prLabel } from "@/lib/status"
+import { cn } from "@/lib/utils"
 
 // The four check cards read the release record the server sends (API contract, 2026-10-16).
 // Go, Codex gate, CI and Approval, one card per release-record key, each "Not recorded" when missing (brief D11). No Claude review card: the release record has no such line.
@@ -46,9 +49,12 @@ const RECORD_KEYS = Object.keys(RECORD) as Array<keyof EvidenceRecord>
 
 function Thumb({
   file,
+  tag,
   onOpen,
 }: {
   file: EvidenceFile
+  /** The pill on a before shot, and on the after shot beside it. */
+  tag?: "Before" | "After"
   onOpen: (file: EvidenceFile) => void
 }) {
   // A recording is a play tile: its bytes are fetched only when it opens (FullSize), never for a thumbnail.
@@ -100,6 +106,17 @@ function Thumb({
             {file.name} could not be shown.
           </span>
         )}
+        {tag && (
+          <Badge
+            variant={tag === "After" ? "done" : "outline"}
+            className={cn(
+              "absolute top-1.5 left-1.5 shadow-sm",
+              tag === "Before" && "bg-background/90"
+            )}
+          >
+            {tag}
+          </Badge>
+        )}
         {content.error && (
           <span className="absolute inset-0 grid place-items-center p-2 text-center text-xs text-stop-fg">
             <span className="flex flex-col items-center gap-1">
@@ -126,27 +143,50 @@ function Thumb({
 
 const FILES_PER_PAGE = 12
 
+const tileKey = (tile: EvidenceTile) =>
+  tile.kind === "pair" ? `${tile.before.url}|${tile.after.url}` : tile.file.url
+
 function FileGrid({
   files,
   label,
+  resetKey,
   onOpen,
 }: {
   files: EvidenceFile[]
   label: string
+  resetKey: unknown
   onOpen: (file: EvidenceFile) => void
 }) {
-  const { page, pageCount, pageItems, setPage } = usePage(files, {
-    pageSize: FILES_PER_PAGE,
-  })
+  const { page, pageCount, pageItems, setPage } = usePage(
+    evidenceTiles(files),
+    { pageSize: FILES_PER_PAGE, resetKey }
+  )
   return (
     <>
       <div
         key={page}
         className="motion-fade-in grid grid-cols-2 gap-3 sm:grid-cols-3"
       >
-        {pageItems.map((file) => (
-          <Thumb key={file.url} file={file} onOpen={onOpen} />
-        ))}
+        {pageItems.map((tile) =>
+          tile.kind === "pair" ? (
+            <div
+              key={tileKey(tile)}
+              role="group"
+              aria-label={`Before and after: ${tile.after.name}`}
+              className="col-span-full grid grid-cols-2 gap-3"
+            >
+              <Thumb file={tile.before} tag="Before" onOpen={onOpen} />
+              <Thumb file={tile.after} tag="After" onOpen={onOpen} />
+            </div>
+          ) : (
+            <Thumb
+              key={tileKey(tile)}
+              file={tile.file}
+              tag={tile.before ? "Before" : undefined}
+              onOpen={onOpen}
+            />
+          )
+        )}
       </div>
       <Pager page={page} pageCount={pageCount} onPage={setPage} label={label} />
     </>
@@ -215,6 +255,7 @@ export function EvidenceDetailView({
   const detail = useEvidenceItem(project, item)
   const [zoom, setZoom] = useState<EvidenceFile | null>(null)
   const [recordOpen, setRecordOpen] = useState(false)
+  const [showFiles, setShowFiles] = useState(false)
 
   if (detail.isPending)
     return (
@@ -233,6 +274,9 @@ export function EvidenceDetailView({
       />
     )
   const d = detail.data
+  const fileCount = d.groups
+    .flatMap((group) => group.files)
+    .filter((file) => !isMedia(file)).length
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-4 sm:p-6 lg:p-8">
@@ -308,30 +352,53 @@ export function EvidenceDetailView({
         })}
       </div>
       <div className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">Acceptance criteria</h3>
-        {d.groups.map((group) => (
-          <div
-            key={group.criterion ?? "files"}
-            className="flex flex-col gap-3 rounded-xl border p-4"
-          >
-            {group.criterion === null ? (
-              <p className="text-sm font-medium">Files</p>
-            ) : (
-              <p className="flex items-start gap-2 text-sm font-medium">
-                <CircleCheck className="mt-0.5 size-4 shrink-0 text-done" />
-                <span className="min-w-0 break-words">
-                  <span className="sr-only">Passed: </span>
-                  {group.criterion}
-                </span>
-              </p>
-            )}
-            <FileGrid
-              files={group.files}
-              label={`Pages of ${group.criterion ?? "files"}`}
-              onOpen={setZoom}
-            />
-          </div>
-        ))}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm font-medium">Acceptance criteria</h3>
+          {fileCount > 0 && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground pointer-coarse:min-h-11">
+              {`Show files (${fileCount})`}
+              <Switch
+                checked={showFiles}
+                onCheckedChange={setShowFiles}
+                aria-label="Show files"
+              />
+            </label>
+          )}
+        </div>
+        {d.groups.map((group) => {
+          const files = showFiles ? group.files : group.files.filter(isMedia)
+          const hidden = group.files.length - files.length
+          return (
+            <div
+              key={group.criterion ?? "files"}
+              className="flex flex-col gap-3 rounded-xl border p-4"
+            >
+              {group.criterion === null ? (
+                <p className="text-sm font-medium">Files</p>
+              ) : (
+                <p className="flex items-start gap-2 text-sm font-medium">
+                  <CircleCheck className="mt-0.5 size-4 shrink-0 text-done" />
+                  <span className="min-w-0 break-words">
+                    <span className="sr-only">Passed: </span>
+                    {group.criterion}
+                  </span>
+                </p>
+              )}
+              {files.length === 0 && hidden > 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {`${hidden} ${hidden === 1 ? "file" : "files"} hidden.`}
+                </p>
+              ) : (
+                <FileGrid
+                  files={files}
+                  label={`Pages of ${group.criterion ?? "files"}`}
+                  resetKey={showFiles}
+                  onOpen={setZoom}
+                />
+              )}
+            </div>
+          )
+        })}
       </div>
       <Dialog
         open={zoom !== null}

@@ -32,6 +32,7 @@ test("a merged item's files show, and an image and a text file open", async ({
     )
     .toBe(64)
   await page.keyboard.press("Escape")
+  await detail.getByRole("switch", { name: "Show files" }).click()
   await detail
     .getByRole("button", { name: "Open 2026-10-16-pause-a-seat/notes.txt" })
     .click()

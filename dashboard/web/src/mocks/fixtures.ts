@@ -814,6 +814,7 @@ export function createDb(): MockDb {
           [
             ["phone-390.png", "image"],
             ["phone-390-open.png", "image"],
+            ["phone-390-before.png", "image"],
           ],
         ],
       ],

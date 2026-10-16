@@ -107,6 +107,7 @@ describe("Evidence", () => {
     expect(video.tagName).toBe("VIDEO")
     expect(video).toHaveAttribute("controls")
     await user.keyboard("{Escape}")
+    await user.click(within(detail).getByRole("switch", { name: "Show files" }))
     await user.click(
       within(detail).getByRole("button", {
         name: "Open reports-filters.spec.txt",
@@ -118,6 +119,63 @@ describe("Evidence", () => {
     const text = await within(dialog).findByText(/6 passed/)
     expect(text.tagName).toBe("PRE")
     expect(text).toHaveClass("font-mono")
+  })
+
+  it("hides text files until Show files is on", async () => {
+    const { user } = renderApp("/sphere-app/evidence?item=SPH-8")
+    const detail = await screen.findByRole("region", {
+      name: "Evidence detail",
+    })
+    await within(detail).findByRole("button", { name: "Open invoice-pdf.png" })
+    expect(
+      within(detail).queryByRole("button", { name: "Open rounding.test.txt" })
+    ).not.toBeInTheDocument()
+    expect(within(detail).getByText("1 file hidden.")).toBeInTheDocument()
+    expect(within(detail).getByText("Show files (1)")).toBeInTheDocument()
+    await user.click(within(detail).getByRole("switch", { name: "Show files" }))
+    expect(
+      within(detail).getByRole("button", { name: "Open rounding.test.txt" })
+    ).toBeInTheDocument()
+    expect(within(detail).queryByText("1 file hidden.")).not.toBeInTheDocument()
+  })
+
+  it("puts a before shot beside its counterpart", async () => {
+    renderApp("/sphere-app/evidence?item=SPH-4")
+    const detail = await screen.findByRole("region", {
+      name: "Evidence detail",
+    })
+    const pair = await within(detail).findByRole("group", {
+      name: "Before and after: phone-390.png",
+    })
+    const [before, after] = within(pair).getAllByRole("button")
+    expect(before).toHaveAccessibleName("Open phone-390-before.png")
+    expect(before).toHaveTextContent("Before")
+    expect(after).toHaveAccessibleName("Open phone-390.png")
+    expect(after).toHaveTextContent("After")
+    expect(
+      within(detail).getByRole("button", { name: "Open phone-390-open.png" })
+    ).not.toHaveTextContent(/Before|After/)
+  })
+
+  it("marks a before shot with no counterpart and leaves it on its own", async () => {
+    const sph3 = getDb().evidence["sphere-app"]?.find((e) => e.item === "SPH-3")
+    const shot = sph3?.groups[0]?.files[0]
+    if (!sph3 || !shot) throw new Error("fixture SPH-3 missing")
+    sph3.groups[0]!.files.push({
+      ...shot,
+      name: "loading-before.png",
+      url: shot.url.replace("empty-state.png", "loading-before.png"),
+    })
+    renderApp("/sphere-app/evidence?item=SPH-3")
+    const detail = await screen.findByRole("region", {
+      name: "Evidence detail",
+    })
+    expect(
+      await within(detail).findByRole("button", {
+        name: "Open loading-before.png",
+      })
+    ).toHaveTextContent("Before")
+    expect(within(detail).queryByRole("group")).not.toBeInTheDocument()
   })
 
   it("shows the release record", async () => {

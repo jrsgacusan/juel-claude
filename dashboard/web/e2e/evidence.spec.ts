@@ -30,6 +30,7 @@ test("opens an image, a video and a text file full size", async ({ page }) => {
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.duration))
     .toBeGreaterThan(1)
   await page.keyboard.press("Escape")
+  await detail.getByRole("switch", { name: "Show files" }).click()
   await detail
     .getByRole("button", { name: "Open reports-filters.spec.txt" })
     .click()
