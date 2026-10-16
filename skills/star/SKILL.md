@@ -1448,8 +1448,8 @@ prints `PASS` in a tick, merge first a row with no hosted pass left
 or more: it cannot take another review run, so it must not be the one left behind), then the oldest
 `updated`. The count is of distinct heads with a `pass` line (#122). `grep -c` counts `pass` lines,
 and each one is a distinct head because `juel:babysit-pr` gives a head at most one `pass` line (a
-later hosted run on that head is logged `refresh`); a log written before that rule may hold two for
-one head, and is counted as written.
+later hosted run on that head is logged `refresh`) and, in its Phase 1, rewrites a second `pass`
+line for one head in a log written before that rule as a `refresh` line.
 When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, for every other `verifying` row on that base: a
 `PENDING merge state: behind the base branch` or `FAIL conflicts` there goes to the sync rule now
 ("Sync after the base moved"), so its babysit run merges the new base in before any later pass.

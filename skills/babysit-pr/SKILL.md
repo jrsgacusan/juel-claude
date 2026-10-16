@@ -290,6 +290,11 @@ Each row overrides the phase it names:
    An `error` line writes no file: `rm -f <log>.tmp`, wait 60 seconds and run it once more.
    A second `error` → `ESCALATION item=<item> phase=8 reason=pr-state-errors needs=<its error line>`,
    the escalation for a GitHub that cannot be read. A missing log is never read as zero passes.
+   When the log exists and holds a second `pass` line for a head that already has one (a log
+   written before the one-pass-per-head rule, #122), rewrite each such later line as
+   `<its iso> refresh head=<that sha>`, keeping the first `pass` line of each head and every other
+   line as it is, before anything counts its passes: STAR's merge order counts `pass` lines with
+   `grep -c`, so a head must never hold two.
 10. Under a `star:` brief with a hosted reviewer: when the PR's head has no status from the hosted
    reviewer while it already reviewed an earlier head (its summary comment is on the PR), run the
    status refresh (the hosted-reviewer row in "Unattended mode") before the first wait, or, with
