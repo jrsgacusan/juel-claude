@@ -14,6 +14,8 @@ const draftFile = (from: string) => {
 }
 const RIA =
   "Not today. It's in final review now, and I expect it merged tomorrow morning, before the demo."
+const LEA =
+  "None yet. It's SPH-13, being built now. I'll post the PR here once it's open."
 const MARCO =
   "Yes, it's mine (SPH-12). I'll share the new copy here before it ships."
 const setWidth = (value: number) =>
@@ -23,6 +25,17 @@ const phone = () => {
   return vi.spyOn(window, "scrollTo").mockImplementation(() => {})
 }
 afterEach(() => setWidth(1024))
+
+const captureRedrafts = () => {
+  const asked: unknown[] = []
+  server.use(
+    http.post("*/api/projects/:p/slack/redraft", async ({ request }) => {
+      asked.push(await request.json())
+      return HttpResponse.json({ queued: true })
+    })
+  )
+  return asked
+}
 
 describe("Slack replies", () => {
   it("shows the watcher's status, the routed and unrouted messages and the first draft", async () => {
@@ -102,37 +115,27 @@ describe("Slack replies", () => {
     ).toBeInTheDocument()
     expect(loopAnswer("N-45")).toBe("skip")
 
+    const asked = captureRedrafts()
     const list = await screen.findByRole("region", { name: "Messages" })
-    await user.click(
-      within(list).getByText("which PR fixes the invoice time zone?")
-    )
-    await user.click(await screen.findByRole("button", { name: "Shorter" }))
-    expect(screen.getByLabelText("Ask STAR to rewrite it")).toHaveValue(
-      "shorter"
-    )
-    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
-    expect(
-      await screen.findByText('STAR is rewriting it: "shorter".')
-    ).toBeInTheDocument()
-    expect(loopAnswer("N-48")).toBe("rewrite: shorter")
-
     await user.click(
       within(list).getByText(
         "can you look at the invite email copy before it goes out?"
       )
     )
-    await user.click(await screen.findByRole("button", { name: /^Rewrite$/ }))
-    expect(
-      await screen.findByText("Tell STAR what to change first.")
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByLabelText("Your reply")).toHaveValue(MARCO)
+    )
+    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
+    expect(await screen.findByText("Say what to change first.")).toBeInTheDocument()
     await user.type(
-      screen.getByLabelText("Ask STAR to rewrite it"),
+      screen.getByLabelText("Ask the drafter to rewrite it"),
       "add the PR link"
     )
     await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
     await waitFor(() =>
-      expect(loopAnswer("N-47")).toBe("rewrite: add the PR link")
+      expect(asked).toEqual([{ loop: "N-47", how: "add the PR link" }])
     )
+    expect(loopAnswer("N-47")).toBe("")
   })
 
   it("routes an unrouted message to a project", async () => {
@@ -151,7 +154,7 @@ describe("Slack replies", () => {
     await user.click(screen.getByRole("button", { name: "Route it" }))
     expect(
       await screen.findByText(
-        "Routed. That STAR drafts a reply on its next tick."
+        "Routed to sphere-api."
       )
     ).toBeInTheDocument()
     expect(getDb().slack.unrouted.map((m) => m.from)).toEqual(["Ana"])
@@ -247,16 +250,24 @@ describe("Slack replies", () => {
     await waitFor(() => expect(box).toHaveValue("STAR's shorter rewrite."))
   })
 
-  it("a chip fills the rewrite box, and Rewrite sends it", async () => {
+  it("saves an edit, then a chip and Rewrite ask the drafter, not STAR", async () => {
+    const asked = captureRedrafts()
     const { user } = renderApp("/sphere-app/slack")
-    await user.click(await screen.findByRole("button", { name: "Shorter" }))
-    expect(screen.getByLabelText("Ask STAR to rewrite it")).toHaveValue(
-      "shorter"
-    )
-    expect(loopAnswer("N-45")).toBe("")
+    const box = await screen.findByLabelText("Your reply")
+    await waitFor(() => expect(box).toHaveValue(RIA))
+    await user.type(box, " Thanks!")
+    await user.click(screen.getByRole("button", { name: "Shorter" }))
+    expect(screen.getByLabelText("Ask the drafter to rewrite it")).toHaveValue("shorter")
     await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
-    await waitFor(() => expect(loopAnswer("N-45")).toBe("rewrite: shorter"))
-    expect(screen.getByLabelText("Ask STAR to rewrite it")).toHaveValue("")
+    const reply = screen.getByRole("region", { name: "Reply" })
+    expect(await within(reply).findByText("Rewriting…")).toBeInTheDocument()
+    expect(draftFile("Ria").endsWith(`${RIA} Thanks!`)).toBe(true)
+    expect(asked).toEqual([{ loop: "N-45", how: "shorter" }])
+    expect(loopAnswer("N-45")).toBe("")
+    expect(screen.getByLabelText("Ask the drafter to rewrite it")).toHaveValue("")
+    expect(box).toHaveAttribute("readonly")
+    expect(within(reply).getByRole("button", { name: "Send reply" })).toBeDisabled()
+    expect(within(reply).getByRole("button", { name: "Skip" })).toBeDisabled()
   })
 
   it("routes a message as not for STAR", async () => {
@@ -364,5 +375,113 @@ describe("Slack replies", () => {
     expect(box).not.toHaveClass("text-[15px]")
     for (const name of ["Skip", "Send reply", "Rewrite", "Shorter", "Add the PR link", "Less formal"])
       expect(screen.getByRole("button", { name })).toHaveClass("pointer-coarse:h-11")
+  })
+
+  it("Rewriting… lasts through the gap and ends when STAR adds the item again", async () => {
+    captureRedrafts()
+    const { user, client } = renderApp("/sphere-app/slack")
+    await waitFor(() => expect(screen.getByLabelText("Your reply")).toHaveValue(RIA))
+    await user.type(screen.getByLabelText("Ask the drafter to rewrite it"), "shorter")
+    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
+    expect(await screen.findByText("Rewriting…")).toBeInTheDocument()
+    const db = getDb()
+    const ria = db.slack.routed.find((m) => m.from === "Ria")!
+    const loops = db.loops["sphere-app"]!
+    const index = loops.findIndex((l) => l.id === "N-45")
+    const file = db.files[`sphere-app/${ria.draftPath}`]!
+    file.body = `${file.body.split("\n")[0]}\nNot today. Tomorrow morning, before the demo.`
+    // The drafter answered "redrafted": the server drops the finished reply until STAR adds it again.
+    loops.splice(index, 1, { ...loops[index]!, answer: "redrafted" })
+    db.slack.routed = db.slack.routed.filter((m) => m !== ria)
+    await act(() => client.invalidateQueries())
+    await waitFor(() =>
+      expect(screen.queryByText(/^hey, is the CSV export landing today\?/)).not.toBeInTheDocument()
+    )
+    const suggestion = 'Send: "Not today. Tomorrow morning, before the demo."'
+    loops.splice(index, 1, { ...loops[index]!, id: "N-49", answer: "", suggestion })
+    db.slack.routed.unshift({ ...ria, loopId: "N-49" })
+    await act(() => client.invalidateQueries())
+    await waitFor(() =>
+      expect(screen.getByLabelText("Your reply")).toHaveValue("Not today. Tomorrow morning, before the demo.")
+    )
+    expect(screen.queryByText("Rewriting…")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Send reply" })).toBeEnabled()
+  })
+
+  it("says why when the drafter could not rewrite it", async () => {
+    captureRedrafts()
+    const { user, client } = renderApp("/sphere-app/slack")
+    await waitFor(() => expect(screen.getByLabelText("Your reply")).toHaveValue(RIA))
+    await user.click(screen.getByRole("button", { name: "Shorter" }))
+    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
+    expect(await screen.findByText("Rewriting…")).toBeInTheDocument()
+    const loops = getDb().loops["sphere-app"]!
+    const index = loops.findIndex((l) => l.id === "N-45")
+    const title = `${loops[index]!.title} (redraft failed: claude timed out after 10 min)`
+    loops.splice(index, 1, { ...loops[index]!, id: "N-49", title })
+    getDb().slack.routed.find((m) => m.from === "Ria")!.loopId = "N-49"
+    await act(() => client.invalidateQueries())
+    expect(await screen.findByText("Couldn't rewrite it: claude timed out after 10 min")).toBeInTheDocument()
+    expect(screen.queryByText("Rewriting…")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Your reply")).toHaveValue(RIA)
+  })
+
+  it("the mock drafter rewrites it, and a page opened from a loop stays on the message", async () => {
+    const { user, router } = renderApp("/sphere-app/slack?loop=N-48")
+    await waitFor(() => expect(screen.getByLabelText("Your reply")).toHaveValue(LEA))
+    await user.click(screen.getByRole("button", { name: "Shorter" }))
+    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
+    expect(await screen.findByText("Rewriting…")).toBeInTheDocument()
+    const lea = getDb().slack.routed.find((m) => m.from === "Lea")?.id ?? ""
+    expect(router.state.location.search).toBe(`?${new URLSearchParams({ message: lea })}`)
+    await waitFor(
+      () => expect(screen.getByLabelText("Your reply")).toHaveValue(`Rewritten (shorter): ${LEA}`),
+      { timeout: 3000 }
+    )
+    expect(screen.queryByText("Rewriting…")).not.toBeInTheDocument()
+    const next = getDb().loops["sphere-app"]?.find((l) => l.id === "N-49")
+    expect(next?.suggestion).toBe(`Send: "Rewritten (shorter): ${LEA}"`)
+  })
+
+  it("a draft the drafter could not write says why, offers a rewrite, and has no Send", async () => {
+    const asked = captureRedrafts()
+    const marco = getDb().slack.routed.find((m) => m.from === "Marco")!
+    const file = getDb().files[`sphere-app/${marco.draftPath}`]!
+    file.body = file.body.split("\n")[0]!
+    const loop = getDb().loops["sphere-app"]!.find((l) => l.id === "N-47")!
+    loop.suggestion = "no draft: claude timed out after 10 min"
+    loop.options = loop.options.filter((o) => o.answer !== "send")
+    const { user } = renderApp("/sphere-app/slack?loop=N-47")
+    const reply = await screen.findByRole("region", { name: "Reply" })
+    expect(await within(reply).findByText("No draft yet: claude timed out after 10 min")).toBeInTheDocument()
+    expect(within(reply).queryByLabelText("Your reply")).not.toBeInTheDocument()
+    expect(within(reply).queryByRole("button", { name: "Send reply" })).not.toBeInTheDocument()
+    expect(within(reply).queryByText("Drafted for you")).not.toBeInTheDocument()
+    expect(within(reply).getByRole("button", { name: "Skip" })).toBeEnabled()
+    await user.click(within(reply).getByRole("button", { name: "Shorter" }))
+    await user.click(within(reply).getByRole("button", { name: /^Rewrite$/ }))
+    await waitFor(() => expect(asked).toEqual([{ loop: "N-47", how: "shorter" }]))
+  })
+
+  it("says why when the server refuses the rewrite", async () => {
+    server.use(
+      http.post("*/api/projects/:p/slack/redraft", () =>
+        HttpResponse.json({ error: "No open slack-reply item N-45" }, { status: 404 })
+      )
+    )
+    const { user } = renderApp("/sphere-app/slack")
+    await waitFor(() => expect(screen.getByLabelText("Your reply")).toHaveValue(RIA))
+    await user.click(screen.getByRole("button", { name: "Shorter" }))
+    await user.click(screen.getByRole("button", { name: /^Rewrite$/ }))
+    expect(
+      await screen.findByText("Couldn't ask for a rewrite: No open slack-reply item N-45")
+    ).toBeInTheDocument()
+    expect(screen.queryByText("Rewriting…")).not.toBeInTheDocument()
+  })
+
+  it("names the drafter, not STAR, as the writer of drafts", async () => {
+    renderApp("/sphere-app/slack")
+    expect(await screen.findByText("Drafted for you")).toBeInTheDocument()
+    expect(screen.queryByText("Drafted by STAR")).not.toBeInTheDocument()
   })
 })

@@ -20,7 +20,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { age, agoText, slackTime } from "@/lib/format"
 import { useSearchParam } from "@/lib/use-search-param"
-import { RoutedDetail, UnroutedDetail } from "./slack-detail"
+import { type AskedRewrite, RoutedDetail, UnroutedDetail } from "./slack-detail"
 
 const isRouted = (
   message: RoutedMessage | UnroutedMessage
@@ -78,7 +78,7 @@ function Entry({
             Draft ready
           </Badge>
         ) : (
-          <Badge variant="outline">Waiting for STAR&apos;s draft</Badge>
+          <Badge variant="outline">Waiting for the draft</Badge>
         )}
       </span>
     </button>
@@ -96,7 +96,11 @@ export function SlackPage() {
   const [loopParam] = useSearchParam("loop")
   // Search results name a draft file (the server's /<p>/slack?draft=<name>).
   const [draftParam] = useSearchParam("draft")
+  const [, setMessage] = useSearchParam("message")
   const [done, setDone] = useState<Record<string, string>>({})
+  // Rewrites asked from this page, by message id. They live here so they survive the gap where
+  // the server drops the finished message until STAR adds it again.
+  const [rewrites, setRewrites] = useState<Record<string, AskedRewrite>>({})
   if (slack.isPending)
     return (
       <LoadingState label="the Slack replies">
@@ -221,6 +225,13 @@ export function SlackPage() {
                 project={project}
                 message={selected}
                 onDone={(mark) => markDone(selected.id, mark)}
+                rewrite={rewrites[selected.id] ?? null}
+                onRewrite={(asked) => {
+                  setRewrites((r) => ({ ...r, [selected.id]: asked }))
+                  // Pin the message, so a page opened by ?loop= or ?draft= stays on it when STAR renames the item.
+                  if (messageParam !== selected.id)
+                    setMessage(selected.id, { clear: ["loop", "draft"] })
+                }}
               />
             ) : (
               <UnroutedDetail
