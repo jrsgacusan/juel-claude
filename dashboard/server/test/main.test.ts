@@ -6,7 +6,8 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { isFree } from "../config.ts";
+import net from "node:net";
+import { PORT_BUSY_EXIT, PortBusy, isFree, pickPort } from "../config.ts";
 import { juelDir } from "../paths.ts";
 
 const MAIN = path.join(import.meta.dirname, "..", "main.ts");
@@ -209,6 +210,83 @@ test("main.ts keeps dashboard.json and its log under JUEL_DIR when it is set", a
     assert.match(c.token, /^[0-9a-f]{32}$/);
     assert.match(fs.readFileSync(path.join(juel, "dashboard.log"), "utf8"), /started on 127\.0\.0\.1:\d+/);
     assert.equal(fs.existsSync(path.join(home, ".juel", "dashboard.json")), false);
+  } finally {
+    await stop(child);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+const BUSY = (p: number): string =>
+  `port ${p} is busy: the dashboard keeps its port so tailscale serve keeps reaching it. Stop what listens on 127.0.0.1:${p} (lsof -nP -iTCP:${p} -sTCP:LISTEN), then start it again`;
+
+/** A listener on a free 127.0.0.1 port, standing in for whatever else took the dashboard's port. */
+async function blocker(): Promise<{ port: number; close(): Promise<void> }> {
+  const server = net.createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as net.AddressInfo).port;
+  return { port, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
+/** main.ts run to its exit: code, stdout, stderr. */
+async function runMain(env: NodeJS.ProcessEnv): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, [MAIN], { env, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (d) => (stdout += String(d)));
+  child.stderr?.on("data", (d) => (stderr += String(d)));
+  const code = await new Promise<number | null>((resolve) => child.once("exit", resolve));
+  return { code, stdout, stderr };
+}
+
+test("pickPort keeps a recorded port and refuses a busy one; with none recorded it picks from 4767 up", async () => {
+  const b = await blocker();
+  await assert.rejects(pickPort(b.port), (err: unknown) => err instanceof PortBusy && err.port === b.port && err.message === BUSY(b.port));
+  await b.close();
+  assert.equal(await pickPort(b.port), b.port);
+  assert.ok((await pickPort(undefined)) >= 4767);
+  assert.ok((await pickPort("4800")) >= 4767); // not a number: no recorded port
+});
+
+test("a recorded port that is busy stops main.ts with exit 3 and says why; dashboard.json is left as it was", async () => {
+  const { tmp, home, env } = sandbox();
+  const b = await blocker();
+  const recorded = { port: b.port, token: "abcdefabcdefabcdefabcdefabcdef12", pid: 999_999 };
+  fs.mkdirSync(path.join(home, ".juel"));
+  fs.writeFileSync(path.join(home, ".juel", "dashboard.json"), JSON.stringify(recorded));
+  try {
+    const r = await runMain(env);
+    assert.equal(PORT_BUSY_EXIT, 3);
+    assert.equal(r.code, PORT_BUSY_EXIT);
+    assert.ok(r.stderr.split("\n").includes(`star dashboard: could not start: ${BUSY(b.port)}`), r.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, ".juel", "dashboard.json"), "utf8")), recorded);
+    assert.match(fs.readFileSync(path.join(home, ".juel", "dashboard.log"), "utf8"), new RegExp(`could not start: port ${b.port} is busy`));
+  } finally {
+    await b.close();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("a start keeps every other key of dashboard.json", async () => {
+  const { tmp, home, env } = sandbox();
+  let port = 0;
+  for (let candidate = 4800; candidate < 4900; candidate += 1) {
+    if (await isFree(candidate)) {
+      port = candidate;
+      break;
+    }
+  }
+  assert.notEqual(port, 0, "no free test port");
+  const others = { claudeConfigDir: "/Users/me/.claude-personal", slack: { everyMin: 30 } };
+  fs.mkdirSync(path.join(home, ".juel"));
+  fs.writeFileSync(path.join(home, ".juel", "dashboard.json"),
+    JSON.stringify({ port, token: "abcdefabcdefabcdefabcdefabcdef12", pid: 999_999, ...others }));
+  const child = spawn(process.execPath, [MAIN], { env, stdio: "ignore" });
+  try {
+    const c = await config(path.join(home, ".juel"), child.pid);
+    assert.equal(c.port, port);
+    const all = JSON.parse(fs.readFileSync(path.join(home, ".juel", "dashboard.json"), "utf8")) as Record<string, unknown>;
+    assert.equal(all["claudeConfigDir"], others.claudeConfigDir);
+    assert.deepEqual(all["slack"], others.slack);
   } finally {
     await stop(child);
     fs.rmSync(tmp, { recursive: true, force: true });
