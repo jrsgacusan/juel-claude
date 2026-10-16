@@ -2,14 +2,17 @@ import { RefreshCw, Send } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { ApiError } from "@/api/client"
+import { useRedraft } from "@/api/slack"
 import {
   useAnswer,
   useDraftText,
+  useLoops,
   useProjects,
   useRouteMessage,
   useSaveDraft,
 } from "@/api/queries"
 import type { RoutedMessage, UnroutedMessage } from "@/api/types"
+import { SlackText } from "@/components/slack-text"
 import { StarMark } from "@/components/status"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -28,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import { clock, slackTime } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 const CHIPS = ["Shorter", "Add the PR link", "Less formal"]
 /** A draft file is "to: slack <channelId> <threadTs or ts>" and then the reply. */
@@ -47,16 +51,30 @@ function Person({ name, className }: { name: string; className?: string }) {
   )
 }
 
+/** A rewrite the owner asked the drafter for: the item it was asked on and the Suggest line it had. */
+export type AskedRewrite = {
+  how: string
+  loopId: string
+  suggestion: string | null
+}
+
 export function RoutedDetail({
   project,
   message,
   onDone,
+  rewrite,
+  onRewrite,
 }: {
   project: string
   message: RoutedMessage
   onDone: (mark: string) => void
+  rewrite: AskedRewrite | null
+  onRewrite: (asked: AskedRewrite) => void
 }) {
   const draft = useDraftText(project, message.draftPath)
+  const loops = useLoops(project)
+  const redraft = useRedraft(project)
+  const loop = loops.data?.find((l) => l.id === message.loopId)
   const save = useSaveDraft(project)
   const answer = useAnswer(project)
   const [edited, setEdited] = useState<string | null>(null)
@@ -126,7 +144,7 @@ export function RoutedDetail({
   }
 
   const sendReply = async () => {
-    if (!ready || !message.loopId) return
+    if (!ready || !message.loopId || noReply) return
     if (await persist())
       await answerLoop(
         "send",
@@ -134,24 +152,46 @@ export function RoutedDetail({
         "Sent"
       )
   }
-  const rewrite = (how: string) => {
+  // A new loop id or a changed Suggest line ends the wait: STAR has added the item again.
+  const rewriting =
+    rewrite !== null &&
+    (message.loopId === null ||
+      (message.loopId === rewrite.loopId &&
+        (loop === undefined || loop.suggestion === rewrite.suggestion)))
+  const failed =
+    rewrite !== null && !rewriting
+      ? (/\(redraft failed: (.+)\)$/.exec(loop?.title ?? "")?.[1] ?? null)
+      : null
+  // I-11: a draft that holds only its first line is not a reply to edit or send.
+  const noReply = ready && saved.trim() === ""
+  const whyNoDraft = /^no draft: (.+)$/.exec(loop?.suggestion ?? "")?.[1]
+  const askRewrite = async (how: string) => {
     if (!ready || !message.loopId) return
     const text = how.trim()
     if (!text) {
-      toast("Tell STAR what to change first.")
+      toast("Say what to change first.")
       return
     }
-    void answerLoop(
-      `rewrite: ${text}`,
-      `STAR is rewriting it: "${text}".`,
-      undefined,
-      () => {
-        setEdited(null)
-        setAsk("")
-      }
-    )
+    if (!(await persist())) return
+    const loopId = message.loopId
+    // The Suggest line as it is now, so a loops query still loading never records null for a line with text.
+    const items = loops.data ?? (await loops.refetch()).data
+    const suggestion = items?.find((l) => l.id === loopId)?.suggestion ?? null
+    try {
+      await redraft.mutateAsync({ loop: loopId, how: text })
+      onRewrite({ how: text, loopId, suggestion })
+      setEdited(null)
+      setAsk("")
+    } catch (error) {
+      toast.error(`Couldn't ask for a rewrite: ${errorMessage(error)}`)
+    }
   }
-  const disabled = !ready || !message.loopId || answer.isPending
+  const disabled =
+    !ready ||
+    !message.loopId ||
+    answer.isPending ||
+    redraft.isPending ||
+    rewriting
   const saveStatus = () => {
     if (save.isPending) return "Saving…"
     if (save.isError) return "Not saved"
@@ -192,7 +232,7 @@ export function RoutedDetail({
                   </span>
                 )}
               </span>
-              <span className="text-sm leading-6 break-words">{text}</span>
+              <SlackText text={text} className="text-sm leading-6" />
             </div>
           </li>
         ))}
@@ -201,10 +241,12 @@ export function RoutedDetail({
         <Card className="gap-0 overflow-hidden p-0 focus-within:ring-2 focus-within:ring-ring">
           <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
             <span>Reply in {message.channel} as you</span>
-            <Badge variant="secondary">
-              <StarMark className="size-3" />
-              Drafted by STAR
-            </Badge>
+            {!noReply && (
+              <Badge variant="secondary">
+                <StarMark className="size-3" />
+                Drafted for you
+              </Badge>
+            )}
           </div>
           {draft.isPending ? (
             <Skeleton className="m-4 h-20" />
@@ -222,24 +264,45 @@ export function RoutedDetail({
                 Try again
               </Button>
             </div>
+          ) : noReply ? (
+            <p
+              role="status"
+              className="px-4 py-3 text-sm text-muted-foreground"
+            >
+              {whyNoDraft
+                ? `No draft yet: ${whyNoDraft}`
+                : "No draft yet. When the drafter can't write one, Needs you says why."}
+            </p>
           ) : (
             <Textarea
               aria-label="Your reply"
+              readOnly={rewriting}
               rows={3}
               value={value}
               onChange={(e) => setEdited(e.target.value)}
               onBlur={() => void persist()}
-              className="block min-h-[96px] w-full resize-y rounded-none border-0 px-4 py-3 text-[15px] leading-7 shadow-none focus-visible:ring-0"
+              className="block min-h-[96px] w-full resize-y rounded-none border-0 px-4 py-3 text-base leading-7 shadow-none focus-visible:ring-0 md:text-sm"
             />
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
-            <p className="text-xs text-muted-foreground" aria-live="polite">
-              {saveStatus()}
+            <p
+              className={cn(
+                "text-xs text-muted-foreground",
+                failed && !rewriting && "text-stop-fg"
+              )}
+              aria-live="polite"
+            >
+              {rewriting
+                ? "Rewriting…"
+                : failed
+                  ? `Couldn't rewrite it: ${failed}`
+                  : saveStatus()}
             </p>
             <div className="flex gap-2">
               <Button
                 variant="ghost"
                 size="sm"
+                className="pointer-coarse:h-11"
                 disabled={disabled}
                 onClick={() =>
                   void answerLoop(
@@ -251,36 +314,42 @@ export function RoutedDetail({
               >
                 Skip
               </Button>
-              <Button
-                size="sm"
-                disabled={disabled}
-                onClick={() => void sendReply()}
-              >
-                <Send className="size-3.5" />
-                Send reply
-              </Button>
+              {!noReply && (
+                <Button
+                  size="sm"
+                  className="pointer-coarse:h-11"
+                  disabled={disabled}
+                  onClick={() => void sendReply()}
+                >
+                  <Send className="size-3.5" />
+                  Send reply
+                </Button>
+              )}
             </div>
           </div>
         </Card>
       ) : (
         <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-          STAR hasn't drafted a reply yet. It drafts one on its next tick.
+          No draft yet. When the drafter can't write one, Needs you says why.
         </p>
       )}
       <div className="flex flex-col gap-2">
-        <Label htmlFor={`ask-${message.id}`}>Ask STAR to rewrite it</Label>
+        <Label htmlFor={`ask-${message.id}`}>
+          Ask the drafter to rewrite it
+        </Label>
         <div className="flex gap-2">
           <Input
             id={`ask-${message.id}`}
             value={ask}
             onChange={(e) => setAsk(e.target.value)}
             placeholder="Shorter, add the PR link, less formal"
-            className="h-9"
+            className="h-9 pointer-coarse:h-11"
           />
           <Button
             variant="outline"
+            className="pointer-coarse:h-11"
             disabled={disabled}
-            onClick={() => rewrite(ask)}
+            onClick={() => void askRewrite(ask)}
           >
             <RefreshCw className="size-3.5" />
             Rewrite
@@ -292,7 +361,7 @@ export function RoutedDetail({
               key={chip}
               variant="outline"
               size="sm"
-              className="h-7 rounded-full px-3 text-xs"
+              className="h-7 rounded-full px-3 text-xs pointer-coarse:h-11"
               disabled={disabled}
               onClick={() => setAsk(chip.toLowerCase())}
             >
@@ -325,7 +394,7 @@ export function UnroutedDetail({
       toast.success(
         target === "none"
           ? "Dropped. STAR will not see it."
-          : "Routed. That STAR drafts a reply on its next tick."
+          : `Routed to ${target}.`
       )
     } catch (error) {
       toast.error(`Couldn't route it: ${errorMessage(error)}`)
@@ -348,9 +417,10 @@ export function UnroutedDetail({
           </p>
         </div>
       </div>
-      <p className="rounded-xl border bg-muted px-4 py-3 text-sm leading-6 break-words">
-        {message.text}
-      </p>
+      <SlackText
+        text={message.text}
+        className="rounded-xl border bg-muted px-4 py-3 text-sm leading-6"
+      />
       <Card className="gap-3 p-4">
         <Label htmlFor={`route-${message.id}`}>Send it to a project</Label>
         <div className="flex gap-2">
@@ -358,7 +428,7 @@ export function UnroutedDetail({
             <SelectTrigger
               id={`route-${message.id}`}
               aria-label="Project"
-              className="h-9 flex-1"
+              className="h-9 flex-1 pointer-coarse:h-11"
             >
               <SelectValue />
             </SelectTrigger>
@@ -371,7 +441,11 @@ export function UnroutedDetail({
               <SelectItem value="none">Not for STAR</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={() => void go()} disabled={route.isPending}>
+          <Button
+            onClick={() => void go()}
+            disabled={route.isPending}
+            className="pointer-coarse:h-11"
+          >
             Route it
           </Button>
         </div>

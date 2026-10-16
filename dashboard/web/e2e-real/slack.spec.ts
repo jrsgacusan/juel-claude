@@ -50,3 +50,29 @@ test("the watcher's status shows, a message routes, and a draft edit saves", asy
       "to: slack C0E2E 1760000000.000100\nYes, it lands today after the review, around 5 pm.\n"
     )
 })
+
+test.describe("on a phone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  })
+
+  test("a message opens on its own and Back returns to the list", async ({
+    page,
+  }) => {
+    await openApp(page, "/sample/slack")
+    const list = page.getByRole("region", { name: "Messages" })
+    await list
+      .getByRole("button", { name: /Ria .*Is csv-import landing today\?/ })
+      .click()
+    const reply = page.getByRole("region", { name: "Reply" })
+    await expect(reply.getByRole("textbox", { name: "Your reply" })).toHaveCSS(
+      "font-size",
+      "16px"
+    )
+    await expect(list).toBeHidden()
+    await reply.getByRole("button", { name: "Back to Slack replies" }).click()
+    await expect(list).toBeVisible()
+  })
+})

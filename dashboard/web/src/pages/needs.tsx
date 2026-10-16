@@ -12,13 +12,13 @@ import {
   refreshFailed,
 } from "@/components/page-state"
 import { CountTabs } from "@/components/count-tabs"
+import { ListDetail, useListSelection } from "@/components/list-detail"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { age } from "@/lib/format"
 import { groupOf, isAnswered, kindOf, type LoopGroup } from "@/lib/loops"
 import { cn } from "@/lib/utils"
-import { useSearchParam } from "@/lib/use-search-param"
 import { LoopDetail } from "./needs-detail"
 
 type Tab = "all" | LoopGroup
@@ -32,7 +32,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 export function NeedsPage() {
   const { project = "" } = useParams()
   const loops = useLoops(project)
-  const [loopParam, setLoopParam] = useSearchParam("loop")
+  const { value: loopParam, select, back } = useListSelection("loop")
   const [tab, setTab] = useState<Tab>("all")
   // Answers sent from this page, by loop id, until STAR closes the item.
   const [sent, setSent] = useState<
@@ -94,7 +94,7 @@ export function NeedsPage() {
   )
   const selected =
     loops.data!.find((l) => l.id === loopParam) ?? list[0] ?? loops.data![0]
-  const select = (id: string) => setLoopParam(id)
+  const showDetail = loops.data!.some((l) => l.id === loopParam)
   const sentOf = (loop: Loop) =>
     sent[loop.id]?.text ?? (isAnswered(loop) ? loop.answer : null)
 
@@ -107,81 +107,86 @@ export function NeedsPage() {
           onRetry={() => void loops.refetch()}
         />
       )}
-      <div className="grid min-h-0 flex-1 md:h-full md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
-        <section
-          aria-label="Open loops"
-          className="flex min-h-0 min-w-0 flex-col border-b md:border-r md:border-b-0"
-        >
-          <div className="flex flex-col gap-3 p-4 pb-3">
-            <div className="flex items-baseline justify-between gap-2">
-              <h1 className="text-base font-semibold">Needs you</h1>
-              <span className="text-xs text-muted-foreground">
-                Blocked work first
-              </span>
+      <ListDetail
+        showDetail={showDetail}
+        onBack={back}
+        backLabel="Needs you"
+        listLabel="Open loops"
+        detailLabel="Answer"
+        columns="md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]"
+        list={
+          <>
+            <div className="flex flex-col gap-3 p-4 pb-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <h1 className="text-base font-semibold">Needs you</h1>
+                <span className="text-xs text-muted-foreground">
+                  Blocked work first
+                </span>
+              </div>
+              <CountTabs
+                tabs={TABS}
+                value={tab}
+                onChange={setTab}
+                count={count}
+              />
             </div>
-            <CountTabs
-              tabs={TABS}
-              value={tab}
-              onChange={setTab}
-              count={count}
-            />
-          </div>
-          <ScrollArea className="min-h-0 flex-1">
-            <ul className="flex flex-col gap-1 px-2 pb-3">
-              {list.map((loop) => {
-                const { label, icon: Icon } = kindOf(loop.kind)
-                const on = loop.id === selected?.id
-                return (
-                  <li key={loop.id}>
-                    <button
-                      type="button"
-                      onClick={() => select(loop.id)}
-                      aria-current={on ? "true" : undefined}
-                      className={cn(
-                        "flex w-full min-w-0 flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                        on
-                          ? "border-border bg-card shadow-sm"
-                          : "border-transparent hover:bg-muted"
-                      )}
-                    >
-                      <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                        <Icon className="size-3.5 shrink-0" />
-                        <span className="shrink-0">{label}</span>
-                        <span
-                          className={cn(
-                            "truncate font-mono",
-                            loop.askedAt === null && "ml-auto"
-                          )}
-                        >
-                          {loop.item}
-                        </span>
-                        {loop.askedAt !== null && (
-                          <span className="ml-auto shrink-0 tabular-nums">
-                            {age(loop.askedAt)}
-                          </span>
+            <ScrollArea className="min-h-0 flex-1">
+              <ul
+                key={tab}
+                className="motion-fade-in flex flex-col gap-1 px-2 pb-3"
+              >
+                {list.map((loop) => {
+                  const { label, icon: Icon } = kindOf(loop.kind)
+                  const on = loop.id === selected?.id
+                  return (
+                    <li key={loop.id}>
+                      <button
+                        type="button"
+                        onClick={() => select(loop.id)}
+                        aria-current={on ? "true" : undefined}
+                        className={cn(
+                          "flex w-full min-w-0 flex-col gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                          on
+                            ? "border-border bg-card shadow-sm"
+                            : "border-transparent hover:bg-muted"
                         )}
-                      </span>
-                      <span className="line-clamp-2 text-sm leading-snug font-medium break-words">
-                        {loop.title}
-                      </span>
-                      {sentOf(loop) && (
-                        <Badge variant="done">
-                          <Check className="size-3" />
-                          Sent to STAR
-                        </Badge>
-                      )}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </ScrollArea>
-        </section>
-        <section
-          aria-label="Answer"
-          className="min-h-0 min-w-0 md:overflow-y-auto"
-        >
-          {selected && (
+                      >
+                        <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                          <Icon className="size-3.5 shrink-0" />
+                          <span className="shrink-0">{label}</span>
+                          <span
+                            className={cn(
+                              "truncate font-mono",
+                              loop.askedAt === null && "ml-auto"
+                            )}
+                          >
+                            {loop.item}
+                          </span>
+                          {loop.askedAt !== null && (
+                            <span className="ml-auto shrink-0 tabular-nums">
+                              {age(loop.askedAt)}
+                            </span>
+                          )}
+                        </span>
+                        <span className="line-clamp-2 text-sm leading-snug font-medium break-words">
+                          {loop.title}
+                        </span>
+                        {sentOf(loop) && (
+                          <Badge variant="done">
+                            <Check className="size-3" />
+                            Sent to STAR
+                          </Badge>
+                        )}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </ScrollArea>
+          </>
+        }
+        detail={
+          selected && (
             <LoopDetail
               key={selected.id}
               project={project}
@@ -193,9 +198,9 @@ export function NeedsPage() {
                 setSent((s) => ({ ...s, [selected.id]: { text, nudged } }))
               }
             />
-          )}
-        </section>
-      </div>
+          )
+        }
+      />
     </>
   )
 }
