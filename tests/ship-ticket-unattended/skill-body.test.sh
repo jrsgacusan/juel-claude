@@ -314,5 +314,17 @@ has "C143b a stalled gate is not red and not run again" 'It is not red and it is
 has "C143c the escalation list names a stalled gate" 'or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and was stopped)'
 has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.'
 grep -qF 'stalled, the command printed nothing for' "$ROOT/skills/ship-ticket/gate-lock.sh" && pass "C143e gate-lock.sh prints the line the skill quotes" || fail "C143e gate-lock.sh prints the line the skill quotes"
+has "C145a the ignore entries are anchored to the repo root" 'Ensure the repo'"'"'s `.gitignore` ignores the docs root and the scratch folder with entries anchored to the repo root, so no other folder of the same name is ignored'
+has "C145b the entries it names" '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`. Add each one that is absent.'
+has "C145c an exact unanchored line is replaced in the same change" 'In the same change, replace a line that is exactly `superpowers/` with the docs root'"'"'s entry, and a line that is exactly `.superpowers/` with `/.superpowers/`'
+grep -qF 'unanchored so they match at any depth' "$SKILL" && fail "C145d the unanchored rule is gone" || pass "C145d the unanchored rule is gone"
+g "C145e the ledger's exclude entry is anchored" "echo '/.superpowers/' >>"
+IG=$(mktemp -d); trap 'rm -rf "$IG"' EXIT
+(cd "$IG" && git init -q . && mkdir -p docs/superpowers/plans .superpowers/sdd tests/superpowers tests/.superpowers && touch docs/superpowers/plans/p.md .superpowers/sdd/l.md tests/superpowers/a.test.sh tests/.superpowers/x)
+ig() { (cd "$IG" && git check-ignore -q --no-index -- "$1"); }
+printf '/docs/superpowers/\n/.superpowers/\n' > "$IG/.gitignore"
+ig docs/superpowers/plans/p.md && ig .superpowers/sdd/l.md && ! ig tests/superpowers/a.test.sh && ! ig tests/.superpowers/x && pass "C145f the anchored entries ignore the docs root and the scratch folder, and nothing under tests/" || fail "C145f the anchored entries in a scratch repo"
+printf 'superpowers/\n.superpowers/\n' > "$IG/.gitignore"
+ig tests/superpowers/a.test.sh && pass "C145g (control) the old unanchored line ignores tests/superpowers/" || fail "C145g (control) the old unanchored line"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
