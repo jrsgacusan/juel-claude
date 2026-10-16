@@ -147,7 +147,7 @@ export function Conversation({
         : { ...pending, failed: "The turn did not finish." }
     )
     queueMicrotask(() => setStreaming(null))
-  }, [briefing.data, id, pending, project])
+  }, [briefing.data, briefing.dataUpdatedAt, id, pending, project])
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" })
