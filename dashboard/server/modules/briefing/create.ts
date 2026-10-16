@@ -1,14 +1,16 @@
-// Turns a briefing's draft into a ticket (brief D5, D8, D9, D13, B6-B8): an issue through gh for
+// Turns a briefing's draft into a ticket (brief D5, D8, D9, follow-up D1, B6-B8): an issue through gh for
 // github, an issue through the tracker's MCP create tool in a headless haiku run for linear and jira
 // when that tool is connected, else a STAR spec item. created.json marks the create before anything is
-// made (D8), then records the made ticket, then an inbox file tells STAR (at least once, D13).
-import { mkdir, rm } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+// made (D8), then records the made ticket's inbox path before its file is written; the file reaches STAR
+// exactly once (follow-up D1).
+import { lstat, mkdir, rm } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
 import { contentOf, message, parseObject, runCli, tail } from './claude.ts'
 import type { CliEvent } from './claude.ts'
 import { hex4, stamp } from './ids.ts'
-import { rewriteCreated, writeCreated, writeNew } from './store.ts'
+import { ledgerRefs } from './ledger.ts'
+import { readText, rewriteCreated, writeCreated, writeNew, linkNew } from './store.ts'
 import type { Created } from './store.ts'
 import type { Ticket } from './ticket.ts'
 import type { Tracker } from './tracker.ts'
@@ -42,9 +44,10 @@ export type CreateContext = {
   log: (line: string) => void
 }
 /**
- * A failed create carries `made` when the ticket exists but could not be recorded or sent to STAR's
- * inbox, so it must not be made again, and `maybeMade` when it may exist (the tracker's create tool
- * ran, or gh succeeded, without saying what it made); the briefing then stays marked.
+ * A failed create carries `made` when the ticket exists but could not be recorded, sent to STAR's
+ * inbox, or sent but not recorded as queued, so it must not be made again, and `maybeMade` when it
+ * may exist (the tracker's create tool ran, or gh succeeded, without saying what it made); the
+ * briefing then stays marked.
  */
 export type CreateOutcome = { ok: true; created: Created } | { ok: false; error: string; made?: Created; maybeMade?: boolean }
 type Made = { ok: true; ref: string; url: string } | { ok: false; error: string; maybeMade?: boolean }
@@ -52,6 +55,7 @@ type Made = { ok: true; ref: string; url: string } | { ok: false; error: string;
 // A ref is one token, so it stays one line of the inbox file; a url is https with no whitespace.
 const REF = /^[A-Za-z0-9][A-Za-z0-9_.#-]*$/
 const HTTPS = /^https:\/\/\S+$/
+const INBOX_NAME = /^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{4}\.md$/
 
 /** The issue body, and the spec item's body under its frontmatter (D9, B7). */
 export function ticketBody(draft: Ticket): string {
@@ -84,13 +88,23 @@ export async function writeSpecItem(home: string, project: string, draft: Ticket
   throw new Error(`no free spec name for ${slug} in ${dir}`)
 }
 
-/** A new STAR inbox file (skills/star/SKILL.md:244-254); another suffix on a clash, never an overwrite. */
-export async function writeInbox(home: string, repo: string, ref: string, now: Date = new Date(), suffix: () => string = hex4): Promise<string> {
+/** STAR's inbox format (skills/star/SKILL.md:245-255). */
+export function inboxContent(repo: string, ref: string): string {
+  return `repo: ${repo}\nrefs:\n- ${ref}\n`
+}
+
+/** Picks a free STAR inbox path and creates the folder, writing nothing; the caller's link is what never overwrites. */
+export async function drawInbox(home: string, now: Date = new Date(), suffix: () => string = hex4): Promise<string> {
   const dir = join(home, 'inbox')
   await mkdir(dir, { recursive: true })
   for (let tries = 0; tries < 100; tries++) {
     const path = join(dir, `${stamp(now)}-${suffix()}.md`)
-    if (await writeNew(path, `repo: ${repo}\nrefs:\n- ${ref}\n`)) return path
+    try {
+      await lstat(path)
+    } catch (err) {
+      if ((err as { code?: string }).code === 'ENOENT') return path
+      throw err
+    }
   }
   throw new Error(`no free inbox name in ${dir}`)
 }
@@ -238,9 +252,9 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
     } catch (err) {
       return unmark(ctx.dir, { ok: false, error: `the spec item could not be written: ${message(err)}` })
     }
-    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at, state: 'made', inbox: null }
+    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at, state: 'made', inbox: null, queued: false }
   } else {
-    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at, state: 'made', inbox: null }
+    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at, state: 'made', inbox: null, queued: false }
   }
   const name = created.ref ?? created.specPath ?? ''
   ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: made ${name} (${created.url})`)
@@ -249,34 +263,90 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
   } catch (err) {
     return { ok: false, error: `${name} was made, but it could not be recorded: ${message(err)}. The briefing stays marked, so no second ticket is made`, made: created }
   }
-  return queueCreated(ctx, created)
+  return queueCreated(ctx, created, { fresh: true })
 }
 
 /**
- * Tells STAR about a made ticket: a new inbox file, then created.json rewritten with its path. When
- * the rewrite fails the inbox file is taken back, so created.json keeps `inbox: null` and pressing
- * Create again runs this again (the create route). STAR hears of the ticket at least once; a
- * duplicate inbox file after an interrupted create is accepted (D13).
+ * Tells STAR about a made ticket exactly once (follow-up D1): record a path before writing its inbox
+ * file, then settle the record as queued. The file is read before STAR's ledger because STAR writes
+ * its ledger row before deleting an inbox file, so an absent file with no row was never written.
+ * `fresh` skips the ledger only for a ticket made in the same call; a resume always reads it.
  */
-export async function queueCreated(ctx: Pick<CreateContext, 'home' | 'repo' | 'dir'>, created: Created): Promise<CreateOutcome> {
+export async function queueCreated(ctx: Pick<CreateContext, 'project' | 'home' | 'repo' | 'dir' | 'log'>, created: Created, options: { fresh?: boolean } = {}): Promise<CreateOutcome> {
   const name = created.ref ?? created.specPath ?? ''
-  let inbox: string
-  try {
-    inbox = await writeInbox(ctx.home, ctx.repo, name)
-  } catch (err) {
-    return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: created }
+  const content = inboxContent(ctx.repo, name)
+  const inbox = join(ctx.home, 'inbox')
+  const trusted = (value: string | null | undefined): string | null => {
+    if (typeof value !== 'string' || dirname(value) !== inbox || !INBOX_NAME.test(basename(value))) return null
+    return value
   }
-  const queued: Created = { ...created, inbox }
-  try {
-    await rewriteCreated(ctx.dir, queued)
-  } catch (err) {
-    // Take the inbox file back, so the next press writes exactly one.
+  let record = created
+  let path = trusted(created.inbox)
+  if (typeof created.inbox === 'string' && path === null) {
+    ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: the record names ${created.inbox}, outside STAR's inbox ${inbox}: drawing a new inbox path`)
+  }
+  const settle = async (how: 'file' | 'ledger', found = false): Promise<CreateOutcome> => {
+    const settled: Created = { ...record, queued: true }
     try {
-      await rm(inbox, { force: true })
-    } catch (undo) {
-      return { ok: false, error: `${name} is in STAR's inbox (${inbox}), but created.json could not record it (${message(err)}) and the inbox file could not be taken back (${message(undo)}): remove it before pressing Create again`, made: created }
+      await rewriteCreated(ctx.dir, settled)
+    } catch (err) {
+      if (how === 'ledger') {
+        return { ok: false, error: `STAR's ledger already has ${name}, but created.json could not record it: ${message(err)}. Press Create again to record it; no inbox file is written.`, made: record }
+      }
+      return { ok: false, error: `${name} is in STAR's inbox (${path}), but created.json could not record it: ${message(err)}. Press Create again to record it; no second inbox file is written.`, made: record }
     }
-    return { ok: false, error: `${name} was made, but created.json could not record its inbox file: ${message(err)}. Press Create again to send it to STAR.`, made: created }
+    if (how === 'ledger' && !options.fresh) ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: STAR's ledger already has ${name}: recorded as queued, no inbox file written`)
+    if (how === 'file' && found) ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: ${name} is already in STAR's inbox (${path}): recorded as queued`)
+    return { ok: true, created: settled }
   }
-  return { ok: true, created: queued }
+  for (let round = 0; round < 100; round++) {
+    if (path === null) {
+      let drawn: string
+      try {
+        drawn = await drawInbox(ctx.home)
+      } catch (err) {
+        return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: record }
+      }
+      const ahead: Created = { ...record, inbox: drawn, queued: false }
+      try {
+        await rewriteCreated(ctx.dir, ahead)
+      } catch (err) {
+        return { ok: false, error: `${name} was made, but created.json could not record its inbox path: ${message(err)}. No inbox file was written; press Create again to send it to STAR.`, made: record }
+      }
+      record = ahead
+      path = drawn
+    }
+    let existing: string | null
+    try {
+      existing = await readText(path)
+    } catch (err) {
+      return { ok: false, error: `${name} was made, but its recorded inbox path ${path} could not be read: ${message(err)}. Nothing was written; move whatever is at that path aside, then press Create again.`, made: record }
+    }
+    if (existing === content) {
+      return settle('file', true)
+    } else if (existing === null) {
+      if (!options.fresh) {
+        let ledger: string[]
+        try {
+          ledger = await ledgerRefs(ctx.home)
+        } catch (err) {
+          return { ok: false, error: `${name} was made, but STAR's ledger could not be checked for it, so no inbox file was written: ${message(err)}. Press Create again once the dashboard can read STAR's ledger.`, made: record }
+        }
+        if (ledger.includes(name)) {
+          return settle('ledger')
+        }
+      }
+      try {
+        if (!await linkNew(path, content)) continue
+      } catch (err) {
+        return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: record }
+      }
+      return settle('file')
+    } else {
+      ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: ${path} holds another file, so ${name} gets a new inbox path`)
+      path = null
+      continue
+    }
+  }
+  return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: no free inbox name in ${inbox}. Press Create again to send it to STAR.`, made: record }
 }
