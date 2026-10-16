@@ -77,3 +77,16 @@ test('the answer names the owner, and every message says why (D17)', () => {
     cli: false,
   })
 })
+
+test('the real-stack fake claude answers the watcher check with something parseEnvelope accepts', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const fake = new URL('../../../web/e2e-real/bin/claude', import.meta.url).pathname
+  const env = { PATH: process.env.PATH ?? '' }
+  const stdout = execFileSync(process.execPath, [fake, '-p', '--output-format', 'json'], { input: 'check', env, encoding: 'utf8' })
+  const out = parseEnvelope(stdout)
+  assert.equal(out.kind, 'messages')
+  if (out.kind !== 'messages') return
+  assert.equal(out.messages.length, 2)
+  assert.ok(out.owner)
+  assert.ok(out.messages.every(m => m.why === 'asks'))
+})
