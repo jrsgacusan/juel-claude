@@ -31,8 +31,9 @@ test("the watcher's status shows, a message routes, and a draft edit saves", asy
       ),
     ])
   await page
+    // A routed message that STAR has drafted a reply to shows "Draft ready" (src/pages/slack.tsx); "Routed" marks one routed by hand.
     .getByRole("button", {
-      name: /Ria .*Is csv-import landing today\?.*Routed/,
+      name: /Ria .*Is csv-import landing today\?.*Draft ready/,
     })
     .click()
   const box = reply.getByRole("textbox", { name: "Your reply" })
