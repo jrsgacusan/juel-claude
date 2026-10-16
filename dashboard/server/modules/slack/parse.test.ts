@@ -54,6 +54,14 @@ test('one invalid element fails the whole answer', () => {
   }
 })
 
+test('a message with a missing or invalid why is dropped and counted, the rest of the answer stands', () => {
+  const good = msg({ ts: '1699999999.000300' })
+  const noWhy = { ...msg(), why: undefined }
+  const badWhy = msg({ why: 'bogus' as never })
+  const out = parseResult(JSON.stringify([noWhy, good, badWhy]))
+  assert.deepEqual(out, { kind: 'messages', workspace: null, messages: [good], owner: null, dropped: 2 })
+})
+
 test('anything else is not the expected JSON, and the error never quotes the answer', () => {
   for (const text of ['Here is SECRET-TEXT', '{"messages": "SECRET-TEXT"}', '42', 'null', '{"workspace": 3, "messages": []}', '[{"text": "SECRET-TEXT"']) {
     const out = parseResult(text)
@@ -66,11 +74,6 @@ test('the answer names the owner, and every message says why (D17)', () => {
   const owner = { id: 'U0OWNER', displayName: 'Juel', realName: 'Juel Rei Gacusan' }
   const dm = msg({ channelId: 'D1', why: 'dm' })
   assert.deepEqual(parseResult(JSON.stringify({ workspace: 'Acme', owner, messages: [dm] })), { kind: 'messages', workspace: 'Acme', owner, messages: [dm] })
-  assert.deepEqual(parseResult(JSON.stringify([msg(), { ...msg(), why: 'fyi' }])), {
-    kind: 'error',
-    error: 'the answer is not the expected JSON: message 2: why is not dm, mention or asks',
-    cli: false,
-  })
   assert.deepEqual(parseResult(JSON.stringify({ workspace: 'Acme', owner: { id: 7 }, messages: [] })), {
     kind: 'error',
     error: 'the answer is not the expected JSON: owner is not {id, displayName, realName}',

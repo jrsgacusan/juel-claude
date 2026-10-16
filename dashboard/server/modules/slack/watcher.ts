@@ -354,6 +354,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     const parsed = parseEnvelope(out.stdout)
     if (parsed.kind === 'disconnected') return fail('not-connected', `Slack is not connected: ${parsed.why}`, false, stderr)
     if (parsed.kind === 'error') return fail(parsed.cli ? 'cli-error' : 'bad-json', parsed.error, undefined, stderr)
+    if (parsed.dropped) log(`slack check: ${parsed.dropped} message(s) dropped for a missing or invalid why`)
     const names = ownerNames(parsed.owner, settings.names)
     const kept = parsed.messages.filter(m => keeps(m, parsed.owner?.id ?? null, names))
     let committed: Committed
