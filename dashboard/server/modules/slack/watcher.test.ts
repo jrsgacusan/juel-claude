@@ -197,6 +197,35 @@ test('a failed run keeps the last 5 lines of its stderr in status.json; a good c
   await cleanup(w)
 })
 
+test('the filter drops what is not for the owner before routing: no seen entry, no inbox file (D17)', async () => {
+  const w = await world()
+  const app = await project(w, 'app', { briefs: { 'fix.md': brief({ name: 'fix', ref: 'APP-77' }) } })
+  const s = stub([app])
+  await play(w, [answer([
+    msg({ channelId: 'G0GROUP', channel: 'a DM', ts: '1700000101.000000', text: 'guys para saan yung meeting APP-77', why: 'dm' }),
+    msg({ channelId: 'G0GROUP', channel: 'a DM', ts: '1700000102.000000', text: '@Melbs re PR APP-77', why: 'mention' }),
+    msg({ channelId: 'D0JUEL', channel: 'a DM', ts: '1700000103.000000', text: 'can you check the build?', why: 'dm' }),
+  ])])
+  assert.deepEqual(await createSlack(s.api, { now: () => NOW, everyMs: HOUR }).check(), { ok: true, routed: 0, unrouted: 1 })
+  assert.deepEqual(Object.keys(await readState(w, 'seen.json')), ['D0JUEL-1700000103.000000'])
+  assert.deepEqual(await inboxFiles(app), [])
+  assert.ok(s.logs.includes('slack check: 2 dropped by the filter'), s.logs.join('\n'))
+  assert.ok(s.logs.includes('slack check: 3 found, 0 routed, 1 unrouted, 0 pruned'), s.logs.join('\n'))
+  await cleanup(w)
+})
+
+test('the prompt names slack.names as the owner\'s extra names, or none', async () => {
+  const w = await world()
+  const slack = createSlack(stub([]).api, { now: () => NOW, everyMs: HOUR })
+  await slack.check()
+  assert.ok((await calls(w)).at(-1)?.stdin.includes('these extra names: none.'))
+  await mkdir(join(w.home, '.juel'), { recursive: true })
+  await writeFile(join(w.home, '.juel', 'dashboard.json'), JSON.stringify({ slack: { names: ['Jrs', 'JR'] } }))
+  await slack.check()
+  assert.ok((await calls(w)).at(-1)?.stdin.includes('these extra names: Jrs, JR.'))
+  await cleanup(w)
+})
+
 const FAILURES: { name: string; scenario: Scenario; connected: boolean; error: RegExp; kind: string; opts?: SlackOptions }[] = [
   {
     name: 'Slack not connected',

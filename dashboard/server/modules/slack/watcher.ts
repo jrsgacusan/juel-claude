@@ -14,6 +14,7 @@ import { parseEnvelope } from './parse.ts'
 import { readDrafts, readOpenReplies, replyOf } from './replies.ts'
 import type { Draft, OpenReply } from './replies.ts'
 import { routeMessage, signalsOf } from './route.ts'
+import { keeps, ownerNames } from './filter.ts'
 import { loadConfig, pluginIds, readSlackSettings } from './settings.ts'
 import type { Config } from './settings.ts'
 import {
@@ -81,13 +82,14 @@ export function windowStart(lastCheck: string | null, now: Date): Date {
   return new Date(Math.min(start, now.getTime() - 2 * MINUTE_MS))
 }
 
-function fillPrompt(template: string, since: Date, now: Date): string {
+function fillPrompt(template: string, since: Date, now: Date, names: string[]): string {
   const unix = (at: Date): string => String(Math.floor(at.getTime() / 1000))
   return template
     .replaceAll('{{since_ts}}', unix(since))
     .replaceAll('{{since_iso}}', since.toISOString())
     .replaceAll('{{now_ts}}', unix(now))
     .replaceAll('{{now_iso}}', now.toISOString())
+    .replaceAll('{{names}}', names.length > 0 ? names.join(', ') : 'none')
 }
 
 const lastLine = (text: string): string => oneLine(text.trim().split('\n').pop() ?? '')
@@ -282,7 +284,8 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       return fail('state', errorText(err))
     }
     const since = windowStart(lastCheck, start)
-    const out = await runCli({ bin, args: argsOf(config, pluginIds(config, readSlackSettings()).slack), cwd: slackDir(), input: fillPrompt(template, since, start), timeoutMs })
+    const settings = readSlackSettings()
+    const out = await runCli({ bin, args: argsOf(config, pluginIds(config, settings).slack), cwd: slackDir(), input: fillPrompt(template, since, start, settings.names), timeoutMs })
     const stderr = lastLines(out.stderr, 5)
     if (out.spawnError !== null) return fail('spawn', `claude could not start: ${oneLine(out.spawnError)}`)
     if (out.timedOut) return fail('timeout', `claude did not answer within ${Math.round(timeoutMs / 1000)} s`, undefined, stderr)
@@ -294,15 +297,18 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     const parsed = parseEnvelope(out.stdout)
     if (parsed.kind === 'disconnected') return fail('not-connected', `Slack is not connected: ${parsed.why}`, false, stderr)
     if (parsed.kind === 'error') return fail(parsed.cli ? 'cli-error' : 'bad-json', parsed.error, undefined, stderr)
+    const names = ownerNames(parsed.owner, settings.names)
+    const kept = parsed.messages.filter(m => keeps(m, parsed.owner?.id ?? null, names))
     let applied: Applied
     try {
-      applied = await apply(parsed.messages, parsed.workspace, start)
+      applied = await apply(kept, parsed.workspace, start)
     } catch (err) {
       return fail('state', errorText(err))
     }
     for (const [project, count] of applied.files) {
       if (!(await nudge(project))) log(`slack: STAR was not reached: ${count} inbox file(s) wait for its next tick`)
     }
+    if (parsed.messages.length > kept.length) log(`slack check: ${parsed.messages.length - kept.length} dropped by the filter`)
     log(`slack check: ${parsed.messages.length} found, ${applied.routed} routed, ${applied.unrouted} unrouted, ${applied.pruned} pruned`)
     if (applied.routed + applied.unrouted + applied.pruned > 0 || applied.statusMoved) emitChange()
     return { ok: true, routed: applied.routed, unrouted: applied.unrouted }

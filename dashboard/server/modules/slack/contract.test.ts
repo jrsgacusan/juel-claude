@@ -60,13 +60,19 @@ test('config.json pins read-only Slack tools and denies every other tool the con
 
 test('prompt.md asks for exactly the messages, exclusions and fields of the item, in the window', async () => {
   const prompt = await read('prompt.md')
-  for (const field of ['"channelId"', '"channel"', '"ts"', '"threadTs"', '"from"', '"text"', '"permalink"', '"thread"']) {
+  for (const field of ['"channelId"', '"channel"', '"ts"', '"threadTs"', '"from"', '"text"', '"permalink"', '"thread"', '"why"']) {
     assert.ok(prompt.includes(field), `no field ${field}`)
   }
   for (const phrase of [
-    "a DM or a group DM whose latest message is not the owner's",
-    'a mention of the owner',
-    'a thread the owner is in, a new question for the owner',
+    '"dm": in a 1:1 DM with the owner',
+    '"mention": it mentions the owner',
+    '"asks": it asks the owner for something',
+    'A group DM is never "dm"',
+    'thread messages meant for someone else',
+    '"owner"',
+    '"displayName"',
+    '"realName"',
+    '{{names}}',
     'bots',
     'thank-yous',
     'FYIs',
@@ -83,4 +89,5 @@ test('prompt.md asks for exactly the messages, exclusions and fields of the item
   ]) {
     assert.ok(prompt.includes(phrase), `prompt.md does not say: ${phrase}`)
   }
+  assert.ok(!prompt.includes('a new question for the owner'))
 })

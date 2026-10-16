@@ -7,7 +7,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } fro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { Message } from './state.ts'
+import type { Message, Owner } from './state.ts'
 import type { ModuleApi, Project, Req, Res } from './types.ts'
 
 /** What one fake run prints and how it ends. `wait` holds it, printing nothing, until release(). */
@@ -54,7 +54,9 @@ export const envelope = (result: unknown, extra: Record<string, unknown> = {}): 
     ...extra,
   })
 
-export const answer = (messages: Message[], workspace = 'Acme'): Scenario => ({ stdout: envelope({ workspace, messages }) })
+export const OWNER: Owner = { id: 'U0OWNER', displayName: 'Juel', realName: 'Juel Rei Gacusan' }
+
+export const answer = (messages: Message[], workspace = 'Acme', owner: Owner | null = OWNER): Scenario => ({ stdout: envelope({ workspace, owner, messages }) })
 
 export const msg = (over: Partial<Message> = {}): Message => ({
   channelId: 'C1',
@@ -65,6 +67,7 @@ export const msg = (over: Partial<Message> = {}): Message => ({
   text: 'is the CSV export landing today?',
   permalink: 'https://acme.slack.com/archives/C1/p1700000000000100',
   thread: [],
+  why: 'asks',
   ...over,
 })
 

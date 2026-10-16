@@ -4,10 +4,10 @@
 // the whole answer. Error texts never quote the answer, which holds message text: they are fixed
 // words, plus the envelope's subtype when claude reports an error.
 import { isObject, messageProblem, oneLine } from './state.ts'
-import type { Message } from './state.ts'
+import type { Message, Owner } from './state.ts'
 
 export type Parsed =
-  | { kind: 'messages'; workspace: string | null; messages: Message[] }
+  | { kind: 'messages'; workspace: string | null; messages: Message[]; owner: Owner | null }
   | { kind: 'disconnected'; why: string }
   | { kind: 'error'; error: string; cli: boolean }
 
@@ -40,6 +40,7 @@ export function parseResult(text: string): Parsed {
     return bad('the result is not JSON')
   }
   let workspace: string | null = null
+  let owner: Owner | null = null
   let list: unknown[]
   if (Array.isArray(data)) {
     list = data
@@ -50,6 +51,13 @@ export function parseResult(text: string): Parsed {
     if (!Array.isArray(data.messages)) return bad('the result has no messages array')
     if (data.workspace !== undefined && data.workspace !== null && typeof data.workspace !== 'string') return bad('workspace is not a string')
     workspace = typeof data.workspace === 'string' && data.workspace.trim() ? oneLine(data.workspace, 100) : null
+    if (data.owner !== undefined && data.owner !== null) {
+      const o = data.owner
+      if (!isObject(o) || typeof o.id !== 'string' || o.id.trim() === '' || typeof o.displayName !== 'string' || typeof o.realName !== 'string') {
+        return bad('owner is not {id, displayName, realName}')
+      }
+      owner = { id: oneLine(o.id, 100), displayName: oneLine(o.displayName, 100), realName: oneLine(o.realName, 100) }
+    }
     list = data.messages
   } else {
     return bad('the result is not an array or an object')
@@ -59,6 +67,7 @@ export function parseResult(text: string): Parsed {
     const why = messageProblem(item)
     if (why) return bad(`message ${i + 1}: ${why}`)
     const m = item as Message
+    if (m.why !== 'dm' && m.why !== 'mention' && m.why !== 'asks') return bad(`message ${i + 1}: why is not dm, mention or asks`)
     messages.push({
       channelId: m.channelId,
       channel: m.channel,
@@ -68,7 +77,8 @@ export function parseResult(text: string): Parsed {
       text: m.text,
       permalink: m.permalink,
       thread: [...m.thread],
+      why: m.why,
     })
   }
-  return { kind: 'messages', workspace, messages }
+  return { kind: 'messages', workspace, messages, owner }
 }

@@ -9,7 +9,10 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-/** One message as the check's answer gives it (the item's step 2). */
+/** Why a message waits on the owner (D17): a 1:1 DM, a mention, or it asks the owner for something. */
+export type Why = 'dm' | 'mention' | 'asks'
+export type Owner = { id: string; displayName: string; realName: string }
+/** One message as the check's answer gives it (the item's step 2). `why` is missing on entries written before D17. */
 export type Message = {
   channelId: string
   channel: string
@@ -19,6 +22,7 @@ export type Message = {
   text: string
   permalink: string
   thread: string[]
+  why?: Why
 }
 /**
  * A seen.json entry (D5): the message, when it was first seen, and its project (null while unrouted,
