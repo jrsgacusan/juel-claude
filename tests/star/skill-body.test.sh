@@ -751,5 +751,16 @@ has "#137 STAR records its gh login" '`gh api user --jq .login`'
 has "#137 star.json documents ghLogin" '"ghLogin": null'
 has "#137 the hook falls back to ghLogin" '`export GH_TOKEN="$(gh auth token --user <ghLogin>)"`'
 
+# review fixes for #124-#137
+S137="Record STAR's own \`gh\` login as \`ghLogin\`"
+S129R='| `held` "the hosted reviewer is not reviewing…" | `retry` | set `hostedDown` to null in `star.json` and close the item'
+S129C='(`grep -cE '\''^[^ ]+ pass [0-9]+ head='\'' HOME_DIR/reviews/<project>/<item>-hosted.log` prints `hostedReviewer.maxPasses`'
+S125='and the reference in `ref` (for a spec path, the path `import` printed)'
+has "#137 STAR records its own gh login as ghLogin" "$S137"
+has "#129 retry clears hostedDown and closes the item" "$S129R"
+has "#129 the merge order counts only pass lines" "$S129C"
+has "#125 the row's ref is the imported path" "$S125"
+grep -qF 'the raw reference in `ref`' "$SKILL" && fail "#125 no raw reference left in the Inbox step" || pass "#125 no raw reference left in the Inbox step"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -409,7 +409,7 @@ in this project, STAR's and every worker's, so `gh`, and every script that runs 
 The hook writes the command, never the token, and leaves a session that already has `GH_TOKEN`
 alone. The command must be quick and must not ask anything. With `tokenCmd` null, the hook keys the token to `ghLogin`, STAR's own `gh` login (start step 2): it writes `export GH_TOKEN="$(gh auth token --user <ghLogin>)"`, so every worker acts as the account STAR does, never the keyring's active one (#137). A `ghLogin` with any character outside `A-Za-z0-9-` writes nothing.
 
-`ownerApproval` (null when absent, so off) is the owner's standing grant in a repository with no second reviewer (#124): `{"login": "<the owner's GitHub login>", "since": "<iso>", "words": "<the owner's order>"}`. The merge gate reads it from this file (`pr-verify.sh --merge-gate --home HOME_DIR`), never from a flag: when its `login` is the PR's author and `review-rule.sh` prints `none` or `required 0` for the base, the gate passes without a second person's approval as `PASS self-approved under the owner's grant`, and every other condition still holds. A rule that requires an approval, or one that cannot be read, keeps the gate waiting. `merge.sh` then says so in the comment it posts before merging, and the babysit worker waits for no approval and requests no reviewer.
+`ownerApproval` (null when absent, so off) is the owner's standing grant in a repository with no second reviewer (#124): `{"login": "<the owner's GitHub login>", "since": "<iso>", "words": "<the owner's order>"}`. The merge gate reads it from this file (`pr-verify.sh --merge-gate --home HOME_DIR`), never from a flag: only without a hosted reviewer (`--hosted` never reads it), when its `login` is the PR's author and `review-rule.sh` prints `none` or `required 0` for the base, the gate passes without a second person's approval as `PASS self-approved under the owner's grant`, and every other condition still holds. A rule that requires an approval, or one that cannot be read, keeps the gate waiting. `merge.sh` then says so in the comment it posts before merging, and the babysit worker waits for no approval and requests no reviewer.
 
 `hostedReviewer.refreshOutsideCap` (true when absent) says whether a status refresh after the
 last pass stays outside `maxPasses`. A project whose own rule counts every run the hosted reviewer
@@ -736,7 +736,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    file. No `project.orcaRepo` in `star.json` yet: look the repo path up in `orca repo list --json`.
    Found → write it to `star.json` as `project.orcaRepo`. Not found → `--kind held` "register this
    repo with Orca: orca repo add" and leave the file: the queue keeps one such item, however many
-   ticks pass. Otherwise, before `ledger.sh name` and `ledger.sh add`, run `sh S/star-home.sh import <ref>` on every spec-path ref (a ref that holds a `/` or ends in `.md`) and use the path it prints as the ref: a spec outside `HOME_DIR` is copied, with the files beside it that it names, into `HOME_DIR/items/<project>/<kebab name>/`, so the row's `ref` and the brief's `item.path` never name a folder that can vanish (#125). The same source handed over twice prints the same copy, so it still makes one row. A non-zero exit adds no row for that ref: queue `--kind held` "inbox file <name>: <ref> cannot be imported: <its line>". Then add one `inbox` row per ref with its item name (the naming rule above) and the raw reference in `ref`, skipping a ref that already has an open row. A `text:` block is a
+   ticks pass. Otherwise, before `ledger.sh name` and `ledger.sh add`, run `sh S/star-home.sh import <ref>` on every spec-path ref (a ref that holds a `/` or ends in `.md`) and use the path it prints as the ref: a spec outside `HOME_DIR` is copied, with the files beside it that it names, into `HOME_DIR/items/<project>/<kebab name>/`, so the row's `ref` and the brief's `item.path` never name a folder that can vanish (#125). The same source handed over twice prints the same copy, so it still makes one row. A source whose files changed since is copied again, to `<kebab name>-2`. A non-zero exit adds no row for that ref: queue `--kind held` "inbox file <name>: <ref> cannot be imported: <its line>". Then add one `inbox` row per ref with its item name (the naming rule above) and the reference in `ref` (for a spec path, the path `import` printed), skipping a ref that already has an open row. A `text:` block is a
    free-text brief: write each distinct piece of work it names as a spec item,
    `HOME_DIR/items/<project>/<kebab name>.md` (frontmatter `status: todo` and `title: <a short
    title>`, then the words that describe that piece, verbatim), and add it as an `inbox` row whose
@@ -1469,9 +1469,10 @@ on one base would race, and GitHub would refuse the second as behind. Take the `
 base by base (each brief's `baseBranch`): while a `merge.sh` for a base is still running, no other
 row on that base starts one, and it waits for that line. Among the rows on one base whose gate
 prints `PASS` in a tick, merge first a row with no hosted pass left
-(`grep -c ' pass ' HOME_DIR/reviews/<project>/<item>-hosted.log` prints `hostedReviewer.maxPasses`
+(`grep -cE '^[^ ]+ pass [0-9]+ head=' HOME_DIR/reviews/<project>/<item>-hosted.log` prints `hostedReviewer.maxPasses`
 or more: it cannot take another review run, so it must not be the one left behind), then the oldest
 `updated`. The count is of distinct heads with a `pass` line (#122). `grep -c` counts `pass` lines,
+and it counts only `pass` lines (a `skipped` line's free-text reason never counts),
 and each one is a distinct head because `juel:babysit-pr` gives a head at most one `pass` line (a
 later hosted run on that head is logged `refresh`) and, in its Phase 1, rewrites a second `pass`
 line for one head in a log written before that rule as a `refresh` line.

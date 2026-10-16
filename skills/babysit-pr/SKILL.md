@@ -298,7 +298,7 @@ Each row overrides the phase it names:
    written before the one-pass-per-head rule, #122), rewrite each such later line as
    `<its iso> refresh head=<that sha>`, keeping the first `pass` line of each head and every other
    line as it is, before anything counts its passes: STAR's merge order counts `pass` lines with
-   `grep -c`, so a head must never hold two.
+   `grep -cE '^[^ ]+ pass [0-9]+ head='`, so a head must never hold two.
 10. Under a `star:` brief with a hosted reviewer: when the PR's head has no status from the hosted
    reviewer while it already reviewed an earlier head (its summary comment is on the PR), run the
    status refresh (the hosted-reviewer row in "Unattended mode") before the first wait, or, with
