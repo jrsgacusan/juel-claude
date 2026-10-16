@@ -178,5 +178,8 @@ grep -qF "STAR's own scripts use that account too, whatever account the keyring 
 grep -qF 'STAR ingests it, woken within seconds by a message wait that runs in the background' "$PAGE" && pass "LB1 the drawing's label names the background wait" || fail "LB1 background wait in the aria-label"
 grep -qF '>Background message wait</text>' "$PAGE" && pass "LB1 the drawing shows the background wait" || fail "LB1 background wait in the drawing"
 grep -qF 'STAR waits for worker messages in the background, one wait at a time, so a chat message, a nudge or your own words reach it within seconds.' "$PAGE" && pass "LB1 Never stalls names the background wait" || fail "LB1 background wait in Never stalls"
+grep -qF 'or chat with STAR from the dashboard, which answers in the thread' "$PAGE" && pass "LB2 the drawing's label names chat" || fail "LB2 chat in the aria-label"
+grep -qF '>From the dashboard</text>' "$PAGE" && grep -qF '>chat: STAR replies in the thread</text>' "$PAGE" && pass "LB2 the drawing shows chat" || fail "LB2 chat in the drawing"
+grep -qF "The dashboard's Chat page talks to the running STAR: your message reaches STAR's inbox, and it answers in the thread within seconds, acting only through its own rules, so a bare go there is never a go." "$PAGE" && pass "LB2 the page explains chat" || fail "LB2 chat on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

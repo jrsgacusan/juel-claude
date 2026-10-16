@@ -117,7 +117,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
 
   <figure>
     <div class="scroll">
-      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it, woken within seconds by a message wait that runs in the background; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 NOT-SAFE rounds in a row or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
+      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief, or chat with STAR from the dashboard, which answers in the thread; STAR ingests it, woken within seconds by a message wait that runs in the background; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 NOT-SAFE rounds in a row or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
         <defs>
           <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -129,6 +129,10 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <text class="tag tg-you" x="408" y="37" text-anchor="end">YOU</text>
         <text class="t" x="56" y="44">Give STAR a brief</text>
         <text class="s" x="56" y="63">free text, tickets, or both</text>
+        <line class="edge dot" x1="420" y1="48" x2="470" y2="48"/>
+        <rect class="note" x="470" y="20" width="270" height="56" rx="8"/>
+        <text class="tsm" x="486" y="43">From the dashboard</text>
+        <text class="s" x="486" y="62">chat: STAR replies in the thread</text>
         <line class="edge" x1="230" y1="76" x2="230" y2="118" marker-end="url(#ah1)"/>
         <text class="lbl" x="242" y="102">/juel:star &lt;your brief&gt;</text>
 
@@ -466,6 +470,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
       <p class="aside">Any time: read the decision records in each brief and overrule a call.</p>
       <p class="aside">On Claude Code 2.1.287 and later, a band above STAR's prompt shows the pools and what needs you, three items at a time, and you answer them right there: click the reply field (Claude Code's fullscreen layout; elsewhere press <code>ctrl+x tab</code>), type, Enter. With cswap installed it also shows each account's usage and the one in use, and starts <code>cswap auto</code> for STAR's Claude login when it is off. juel's mod also holds STAR to its rules: a direct <code>gh pr merge</code> is refused in STAR's session and its workers, and so is reading a review, evidence, report or log file into STAR's session.</p>
       <p class="aside"><code>/juel:star dashboard</code> opens one local page for every STAR project on this Mac: what needs you, answered right there, each item's progress, the evidence of what merged, and search. When STAR has a pick on something it asks you, it marks the option it recommends and says why in one line, never for a secret. A Slack message the dashboard routes to a project comes to you as a reply STAR drafted in your voice: send it, have it rewritten, or skip it. Run it again and it opens the page of the server already running; it replaces only a server another checkout started. A Slack reply is marked sent only once it has posted. STAR raises each Slack message once, even when the dashboard hands it over again.</p>
+      <p class="aside">The dashboard's Chat page talks to the running STAR: your message reaches STAR's inbox, and it answers in the thread within seconds, acting only through its own rules, so a bare go there is never a go.</p>
     </div>
     <div>
       <h2>Never stalls</h2>

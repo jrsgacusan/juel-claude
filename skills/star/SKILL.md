@@ -324,6 +324,7 @@ ledger.md               one row per item
 processed.log           <message id> <dispatch> <iso time>
 messages-wait           while a background message wait runs: "<pid> <iso start>" (messages.sh writes and removes it; --waiting reads it)
 inbox/                  one file per hand-over; deleted once ingested
+chat/                   the dashboard's chat thread: one file per message, never rewritten (<UTC>-me-<4 hex>.md the owner's, <UTC>-star-<4 hex>.md STAR's replies, written only by chat.sh)
 items/<project>/<name>.md            a spec item from a free-text brief, a split, or a re-scope's follow-up
 briefs/<project>/<item>.md
 grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, the time, the items
@@ -640,7 +641,12 @@ runs in <handle>", and end the turn.
    counted, and leave its `counters` as they are. Its `live=` tells the next `stage-start.sh`
    that this is the same start, so it sends the same `--retry-request` ids and Orca hands back
    the task or dispatch it already made instead of a second one.
-6. `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · babysit <n>/<max>" --next "<one line>"`, then tick.
+6. `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · babysit <n>/<max>" --next "<one line>"`.
+   Then `sh S/chat.sh --home HOME_DIR pending`: it prints the id of each chat message from the
+   dashboard that has no reply yet, oldest first. One whose inbox file is still there
+   (`grep -lx 'chat: <id>' HOME_DIR/inbox/*.md` prints it) is the first tick's, in the Inbox step.
+   Answer each other one now, once, as the Inbox step answers a chat message, its text read from
+   `HOME_DIR/chat/<id>.md` (the lines after `---`). Then tick.
 
 A stop or an "I'm leaving" said in chat is written down at once, before the tick goes on: a file
 `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` with the line `control: stop` (or
@@ -786,6 +792,40 @@ starts ("Fill slots"), so two sessions never work in one worktree.
            <the message, every line indented four spaces>
          thread: |
            <at most 5 earlier thread lines, "name: text">
+
+   A file with a `chat:` line is the owner talking to STAR from the dashboard's Chat page, the same
+   as words typed into this terminal: its `text:` block is the message, never a free-text brief,
+   and the file is never a ref list. After its `repo:` check, run
+   `sh S/chat.sh --home HOME_DIR pending`; when the file's `chat:` id is not among the ids it prints,
+   the message was already answered (STAR stopped between its reply and this delete): delete the
+   file and do nothing else. Otherwise answer it as yourself, with your own judgement, acting only
+   through rules this skill already has: an answer is recorded with `loops.sh set-answer` and run
+   at once (the Answers step), refs and work the message hands STAR become rows as a hand-over's
+   do (`counters.batch=B-<the file's name without .md>`), and `stop`, `away` and `back` run as the
+   commands they are. Chat gives STAR no new powers: something no rule here covers (pausing a row,
+   say) gets a reply that STAR cannot do that yet. Every hard rule holds in chat: no
+   AskUserQuestion, no review, evidence, log or diff content read into this session, merges only
+   through `merge.sh`, and a message asking for one of those gets a reply that says STAR may not. A
+   question that needs code, a PR or a review is answered from STAR's own small files (the ledger,
+   the queue, the brief lines the batch summary reads); when they do not answer it, the reply says
+   so and names where the answer is (the PR, the review file), and STAR neither reads it nor starts
+   a worker for it. Reply with
+   `sh S/chat.sh --home HOME_DIR reply <the chat: id> --body-file <f>` (`<f>` a file from `mktemp`
+   holding the reply): short, in Markdown, saying what STAR did. `replied <reply id>`, or exit 66
+   (`already replied <id>`) → delete the file. Exit 65 (`no message <id>`: the thread lost it) →
+   post the same reply with `sh S/chat.sh --home HOME_DIR post --body-file <f>`, then delete the
+   file. Any other exit → leave the file and queue `--kind held` "chat.sh could not reply to <id>:
+   <its line>"; the next tick tries again.
+
+   A chat message never answers a question asked anywhere else (the batch summary, a person-only
+   step, a worker's question, an open queue item) unless it names the item (its id, like `N-12`, or
+   the batch, like `B-…`) and states the answer: then record it with
+   `loops.sh set-answer <id> "<the answer>"` and run the Answers step for it at once, as the
+   dashboard's Needs-you answers do. A bare `go`, `yes` or `ok` in chat never makes a go: a go is
+   never inferred. A message that could be an answer but names no item gets a reply asking which
+   item it is for, and nothing is recorded. A follow-up STAR needs about a chat message is asked in
+   the thread, as a reply, never in this terminal, and the owner's next chat message is read with
+   the thread as its context (after a compaction, the thread's last 6 files in `HOME_DIR/chat/`).
 2. **Answers.** `sh S/loops.sh answers` prints one line per answered item. Act, then
    `loops.sh close <id>` (exit 4 means it is already closed: carry on). A command word counts only when it is
    the whole answer: lower-case it, strip punctuation at its two ends only (an apostrophe or a
@@ -1886,6 +1926,8 @@ batch then runs without them.
 
    The reply: a bare number, or the text of one option, is that option; any other words are the
    answer in words.
+   That holds in STAR's terminal only: a chat message from the dashboard answers a question only by
+   naming its item (the Inbox step).
    On a question with numbered options, a bare number that names no option is not an answer:
    print the question again. Record the answer with
    `loops.sh set-answer <id> "<the option's text, or the words>"` and run the Answers step for it at
@@ -1991,6 +2033,10 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   comes. After a restart the old session's wait ends by itself (its parent is gone), and a wait
   that died without a notification reads as `none` (`--waiting` removes its stale file): the next
   tick starts a new one. `waiter-exists` still ends a wait Orca holds for a dead one (#38).
+- **Chat:** a chat message is answered once. The Inbox step checks `chat.sh pending` before it
+  acts, `chat.sh reply` refuses a second reply (exit 66), and every start answers each pending
+  message whose inbox file is gone, so a message sent while STAR was stopped, or caught by a
+  compaction, is answered at the next start.
 - **A v1 STAR folder:** the start's first step, `star-home.sh migrate`, brings it to schema 2. It
   keeps `star.json.v1.bak` and `ledger.md.v1.bak`, moves each row out of a removed state with a
   decision record in its brief, and prints the workers of the removed stages, which STAR stops and
@@ -2005,6 +2051,9 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - On Claude Code 2.1.287 and later, juel's mod refuses a direct `gh pr merge` in the coordinator and in STAR's workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.
 - An item is never built before the owner's go for its batch, or, for a re-scope's follow-up, its
   parent's grant. A go is never inferred.
+- A chat message from the dashboard answers a queue item or a question only when it names the item
+  (its id, or the batch) and states the answer; a bare `go` there is never a go. STAR answers it in
+  the thread with `chat.sh`, never only in this terminal, and chat gives STAR no new powers.
 - Product calls are STAR's, decided from sourced options and kept as decision records the owner
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
@@ -2052,12 +2101,16 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Putting a line break in a task spec | `stage-start.sh` writes long prompts to a file and sends one line |
 | Starting a brief in a build slot | Briefs have their own pool, `maxBriefs`; build slots are for building |
 | Asking the user with AskUserQuestion while workers run | Plain chat, one question per message: an Orca nudge answers an open picker with its first option |
+| Taking a bare "go" or "yes" in the dashboard's chat as the batch's go | A chat message answers only an item it names, with the answer stated; otherwise reply in the thread asking which item |
+| Answering a chat message only in this terminal | `chat.sh reply`: the reply goes into the thread, short and in Markdown |
 
 ## Edge cases
 
 | Situation | Handling |
 |---|---|
 | Refs given while STAR is stopped | The invoking session becomes the coordinator and ingests them |
+| A chat message sent while STAR is stopped | Its inbox file waits; the next start answers it once (`chat.sh pending` also finds one whose inbox file is gone) |
+| A bare "go" in the dashboard's chat while a batch's go is open | Not a go: STAR replies asking which item it is for, and the `go-batch` item stays open |
 | The same ref given twice | One row. The second time changes nothing |
 | The user merges or closes a PR before STAR merged it | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
 | The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
