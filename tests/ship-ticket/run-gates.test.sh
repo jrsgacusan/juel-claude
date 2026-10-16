@@ -37,7 +37,7 @@ m '{"test":{"cmd":"true","cwd":"."}}'; run nosuch >/dev/null 2>&1; [ $? -eq 64 ]
 sh "$SCRIPT" >/dev/null 2>&1; [ $? -eq 64 ] && pass "no manifest is exit 64" || fail "usage"
 
 # a gate's own exit code must never read as the wrapper's "busy", "could not run" or "ran too long"
-for c in 64 71 75 124; do
+for c in 64 71 75 124 125; do
   m '{"test":{"cmd":"exit '"$c"'","cwd":"."},"lint":null,"typecheck":null,"build":null}'
   err=$(run 2>&1 >/dev/null); rc=$?
   [ "$rc" -eq 1 ] && case "$err" in *"test failed (exit $c)"*) true ;; *) false ;; esac && pass "a gate that exits $c is plain red (1), with its real code in the message" || fail "gate exit $c came out as $rc"
