@@ -173,7 +173,7 @@ const FAILURES: { name: string; scenario: Scenario; connected: boolean; error: R
     kind: 'not-connected',
   },
   { name: 'the CLI failing', scenario: { exit: 1, stderr: 'Error: boom\n' }, connected: true, error: /^claude exited 1: Error: boom$/, kind: 'exit 1' },
-  // The fake records its call only once node has started and read stdin; a shorter limit can stop it first on a loaded machine and the call count reads 0.
+  // The fake records its call only once node has started and read stdin; a shorter limit can stop it first on a loaded machine and the call count reads 0. It must also stay well under the fake's 10 s give-up (test-helpers.ts), or the case reports `claude exited 99` instead of a timeout.
   { name: 'the CLI timing out', scenario: { wait: true }, connected: true, error: /^claude did not answer within/, kind: 'timeout', opts: { timeoutMs: 3000 } },
   {
     name: 'an is_error envelope',

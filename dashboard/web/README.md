@@ -16,12 +16,15 @@ and shadcn/ui; data through TanStack Query from the server's API, typed in `src/
 Against a running dashboard server: run `VITE_MOCK=off npm run dev`, adding
 `STAR_DASHBOARD_PORT=<port>` when the port in `~/.juel/dashboard.json` is not 4767, and open
 `/?t=<the token in that file>`. Without `VITE_MOCK=off` the mock layer answers instead
-(`src/main.tsx:15`, `vite.config.ts:17-20`).
+(`enableMocking` in `src/main.tsx`, and the `server.proxy` block in `vite.config.ts`).
 
 `npm run e2e:real` (and `sh tests/star/dashboard-e2e.test.sh` from the repo root, which the
 regression gate runs) copies `e2e-real/fixture/star` into a temp folder, runs
 `skills/star/dashboard.sh` with a temp `HOME` and fake `orca`, `claude`, `gh` and `open` first on
-`PATH`, and never reads your `~/.juel`; `STAR_E2E_KEEP=1` keeps the temp folder.
+`PATH`, and never reads your `~/.juel`. A stale `dist/` is rebuilt by the suite's own launcher run
+(`npm ci`, then `npm run build`), and with too little free memory the suite fails instead of
+testing the old build. The temp folder is `$TMPDIR/star-e2e-*`, kept with `STAR_E2E_KEEP=1`; a
+failed launch names it.
 
 Mock scenarios for a dev session: set `localStorage['star-mock']` to `empty`, `error`, `loading`,
 `conflict`, `stopped` or `slack-off` and reload.
