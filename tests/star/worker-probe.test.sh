@@ -391,6 +391,36 @@ p "the worktree root itself goes to the owner" "$(stuck_on '$W')" "$WT114" "W=$W
 p "the scratchpad root itself goes to the owner" "$(stuck_on '$S')" "$WT114" "S=$SP; rmdir \$S" '$S'
 p "the scratchpad root with a trailing slash goes to the owner" "$(stuck_on '$S/')" "$WT114" "S=$SP; rmdir \$S/" '$S/'
 b "a permission prompt with no safety line names its question" "stuck: confirmation dialog: Do you want to make this edit to a.py?" - "Do you want to make this edit to a.py?" "❯ 1. Yes" "  2. No"
+# #123: a worker left at an empty prompt under Claude Code's "API Error:" line is stalled, whatever
+# its progress log says. Claude Code 2.1.301 prints "API Error: <message>" in the turn's output; the
+# prompt is a rule row, "❯", a rule row, then the footer ("esc to interrupt" in it while a turn runs)
+APIRULE='──────────────────────────────────────────────────────'
+APIFOOT='  ⏵⏵ bypass permissions on (shift+tab to cycle)'
+b "#123 connection lost mid-response is stalled: api error" "stalled: api error" - "⏺ Running the regression gate." "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "" "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 server error mid-response is stalled: api error" "stalled: api error" - "⏺ Writing the fix plan." "  ⎿  API Error: Server error mid-response. The response above may be incomplete." "$APIRULE" "❯" "$APIRULE" "$APIFOOT" "  ? for shortcuts"
+b "#123 an API error wrapped onto two rows is stalled too" "stalled: api error" - "⏺ Writing the fix plan." "  ⎿  API Error: Connection lost mid-response. The response above may be" "     incomplete." "$APIRULE" "$(printf '❯\302\240')" "$APIRULE" "$APIFOOT"
+b "#123 an API error wrapped onto seven rows is stalled too" "stalled: api error" - "⏺ Writing the fix plan." "  ⎿  API Error:" "     Server" "     error" "     mid-response." "     The response" "     above may be" "     incomplete." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 an API error under a recap wrapped onto nine rows is stalled" "stalled: api error" - "  ⎿  API Error: Connection lost mid-response." "※ recap: Was running" "  the regression" "  gate through" "  the gate lock" "  when the model" "  call failed," "  and nothing" "  has run since" "  then." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 an API error row above the newest 25 rows is still read" "stalled: api error" - "⏺ Running the regression gate." "  ⎿  API Error: Server error mid-response." "※ recap: r01" "  r02" "  r03" "  r04" "  r05" "  r06" "  r07" "  r08" "  r09" "  r10" "  r11" "  r12" "  r13" "  r14" "  r15" "  r16" "  r17" "  r18" "  r19" "  r20" "  r21" "  r22" "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a capacity API error keeps its label" "stalled: model at capacity" - '  ⎿  API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}' "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 an API error that asks for /login is still stuck: login" "stuck: login" - "  ⎿  API Error: 401 · Please run /login" "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 docs that name API Error: are not a stall" "stale 40 term_w1" - "⏺ The docs say Claude Code prints API Error: <message> when a call fails." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 code that checks for API Error: is not a stall" "stale 40 term_w1" - "⏺ Read(src/errors.ts)" "  ⎿  if (line.startsWith('API Error:')) retry();" "" "✽ Reading… (12s · esc to interrupt)" "$APIRULE" "❯ " "$APIRULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+b "#123 an API error above further output is not a stall" "stale 40 term_w1" - "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "⏺ Retried the call; the gate is green." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a Retrying line is not a stall" "stale 40 term_w1" - "  ⎿  API Error: Connection lost mid-response · Retrying in 4 seconds… (attempt 2/10)" "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 an API error under a running turn is not a stall" "stale 40 term_w1" - "  ⎿  API Error: Server error mid-response. The response above may be incomplete." "$APIRULE" "❯ " "$APIRULE" "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt"
+b "#123 an API error above a prompt a person is typing in is not a stall" "stale 40 term_w1" - "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "$APIRULE" "❯ continue" "$APIRULE" "$APIFOOT"
+# review fixes (#123): the timer of the issue keeps the progress log fresh, Claude Code prints its
+# recap under an idle error, a boxed prompt counts, and only Claude Code's own error row is an error
+age "$H114/progress/ITEM-1.log" 1
+b "#123 a fresh progress log does not hide an API error" "stalled: api error" - "⏺ Running the regression gate." "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a fresh progress log and a plain prompt stay ok" "ok" - "⏺ Running the regression gate." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a recap under the API error is still stalled" "stalled: api error" - "  ⎿  API Error: Connection lost mid-response. The response above may be incomplete." "" "※ recap: Was running the gate when the call failed." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a wrapped recap under the API error is still stalled" "stalled: api error" - "  ⎿  API Error: Server error mid-response. The response above may be incomplete." "※ recap: Was writing the fix plan for the second gate round when the model call failed and" "  nothing has run since." "$APIRULE" "❯" "$APIRULE" "$APIFOOT"
+b "#123 an API error above a boxed prompt is stalled" "stalled: api error" - "  ⎿  API Error: Connection lost mid-response." "╭────────────────────────╮" "│ >                      │" "╰────────────────────────╯" "  ? for shortcuts"
+b "#123 a recap alone is not an API error" "ok" - "⏺ Opened the PR." "※ recap: Opened PR #12." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+b "#123 a wrapped row of the worker's own text is not an API error row" "ok" - "⏺ The handler now logs the line" "  API Error: Connection lost mid-response and retries." "$APIRULE" "❯ " "$APIRULE" "$APIFOOT"
+age "$H114/progress/ITEM-1.log" 40
 # the screen decides: a stale worker on a prompt is never stale, and a screen that cannot be read falls back
 rm -f "$TMP/screen.json"
 printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_w1"}}}\n' > "$TMP/show.json"
@@ -409,6 +439,12 @@ python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"tail":["S=
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
 [ "$out" = "$STUCK" ] && echo "ok   with no terminal to answer in, a bounded prompt still goes to the owner" || { echo "FAIL no handle ($out)"; fails=$((fails + 1)); }
 unset JUEL_SCREEN_LOCK
+
+# #123: the API error rule reads only the rendered screen: a worker-read tail is never "stalled: api error"
+printf '{"result":{"worker":{"stage":"ready","state":"running"}}}\n' > "$TMP/show.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["  ⎿  API Error: Connection lost mid-response. The response above may be incomplete.", "──────────", "❯ ", "──────────"]}}}))' > "$TMP/read.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
+[ "$out" = "ok" ] && echo "ok   #123 a worker-read tail is never stalled: api error" || { echo "FAIL #123 worker-read tail ($out)"; fails=$((fails + 1)); }
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

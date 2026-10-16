@@ -1,11 +1,11 @@
 #!/bin/sh
 # Tells STAR whether a worker is stuck at a screen it will never leave by itself, stalled on a
-# model that is at capacity, or making no progress, without putting the worker's screen into
-# STAR's context.
+# model that is at capacity or on an API error, or making no progress, without putting the
+# worker's screen into STAR's context.
 #   worker-probe.sh <dispatch> [--item <item> --home <H> [--worktree <path>] [--deadline <minutes>]]
 #     ->   ok | quiet <m> <terminal> | stale <m> <terminal> | settled <state> [<reason>]
 #          | stuck: <label>[: <line>] | prompt bounded <terminal> <path>...
-#          | stalled: model at capacity | gone | unknown <why>
+#          | stalled: model at capacity | stalled: api error | gone | unknown <why>
 #     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39).
 # <reason> follows only a failed settlement, when Orca gives one (agent_prompt_stalled: the agent
 # never took its prompt, most often because Claude Code's trust dialog was on screen).
@@ -14,6 +14,17 @@
 # overload or rate-limit error on screen: recoverable without the user (#41). The error type names
 # overloaded_error and rate_limit_error count only on a line that also has "api error", an
 # "error:" prefix or a 4xx/5xx status, so code or docs that name them are not a stall.
+# "stalled: api error" (#123) is a worker that Claude Code left at an empty prompt under its own
+# "API Error: <message>" row (a connection lost or a server error mid-response, the row starting
+# with Claude Code's "⎿", "⏺" or "●"): read only on the rendered screen, after the capacity check
+# and the phrase screens above (usage limit, login, trust dialog, model switch, a "No, exit" dialog,
+# waiting for input), and before the numbered dialogs, the y/n prompt and any progress or quiet
+# result, so a worker whose timer still writes progress lines is not "ok" while its screen can be
+# read. The newest rows above the prompt must be that row and only its wrapped rows, with no
+# "Retrying" in them and no "esc to interrupt" in the footer; a recap Claude Code printed under it
+# while the worker sat idle ("※ recap: ...") is passed over first. An error above further output,
+# code or docs that mention an API error inside a row, a retrying turn and a prompt someone is
+# typing in are not a stall.
 # A question with numbered options is "stuck: confirmation dialog: <line>", the line being the
 # rm/rmdir safety line of the last dialog when it has one, else the last question, 120 characters at
 # most; "stuck: confirmation dialog" alone is a "No, exit" screen. One such dialog STAR answers itself
@@ -87,6 +98,20 @@ STALLED = (r"selected model is at capacity|\bmodel is at capacity\b"
 # merely name them are the worker reading, not the model failing.
 STALLED_TYPE = r"overloaded_error|rate_limit_error"
 API_ERROR = r"\bapi error\b|^\W*error:|\b[45]\d\d\b"
+# #123: a model call that failed mid-turn leaves Claude Code at an empty prompt under its own
+# "API Error: <message>" row (Claude Code 2.1.301: "API Error: Connection lost mid-response. ...",
+# "API Error: Server error mid-response. ..."), after its "⎿", "⏺" or "●". Read only on the
+# rendered screen; keep these shapes in step with stage-start.sh. The prompt is a rule row, the
+# prompt row ("❯" or ">", inside a "│" frame on a boxed prompt, alone when empty, a no-break space
+# included) and another rule row, with the footer below ("esc to interrupt" in it while a turn
+# runs). The recap Claude Code prints on an idle terminal is a "※ recap: <text>" row. Matched as
+# Claude Code writes it, case and all.
+RULE = r"^\s*[╭╰]?─{3,}[╮╯]?\s*$"
+PROMPT_ROW = r"^\s*│?\s*[❯>](\s|$)"
+EMPTY_PROMPT = r"^\s*│?\s*[❯>]\s*│?\s*$"
+API_ERROR_ROW = r"^\s*[⎿⏺●]\s*API Error:"
+RECAP = r"^\s*※\s*recap:"
+CONTINUED = r"^\s+[^\s⎿⏺●✽✻✶✳✢·*]"  # a wrapped row: indented, and no turn's glyph
 # A y/n prompt counts only on the last line of the screen: mid-screen it is the worker talking about one.
 YES_NO = r"[\[(](y/n|yes/no)[\])]\s*:?\s*$"
 # A question counts as a dialog only with a numbered yes/no option on screen: prose asks
@@ -238,7 +263,9 @@ if lines is None:
     newest = newest_message(read)
     if len(newest) <= 400:  # a blocking notice is short; a long message is the worker talking
         lines += newest.splitlines()
+    screen = []
 else:
+    screen = lines  # the whole rendered screen, frames and rules kept, for the API error rule only (#123)
     lines = lines[-25:]
 rows = [l.strip(BOX) for l in lines]
 lines = [l for l in rows if len(l) <= 200]
@@ -255,6 +282,34 @@ if any(at_capacity(l) for l in lines):
 for label, pattern in PATTERNS:
     if any(re.search(pattern, l, re.IGNORECASE) for l in lines):
         out("stuck: " + label)
+
+
+def api_error_stall(screen):
+    """#123: True when the newest rows above the rendered screen's empty prompt are one Claude Code
+    "API Error:" block (its row, then only wrapped rows) that is not retrying, with no turn running.
+    A recap Claude Code printed under the error while the worker sat idle is passed over however many
+    rows it wraps onto."""
+    prompt = next((i for i in range(len(screen) - 2, 0, -1)
+                   if re.match(PROMPT_ROW, screen[i]) and re.match(RULE, screen[i - 1]) and re.match(RULE, screen[i + 1])), None)
+    if prompt is None or not re.match(EMPTY_PROMPT, screen[prompt]) \
+            or any("esc to interrupt" in r for r in screen[prompt + 2:]):
+        return False
+    above = [r for r in screen[:prompt - 1] if r.strip()]
+    recap = next((j for j in range(len(above) - 1, -1, -1) if re.match(RECAP, above[j])), None)
+    if recap is not None and all(re.match(CONTINUED, r) for r in above[recap + 1:]):
+        above = above[:recap]  # the idle terminal's recap, under the error
+    head = next((j for j in range(len(above) - 1, -1, -1) if re.match(API_ERROR_ROW, above[j])), None)
+    if head is None:
+        return False
+    block = above[head:]
+    return all(re.match(CONTINUED, r) for r in block[1:]) \
+        and not re.search(r"\bretrying\b", " ".join(block), re.IGNORECASE)
+
+
+# after the capacity check and the phrase screens, so their labels win; before the numbered dialogs,
+# the y/n prompt, progress and quiet (#123). screen is empty unless the rendered screen was read
+if api_error_stall(screen):
+    out("stalled: api error")
 
 
 def inside(path, root):

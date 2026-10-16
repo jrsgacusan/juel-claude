@@ -330,5 +330,19 @@ printf '%s\n' "$markready_row" | grep -qF "no codex round is spent on a merge th
 conflict_row=$(grep -F '| `conflict` |' "$SKILL")
 printf '%s\n' "$conflict_row" | grep -qF "a carry of the last SAFE when the merge $carry_new" && pass "fix-3 M8d the conflict row names carry-check's rule" || fail "fix-3 M8d the conflict row names carry-check's rule"
 
+# #122: one hosted pass per head
+g "B122a a second run on a passed head is a refresh (#122)" 'A second hosted run on a head that already has a `pass` line in `<item>-hosted.log`'
+g "B122b it never counts: a head gets at most one pass line (#122)" 'is logged as `refresh head=<sha>` and never counted as a pass, so a head gets at most one `pass` line (#122)'
+g "B122c passes are counted per distinct head (#122)" 'Passes are counted per distinct head: the passes used are the distinct heads with a `pass` line in that file'
+g "B122d the last pass reads distinct heads (#122)" 'the record holds `pass` lines for `maxPasses` minus 1 distinct heads'
+grep -qF 'The passes used are the `pass` lines in that file' "$SKILL" && fail "B122e the raw pass-line count is gone (#122)" || pass "B122e the raw pass-line count is gone (#122)"
+# #123: progress lines come only from the step they name
+g "B123a a progress line comes only from its own step (#123)" 'A progress line is written only by the step it names, at that step, never by a background or detached timer loop the worker starts'
+g "B123b gate-lock.sh --progress stays the one timer writer (#123)" '`gate-lock.sh --progress` stays the one writer on a timer, since it lives only as long as the gate it waits for'
+g "B122f a refresh also logs a second run on a passed head (#122)" 'when you comment for a status refresh, or for a second run (below). A second hosted run on a head'
+g "B122g an older log's second pass line for one head becomes a refresh (#122)" 'When the log exists and holds a second `pass` line for a head that already has one (a log'
+g "B122h the first pass line of each head is kept (#122)" '`<its iso> refresh head=<that sha>`, keeping the first `pass` line of each head and every other'
+g "B120a the base sync names the edit next to an insertion (#120)" 'to one list), or one side inserted lines right after a line the other side edited (#120), or'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

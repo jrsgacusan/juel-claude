@@ -158,5 +158,12 @@ if [ -f "$DOCS" ] && tail -n +2 "$PAGE" | cmp -s - "$DOCS"; then
 else
   fail "docs/star-closed-loop.html differs from this page: run tail -n +2 skills/star/how-it-works.html > docs/star-closed-loop.html"
 fi
+# #119 to #123: the page shows each change
+grep -qF 'A previous terminal Orca no longer lists is gone and never holds a start' "$PAGE" && grep -qF 'sitting at an empty prompt with the recap of Claude Code as its newest lines, counts as quiet' "$PAGE" && pass "I119 a closed or recap-only terminal never holds a start (#119)" || fail "I119 previous terminal on the page"
+grep -qF 'A hunk where one side edited a line and the other inserted lines right after it is merged as the edited line, then the inserted lines.' "$PAGE" && pass "I120 an edit next to an insertion is merged (#120)" || fail "I120 adjacent insert on the page"
+grep -qF 'and sourced decisions, on a branch of its own that no other item, remote branch or local branch already uses' "$PAGE" && pass "I121 a brief names a branch of its own (#121)" || fail "I121 branch on the page"
+grep -qF 'One pass per head: a second run on a head already reviewed is a refresh, never a pass' "$PAGE" && grep -qF 'the build never pings Greptile, since marking the PR ready starts its run' "$PAGE" && pass "I122 one hosted pass per head (#122)" || fail "I122 hosted passes on the page"
+grep -qF 'or left at an empty prompt under an <code>API Error:</code> line (a connection lost or a server error mid-response), gets up to three retry nudges in one silent stretch, shared by both' "$PAGE" && grep -qF 'A progress line comes only from the step it names, never from a timer the worker left running' "$PAGE" && pass "I123 an API error at the prompt is nudged (#123)" || fail "I123 API error on the page"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
