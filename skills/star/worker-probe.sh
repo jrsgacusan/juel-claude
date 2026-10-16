@@ -296,7 +296,6 @@ def api_error_stall(screen):
     recap = next((j for j in range(len(above) - 1, max(len(above) - 9, -1), -1) if re.match(RECAP, above[j])), None)
     if recap is not None and all(re.match(CONTINUED, r) for r in above[recap + 1:]):
         above = above[:recap]  # the idle terminal's recap, under the error
-    above = above[-6:]  # the error row and at most 5 wrapped rows
     head = next((j for j in range(len(above) - 1, -1, -1) if re.match(API_ERROR_ROW, above[j])), None)
     if head is None:
         return False
