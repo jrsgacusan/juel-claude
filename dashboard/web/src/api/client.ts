@@ -1,5 +1,6 @@
 import type { ApiErrorBody } from "./types"
 import { getToken } from "./token"
+import { paths } from "./paths"
 
 export class ApiError extends Error {
   readonly status: number
@@ -65,6 +66,18 @@ export async function apiFetch(
   }
   if (!res.ok) throw new ApiError(res.status, await bodyMessage(res))
   return res
+}
+export type TokenCheck = "accepted" | "refused" | "unreachable"
+/** Asks the server whether a token passes, storing nothing. */
+export async function checkToken(token: string): Promise<TokenCheck> {
+  try {
+    const res = await fetch(apiUrl(paths.projects()), {
+      headers: { "X-Star-Token": token },
+    })
+    return res.status === 401 ? "refused" : "accepted"
+  } catch {
+    return "unreachable"
+  }
 }
 export async function apiJson<T>(
   path: string,

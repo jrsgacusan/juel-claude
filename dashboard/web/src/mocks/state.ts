@@ -56,6 +56,22 @@ const encoder = new TextEncoder()
 const clients = new Set<ReadableStreamDefaultController<Uint8Array>>()
 const timers = new Set<ReturnType<typeof setTimeout>>()
 let dropped = false
+const PING_MS = 25_000
+let pinger: ReturnType<typeof setInterval> | null = null
+const ping = () => {
+  const frame = encoder.encode(": ping\n\n")
+  for (const client of clients) {
+    try {
+      client.enqueue(frame)
+    } catch {
+      clients.delete(client)
+    }
+  }
+}
+const stopPinger = () => {
+  if (pinger) clearInterval(pinger)
+  pinger = null
+}
 
 export const mockEvents = {
   /** A new event stream; it stays open until drop() or the reader cancels it. */
@@ -65,10 +81,12 @@ export const mockEvents = {
       start(controller) {
         mine = controller
         clients.add(controller)
+        pinger ??= setInterval(ping, PING_MS)
         controller.enqueue(encoder.encode(": connected\n\n"))
       },
       cancel() {
         if (mine) clients.delete(mine)
+        if (clients.size === 0) stopPinger()
       },
     })
   },
@@ -93,6 +111,7 @@ export const mockEvents = {
       }
     }
     clients.clear()
+    stopPinger()
   },
   restore(): void {
     dropped = false

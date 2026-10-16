@@ -48,6 +48,8 @@ export const keys = {
   search: (q: string, all: boolean, p: string) =>
     ["search", q, all, p] as const,
   file: (url: string) => ["file", url] as const,
+  chat: (p: string) => ["chat", p] as const,
+  accounts: ["accounts"] as const,
 }
 export const retryQuery = (count: number, error: unknown): boolean =>
   !(error instanceof ApiError && error.status < 500) && count < 2
@@ -57,6 +59,7 @@ export function createQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         staleTime: 15_000,
+        // The event stream refetches when the page becomes visible (api/events.ts). Turning this on would fetch twice on every wake.
         refetchOnWindowFocus: false,
         retry: retryQuery,
       },

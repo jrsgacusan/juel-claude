@@ -22,6 +22,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { errorMessage } from "@/lib/errors"
 import { agoText } from "@/lib/format"
+import { cn } from "@/lib/utils"
 
 const TRACKER_LABEL: Record<Tracker, string> = {
   synapse: "Synapse",
@@ -35,9 +36,11 @@ const TRACKERS: Tracker[] = ["synapse", "linear", "jira", "github", "none"]
 export function DraftPanel({
   project,
   id,
+  className,
 }: {
   project: string
   id: string | null
+  className?: string
 }) {
   const briefing = useBriefing(project, id)
   const briefings = useBriefings(project)
@@ -88,7 +91,10 @@ export function DraftPanel({
   return (
     <section
       aria-label="Ticket draft"
-      className="min-h-0 min-w-0 bg-card lg:overflow-y-auto"
+      className={cn(
+        "min-h-0 min-w-0 bg-card max-md:overflow-y-auto lg:overflow-y-auto",
+        className
+      )}
     >
       <div className="flex flex-col gap-5 p-4 sm:p-6">
         <div className="flex items-center justify-between gap-2">
@@ -113,6 +119,7 @@ export function DraftPanel({
               <Button
                 variant="outline"
                 size="sm"
+                className="pointer-coarse:h-11"
                 onClick={() => void tracker.refetch()}
               >
                 Try again
@@ -214,7 +221,7 @@ export function DraftPanel({
               <Button
                 variant="outline"
                 size="sm"
-                className="self-start"
+                className="self-start pointer-coarse:h-11"
                 onClick={() => void createIn("none")}
               >
                 Save as a spec instead

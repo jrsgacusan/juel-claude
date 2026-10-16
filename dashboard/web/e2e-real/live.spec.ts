@@ -68,3 +68,25 @@ test("a loop STAR adds reaches Needs you", async ({ page }) => {
   expect(await page.evaluate(() => window.__e2eNoReload)).toBe(true)
   expect(lost).toEqual([])
 })
+
+test("coming back to the page refetches without a reload or a second stream", async ({
+  page,
+}) => {
+  await openApp(page)
+  await markNoReload(page)
+  const streams: string[] = []
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/events")
+      streams.push(request.url())
+  })
+  const refetch = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/projects/sample/loops"
+  )
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange"))
+  )
+  await refetch
+  expect(streams).toEqual([])
+  expect(await page.evaluate(() => window.__e2eNoReload)).toBe(true)
+})

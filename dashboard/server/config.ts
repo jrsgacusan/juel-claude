@@ -21,7 +21,9 @@ export function writeConfig(dir: string, config: DashboardConfig): void {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, "dashboard.json");
   const tmp = `${file}.tmp.${process.pid}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, {
+  // every other key (claudeConfigDir, slack) survives a start
+  const next = { ...(readConfig(dir) ?? {}), ...config };
+  fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, {
     mode: 0o600,
   });
   fs.chmodSync(tmp, 0o600);
@@ -47,15 +49,23 @@ export function isFree(port: number): Promise<boolean> {
     s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
   });
 }
+export const PORT_BUSY_EXIT = 3;
+export const isPort = (p: unknown): p is number =>
+  typeof p === "number" && Number.isInteger(p) && p > 0 && p < 65536;
+export class PortBusy extends Error {
+  port: number;
+  constructor(port: number) {
+    super(
+      `port ${port} is busy: the dashboard keeps its port so tailscale serve keeps reaching it. Stop what listens on 127.0.0.1:${port} (lsof -nP -iTCP:${port} -sTCP:LISTEN), then start it again`,
+    );
+    this.port = port;
+  }
+}
 export async function pickPort(recorded: unknown): Promise<number> {
-  if (
-    typeof recorded === "number" &&
-    Number.isInteger(recorded) &&
-    recorded > 0 &&
-    recorded < 65536 &&
-    (await isFree(recorded))
-  )
-    return recorded;
+  if (isPort(recorded)) {
+    if (await isFree(recorded)) return recorded;
+    throw new PortBusy(recorded);
+  }
   for (let port = DEFAULT_PORT; port <= 65535; port += 1)
     if (await isFree(port)) return port;
   throw new Error(`no free port from ${DEFAULT_PORT} up`);

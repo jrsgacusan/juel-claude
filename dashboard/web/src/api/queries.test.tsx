@@ -59,3 +59,9 @@ describe("retryQuery", () => {
     expect(retryQuery(2, new ApiError(502, "no"))).toBe(false)
   })
 })
+
+describe("createQueryClient", () => {
+  it("leaves the refetch on wake to the event stream, not to window focus", () => {
+    expect(createQueryClient().getDefaultOptions().queries?.refetchOnWindowFocus).toBe(false)
+  })
+})

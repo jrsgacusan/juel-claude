@@ -533,7 +533,9 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 
 1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
 2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity
-   (capacity retries, then the fallback model, then this session runs the plan; see Phase 4).
+   (capacity retries, then the fallback model, then this session runs the plan; see Phase 4), or
+   a task fails on a planned file git ignores, whoever ran the plan (Phase 4, "A planned file git
+   ignores").
 3. `verification-failed`: a phase 6 item is still FAIL after one loop back through phase 5.
    Before raising it, when what still fails is a residual that no further change inside this item
    can close (an open-ended input the fix keeps chasing, say), ask the coordinator with
@@ -557,10 +559,11 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
    `needs=` quotes its "busy, held by …" line.
 10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
     exited 71 (a lock file, manifest or directory problem, or dependencies still missing after one
-    install), or 124 (the command ran past its time limit and was stopped), or the
+    install), or 124 (the command ran past its time limit and was stopped), or 125 (a stalled
+    gate: the command printed nothing for `--idle-max` seconds and was stopped), or the
     dependency install failed (Phase 4's "Dependencies"). None of these is a red gate: do not start
-    fixing code. `needs=` quotes the script's message; for a failed install it is
-    `dependencies did not install: <one line>`.
+    fixing code. `needs=` quotes the script's message: for a stalled gate,
+    `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.
 11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
@@ -647,7 +650,12 @@ With more slots, the first waiters in the queue race for a freed slot.
 machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
 "busy, held by …" on stderr, means the queue ahead of it did not move for its whole
 `--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
-escalation. Exit 71 or 124 is `gate-unavailable`, except an exit 71 whose message says
+escalation. Exit 125 is a stalled gate, with this line on stderr:
+`gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`. The command went
+silent for `--idle-max` seconds (900 by default) and was stopped, and the lock is free again. It
+is not red and it is not run again: it is the `gate-unavailable` escalation at once, with
+`needs=stalled gate: <the stalled line>`.
+Exit 71 or 124 is `gate-unavailable`, except an exit 71 whose message says
 `dependencies are not installed`: run the resolved `commands.install` once (Phase 4's
 "Dependencies"), then the same line again; a second 71 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
 is red, and `run-gates.sh` names the gate that failed. Never remove the lock file by hand. Before
@@ -745,8 +753,15 @@ fi
 (If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
 the filesystem check above — config always takes precedence.)
 
-Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
-unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+Ensure the repo's `.gitignore` ignores the docs root and the scratch folder with entries anchored
+to the repo root, so no other folder of the same name is ignored: the resolved `docsRoot` as a
+path from the repo root, with a leading and a trailing `/` (`/docs/superpowers/`, or
+`/docs/.superpowers/`), and `/.superpowers/`. Add each one that is absent. In the same change,
+replace a line that is exactly `superpowers/` with the docs root's entry, and a line that is
+exactly `.superpowers/` with `/.superpowers/`: an unanchored line ignores every folder of that
+name at any depth, so a plan's `tests/superpowers/` file could never be committed. Leave every
+other line as it is. A `docsRoot` outside the repo needs no entry. This directory is scratch, not
+product.
 
 **Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
 findings report, or context file that already exists at the derived path — append `-v2` before
@@ -817,7 +832,7 @@ resolution still installs and runs nothing.
 `superpowers:executing-plans` keeps: its first line names the plan, and each finished task adds a
 `Task <N>: complete` line. A second dispatch of the same line, the fallback model and this session
 all resume from it, at the first task not marked complete. Before the first dispatch, make sure git
-ignores it: `git check-ignore -q .superpowers/x || echo '.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
+ignores it: `git check-ignore -q .superpowers/x || echo '/.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
 
 **The scope record.** Right before the first dispatch (Codex or this session), from the repo root,
 note the commit the executor starts from and record every path that already differs from it:
@@ -879,6 +894,17 @@ transcript. If `spawn_agent` is unavailable (the `multi_agent` feature is off), 
 line and apply the plan in this session directly rather than falling back to `codex exec`.
 
 Do not redirect its output to a file — the user watches the executor run in the shell. Wait for it to exit, then state the exit status and files changed before marking the phase done — do not print its full output back into the conversation.
+
+**A planned file git ignores.** After every run of the plan in this skill (this phase, and each
+fix round of the codex gate loop), look in the executor's report for a line that begins
+`task <N> failed: planned file`. One such line means a file the plan needs never reached a
+commit: stop there, before the scope check. Never `git add -f` the file, move it, or edit an
+ignore file to carry on. Under `--unattended` it is
+`ESCALATION item=<item> phase=<n> reason=codex-failed needs=planned file is git-ignored: <path> (<source>:<line>:<pattern>)`,
+copied from that line; interactively, show the line and ask how to go on. When this session runs
+the plan (`--executor session`, or the last step of the capacity rule), it never runs `git add -f`
+either: a path a task's `**Files:**` block names that `git add` refuses as ignored stops the run
+the same way, with the rule from `git check-ignore -v --no-index -- <path>`.
 
 **Scope check.** After the plan ran (codex exited 0, or this session finished it), run
 `sh <scope-check.sh> <the plan> <that sha> --before <the record>` (`scope-check.sh` is next to this

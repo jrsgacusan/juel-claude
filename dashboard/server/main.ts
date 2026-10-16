@@ -1,11 +1,15 @@
 // The STAR dashboard: one server per Mac for every project's STAR folder.
 //   node dashboard/server/main.ts
+// The port in dashboard.json never moves (a tailscale serve target points at it): when it is busy the start fails with exit 3. Any other failure exits 1.
 import { setTimeout as sleep } from "node:timers/promises";
 import { startApp } from "./app.ts";
 import type { App } from "./app.ts";
 import {
+  PORT_BUSY_EXIT,
+  PortBusy,
   dropLock,
   isAlive,
+  isPort,
   isToken,
   newToken,
   pickPort,
@@ -63,6 +67,7 @@ async function main(): Promise<number> {
     if (await running()) return 0;
     const recorded = readConfig(dir);
     const token = isToken(recorded?.token) ? recorded.token : newToken();
+    const fixed = isPort(recorded?.port);
     let port = await pickPort(recorded?.port);
     for (let tries = 0; !app; tries += 1) {
       try {
@@ -70,6 +75,7 @@ async function main(): Promise<number> {
       } catch (err) {
         if ((err as { code?: unknown }).code !== "EADDRINUSE" || tries >= 5)
           throw err;
+        if (fixed) throw new PortBusy(port);
         port = await pickPort(undefined);
       }
     }
@@ -92,6 +98,6 @@ const code = await main().catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
   log(`could not start: ${msg}`);
   console.error(`star dashboard: could not start: ${msg}`);
-  return 1;
+  return err instanceof PortBusy ? PORT_BUSY_EXIT : 1;
 });
 if (code >= 0) process.exit(code);

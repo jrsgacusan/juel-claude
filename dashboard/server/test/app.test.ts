@@ -235,6 +235,7 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
       workers: { brief: [0, 4], build: [1, 3], babysit: [1, 3] },
       gateDown: null,
       away: null,
+      awayPending: null,
       quietHours: { tz: "Asia/Manila", start: "22:00", end: "07:00" },
     });
     const s = JSON.parse(
@@ -255,6 +256,15 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
       why: "sol at capacity",
     });
     assert.equal(o2["away"], "2026-10-15T10:00:00Z");
+    fs.mkdirSync(path.join(env.star, "inbox"), { recursive: true });
+    fs.writeFileSync(
+      path.join(env.star, "inbox", "20261017T010203Z-control-ab12.md"),
+      "control: back\n",
+    );
+    const o3 = (await (
+      await env.api("/api/projects/app/overview")
+    ).json()) as Record<string, unknown>;
+    assert.equal(o3["awayPending"], "back");
   } finally {
     await env.close();
   }
@@ -481,6 +491,36 @@ test("a module that throws is logged and skipped while a working one serves, see
     );
   } finally {
     events.close();
+    await env.close();
+    fs.rmSync(mods, { recursive: true, force: true });
+  }
+});
+
+test("a module's DELETE route answers through the app", async () => {
+  const mods = fs.mkdtempSync(
+    path.join(fs.realpathSync(process.env["TMPDIR"] ?? "/tmp"), "star-mods-"),
+  );
+  fs.mkdirSync(path.join(mods, "gone"));
+  fs.writeFileSync(
+    path.join(mods, "gone", "index.ts"),
+    [
+      "export function register(api) {",
+      "  api.route('DELETE', '/api/gone/:id', async req => ({ json: { deleted: req.params.id } }))",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const env = await setup({ modulesDir: mods });
+  try {
+    const res = await env.api("/api/gone/b1", { method: "DELETE" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { deleted: "b1" });
+    assert.equal((await env.api("/api/gone/b1")).status, 405);
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(env.juel, "dashboard.log"), "utf8"),
+      /ignored/,
+    );
+  } finally {
     await env.close();
     fs.rmSync(mods, { recursive: true, force: true });
   }

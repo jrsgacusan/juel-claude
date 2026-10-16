@@ -1,3 +1,7 @@
+// @ts-expect-error Node typings are only enabled for the tooling project, not the browser app.
+import { readFileSync } from "node:fs"
+// @ts-expect-error Node typings are only enabled for the tooling project, not the browser app.
+import { resolve } from "node:path"
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
 import { describe, expect, it, vi } from "vitest"
@@ -128,10 +132,8 @@ describe("the app shell", () => {
     await screen.findByRole("list", { name: "Projects" })
     act(() => setConnection("refused"))
     expect(
-      screen.getByText(
-        "The dashboard server refused the token. Open the dashboard again with /juel:star dashboard."
-      )
-    ).toBeInTheDocument()
+      screen.getAllByText(/^The dashboard server refused the token\./).length
+    ).toBeGreaterThan(0)
     expect(
       screen.queryByText("Lost the connection to the dashboard server")
     ).not.toBeInTheDocument()
@@ -215,5 +217,37 @@ describe("the app shell", () => {
       await screen.findByText(/This page hit an error/)
     ).toBeInTheDocument()
     expect(screen.getByRole("list", { name: "Projects" })).toBeInTheDocument()
+  })
+  it("shows the Workers card's squares in the sidebar, without STAR's next note", async () => {
+    renderApp("/sphere-app/needs")
+    expect(await screen.findByRole("meter", { name: "Building" })).toHaveAttribute("aria-valuetext", "3 of 3 busy")
+    expect(screen.getByText("5 busy")).toBeInTheDocument()
+    expect(screen.queryByText("Next tick in 3 min")).not.toBeInTheDocument()
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+  })
+  it("lists Chat between Progress and Slack replies", async () => {
+    renderApp("/sphere-app/chat")
+    const sections = await screen.findByRole("list", { name: "Sections" })
+    expect(within(sections).getAllByRole("link").map((link) => link.textContent))
+      .toEqual(["Needs you", "Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
+    const chat = within(sections).getByRole("link", { name: "Chat" })
+    expect(chat).toHaveAttribute("href", "/sphere-app/chat")
+    expect(chat).toHaveAttribute("aria-current", "page")
+  })
+
+  it("lets the page draw under the notch, so the safe-area insets apply", () => {
+    const dir = (import.meta as ImportMeta & { dirname: string }).dirname
+    const html = readFileSync(resolve(dir, "../../index.html"), "utf8")
+    expect(html).toMatch(/<meta name="viewport" content="width=device-width, initial-scale=1\.0, viewport-fit=cover" \/>/)
+  })
+
+  it("keeps the header on screen on a phone, below the safe area", async () => {
+    const { container } = renderApp("/sphere-app/needs")
+    await screen.findByRole("list", { name: "Projects" })
+    expect(container.querySelector("header"))
+      .toHaveClass("sticky", "top-0", "z-20", "box-content", "bg-background", "pt-[env(safe-area-inset-top)]", "md:static")
+    expect(container.querySelector("[data-slot=sidebar-inset]")).toHaveClass("overflow-x-clip")
+    const search = screen.getByRole("button", { name: "Search (⌘K)" })
+    expect(within(search).getByText("Search")).toHaveClass("hidden", "sm:inline")
   })
 })

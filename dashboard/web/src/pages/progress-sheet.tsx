@@ -93,7 +93,7 @@ export function ItemSheet({
         side="right"
         className="w-full gap-6 overflow-y-auto p-6 sm:max-w-md"
       >
-        <SheetHeader className="p-0">
+        <SheetHeader className="p-0 pr-12">
           <span className="font-mono text-xs text-muted-foreground">
             {row ? itemLabel(row) : item}
           </span>
@@ -122,7 +122,7 @@ export function ItemSheet({
           <>
             <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
               <dt className="text-muted-foreground">Worktree</dt>
-              <dd className="truncate font-mono text-xs leading-5">
+              <dd className="font-mono text-xs leading-5 break-all select-all">
                 {row.worktree && row.worktree !== "-"
                   ? row.worktree
                   : "Not created yet"}

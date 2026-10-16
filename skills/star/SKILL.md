@@ -267,10 +267,15 @@ project." Otherwise `sh S/loops.sh --file HOME_DIR/open-loops.md list`, then cou
 `sh S/dashboard.sh`. It builds the dashboard's web app when it is missing or older than its sources
 (after checking free memory), starts the one dashboard server on this Mac when it is not running
 (`node <plugin>/dashboard/server/main.ts`, on 127.0.0.1 only, its port and token in
-`~/.juel/dashboard.json`), prints `STAR dashboard: <url>` and opens it. Print that line. It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder. The page lists
+`~/.juel/dashboard.json`), prints `STAR dashboard: <url>`, then `STAR dashboard on your tailnet: <https url>` when `tailscale serve` maps its port, and opens it. Print those lines. It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder. The page lists
 every project in `~/.juel/star-homes.json` (one per project name: a folder that still exists wins
 over one that is gone), records answers with `loops.sh set-answer` and wakes STAR with `orca
-terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. A dashboard server that
+terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. The page also has a
+Chat page per project, where the owner talks to this STAR (a chat message, in the Inbox step), an
+away switch that writes the same control files as `away` and `back` from another session, and an
+Accounts page with the machine's cswap accounts, read-only. From a phone the owner reaches it over
+their tailnet with `tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`), which
+they run once themselves, never `tailscale funnel`: the server stays on 127.0.0.1. A dashboard server that
 another checkout or plugin version started is stopped and replaced by this one's, on the same port
 and token. A non-zero exit: print its last line, nothing else.
 
@@ -280,6 +285,8 @@ In STAR's own session these run directly (see "Handoff" and "Stop"). From any ot
 the project: write `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` containing the single
 line `control: away` (or `control: back`, `control: stop`), then nudge STAR as in hand-over. STAR
 not running → say so; the control file waits in the inbox.
+The dashboard's away switch writes the same file (`control: away` or `control: back`) and nudges the
+same way; "Handoff" says where STAR then puts what is still open.
 
 ## STAR's home
 
@@ -322,7 +329,9 @@ handoff.md              the summaries written while the user is away (handoff.sh
 sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
 ledger.md               one row per item
 processed.log           <message id> <dispatch> <iso time>
+messages-wait           while a background message wait runs: "<pid> <iso start>" (messages.sh writes and removes it; --waiting reads it)
 inbox/                  one file per hand-over; deleted once ingested
+chat/                   the dashboard's chat thread: one file per message, never rewritten (<UTC>-me-<4 hex>.md the owner's, <UTC>-star-<4 hex>.md STAR's replies, written only by chat.sh)
 items/<project>/<name>.md            a spec item from a free-text brief, a split, or a re-scope's follow-up
 briefs/<project>/<item>.md
 grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, the time, the items
@@ -342,7 +351,8 @@ gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
 evidence/<item>/                     the item's evidence folder, copied from its worktree before worktree-clean.sh removes it
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
-drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack reply STAR drafted: first line "to: slack <channelId> <threadTs, or ts>", then the reply
+drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack draft the dashboard writes before the hand-over: first line "to: slack <channelId> <threadTs, or ts>", then the reply its drafter wrote (nothing more when it failed)
+slack/redraft/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md   a request for the drafter to write a draft again: "draft: <path>", "loop: <id>", "how: <text>" (slack-redraft.sh or the dashboard writes it; the drafter deletes it when done)
 memory/<project>.md
 ```
 
@@ -436,7 +446,8 @@ work gets the answer without waiting for the next tick.
 | a build was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "build was interrupted" --body "worktree: <path> (it must be clean before a restart: commit or discard what the interrupted run left)\nOptions: restart / drop"` |
 | a draft is ready | `loops.sh add --kind draft --project <p> --item <i> --title "<what the draft is>" --body "<draft path>\nOptions: send / drop"` |
 | a worker held an outward action, or a merge waits for something only a person gives | `loops.sh add --kind held --project <p> --item <i> --title "<action, or what the merge waits for>" --body "Options: done"` |
-| an inbox file brought a Slack message (a `slack:` block, the Inbox step) | `loops.sh add --kind slack-reply --project <p> --item slack --title "<from> in <channel>: <first 60 characters of its text>" --body "draft: <draft path>\nmessage: <permalink>\nSuggest: <the reply's first line>\nOptions: send (recommended) / rewrite: <how> / skip"` |
+| an inbox file brought a Slack message whose draft holds a reply (a `slack:` block, the Inbox step's `queue`) | `loops.sh add --kind slack-reply --project <p> --item slack --title "<from> in <channel>: <first 60 characters of its text>" --body "draft: <draft path>\nmessage: <permalink>\nSuggest: <the reply's first line>\nOptions: send (recommended) / rewrite: <how> / skip"` |
+| an inbox file brought a Slack message whose draft holds no reply (the drafter failed, or the Inbox step's `new`) | `loops.sh add --kind slack-reply --project <p> --item slack --title "<from> in <channel>: <first 60 characters of its text>" --body "draft: <draft path>\nmessage: <permalink>\nSuggest: no draft: <why>\nOptions: rewrite: <how> / skip"` |
 
 **A pick.** When STAR adds an item and has a pick, it marks that option in the `Options:` line with a ` (recommended)` suffix (`Options: done (recommended) / can't now`) and adds a body line
 `Suggest: <one line, why>`. A `secret` step never gets either: no suggested value for a secret.
@@ -639,7 +650,13 @@ runs in <handle>", and end the turn.
    counted, and leave its `counters` as they are. Its `live=` tells the next `stage-start.sh`
    that this is the same start, so it sends the same `--retry-request` ids and Orca hands back
    the task or dispatch it already made instead of a second one.
-6. `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · babysit <n>/<max>" --next "<one line>"`, then tick.
+6. Look for a background wait left by a session that died or was stopped: run `sh S/messages.sh --home HOME_DIR --waiting`; when it prints `waiting <pid> <since>`, `kill <pid>` (its TERM handler ends the orca wait and removes `messages-wait`). One STAR runs per home, so a wait found at start belongs to a session that is no longer STAR, or to this session before a restart. Killing it is always safe: the next tick starts a fresh one.
+   Then `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · babysit <n>/<max>" --next "<one line>"`.
+   Then `sh S/chat.sh --home HOME_DIR pending`: it prints the id of each chat message from the
+   dashboard that has no reply yet, oldest first. One whose inbox file is still there
+   (`grep -lx 'chat: <id>' HOME_DIR/inbox/*.md` prints it) is the first tick's, in the Inbox step.
+   Answer each other one now, once, as the Inbox step answers a chat message, its text read from
+   `HOME_DIR/chat/<id>.md` (the lines after `---`). Then tick.
 
 A stop or an "I'm leaving" said in chat is written down at once, before the tick goes on: a file
 `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` with the line `control: stop` (or
@@ -649,7 +666,7 @@ end of the tick or the Inbox step later, deletes the file in the same step. And 
 its first tick) deletes every `control: stop` file it finds: a stop older than this start has
 already happened, and must not stop STAR again.
 
-**Stop** (`/juel:star stop`, the user says stop, or a `control: stop` file): finish the current tick, kill the recorded
+**Stop** (`/juel:star stop`, the user says stop, or a `control: stop` file): finish the current tick, run `sh S/messages.sh --home HOME_DIR --waiting` and `kill <pid>` when it prints `waiting <pid> <since>`, kill the recorded
 caffeinate (only when `ps -p <pid> -o comm=` still prints `caffeinate`), delete the heartbeat, `loops.sh resume --state stopped --next "run /juel:star to resume"`, set
 `"terminal": null` in `star.json` (the claim is released, so the session hook goes quiet and the
 next `/juel:star` in this project becomes the coordinator), and print the queue. Workers still running are left alone.
@@ -746,26 +763,32 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    file.
 
    A file with a `slack:` block is a Slack message the dashboard's watcher routed to this project,
-   not a work item: it adds no row. The watcher hands a message over at least once, so the same
+   not a work item: it adds no row. STAR never writes reply text. The dashboard writes the draft
+   before it hands the message over, `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`: its
+   first line `to: slack <channelId> <threadTs>` (the block's `ts` when `threadTs` is `-`), then the
+   reply its drafter wrote, or nothing more when the drafter failed or timed out. The block's
+   `draft:` line names that file, and a `drafterError:` line says why when the drafter failed. The
+   watcher hands a message over at least once, so the same
    message can come again, that day or a later one. After its `repo:` check, before anything else,
    run `sh S/slack-handled.sh --home HOME_DIR <id>` (`<id>` the block's `id`) and act on its line:
    - `handled sent <draft name>` or `handled drafted <draft name>`: STAR already raised this message
-     (drafted a reply and queued it, or sent one).
+     (queued its draft, or sent its reply).
      Delete the file and do nothing else: no draft, no queue item, no notification.
-   - `queue <draft path>`: the draft was written but its item never was (STAR stopped in between).
-     Queue it with the `slack-reply` row of the queue table: `<draft path>` on its `draft:` line, the
-     title and `message:` from this file's block, its Suggest line the reply's first line (the
-     draft's second line). Do not rewrite the draft.
-   - `new`: write the reply as a draft, `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`: its
-     first line `to: slack <channelId> <threadTs>` (the block's `ts` when `threadTs` is `-`), then the
-     reply. The reply is in the owner's voice, at most two sentences, no greeting, and says only
-     what STAR's own files say (ledger states, brief titles, PR numbers); when they do not answer the
-     message, the reply says the owner will check, and so does its Suggest line. Then queue it (the
-     `slack-reply` row of the queue table).
+   - `queue <draft path>`: the draft was written but its item never was (the dashboard writes every
+     draft before the hand-over, or STAR stopped before queueing it). Queue it with the `slack-reply`
+     row of the queue table: `<draft path>` on its `draft:` line, the title and `message:` from this
+     file's block, its Suggest line the reply's first line (the draft's second line). A draft with
+     nothing after its first line holds no reply: queue it with the no-reply row instead, its Suggest
+     line `no draft: <why>` (`<why>` the block's `drafterError:`, else `the drafter wrote no reply`).
+     Do not rewrite the draft.
+   - `new`: no draft file for this message at all (an older dashboard, or the file was removed).
+     Write the draft's first line from this file's block, `to: slack <channelId> <threadTs>` (its
+     `ts` when `threadTs` is `-`), to `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`: a first
+     line, never reply text. Then queue it with the no-reply row, as `queue` does.
    - Anything else (a non-zero exit, or output that is not exactly one of those lines): leave the
      file where it is and queue `--kind held` "slack-handled.sh could not check inbox file <name>; it
-     stays in the inbox until the check succeeds": a failed check neither drafts a second reply nor
-     loses the message.
+     stays in the inbox until the check succeeds": a failed check neither raises the message twice nor
+     loses it.
 
    After `queue` or `new`, delete the file only once `loops.sh add` has printed the item's id. A
    draft or an item that could not be written leaves the file where it is, and the next tick's check
@@ -781,10 +804,46 @@ starts ("Fill slots"), so two sessions never work in one worktree.
          threadTs: <ts, or ->
          from: <display name>
          permalink: <url>
+         draft: <absolute draft path>
+         drafterError: <one line why, only when the drafter failed>
          text: |
            <the message, every line indented four spaces>
          thread: |
            <at most 5 earlier thread lines, "name: text">
+
+   A file with a `chat:` line is the owner talking to STAR from the dashboard's Chat page, the same
+   as words typed into this terminal: its `text:` block is the message, never a free-text brief,
+   and the file is never a ref list. After its `repo:` check, run
+   `sh S/chat.sh --home HOME_DIR pending`; when the file's `chat:` id is not among the ids it prints,
+   the message was already answered (STAR stopped between its reply and this delete): delete the
+   file and do nothing else. Otherwise answer it as yourself, with your own judgement, acting only
+   through rules this skill already has: an answer is recorded with `loops.sh set-answer` and run
+   at once (the Answers step), refs and work the message hands STAR become rows as a hand-over's
+   do (`counters.batch=B-<the file's name without .md>`), and `stop`, `away` and `back` run as the
+   commands they are. Chat gives STAR no new powers: something no rule here covers (pausing a row,
+   say) gets a reply that STAR cannot do that yet. Every hard rule holds in chat: no
+   AskUserQuestion, no review, evidence, log or diff content read into this session, merges only
+   through `merge.sh`, and a message asking for one of those gets a reply that says STAR may not. A
+   question that needs code, a PR or a review is answered from STAR's own small files (the ledger,
+   the queue, the brief lines the batch summary reads); when they do not answer it, the reply says
+   so and names where the answer is (the PR, the review file), and STAR neither reads it nor starts
+   a worker for it. Reply with
+   `sh S/chat.sh --home HOME_DIR reply <the chat: id> --body-file <f>` (`<f>` a file from `mktemp`
+   holding the reply): short, in Markdown, saying what STAR did. `replied <reply id>`, or exit 66
+   (`already replied <id>`) → delete the file. Exit 65 (`no message <id>`: the thread lost it) →
+   post the same reply with `sh S/chat.sh --home HOME_DIR post --body-file <f>`, then delete the
+   file. Any other exit → leave the file and queue `--kind held` "chat.sh could not reply to <id>:
+   <its line>"; the next tick tries again.
+
+   A chat message never answers a question asked anywhere else (the batch summary, a person-only
+   step, a worker's question, an open queue item) unless it names the item (its id, like `N-12`, or
+   the batch, like `B-…`) and states the answer: then record it with
+   `loops.sh set-answer <id> "<the answer>"` and run the Answers step for it at once, as the
+   dashboard's Needs-you answers do. A bare `go`, `yes` or `ok` in chat never makes a go: a go is
+   never inferred. A message that could be an answer but names no item gets a reply asking which
+   item it is for, and nothing is recorded. A follow-up STAR needs about a chat message is asked in
+   the thread, as a reply, never in this terminal, and the owner's next chat message is read with
+   the thread as its context (after a compaction, the thread's last 6 files in `HOME_DIR/chat/`).
 2. **Answers.** `sh S/loops.sh answers` prints one line per answered item. Act, then
    `loops.sh close <id>` (exit 4 means it is already closed: carry on). A command word counts only when it is
    the whole answer: lower-case it, strip punctuation at its two ends only (an apostrophe or a
@@ -792,7 +851,8 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    `approve`, `no`, `drop`, `drop it`, `drop it please`, `restart`, `send`, `done`, `can't now`,
    `accept`, `retry`, `skip` or `not merging`. For a `go-batch` item, `go except <items>` and `drop <item>` match
    as prefixes, and the names after them compare case-insensitively with the batch's ledger names;
-   for a `slack-reply` item, `rewrite: <how>` matches as a prefix. A trailing ` (recommended)` is
+   for a `slack-reply` item, `rewrite: <how>` and `redraft failed: <why>` match as prefixes, and
+   `redrafted` is a command word too (the dashboard's drafter records both). A trailing ` (recommended)` is
    dropped from an answer before any of this (an answer copied from the Options line).
    So `Drop.` and `restart!` count, while `go, but rename the flag` and `Drop the retry wrapper
    and call the queue directly` do not: anything longer than the bare word is feedback or a
@@ -847,27 +907,44 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
    | `held` "the hosted reviewer is not reviewing…" | `retry` | set `hostedDown` to null in `star.json` and close the item: "Fill slots" starts the parked babysits again (#129) |
-   | `slack-reply` | send | load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
-   | `slack-reply` | `rewrite: <how>` | rewrite the draft's reply as `<how>` asks (the Inbox step's rules for a reply, first line kept), close the item and add the `slack-reply` item again with the new reply's first line on its Suggest line |
+   | `slack-reply` | send | a draft with nothing after its first line has no reply to send: close the item and add it again unanswered, with ` (no reply to send: answer rewrite: <how> or skip)` at the end of its title, and the status line says `no reply to send for <draft name>: answer rewrite: <how> or skip`. Otherwise load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
+   | `slack-reply` | `rewrite: <how>` | STAR never writes reply text: the dashboard's drafter writes the new version, also for a draft that holds no reply yet. When a request for this item is already waiting (`grep -lx 'loop: <id>' HOME_DIR/slack/redraft/*.md` prints a file), do nothing but the status line below. Otherwise close the answered item and add it again unanswered, with the same kind, project, item and body lines (`draft:`, `message:`, Suggest and Options) and ` (redrafting)` at the end of its title (an item whose title already ends so is the same flow: a second `rewrite: <how>` while one runs is allowed, and the newest request wins). Then `sh S/slack-redraft.sh --home HOME_DIR --draft <the item's draft: path> --loop <the NEW item's id> --how "<how>"`: `requested <file name>` → the status line says `redrafting <draft name>`. Any other exit (65: the draft file was removed) → keep the new item open and queue `--kind held` "could not ask for a redraft of <draft name>: <its last line>" |
+   | `slack-reply` | `redrafted` | the drafter wrote the new version: close it and add the `slack-reply` item again with the same `draft:` and `message:` lines, its title without its ` (redrafting)` ending and without a ` (redraft failed: …)` ending, its Suggest line the draft's new second line (`sed -n 2p <draft path>`), and `Options: send (recommended) / rewrite: <how> / skip` |
+   | `slack-reply` | `redraft failed: <why>` | close it and add it again as it was, with ` (redraft failed: <why>)` at the end of its title in place of its ` (redrafting)` ending (or an earlier failure) |
    | `slack-reply` | skip | close it |
    | `slack-reply` | anything else | close it and add it again with "(answer send, rewrite: <how> or skip)" at the end of its title |
    | `draft`, `held` | anything else | close it |
-3. **Messages**, only while some row is in a worker stage or waiting for a slot:
-   `sh S/messages.sh --wait --timeout-ms 540000`. It prints `delivery <id> <n>`, then each message
+3. **Messages**, only while work is active ("Active or idle"). The wait runs in the background, so
+   a chat message, a nudge or the owner's own words reach STAR within seconds.
+   **A wait that finished.** When this tick was woken by a wait's completion notification, or one
+   arrived since the last tick, read that wait's output: the background command's own lines, never
+   a log. It printed `delivery <id> <n>`, then each message
    as `msg <id> <type> <dispatch> <sent> [deadline=<iso>]` with at most 12 body lines indented by
    two spaces (`cut <n>` after them when the body was longer), or `none`. Heartbeats, "Rejected
    heartbeat" notices and messages already in `processed.log` never appear: the script drops them
    and acknowledges a batch that held nothing else, so an Orca nudge ("You have N orchestration
-   messages") whose batch holds only heartbeats is a no-op. Orca replays a delivery until it is
+   messages") whose batch holds only heartbeats is a no-op. Apply each message by the table below,
+   in the order of effects above: the ledger, then `processed.log`, then the ack, which the next
+   wait carries. A wait that printed no line or exited non-zero (it was ended) has nothing to apply.
+   **The next wait, never a second one.** Then `sh S/messages.sh --waiting`. It prints
+   `waiting <pid> <since>` while a wait is outstanding, else `none`; a wait that died without a
+   notification (the session closed, the process was killed) reads as `none`. Only on `none`, start
+   `sh S/messages.sh --wait --timeout-ms 540000` with the Bash tool's `run_in_background: true`, as
+   "Fill slots" runs `stage-start.sh`. Orca replays a delivery until it is
    acknowledged, so once every message in it is in the ledger and in `processed.log`, the next wait
    is `sh S/messages.sh --ack <delivery> --wait --timeout-ms 540000` (or `sh S/messages.sh --ack
-   <delivery>` alone when STAR is about to go idle). `none` is a tick; `unknown <why>` is a tick
-   too, named in the status line.
+   <delivery>` alone when STAR is about to go idle). On `waiting …` start nothing: the outstanding
+   wait brings the messages, so a tick that an Orca nudge, a chat message, the heartbeat or the
+   owner woke reads no messages itself. Never two waits at once, never a foreground wait, and never
+   a poll or a Monitor on the wait: its completion notification is what wakes STAR. The tick goes
+   on (Fill slots, Housekeeping, Write) without waiting for it, and STAR ends its turn ("Active or
+   idle"). A notification that arrives during a tick is applied by a tick that runs right after it.
+   `none` is a tick; `unknown <why>` is a tick too, named in the status line.
    `waiter-exists <pids>` means an earlier wait still holds this run's waiter (#38). The pids are
    orphaned waits only (`messages.sh` lists only waits whose parent is pid 1, never another live
-   session's): end each (`kill <pid>`), then wait again. `waiter-exists -` (none found): wait
-   again once; a second `waiter-exists -` in a row is handled as `unknown <why>` and files an
-   improvement issue.
+   session's): end each (`kill <pid>`), then start the wait again. `waiter-exists -` (none found):
+   start it again once; a second `waiter-exists -` in a row is handled as `unknown <why>` and files
+   an improvement issue.
    STAR reads only the report's lines (at most 12 lines): it
    never opens a review, evidence or log file, and never reads a worker's screen; the scripts do
    that and give one line back. A `cut` report: act on the first 12 lines and queue `--kind held`
@@ -1038,15 +1115,22 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    this tick's `step-check.sh` (`<item>: <diagnosis>`), each restart (`restarted <item> at <step>`),
    and each issue filed this tick ("filed issue #19").
 
-**Active or idle.** While any row is in `inbox`, `briefing`, `building`, `babysit-queued`,
-`babysitting` or `posting`, in `verifying` while its `verify` holds no `retry=` in the future, or in
-`queued` or `post-queued` while it may start, or while `gateDown` is set, stay in the turn and tick
-again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
-`state: idle` and STAR ends its turn. It is woken by a hand-over nudge, by the user, or by the
-heartbeat, and each wake runs one tick. A `queued` row waiting for its `notBefore` date cannot
-start, so it does not keep STAR in the turn: the heartbeat's next wake tries it again. While a question is open in chat, STAR does not
-stay in the turn: each wake runs one tick, then STAR prints the open question again and ends the
-turn ("The batch summary and go").
+**Active or idle.** Work is active while any row is in `inbox`, `briefing`, `building`,
+`babysit-queued`, `babysitting` or `posting`, in `verifying` while its `verify` holds no `retry=` in
+the future, or in `queued` or `post-queued` while it may start, or while `gateDown` is set. While
+work is active, every tick ends with a message wait outstanding in the background (step 3 started
+it, or an earlier tick's is still alive), and STAR ends its turn. The wait's 9-minute timeout stays
+the clock: its completion notification wakes STAR for the next tick, and a wait that ends with
+`none` is a tick too, so Housekeeping runs at least every 9 minutes. With work active, a wait is
+outstanding or a tick runs, never neither. Any other wake (an Orca nudge, `inbox` from a hand-over
+or the dashboard, a chat message, the heartbeat, the owner typing) runs one tick as well, and that
+tick starts no second wait. When every row is waiting on the user or finished, write
+`state: idle`, start no wait, and STAR ends its turn. It is woken by a hand-over or dashboard nudge,
+by the user, or by the heartbeat, and each wake runs one tick; a wait still outstanding ends by
+itself, and its notification runs one more tick. A `queued` row waiting for its `notBefore` date
+cannot start, so it is not active work: the heartbeat's next wake tries it again. While a question
+is open in STAR's terminal, each wake runs one tick, then STAR prints the open question again and
+ends the turn ("The batch summary and go").
 
 ## Stages
 
@@ -1554,6 +1638,10 @@ STAR writes for the user only what shipping needs, and sends none of it by itsel
   the escalation; the user's answer on the escalation is the decision the next babysit run applies.
 - "Draft a status note": STAR writes `HOME_DIR/drafts/<date>-status.md` from the ledger and the
   queue (its own small files) and queues it as `--kind draft`. The user sends it.
+- A Slack reply is never STAR's to write: the dashboard's drafter writes each draft from the
+  project's code, briefs and PRs before the message reaches STAR, and writes it again when the owner
+  answers `rewrite: <how>` (`slack-redraft.sh` asks for it). STAR queues it, posts it on the owner's
+  `send`, and never writes or changes reply text.
 
 ## Memory notes
 
@@ -1863,6 +1951,8 @@ batch then runs without them.
 
    The reply: a bare number, or the text of one option, is that option; any other words are the
    answer in words.
+   That holds in STAR's terminal only: a chat message from the dashboard answers a question only by
+   naming its item (the Inbox step).
    On a question with numbered options, a bare number that names no option is not an answer:
    print the question again. Record the answer with
    `loops.sh set-answer <id> "<the option's text, or the words>"` and run the Answers step for it at
@@ -1921,7 +2011,12 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 
 1. Finish the current tick. When a batch summary still has open questions, ask them once more
    ("The batch summary and go"); a person-only step left unanswered holds only its own item, which
-   stays `brief-ready`.
+   stays `brief-ready`. An away that came as a control file the Inbox step runs (the dashboard's
+   away switch writes one, and so does another session) or as a chat message finds nobody at STAR's
+   terminal: ask nothing there. After step 2, post part A into the dashboard's chat thread instead:
+   write it to a file from `mktemp` with `sed -n '/^### A\./,/^$/p' HOME_DIR/handoff.md`, then run
+   `sh S/chat.sh --home HOME_DIR post --body-file <that file>`; not when `handoff.sh start` said
+   STAR was already away.
 2. `sh S/handoff.sh --home HOME_DIR start` writes `handoff.md` and marks `away` in `star.json`. Its
    three parts come straight from the files: **A. Needs you now** (queue items that block work: a
    batch's go, person-only steps, merge questions, worker questions, escalations, restarts),
@@ -1962,6 +2057,16 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - **A stop in the middle of a tick:** nothing is lost and nothing runs twice. A message not yet in
   `processed.log` is replayed into the same end state (the order of effects above); a row written
   before its `task-create` goes back to its waiting state; an inbox file read twice adds no row.
+- **The background message wait:** a wait belongs to the session that started it, and only that
+  session hears its notification. After a compaction, `sh S/messages.sh --waiting` says whether
+  it is still alive (`waiting <pid> <since>`): no second wait starts, and its notification still
+  comes. After a restart the old session's wait does not end by itself (the Bash tool's shell wrapper outlives a killed Claude, so `messages.sh` does not see its parent go): the start sequence and Stop kill it with `--waiting` and `kill <pid>`. A wait
+  that died without a notification reads as `none` (`--waiting` removes its stale file): the next
+  tick starts a new one. `waiter-exists` still ends a wait Orca holds for a dead one (#38).
+- **Chat:** a chat message is answered once. The Inbox step checks `chat.sh pending` before it
+  acts, `chat.sh reply` refuses a second reply (exit 66), and every start answers each pending
+  message whose inbox file is gone, so a message sent while STAR was stopped, or caught by a
+  compaction, is answered at the next start.
 - **A v1 STAR folder:** the start's first step, `star-home.sh migrate`, brings it to schema 2. It
   keeps `star.json.v1.bak` and `ledger.md.v1.bak`, moves each row out of a removed state with a
   decision record in its brief, and prints the workers of the removed stages, which STAR stops and
@@ -1973,9 +2078,14 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   the item's grant, outside quiet hours. No worker merges.
 - Never read review, evidence, log or diff content into this session. One line per fact, from a
   script or a report.
+- STAR never writes Slack reply text: the dashboard's drafter writes every draft and writes it
+  again when asked (`slack-redraft.sh`); STAR queues it and posts it on the owner's `send`.
 - On Claude Code 2.1.287 and later, juel's mod refuses a direct `gh pr merge` in the coordinator and in STAR's workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.
 - An item is never built before the owner's go for its batch, or, for a re-scope's follow-up, its
   parent's grant. A go is never inferred.
+- A chat message from the dashboard answers a queue item or a question only when it names the item
+  (its id, or the batch) and states the answer; a bare `go` there is never a go. STAR answers it in
+  the thread with `chat.sh`, never only in this terminal, and chat gives STAR no new powers.
 - Product calls are STAR's, decided from sourced options and kept as decision records the owner
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
@@ -1984,6 +2094,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   worktree).
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
+- One message wait at a time, always in the background: `messages.sh --waiting` first, and a
+  wait starts only on `none`.
 - The work item's status is written only by STAR, from the row's state ("The tracker status").
 - Never put a project's details in an improvement issue: placeholders only, and `star-issue.sh`
   refuses the rest.
@@ -2001,12 +2113,14 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A worker moving the tracker status | Workers never write it; STAR follows the row's state |
 | Pasting ticket text or a project name into an improvement issue | Placeholders only; `star-issue.sh` refuses project details |
 | Opening a report "to check it" before asking for the accept | The queue item carries the path; the user reads it |
+| Writing or editing a Slack reply's text | The dashboard's drafter writes it; `rewrite: <how>` goes to `slack-redraft.sh` |
 | Editing `open-loops.md` with Edit or sed | `loops.sh` only: it keeps what the user typed |
 | Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go, waits out quiet hours and passes `--match-head-commit` |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
 | Starting a build before its batch's go | Only a `go-batch` answer, or a parent's grant, stamps `approved:` |
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
 | Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
+| Starting `messages.sh --wait` while one is outstanding, or in the foreground | `messages.sh --waiting` first: start one only on `none`, with `run_in_background: true`, and end the turn; its notification runs the next tick |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
 | Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
@@ -2020,12 +2134,16 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Putting a line break in a task spec | `stage-start.sh` writes long prompts to a file and sends one line |
 | Starting a brief in a build slot | Briefs have their own pool, `maxBriefs`; build slots are for building |
 | Asking the user with AskUserQuestion while workers run | Plain chat, one question per message: an Orca nudge answers an open picker with its first option |
+| Taking a bare "go" or "yes" in the dashboard's chat as the batch's go | A chat message answers only an item it names, with the answer stated; otherwise reply in the thread asking which item |
+| Answering a chat message only in this terminal | `chat.sh reply`: the reply goes into the thread, short and in Markdown |
 
 ## Edge cases
 
 | Situation | Handling |
 |---|---|
 | Refs given while STAR is stopped | The invoking session becomes the coordinator and ingests them |
+| A chat message sent while STAR is stopped | Its inbox file waits; the next start answers it once (`chat.sh pending` also finds one whose inbox file is gone) |
+| A bare "go" in the dashboard's chat while a batch's go is open | Not a go: STAR replies asking which item it is for, and the `go-batch` item stays open |
 | The same ref given twice | One row. The second time changes nothing |
 | The user merges or closes a PR before STAR merged it | The PR check before "Fill slots" sees it in every state that has a PR, stopped rows included: merged → release record and `done`; closed → `escalated` |
 | The user says "drop" while the item's worker is running | The worker is stopped and released first, then the row → `dropped` |
@@ -2035,6 +2153,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A second `/juel:star` in another terminal of the same project | It hands its refs to the running STAR and ends; it never becomes a second coordinator |
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
 | The project is not registered with Orca | `--kind held` "register this repo with Orca: orca repo add"; inbox files stay until it is |
+| The drafter failed or timed out on a Slack message | Its draft holds only the `to:` line: the item says `no draft: <why>` and offers `rewrite: <how>` or `skip`; a `send` is refused |
 | `codex` missing | STAR does not start: the executor and the gate need it (Preflight) |
 | A stage's model is refused at launch (no access, no credits) | The stage falls back to `worker` once and the queue says which model ran |
 | `/juel:star` typed in a linked worktree or a subfolder | The same folder as the main checkout: one STAR per project |
@@ -2051,6 +2170,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | An item that may only be built after a date | `notBefore` in its brief: the row stays `queued`, and the status line says `<item> waits until <date>` until then |
 | A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
+| A chat message, a nudge or the heartbeat arrives while a message wait is outstanding | One tick runs and starts no second wait; the outstanding wait brings the messages, and its notification runs the next tick |
 | The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |
 | The base moves under a gate loop and changes the branch's own files | The round prints `ERROR base-moved`: the worker merges the base in, runs the sweep and runs the same round again; it is not an error, and STAR does nothing (#113) |
 | The review gate is down on every model (`ERROR gate-down`) | STAR parks each build and babysit that reports it, starts no new ones, asks the owner once, and checks the gate every 30 minutes until it is back |

@@ -30,12 +30,21 @@ export function paths(root: string): StackPaths {
   }
 }
 
+/**
+ * The launcher's and the server's environment: process.env without JUEL_DIR (an inherited one would
+ * point the suite at someone's real dashboard folder) and XDG_DATA_HOME (the menu bar reader's
+ * folder). PATH is the fakes in <root>/bin, then this folder's bin/ (cswap, tailscale, crontab, ps,
+ * which globalSetup does not copy), then the inherited PATH.
+ */
 export function launchEnv(root: string): NodeJS.ProcessEnv {
   const stack = paths(root)
+  const inherited = { ...process.env }
+  delete inherited.JUEL_DIR
+  delete inherited.XDG_DATA_HOME
   return {
-    ...process.env,
+    ...inherited,
     HOME: stack.home,
-    PATH: [stack.bin, process.env.PATH].filter(Boolean).join(":"),
+    PATH: [stack.bin, join(import.meta.dirname, "bin"), process.env.PATH].filter(Boolean).join(":"),
     FAKE_ORCA_DIR: stack.fakes,
     STAR_E2E_FAKES: stack.fakes,
     JUEL_STAR_HOME: stack.star,

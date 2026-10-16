@@ -364,5 +364,8 @@ EOF
 has "#129 babysit acts on a hosted-skip item" "$R129c"
 has "#131 the fix covers every site of the pattern" "$R131b"
 
+# lane c: #143 a stalled gate (exit 125) is gate-unavailable here too, never a red gate
+gates_row=$(grep -F '| gates run directly |' "$SKILL")
+printf '%s\n' "$gates_row" | grep -qF 'Exit 71, 124 or 125 (the gate could not run, ran past its time limit, or stalled: it printed nothing for `--idle-max` seconds) → `ESCALATION item=<item> phase=8 reason=gate-unavailable needs=<the script'"'"'s message>`, never a red gate and never run again' && pass "C143f babysit reads exit 125 as a stalled gate" || fail "C143f babysit reads exit 125 as a stalled gate"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

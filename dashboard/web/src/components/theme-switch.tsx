@@ -38,7 +38,7 @@ export function ThemeSwitch() {
             <ToggleGroupItem
               value={value}
               aria-label={`${label} theme`}
-              className="text-muted-foreground aria-checked:bg-accent aria-checked:text-foreground aria-checked:shadow-sm"
+              className="text-muted-foreground pointer-coarse:h-11 pointer-coarse:min-w-11 aria-checked:bg-accent aria-checked:text-foreground aria-checked:shadow-sm"
             >
               <Icon />
               <span className="hidden lg:inline">{label}</span>

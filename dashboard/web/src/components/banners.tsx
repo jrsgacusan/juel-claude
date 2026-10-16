@@ -3,7 +3,9 @@ import type { ReactNode } from "react"
 import { useConnection } from "@/api/events"
 import { useProjects } from "@/api/queries"
 import { Button } from "@/components/ui/button"
+import { TokenForm } from "@/components/page-state"
 import { setConflict, useConflict } from "@/lib/conflict"
+import { TOKEN_REFUSED } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
 export function Banner({
@@ -55,7 +57,7 @@ export function ConflictBanner({ project }: { project: string }) {
         <Button
           variant="ghost"
           size="icon"
-          className="size-6"
+          className="size-6 pointer-coarse:-my-2.5 pointer-coarse:size-11"
           aria-label="Dismiss"
           onClick={() => setConflict(null)}
         >
@@ -73,8 +75,8 @@ export function ConnectionBanner() {
   if (connection === "refused")
     return (
       <Banner tone="stop" icon={<Unplug />}>
-        The dashboard server refused the token. Open the dashboard again with
-        /juel:star dashboard.
+        <p>{TOKEN_REFUSED}</p>
+        <TokenForm place="banner" />
       </Banner>
     )
   if (connection !== "lost") return null

@@ -34,3 +34,33 @@ describe("state color tokens", () => {
     }
   })
 })
+
+describe("motion classes (I-15)", () => {
+  const at = css.indexOf("@media (prefers-reduced-motion: reduce)")
+  const main = at < 0 ? css : css.slice(0, at)
+  const reduce = at < 0 ? "" : css.slice(at)
+  const rule = (selector: string) => {
+    const start = main.indexOf(`${selector} {`)
+    return start < 0 ? "" : main.slice(start, main.indexOf("}", start))
+  }
+  it("times each one as the mockup does", () => {
+    expect(rule(".motion-pop")).toContain("star-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1)")
+    expect(rule(".motion-breathe")).toContain("star-breathe 2.4s ease-in-out infinite")
+    expect(rule(".motion-pop.motion-breathe")).toContain("star-breathe 2.4s ease-in-out 420ms infinite")
+    expect(rule(".motion-sweep::after")).toContain("star-sweep 1.8s ease-in-out infinite")
+    expect(rule(".motion-ping::after")).toContain("star-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite")
+    expect(rule(".motion-ping::after")).toContain("background: inherit")
+    expect(rule(".motion-fade-in")).toContain("star-rise 200ms")
+    expect(rule(".motion-row-in")).toContain("star-rise 250ms")
+    expect(rule(".motion-bar")).toMatch(/transition:[^;]*width 600ms[^;]*transform 600ms/)
+    for (const name of ["star-pop", "star-breathe", "star-sweep", "star-ping", "star-rise"])
+      expect(css).toContain(`@keyframes ${name} {`)
+  })
+  it("turns every one off under prefers-reduced-motion: reduce", () => {
+    expect(at).toBeGreaterThan(0)
+    for (const selector of [".motion-pop", ".motion-breathe", ".motion-pop.motion-breathe", ".motion-fade-in", ".motion-row-in", ".motion-sweep::after", ".motion-ping::after"])
+      expect(reduce).toContain(selector)
+    expect(reduce).toMatch(/animation:\s*none/)
+    expect(reduce).toMatch(/\.motion-bar\s*\{\s*transition:\s*none/)
+  })
+})

@@ -1,6 +1,6 @@
 import type { Req, Res } from "./types.ts";
 
-export type Method = "GET" | "POST" | "PUT";
+export type Method = "GET" | "POST" | "PUT" | "DELETE";
 /** A core route may also answer with a file to stream; a module's answer is plain Res. */
 export type CoreRes = Res & {
   file?: { path: string; rel: string; size: number; type: string };

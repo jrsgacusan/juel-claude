@@ -8,10 +8,18 @@ test("every page fits the width", async ({ page }) => {
     "/sphere-app/slack",
     "/sphere-app/briefing",
     "/sphere-app/evidence?item=SPH-4",
+    "/sphere-app/accounts",
     "/juel-claude/needs",
   ]) {
     await goInApp(page, path)
-    await expect(page.locator("h1, h2").first()).toBeVisible()
+    if (isPhone(page) && path.endsWith("/briefing")) {
+      // On a phone Briefing swaps its Chat and Draft panes behind tabs and shows no heading, to keep the height.
+      await expect(page.getByRole("tab", { name: "Chat", exact: true })).toBeVisible()
+      await expect(page.getByRole("tab", { name: "Draft", exact: true })).toBeVisible()
+    } else {
+      // A detail on a phone hides the list's heading, so the check wants a heading that is shown.
+      await expect(page.locator("h1:visible, h2:visible").first()).toBeVisible()
+    }
     await noHorizontalScroll(page)
   }
 })
@@ -41,6 +49,7 @@ test("makes no request outside its own origin", async ({ page, baseURL }) => {
     "/sphere-app/slack",
     "/sphere-app/briefing",
     "/sphere-app/evidence",
+    "/sphere-app/accounts",
   ])
     await goInApp(page, path)
   const offOrigin = urls.filter(
@@ -68,5 +77,51 @@ test("the header shows the breadcrumb, the ⌘K hint and the theme switch", asyn
     await expect(
       page.getByRole("button", { name: "Open the menu" })
     ).toBeVisible()
+  await noHorizontalScroll(page)
+})
+
+test("the sidebar lists Chat between Progress and Slack replies", async ({ page }) => {
+  await openApp(page)
+  await openNav(page)
+  const sections = page.getByRole("list", { name: "Sections" })
+  await expect(sections.getByRole("link"))
+    .toHaveText(["Needs you", "Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
+  await sections.getByRole("link", { name: "Chat", exact: true }).click()
+  await expect(page).toHaveURL(/\/sphere-app\/chat$/)
+})
+
+test("the Workers card shows a square per slot, and away waits for STAR", async ({ page }) => {
+  await openApp(page)
+  await openNav(page)
+  await expect(page.getByText("5 busy")).toBeVisible()
+  await expect(page.getByRole("meter", { name: "Building" })).toHaveAttribute("aria-valuetext", "3 of 3 busy")
+  await expect(page.getByText("Next tick in 3 min")).toHaveCount(0)
+  const away = page.getByRole("switch", { name: "Away" })
+  await expect(away).toHaveAttribute("aria-checked", "false")
+  if (isPhone(page)) {
+    const row = await page.locator("[data-slot=away-row]").boundingBox()
+    expect(row?.height ?? 0).toBeGreaterThanOrEqual(44)
+  }
+  await away.click()
+  await expect(page.getByText("Waiting for STAR to mark you away")).toBeVisible()
+  await expect(page.getByText("STAR running · you're away")).toBeVisible({ timeout: 10_000 })
+  await expect(away).toHaveAttribute("aria-checked", "true")
+  await noHorizontalScroll(page)
+})
+
+test("on a phone the header stays on screen while the page scrolls", async ({ page }) => {
+  test.skip(!isPhone(page), "the header is sticky below md only")
+  await openApp(page, "/sphere-app/progress")
+  // Scroll only once the items have loaded: while the page shows its loading state it is shorter than the screen.
+  await expect(page.getByRole("tab", { name: /^Running/ })).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight))
+    .toBe(true)
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+  await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeInViewport()
+  const header = await page.locator("header").first().boundingBox()
+  expect(header?.y ?? 99).toBeLessThanOrEqual(1)
+  await expect(page.getByRole("navigation", { name: "breadcrumb" })).toContainText("Progress")
   await noHorizontalScroll(page)
 })

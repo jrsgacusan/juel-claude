@@ -39,3 +39,31 @@ test("a merged item's files show, and an image and a text file open", async ({
     /Paused seats keep read-only access\./
   )
 })
+
+test.describe("on a phone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  })
+
+  test("an item opens on its own and Back returns to the list", async ({
+    page,
+  }) => {
+    await openApp(page, "/sample/evidence")
+    const list = page.getByRole("region", { name: "Merged items" })
+    await list
+      .getByRole("button", {
+        name: /seat-pause.*Pause a member's seat.*3 files/,
+      })
+      .click()
+    await expect(
+      page
+        .getByRole("region", { name: "Evidence detail" })
+        .getByRole("heading", { name: "Pause a member's seat" })
+    ).toBeVisible()
+    await expect(list).toBeHidden()
+    await page.goBack()
+    await expect(list).toBeVisible()
+  })
+})

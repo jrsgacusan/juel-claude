@@ -1,0 +1,9 @@
+#!/bin/sh
+# The real-stack suite's cswap: stands in for the accounts module's `cswap list --json` (dashboard/server/modules/accounts/read.ts) so the real one is never read; anything else exits 64.
+[ -z "${STAR_E2E_FAKES:-}" ] || printf '%s\n' "$*" >> "$STAR_E2E_FAKES/cswap.log"
+if [ "${1:-}" = "list" ] && [ "${2:-}" = "--json" ] && [ "$#" -eq 2 ]; then
+  printf '%s\n' '{"schemaVersion": 1, "activeAccountNumber": 1, "accounts": [{"number": 1, "email": "e2e@example.com", "alias": "e2e", "active": true, "usageStatus": "ok", "usage": {"fiveHour": {"pct": 12.0, "resetsAt": "2026-10-17T12:00:00+00:00", "countdown": "3h 0m"}, "sevenDay": {"pct": 40.0, "resetsAt": "2026-10-22T18:00:00+00:00", "countdown": "5d 9h", "expectedPct": 35.0, "aheadOfPace": true, "projectedExhaustionAt": "2026-10-21T10:00:00Z", "willLastToReset": false}, "scoped": []}, "loginExpiresAt": "2026-11-13T19:59:46Z", "usageAgeSeconds": 30.0}]}'
+  exit 0
+fi
+printf '%s\n' 'fake cswap: only list --json' >&2
+exit 64

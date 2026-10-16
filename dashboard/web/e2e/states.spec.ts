@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test"
-import { noHorizontalScroll, openApp, type Scenario } from "./helpers.js"
+import type { Locator } from "@playwright/test"
+import {
+  isPhone,
+  noHorizontalScroll,
+  openApp,
+  type Scenario,
+} from "./helpers.js"
 for (const pageName of [
   "needs",
   "progress",
@@ -42,3 +48,30 @@ for (const pageName of [
         )
       await noHorizontalScroll(page)
     })
+
+test("on a touch screen the shell's controls are at least 44 px", async ({
+  page,
+}) => {
+  test.skip(!isPhone(page), "touch sizes apply on the phone projects")
+  await openApp(page, "/sphere-app/progress?item=SPH-11")
+  test.skip(
+    !(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)),
+    "this browser reports no coarse pointer"
+  )
+  const atLeast44 = async (locator: Locator, both = true) => {
+    const box = await locator.boundingBox()
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+    if (both) expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+  }
+  await atLeast44(
+    page.getByRole("dialog").getByRole("button", { name: "Close" })
+  )
+  await page.keyboard.press("Escape")
+  await atLeast44(page.getByRole("tab").first(), false)
+  await atLeast44(page.getByRole("button", { name: "Open the menu" }))
+  await page.getByRole("button", { name: "Open the menu" }).click()
+  await atLeast44(
+    page.getByRole("list", { name: "Sections" }).getByRole("link").first(),
+    false
+  )
+})

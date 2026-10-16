@@ -66,7 +66,7 @@ export function SearchDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-[12vh] translate-y-0 overflow-hidden p-0 sm:max-w-xl"
+        className="top-[6dvh] translate-y-0 overflow-hidden p-0 sm:max-w-xl md:top-[12dvh]"
         showCloseButton={false}
       >
         <DialogTitle className="sr-only">Search</DialogTitle>
@@ -80,7 +80,17 @@ export function SearchDialog({
             onValueChange={setQuery}
             placeholder="Search items, decisions, Slack, briefings and evidence"
           />
-          <CommandList className="max-h-[52vh]">
+          <div className="flex justify-end border-b px-3 py-1.5 text-xs text-muted-foreground">
+            <label className="flex items-center gap-2 pointer-coarse:min-h-11">
+              Every project
+              <Switch
+                checked={all}
+                onCheckedChange={setAll}
+                aria-label="Search every project"
+              />
+            </label>
+          </div>
+          <CommandList className="max-h-[40dvh] md:max-h-[52dvh]">
             {!q && (
               <p className="px-3 py-8 text-center text-sm text-muted-foreground">
                 Type to search {all ? "every project" : project}.
@@ -134,24 +144,17 @@ export function SearchDialog({
               )
             })}
           </CommandList>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-3 py-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <Kbd>↑</Kbd>
-                <Kbd>↓</Kbd>Move
-              </span>
-              <span className="flex items-center gap-1">
-                <Kbd>↵</Kbd>Open
-              </span>
+          <div
+            data-slot="search-hints"
+            className="flex items-center gap-3 border-t px-3 py-2 text-xs text-muted-foreground pointer-coarse:hidden"
+          >
+            <span className="flex items-center gap-1">
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd>Move
             </span>
-            <label className="flex items-center gap-2">
-              Every project
-              <Switch
-                checked={all}
-                onCheckedChange={setAll}
-                aria-label="Search every project"
-              />
-            </label>
+            <span className="flex items-center gap-1">
+              <Kbd>↵</Kbd>Open
+            </span>
           </div>
         </Command>
       </DialogContent>

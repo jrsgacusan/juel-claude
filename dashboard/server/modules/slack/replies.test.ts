@@ -69,3 +69,13 @@ test('readDrafts and readOpenReplies read the STAR folder', async () => {
   assert.equal(await readOpenReplies(home), null)
   await cleanup(w)
 })
+
+test('an item pairs only by its draft: line', () => {
+  const draft = { name: NAME, to: 'to: slack C1 1700000000.000100' }
+  const both = [
+    { id: 'N-7', body: [`message: see drafts/${NAME}`] },
+    { id: 'N-8', body: [`draft: /abs/home/drafts/${NAME}`] },
+  ]
+  assert.equal(replyOf(msg(), ID, [draft], both).loopId, 'N-8')
+  assert.equal(replyOf(msg(), ID, [draft], [both[0] as { id: string; body: string[] }]).finished, true)
+})

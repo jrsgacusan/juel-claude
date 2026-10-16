@@ -23,6 +23,7 @@ const RIA = {
   text: "Is csv-import landing today?",
   permalink: "https://acme.slack.com/archives/C0E2E/p1760000000000100",
   thread: [],
+  why: "asks",
 }
 const SAM = {
   channelId: "C0E2F",
@@ -34,7 +35,9 @@ const SAM = {
   text: "Can someone look at the flaky upload?",
   permalink: "https://acme.slack.com/archives/C0E2F/p1760000100000200",
   thread: [],
+  why: "asks",
 }
+const OWNER = { id: "U0E2E0", displayName: "Juel", realName: "Juel Gacusan" }
 
 const TICKET = {
   title: "Remind owners about unpaid invoices",
@@ -75,7 +78,7 @@ const waitForRelease = async () => {
         type: "result",
         subtype: "success",
         is_error: false,
-        result: JSON.stringify({ workspace: "Acme", messages: [RIA, SAM] }),
+        result: JSON.stringify({ workspace: "Acme", owner: OWNER, messages: [RIA, SAM] }),
       })}\n`,
     )
   } else if (format === "stream-json") {

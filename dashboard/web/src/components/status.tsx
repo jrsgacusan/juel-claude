@@ -28,16 +28,12 @@ const DOT: Record<Tone, string> = {
 export function Dot({ tone, pulse = false }: { tone: Tone; pulse?: boolean }) {
   return (
     <span className="relative inline-flex size-2 shrink-0" aria-hidden="true">
-      {pulse && (
-        <span
-          className={cn(
-            "absolute inline-flex size-full animate-ping rounded-full opacity-50 motion-reduce:animate-none",
-            DOT[tone]
-          )}
-        />
-      )}
       <span
-        className={cn("relative inline-flex size-2 rounded-full", DOT[tone])}
+        className={cn(
+          "relative inline-flex size-2 rounded-full",
+          DOT[tone],
+          pulse && "motion-ping"
+        )}
       />
     </span>
   )
@@ -47,7 +43,7 @@ export function StateBadge({ status }: { status: ItemStatus }) {
   const { label, tone } = statusOf(status)
   return (
     <Badge variant={tone === "muted" ? "secondary" : tone}>
-      {tone !== "muted" && <Dot tone={tone} pulse={tone === "run"} />}
+      {tone !== "muted" && <Dot tone={tone} />}
       {label}
     </Badge>
   )

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { ApiError, apiJson, NetworkError, sendJson } from "./client"
+import { ApiError, apiJson, checkToken, NetworkError, sendJson } from "./client"
 import { errorMessage } from "@/lib/errors"
 import { paths } from "./paths"
 const json = (body: unknown, status = 200) =>
@@ -95,5 +95,24 @@ describe("the API client", () => {
     expect(paths.search({ q: "x", project: "p", all: false })).toBe(
       "/api/search?q=x&project=p"
     )
+  })
+  it("checks a pasted token against the server without storing it", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ error: "missing or wrong X-Star-Token" }, 401))
+      .mockResolvedValueOnce(json({ error: "Could not read ledger.md" }, 502))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    await expect(checkToken("pasted")).resolves.toBe("accepted")
+    await expect(checkToken("wrong")).resolves.toBe("refused")
+    // Any answer but 401 passed the server's token check (dashboard/server/app.ts:102-105).
+    await expect(checkToken("pasted")).resolves.toBe("accepted")
+    await expect(checkToken("pasted")).resolves.toBe("unreachable")
+    const [url, init] = fetchMock.mock.calls[0] ?? []
+    expect(String(url)).toBe(`${window.location.origin}/api/projects`)
+    expect(new Headers(init?.headers).get("X-Star-Token")).toBe("pasted")
+    expect(localStorage.getItem("star-token")).toBeNull()
+  })
+  it("says a refused token plainly", () => {
+    expect(errorMessage(new ApiError(401, "missing or wrong X-Star-Token"))).toBe("The dashboard server refused the token.")
   })
 })

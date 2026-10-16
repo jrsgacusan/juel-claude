@@ -47,3 +47,27 @@ test("a go-batch names its items by their ledger name", async ({ page }) => {
   ).toBeVisible()
   await expect(answer.getByText(/\/Users\/owner\/star\/items/)).toHaveCount(0)
 })
+
+test.describe("on a phone", () => {
+  test.use({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  })
+
+  test("an item opens on its own and Back returns to the list", async ({
+    page,
+  }) => {
+    await openApp(page)
+    const list = page.getByRole("region", { name: "Open loops" })
+    await list.getByRole("button", { name: /Go for batch 1/ }).click()
+    await expect(
+      page
+        .getByRole("region", { name: "Answer" })
+        .getByRole("heading", { name: "Go for batch 1" })
+    ).toBeVisible()
+    await expect(list).toBeHidden()
+    await page.goBack()
+    await expect(list).toBeVisible()
+  })
+})

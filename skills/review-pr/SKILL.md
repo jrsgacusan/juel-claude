@@ -420,17 +420,22 @@ fi
 (If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
 the filesystem check above — config always takes precedence.)
 
-Make sure git ignores unanchored `superpowers/` and `.superpowers/` entries, unanchored so they
-match at any depth. This directory is scratch, not product. When `git check-ignore -q` says an entry
-is not ignored yet, append it to the repo's local exclude file, never to `.gitignore`: a review
-must not dirty the branch it reviews, and on someone else's PR a changed `.gitignore` would stop
-`juel:babysit-pr`'s reviewer mode on "working tree is dirty" after the very first review.
+Make sure git ignores the docs root and the scratch folder with entries anchored to the repo
+root: the resolved `docsRoot` as a path from the repo root, with a leading and a trailing `/`
+(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`. An unanchored line would
+ignore every folder of that name at any depth. This directory is scratch, not product. When
+`git check-ignore -q` says an entry is not ignored yet, append it to the repo's local exclude file,
+never to `.gitignore`: a review must not dirty the branch it reviews, and on someone else's PR a
+changed `.gitignore` would stop `juel:babysit-pr`'s reviewer mode on "working tree is dirty" after
+the very first review. A line in that file that is exactly `superpowers/` or `.superpowers/` (an
+earlier review wrote it) is dropped first.
 
 ```bash
 EXCLUDE=$(git rev-parse --git-path info/exclude)
-mkdir -p "$(dirname "$EXCLUDE")"
-for d in superpowers .superpowers; do
-  git check-ignore -q "$d/x" || printf '%s/\n' "$d" >> "$EXCLUDE"
+mkdir -p "$(dirname "$EXCLUDE")" && touch "$EXCLUDE"
+grep -vxF -e 'superpowers/' -e '.superpowers/' "$EXCLUDE" > "$EXCLUDE.tmp"; mv "$EXCLUDE.tmp" "$EXCLUDE"
+for d in "${docsRoot#"$ROOT"/}" .superpowers; do
+  git check-ignore -q "$d/x" || printf '/%s/\n' "$d" >> "$EXCLUDE"
 done
 ```
 

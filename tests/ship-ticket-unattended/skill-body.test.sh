@@ -308,5 +308,30 @@ has "#128 a base snapshot is named by its sha and read-only" "$R128b"
 has "#131 the fix covers every site of the pattern" "$R131b"
 has "#141 the Codex prompt runs only the plan's commands" 'Run only the commands the plan names, never the full suite or a build.'
 
+# lane c: #143 a stalled gate is gate-unavailable at once; #145 anchored ignore entries, and a planned file git ignores stops the build
+has "C143a exit 125 is a stalled gate, with its line" 'Exit 125 is a stalled gate, with this line on stderr: `gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`.'
+has "C143b a stalled gate is not red and not run again" 'It is not red and it is not run again: it is the `gate-unavailable` escalation at once, with `needs=stalled gate: <the stalled line>`.'
+has "C143c the escalation list names a stalled gate" 'or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and was stopped)'
+has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.'
+grep -qF 'stalled, the command printed nothing for' "$ROOT/skills/ship-ticket/gate-lock.sh" && pass "C143e gate-lock.sh prints the line the skill quotes" || fail "C143e gate-lock.sh prints the line the skill quotes"
+has "C145a the ignore entries are anchored to the repo root" 'Ensure the repo'"'"'s `.gitignore` ignores the docs root and the scratch folder with entries anchored to the repo root, so no other folder of the same name is ignored'
+has "C145b the entries it names" '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`. Add each one that is absent.'
+has "C145c an exact unanchored line is replaced in the same change" 'In the same change, replace a line that is exactly `superpowers/` with the docs root'"'"'s entry, and a line that is exactly `.superpowers/` with `/.superpowers/`'
+grep -qF 'unanchored so they match at any depth' "$SKILL" && fail "C145d the unanchored rule is gone" || pass "C145d the unanchored rule is gone"
+g "C145e the ledger's exclude entry is anchored" "echo '/.superpowers/' >>"
+IG=$(mktemp -d); trap 'rm -rf "$IG"' EXIT
+(cd "$IG" && git init -q . && mkdir -p docs/superpowers/plans .superpowers/sdd tests/superpowers tests/.superpowers && touch docs/superpowers/plans/p.md .superpowers/sdd/l.md tests/superpowers/a.test.sh tests/.superpowers/x)
+ig() { (cd "$IG" && git check-ignore -q --no-index -- "$1"); }
+printf '/docs/superpowers/\n/.superpowers/\n' > "$IG/.gitignore"
+ig docs/superpowers/plans/p.md && ig .superpowers/sdd/l.md && ! ig tests/superpowers/a.test.sh && ! ig tests/.superpowers/x && pass "C145f the anchored entries ignore the docs root and the scratch folder, and nothing under tests/" || fail "C145f the anchored entries in a scratch repo"
+printf 'superpowers/\n.superpowers/\n' > "$IG/.gitignore"
+ig tests/superpowers/a.test.sh && pass "C145g (control) the old unanchored line ignores tests/superpowers/" || fail "C145g (control) the old unanchored line"
+has "C145h ship-ticket stops on a planned file git ignores" '**A planned file git ignores.** After every run of the plan in this skill'
+has "C145i it reads the executor's failed-task line and stops before the scope check" 'look in the executor'"'"'s report for a line that begins `task <N> failed: planned file`. One such line means a file the plan needs never reached a commit: stop there, before the scope check.'
+has "C145j the escalation it raises" '`ESCALATION item=<item> phase=<n> reason=codex-failed needs=planned file is git-ignored: <path> (<source>:<line>:<pattern>)`'
+has "C145k never forced, moved or unignored" 'Never `git add -f` the file, move it, or edit an ignore file to carry on.'
+has "C145l the escalation list names it" 'or a task fails on a planned file git ignores, whoever ran the plan'
+has "C145m a session run stops the same way" 'a path a task'"'"'s `**Files:**` block names that `git add` refuses as ignored stops the run the same way'
+grep -qF 'task <N> failed: planned file <path> is git-ignored' "$ROOT/assets/codex-skills/claude-plan-executor/SKILL.md" && pass "C145n the executor writes the line ship-ticket reads" || fail "C145n the executor writes the line ship-ticket reads"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

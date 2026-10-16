@@ -7,7 +7,8 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } fro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { Message } from './state.ts'
+import type { Message, Owner } from './state.ts'
+import type { DraftRequest, DraftResult, Drafter } from './drafter.ts'
 import type { ModuleApi, Project, Req, Res } from './types.ts'
 
 /** What one fake run prints and how it ends. `wait` holds it, printing nothing, until release(). */
@@ -54,7 +55,31 @@ export const envelope = (result: unknown, extra: Record<string, unknown> = {}): 
     ...extra,
   })
 
-export const answer = (messages: Message[], workspace = 'Acme'): Scenario => ({ stdout: envelope({ workspace, messages }) })
+export const OWNER: Owner = { id: 'U0OWNER', displayName: 'Juel', realName: 'Juel Rei Gacusan' }
+
+export const answer = (messages: Message[], workspace = 'Acme', owner: Owner | null = OWNER): Scenario => ({ stdout: envelope({ workspace, owner, messages }) })
+
+/** What a drafter run prints: the envelope around {"reply"}. */
+export const draftAnswer = (reply: string): Scenario => ({ stdout: envelope({ reply }) })
+
+export type DraftStub = { draft: Drafter; asked: DraftRequest[] }
+/** A Drafter that records each request and plays results in order; the last one repeats. */
+export function drafter(results: DraftResult[] = [{ ok: true, text: 'Yes, it lands today.' }]): DraftStub {
+  const asked: DraftRequest[] = []
+  const draft: Drafter = async req => {
+    asked.push(req)
+    return results[Math.min(asked.length - 1, results.length - 1)] as DraftResult
+  }
+  return { draft, asked }
+}
+
+/** Free memory as the fake vm_stat reports it. */
+export async function freeGb(w: World, gb: number): Promise<void> {
+  await writeFile(
+    join(w.fakes, 'vm_stat.txt'),
+    `Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: ${gb * 65536}.\nPages active: 1000.\nPages inactive: 0.\n`,
+  )
+}
 
 export const msg = (over: Partial<Message> = {}): Message => ({
   channelId: 'C1',
@@ -65,6 +90,7 @@ export const msg = (over: Partial<Message> = {}): Message => ({
   text: 'is the CSV export landing today?',
   permalink: 'https://acme.slack.com/archives/C1/p1700000000000100',
   thread: [],
+  why: 'asks',
   ...over,
 })
 
@@ -75,12 +101,18 @@ export async function world(): Promise<World> {
   for (const dir of [w.home, w.bin, w.fakes]) await mkdir(dir)
   await writeFile(join(w.bin, 'claude'), `#!${process.execPath}\n${FAKE}`)
   await chmod(join(w.bin, 'claude'), 0o755)
+  // The real vm_stat is in /usr/bin, also on PATH: every test gets the fake first.
+  await writeFile(join(w.bin, 'vm_stat'), '#!/bin/sh\ncat "$FAKE_DIR/vm_stat.txt"\n')
+  await chmod(join(w.bin, 'vm_stat'), 0o755)
   process.env.HOME = w.home
+  delete process.env.JUEL_DIR
+  process.env.CLAUDE_CONFIG_DIR = join(root, 'claude-config')
   process.env.PATH = `${w.bin}:/usr/bin:/bin`
   process.env.FAKE_DIR = w.fakes
   // git never looks above the temp root, so a project folder there is never read as a parent repo's.
   process.env.GIT_CEILING_DIRECTORIES = root
   await play(w, [answer([])])
+  await freeGb(w, 4)
   return w
 }
 
@@ -175,7 +207,7 @@ export type Stub = {
   events: Record<string, unknown>[]
   nudges: string[]
   logs: string[]
-  call: (method: 'GET' | 'POST' | 'PUT', url: string, body?: unknown) => Promise<Res>
+  call: (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, body?: unknown) => Promise<Res>
 }
 
 function match(pattern: string, path: string): Record<string, string> | null {
@@ -232,3 +264,8 @@ export function stub(projects: Project[], options: StubOptions = {}): Stub {
   }
   return s
 }
+
+/** An open-loops.md with one open slack-reply item whose `draft:` line is `draftLine` (I-11). */
+export const replyQueue = (id: string, draftLine: string, permalink = 'https://acme.slack.com/archives/C1/p1700000000000100'): string =>
+  `# Open loops\n\n## Needs you\n\n### ${id} · app · slack · Ria in #eng: is APP-77 landing today?\nkind: slack-reply\ndraft: ${draftLine}\n` +
+  `message: ${permalink}\nSuggest: Yes, it lands today.\nOptions: send (recommended) / rewrite: <how> / skip\nAnswer:\n\n## Waiting on others\n`

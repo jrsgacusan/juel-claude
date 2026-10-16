@@ -74,3 +74,20 @@ export const CSWAP_LIST = JSON.stringify({
     { number: 4, email: 'd@example.com', alias: 'old', active: false, usageStatus: 'token_expired', usage: null },
   ],
 })
+
+/** CSWAP_LIST with the rest of what `cswap list --json` prints today: the band must draw it exactly as the short one. */
+export const CSWAP_LIST_FULL = JSON.stringify(
+  (() => {
+    const data = JSON.parse(CSWAP_LIST)
+    for (const a of data.accounts) {
+      Object.assign(a, { organizationName: `${a.email}'s Organization`, loginExpiresAt: '2026-11-13T14:17:12Z', usageFetchedAt: '2026-10-16T18:50:20Z', usageAgeSeconds: 463.8 })
+      if (!a.usage) continue
+      if (a.usage.sevenDay) {
+        Object.assign(a.usage.sevenDay, { resetsAt: '2026-10-19T18:59:59.648616+00:00', clock: 'Oct 20 02:59', expectedPct: 57.0, aheadOfPace: true,
+          projectedExhaustionAt: '2026-10-18T06:17:11Z', willLastToReset: false })
+      }
+      a.usage.scoped = [{ pct: 43.0, name: 'Fable', countdown: '5d 23h' }]
+    }
+    return data
+  })(),
+)

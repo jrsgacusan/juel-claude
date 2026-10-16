@@ -20,8 +20,9 @@
 # Exit: 0 all green (or nothing to run); the failing gate's own code, with "<gate> failed (exit N)"
 # on stderr; 71 when a gate could not be run at all (manifest missing or unreadable, a cwd that
 # does not exist or leaves the root, dependencies not installed); 64 bad usage. A gate whose own
-# code is 64, 71, 75 or 124 comes out as 1 (its real code stays in the message): those four belong
-# to this script and to gate-lock.sh, and a red gate must never read as "busy" or "could not run".
+# code is 64, 71, 75, 124 or 125 comes out as 1 (its real code stays in the message): those five
+# belong to this script and to gate-lock.sh, and a red gate must never read as "busy", "could not
+# run", "ran past" or "stalled".
 # Use it inside the gate lock:  sh gate-lock.sh --holder <item> -- sh run-gates.sh <manifest> --root <root>
 exec python3 - "$@" <<'PY'
 import json
@@ -138,7 +139,7 @@ for key, cmd, cwd in plan:
     if rc != 0:
         rc = rc if rc > 0 else 128 - rc
         print(f"run-gates.sh: {key} failed (exit {rc})", file=sys.stderr)
-        sys.exit(1 if rc in (64, 71, 75, 124) else rc)
+        sys.exit(1 if rc in (64, 71, 75, 124, 125) else rc)
 if not plan:
     print("run-gates.sh: no gates to run", file=sys.stderr)
 PY

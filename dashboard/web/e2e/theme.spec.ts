@@ -31,20 +31,22 @@ test("System follows the OS", async ({ page }) => {
 })
 test("the project's colors only mark state", async ({ page }) => {
   await openApp(page, "/sphere-app/progress")
-  const stopped = page.getByText("Stopped").first()
-  const merged = page.getByText("Merged").first()
-  await expect(stopped).toBeVisible()
-  await expect(merged).toBeVisible()
-  const colors = await page.evaluate(() => {
-    const body = getComputedStyle(document.body).backgroundColor
-    const stopped = getComputedStyle(
-      document.querySelector('[data-variant="stop"]') as Element
-    ).backgroundColor
-    const done = getComputedStyle(
-      document.querySelector('[data-variant="done"]') as Element
-    ).backgroundColor
-    return { body, stopped, done }
-  })
+  // Progress opens on Running: the stopped item lives under Needs you, the merged ones under Merged.
+  const badgeColor = (variant: string) =>
+    page
+      .locator(`[data-slot="badge"][data-variant="${variant}"]`)
+      .first()
+      .evaluate((el) => getComputedStyle(el).backgroundColor)
+  await page.getByRole("tab", { name: /^Needs you/ }).click()
+  await expect(page.getByText("Stopped", { exact: true }).first()).toBeVisible()
+  const stopped = await badgeColor("stop")
+  await page.getByRole("tab", { name: /^Merged/ }).click()
+  await expect(page.getByText("Merged", { exact: true }).first()).toBeVisible()
+  const done = await badgeColor("done")
+  const body = await page.evaluate(
+    () => getComputedStyle(document.body).backgroundColor
+  )
+  const colors = { body, stopped, done }
   expect(colors.stopped).not.toBe(colors.done)
   expect(colors.stopped).not.toBe(colors.body)
   expect(colors.done).not.toBe(colors.body)

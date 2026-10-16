@@ -139,5 +139,68 @@ kill -TERM "$MP" 2>/dev/null; wait "$MP" 2>/dev/null
 i=0; while kill -0 "$OP" 2>/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
 [ -n "$OP" ] && ! kill -0 "$OP" 2>/dev/null && pass "TERM to messages.sh ends its orca wait" || { fail "orca wait left running ($OP)"; kill "$OP" 2>/dev/null; }
 
+# lane a: I-5 a background wait is known from <home>/messages-wait, and --waiting never calls orca
+WF="$TMP/home/messages-wait"
+bgwait() {
+  rm -f "$TMP/orca.pid"
+  PATH="$TMP/slow:$PATH" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" --home "$TMP/home" --wait --timeout-ms 600000 >/dev/null 2>&1 &
+  MP=$!
+  i=0; while [ ! -s "$TMP/orca.pid" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+}
+endwait() {
+  kill -"$1" "$MP" 2>/dev/null; wait "$MP" 2>/dev/null
+  OP=$(cat "$TMP/orca.pid" 2>/dev/null); [ -n "$OP" ] && kill "$OP" 2>/dev/null
+}
+first() { [ -f "$WF" ] && cut -d' ' -f1 "$WF"; }
+reset; rm -f "$WF"
+out=$(M --waiting); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "none" ] && [ ! -e "$TMP/calls" ] && pass "I-5 --waiting with no wait says none and never calls orca" || fail "I-5 --waiting with no wait says none and never calls orca (rc=$rc $out)"
+# Review Focus 1: while the background wait runs, --waiting sees it, so a nudged tick starts no second wait
+bgwait
+wsince=$([ -f "$WF" ] && cut -d' ' -f2 "$WF")
+[ "$(first)" = "$MP" ] && printf '%s\n' "$wsince" | grep -Eqx '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' && pass "I-5 the wait writes messages-wait with its pid and UTC start before it calls orca" || fail "I-5 the wait writes messages-wait with its pid and UTC start before it calls orca ($(cat "$WF" 2>&1); pid $MP)"
+reset
+[ "$(M --waiting)" = "waiting $MP $wsince" ] && [ ! -e "$TMP/calls" ] && pass "I-5 --waiting names the live wait without calling orca" || fail "I-5 --waiting names the live wait without calling orca ($(M --waiting))"
+waiter; out=$(M --wait --timeout-ms 100)
+[ "$out" = "waiter-exists -" ] && [ "$(first)" = "$MP" ] && pass "I-5 a second wait that orca refuses leaves the first wait's file" || fail "I-5 a second wait that orca refuses leaves the first wait's file ($out; $(cat "$WF" 2>&1))"
+endwait TERM
+[ ! -e "$WF" ] && [ "$(M --waiting)" = "none" ] && pass "I-5 TERM removes messages-wait, and --waiting then says none" || fail "I-5 TERM removes messages-wait, and --waiting then says none ($(cat "$WF" 2>&1))"
+for sig in INT HUP; do
+  bgwait; had=$(first)
+  endwait "$sig"
+  [ "$had" = "$MP" ] && [ ! -e "$WF" ] && pass "I-5 $sig removes messages-wait" || fail "I-5 $sig removes messages-wait (had $had; left $(cat "$WF" 2>&1))"
+done
+# a wait that ends by itself removes its file; a check without --wait writes none
+mkdir -p "$TMP/peek"
+cat > "$TMP/peek/orca" <<'EOF'
+#!/bin/sh
+{ cat "$STUB_DIR/home/messages-wait" 2>/dev/null || echo missing; } > "$STUB_DIR/seen"
+printf '{"ok":false,"error":{"code":"timeout","message":"no message before the timeout"}}\n'
+exit 1
+EOF
+chmod +x "$TMP/peek/orca"
+P() { PATH="$TMP/peek:$PATH" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" --home "$TMP/home" "$@"; }
+rm -f "$TMP/seen"; out=$(P --wait --timeout-ms 100)
+[ "$out" = "none" ] && grep -Eqx '[0-9]+ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z' "$TMP/seen" && [ ! -e "$WF" ] && pass "I-5 a wait that ends removes the file it wrote before calling orca" || fail "I-5 a wait that ends removes the file it wrote before calling orca ($out; seen $(cat "$TMP/seen" 2>&1); left $(cat "$WF" 2>&1))"
+rm -f "$TMP/seen"; P >/dev/null
+[ "$(cat "$TMP/seen" 2>/dev/null)" = "missing" ] && pass "I-5 a check without --wait writes no messages-wait" || fail "I-5 a check without --wait writes no messages-wait ($(cat "$TMP/seen" 2>&1))"
+# a file whose wait is gone is stale: --waiting removes it, and a new wait replaces it (spec 3.2 rule 2)
+sh -c 'exit 0' & dead=$!; wait "$dead"
+reset; printf '%s 2026-10-17T01:00:00Z\n' "$dead" > "$WF"
+[ "$(M --waiting)" = "none" ] && [ ! -e "$WF" ] && [ ! -e "$TMP/calls" ] && pass "I-5 a messages-wait whose process is gone says none and is removed" || fail "I-5 a messages-wait whose process is gone says none and is removed ($(cat "$WF" 2>&1))"
+sleep 30 & other=$!
+printf '%s 2026-10-17T01:00:00Z\n' "$other" > "$WF"
+[ "$(M --waiting)" = "none" ] && [ ! -e "$WF" ] && pass "I-5 a messages-wait naming a live process that is no wait says none and is removed" || fail "I-5 a messages-wait naming a live process that is no wait says none and is removed ($(cat "$WF" 2>&1))"
+kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
+printf 'garbage\n' > "$WF"
+[ "$(M --waiting)" = "none" ] && [ ! -e "$WF" ] && pass "I-5 a messages-wait that does not parse says none and is removed" || fail "I-5 a messages-wait that does not parse says none and is removed ($(cat "$WF" 2>&1))"
+printf '%s 2026-10-17T01:00:00Z\n' "$dead" > "$WF"
+bgwait
+[ "$(first)" = "$MP" ] && pass "I-5 a new wait replaces a stale messages-wait" || fail "I-5 a new wait replaces a stale messages-wait ($(cat "$WF" 2>&1))"
+endwait TERM
+for extra in --wait "--ack dl_1" "--timeout-ms 100"; do
+  M --waiting $extra >/dev/null 2>&1; [ $? -eq 64 ] && pass "I-5 --waiting with $extra is 64" || fail "I-5 --waiting with $extra is 64"
+done
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

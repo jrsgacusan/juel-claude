@@ -103,6 +103,7 @@ const emptyOverview = (): Overview => ({
   workers: { brief: [0, 4], build: [0, 3], babysit: [0, 3] },
   gateDown: null,
   away: null,
+  awayPending: null,
   quietHours: null,
 })
 
@@ -257,6 +258,7 @@ export function createDb(): MockDb {
         workers: { brief: [1, 4], build: [3, 3], babysit: [1, 3] },
         gateDown: null,
         away: null,
+        awayPending: null,
         quietHours: { tz: "Asia/Manila", start: "22:00", end: "07:00" },
       },
       "sphere-api": emptyOverview(),
@@ -579,6 +581,7 @@ export function createDb(): MockDb {
     },
     evidence: { "sphere-app": [], "sphere-api": [], "juel-claude": [] },
     slack: {
+      paused: false,
       status: {
         connected: true,
         lastCheck: ago(2),
@@ -616,7 +619,9 @@ export function createDb(): MockDb {
           channel: "#releases",
           text: "which PR fixes the invoice time zone?",
           permalink: `https://example.slack.com/archives/C0RELEASES/p${lea.replace(".", "")}`,
-          thread: ["You: Invoice rounding fix is out in #207."],
+          thread: [
+            "You: Invoice rounding fix is out in #207:\n• the PR: https://github.com/example/sphere-app/pull/207\n• the notes: <https://example.com/notes/invoice-rounding|release notes>",
+          ],
           draftPath: draft(leaId),
           loopId: "N-48",
         },
@@ -646,6 +651,7 @@ export function createDb(): MockDb {
             title: "Pause a member's seat",
             updatedAt: ago(1),
             ref: null,
+            deletable: true,
           },
           briefing: {
             busy: false,
@@ -691,6 +697,7 @@ export function createDb(): MockDb {
             title: "Export reports as CSV",
             updatedAt: ago(60 * 24),
             ref: "SPH-11",
+            deletable: true,
           },
           briefing: {
             busy: false,
@@ -834,6 +841,32 @@ export function createDb(): MockDb {
       ],
     }),
   ]
+
+  // 25 merged items for the pagers (spec 3.7, 3.13 item 9). API-25 is the newest and holds 30 screenshots.
+  db.evidence["sphere-api"] = Array.from({ length: 25 }, (_, i) => {
+    const n = i + 1
+    const shots: FileSeed[] = Array.from(
+      { length: n === 25 ? 30 : 1 },
+      (_, f): FileSeed => [
+        `shot-${String(f + 1).padStart(2, "0")}.png`,
+        "image",
+      ]
+    )
+    return evidence("sphere-api", db, {
+      ref: `API-${n}`,
+      title: `Rate limit change ${n}`,
+      pr: `https://github.com/example/sphere-api/pull/${300 + n}`,
+      sha: `5e${String(n).padStart(5, "0")}`,
+      mergedAgo: (26 - n) * 360,
+      goAgo: (26 - n) * 360 + 60,
+      record: {
+        go: "go",
+        gate: "Passed round 1, sol xhigh",
+        ci: "9 checks green",
+      },
+      groups: [[null, shots]],
+    })
+  })
 
   db.search = [
     {
