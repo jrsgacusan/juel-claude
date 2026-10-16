@@ -105,6 +105,11 @@ test("the Workers card shows a square per slot, and away waits for STAR", async 
 test("on a phone the header stays on screen while the page scrolls", async ({ page }) => {
   test.skip(!isPhone(page), "the header is sticky below md only")
   await openApp(page, "/sphere-app/progress")
+  // Scroll only once the items have loaded: while the page shows its loading state it is shorter than the screen.
+  await expect(page.getByRole("tab", { name: /^Running/ })).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight))
+    .toBe(true)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
   await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeInViewport()
