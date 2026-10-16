@@ -651,7 +651,7 @@ def screen_rows(handle):
 
 def recap_only(rows):
     """True when the newest rows above the screen's empty prompt are Claude Code's recap (#119): its
-    "※ recap:" row among the last 8 non-blank rows, then only its wrapped rows, with no turn running.
+    newest "※ recap:" row, then only its wrapped rows, however many, with no turn running.
     Any other screen, an unreadable one included, is False."""
     rows = rows or []
     prompt = next((i for i in range(len(rows) - 2, 0, -1)
@@ -659,7 +659,7 @@ def recap_only(rows):
     if prompt is None or not EMPTY_PROMPT.match(rows[prompt]) \
             or any("esc to interrupt" in r for r in rows[prompt + 2:]):
         return False
-    above = [r for r in rows[:prompt - 1] if r.strip()][-8:]  # the recap row and at most 7 wrapped rows
+    above = [r for r in rows[:prompt - 1] if r.strip()]  # the recap row and however many wrapped rows
     head = next((j for j in range(len(above) - 1, -1, -1) if RECAP.match(above[j])), None)
     return head is not None and all(CONTINUED.match(r) for r in above[head + 1:])
 
