@@ -9,7 +9,7 @@ import { MSGS, cleanup, stub, world, writeThread } from './test-helpers.ts'
 import type { Stub, World } from './test-helpers.ts'
 
 type State = { messages: ChatMessage[]; hasMore: boolean; starRunning: boolean }
-const ROUTES = ['GET /api/projects/:p/chat', 'POST /api/projects/:p/chat']
+const ROUTES = ['GET /api/projects/:p/chat', 'POST /api/projects/:p/chat', 'POST /api/projects/:p/away']
 
 let w: World
 let s: Stub
@@ -25,7 +25,7 @@ afterEach(async () => {
 
 const state = async (query = ''): Promise<State> => (await s.call('GET', `/api/projects/proj/chat${query}`)).json as State
 
-test('register adds exactly the chat routes', () => {
+test('register adds exactly the chat and away routes', () => {
   assert.deepEqual([...s.routes].sort(), [...ROUTES].sort())
 })
 
@@ -128,4 +128,37 @@ test('starRunning is true while STAR runs or idles, false when it is stopped', a
     register(t.api)
     assert.equal(((await t.call('GET', '/api/projects/proj/chat')).json as State).starRunning, running, st)
   }
+})
+
+test('POST away writes control: away, POST back writes control: back, and each nudges', async () => {
+  mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-17T01:02:03.456Z') })
+  const on = await s.call('POST', '/api/projects/proj/away', { away: true })
+  assert.deepEqual([on.status, on.json], [200, { recorded: true, nudged: true }])
+  const [first] = await readdir(join(w.home, 'inbox'))
+  assert.match(first, /^20261017T010203Z-control-[0-9a-f]{4}\.md$/)
+  assert.equal(await readFile(join(w.home, 'inbox', first), 'utf8'), 'control: away\n')
+  const off = await s.call('POST', '/api/projects/proj/away', { away: false })
+  assert.deepEqual([off.status, off.json], [200, { recorded: true, nudged: true }])
+  const second = (await readdir(join(w.home, 'inbox'))).filter(name => name !== first)
+  assert.equal(second.length, 1)
+  assert.match(second[0], /^20261017T010203Z-control-[0-9a-f]{4}\.md$/)
+  assert.equal(await readFile(join(w.home, 'inbox', second[0]), 'utf8'), 'control: back\n')
+  assert.deepEqual(s.nudges, ['proj', 'proj'])
+})
+
+test('a stopped STAR still gets the control file, answered not nudged', async () => {
+  const t = stub([{ ...w.project, state: 'stopped' }], async () => false)
+  register(t.api)
+  const res = await t.call('POST', '/api/projects/proj/away', { away: true })
+  assert.deepEqual([res.status, res.json], [200, { recorded: true, nudged: false }])
+  assert.equal((await readdir(join(w.home, 'inbox'))).length, 1)
+})
+
+test('an away body that is not exactly {away: boolean} is 400 and writes nothing', async () => {
+  for (const body of [{}, { away: 'yes' }, { away: 1 }, { away: true, extra: 1 }, null, [], [true], 'away', undefined]) {
+    const res = await s.call('POST', '/api/projects/proj/away', body)
+    assert.deepEqual([res.status, res.json], [400, { error: 'body must be {"away": true} or {"away": false}' }], JSON.stringify(body))
+  }
+  assert.deepEqual(await readdir(w.home), ['star.json'])
+  assert.deepEqual(s.nudges, [])
 })

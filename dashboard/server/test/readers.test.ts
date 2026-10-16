@@ -10,7 +10,7 @@ import { readProgress } from "../readers/progress.ts";
 import { readRelease } from "../readers/releases.ts";
 import { slackDrafts } from "../readers/drafts.ts";
 import { readBriefings } from "../readers/briefings.ts";
-import { readLedger, readQueue, readStar, tickOf } from "../readers/star.ts";
+import { awayPendingOf, readLedger, readQueue, readStar, tickOf } from "../readers/star.ts";
 import { Unreadable } from "../http.ts";
 import { Router } from "../router.ts";
 
@@ -175,4 +175,30 @@ test("the router routes DELETE like any other method", () => {
   assert.ok(hit && hit !== "method");
   assert.deepEqual(hit.params, { p: "app", id: "b1" });
   assert.equal(r.match("GET", "/api/projects/app/briefings/b1"), "method");
+});
+
+test("awayPendingOf: the newest away or back control file still in inbox/", () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "star-away-"));
+  const inbox = path.join(home, "inbox");
+  const put = (name: string, text: string): void =>
+    fs.writeFileSync(path.join(inbox, name), text);
+  try {
+    assert.equal(awayPendingOf(home), null);
+    fs.mkdirSync(inbox);
+    assert.equal(awayPendingOf(home), null);
+    put("20261017T010000Z-control-aaaa.md", "control: away\n");
+    assert.equal(awayPendingOf(home), "away");
+    put("20261017T020000Z-control-bbbb.md", "control: back\n");
+    assert.equal(awayPendingOf(home), "back");
+    put("20261017T030000Z-control-cccc.md", "control: stop\n");
+    put("20261017T040000Z-chat-dddd.md", "repo: /w/app\nchat: x\ntext: |\n  control: away\n");
+    put(".20261017T050000Z-control-eeee.md.1.abcd.tmp", "control: away\n");
+    assert.equal(awayPendingOf(home), "back");
+    fs.rmSync(path.join(inbox, "20261017T020000Z-control-bbbb.md"));
+    assert.equal(awayPendingOf(home), "away");
+    fs.rmSync(path.join(inbox, "20261017T010000Z-control-aaaa.md"));
+    assert.equal(awayPendingOf(home), null);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

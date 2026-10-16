@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
 import { parseLedger, parseQueue, parseStar } from '../../../hooks/star.ts'
 import type { LedgerRow, Queue, Star } from '../../../hooks/star.ts'
 import { Unreadable } from '../http.ts'
@@ -31,3 +34,25 @@ export const valueOf = (resume: Readonly<Record<string, string>>, key: string): 
 }
 
 export const tickOf = (resume: Readonly<Record<string, string>>): string | null => valueOf(resume, 'last tick')
+
+/** The newest `control: away` or `control: back` file still in inbox/ (STAR deletes a control file once it has applied it), else null. */
+export function awayPendingOf(home: string): 'away' | 'back' | null {
+  const dir = path.join(home, 'inbox')
+  let names: string[]
+  try {
+    names = fs.readdirSync(dir).filter(name => /^[^.].*-control-.*\.md$/.test(name)).sort().reverse()
+  } catch {
+    return null
+  }
+  for (const name of names) {
+    let text: string
+    try {
+      text = fs.readFileSync(path.join(dir, name), 'utf8').trim()
+    } catch {
+      continue
+    }
+    if (text === 'control: away') return 'away'
+    if (text === 'control: back') return 'back'
+  }
+  return null
+}

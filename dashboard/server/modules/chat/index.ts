@@ -46,4 +46,15 @@ export function register(api: ModuleApi): void {
     await writeInbox(project.home, 'chat', chatInboxText(repo, m.id, m.text))
     return answer({ id: m.id, nudged: await nudge(project) })
   })
+
+  api.route('POST', '/api/projects/:p/away', async req => {
+    const project = projectOf(req)
+    if (!project) return refuse(404, 'unknown project')
+    const body = req.body
+    const keys = typeof body === 'object' && body !== null && !Array.isArray(body) ? Object.keys(body) : []
+    const away = field(body, 'away')
+    if (keys.length !== 1 || keys[0] !== 'away' || typeof away !== 'boolean') return refuse(400, 'body must be {"away": true} or {"away": false}')
+    await writeInbox(project.home, 'control', away ? 'control: away\n' : 'control: back\n')
+    return answer({ recorded: true, nudged: await nudge(project) })
+  })
 }

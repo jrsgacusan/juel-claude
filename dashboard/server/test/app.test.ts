@@ -235,6 +235,7 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
       workers: { brief: [0, 4], build: [1, 3], babysit: [1, 3] },
       gateDown: null,
       away: null,
+      awayPending: null,
       quietHours: { tz: "Asia/Manila", start: "22:00", end: "07:00" },
     });
     const s = JSON.parse(
@@ -255,6 +256,15 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
       why: "sol at capacity",
     });
     assert.equal(o2["away"], "2026-10-15T10:00:00Z");
+    fs.mkdirSync(path.join(env.star, "inbox"), { recursive: true });
+    fs.writeFileSync(
+      path.join(env.star, "inbox", "20261017T010203Z-control-ab12.md"),
+      "control: back\n",
+    );
+    const o3 = (await (
+      await env.api("/api/projects/app/overview")
+    ).json()) as Record<string, unknown>;
+    assert.equal(o3["awayPending"], "back");
   } finally {
     await env.close();
   }

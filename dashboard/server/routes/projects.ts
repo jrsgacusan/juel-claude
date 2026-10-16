@@ -1,5 +1,6 @@
 import type { Ctx } from "../app.ts";
 import {
+  awayPendingOf,
   readLedger,
   readQueue,
   readStar,
@@ -67,6 +68,7 @@ export function projectRoutes(router: Router, ctx: Ctx): void {
             ? { since: str(gate["since"]), why: str(gate["why"]) }
             : null,
         away: str(raw["away"]),
+        awayPending: awayPendingOf(p.home),
         quietHours:
           raw["quietHours"] && typeof raw["quietHours"] === "object"
             ? raw["quietHours"]
