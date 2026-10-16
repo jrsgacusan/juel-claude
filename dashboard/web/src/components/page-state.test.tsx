@@ -8,7 +8,8 @@ import { ApiError, apiJson, NetworkError } from "@/api/client"
 import { setConnection } from "@/api/events"
 import { paths } from "@/api/paths"
 import { server } from "@/mocks/node"
-import { ConnectionBanner } from "./banners"
+import { setConflict } from "@/lib/conflict"
+import { ConflictBanner, ConnectionBanner } from "./banners"
 import { ErrorState } from "./page-state"
 
 const withClient = (ui: ReactNode) =>
@@ -111,5 +112,13 @@ describe("the paste-token form", () => {
     withClient(<><ConnectionBanner /><ErrorState what="the projects" error={new ApiError(401, "x")} onRetry={() => {}} /></>)
     expect(screen.getAllByLabelText("Dashboard token")).toHaveLength(1)
     expect(within(screen.getByTestId("page-error")).getByLabelText("Dashboard token")).toBeInTheDocument()
+  })
+})
+
+describe("banners", () => {
+  it("the conflict dismiss is 44 px on touch and keeps the banner's height", () => {
+    setConflict("sphere-app")
+    render(<ConflictBanner project="sphere-app" />)
+    expect(screen.getByRole("button", { name: "Dismiss" })).toHaveClass("size-6", "pointer-coarse:size-11", "pointer-coarse:-my-2.5")
   })
 })

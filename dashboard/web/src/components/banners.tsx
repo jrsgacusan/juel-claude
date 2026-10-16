@@ -57,7 +57,7 @@ export function ConflictBanner({ project }: { project: string }) {
         <Button
           variant="ghost"
           size="icon"
-          className="size-6"
+          className="size-6 pointer-coarse:-my-2.5 pointer-coarse:size-11"
           aria-label="Dismiss"
           onClick={() => setConflict(null)}
         >
