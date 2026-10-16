@@ -37,7 +37,7 @@
 # PENDING, read from pulls/<n>/reviews and timed by submitted_at, or a conversation comment by
 # <login> whose "Last reviewed commit" footer names a commit (#116), read from issues/<n>/comments
 # and timed by updated_at (the summary is edited in place, so it holds only its newest pass). A
-# A hosted review with a skip reason and no confidence score is a skipped run, not a pass; the
+# hosted review with a skip reason and no confidence score is a skipped run, not a pass; the
 # reason is the first matching line, with Markdown marks removed and whitespace folded. A footer sha shorter than 40 is expanded by prefix from the review heads and the PR's head, else
 # from pulls/<n>/commits (read only then); one nothing expands is printed as given. A head named
 # more than once keeps its earliest time. Every list is read paginated. No pass prints nothing
@@ -259,11 +259,17 @@ def hosted_passes(pr, repo, login):
     def by_login(item):
         return ((item.get("user") or {}).get("login") or "").lower() == login.lower()
 
-    SCORE = re.compile(r"confidence[^\n]{0,40}?\b[0-5](?:\.\d+)?\s*/\s*5\b", re.I)
-    SKIP = re.compile(r"\breviews?\s+(?:was|were|has been|have been|is)?\s*skipped\b|\bskipp(?:ed|ing)\s+(?:this\s+|the\s+)?review\b|\busage limit\b", re.I)
+    SCORE = re.compile(r"confidence[^\n]{0,40}?\b[0-5](?:\.\d+)?\s*(?:/|out of)\s*5\b", re.I)
+    SKIP = re.compile(
+        r"\breviews?\s+(?:was|were|has been|have been|is)?\s*skipped\b|"
+        r"\bskipp(?:ed|ing)\s+(?:this\s+|the\s+)?review\b|"
+        r"\b(?:exceed\w*|reach\w*|hit)\b[^\n]{0,60}?\busage limit\b|"
+        r"\busage limit\b[^\n]{0,30}?\b(?:reached|exceeded|hit)\b", re.I
+    )
 
     def skip_reason(body):
-        if SCORE.search(body):
+        searchable = re.sub(r"[*_`]", "", body)
+        if SCORE.search(searchable):
             return None
         for line in body.splitlines():
             cleaned = re.sub(r"[*_`>#]", "", line)

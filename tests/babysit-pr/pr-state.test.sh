@@ -679,5 +679,13 @@ PY2
 run hp-skip-comment 30 --hosted 'greptile-apps[bot]' --hosted-passes
 check_lines "#129 a summary comment that reviewed nothing is skipped on the PR's head; one with a score is a pass" 0 "$(printf '2026-10-13T08:00:00Z pass 1 head=%s\n2026-10-13T12:00:00Z skipped head=%s Review skipped' "$PA" "$HEADX")"
 
+# review fixes for #129: a real review that mentions a usage limit, or carries a bold score, is a pass
+hosted_case hp-noskip
+fixture hp-noskip reviews.json '{"id":86,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"This PR adds a per-key usage limit to the API.\n2 findings","commit_id":"'"$PA"'","submitted_at":"2026-10-13T09:00:00Z","html_url":"r86"}
+{"id":87,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Confidence Score: **4**/5\nReview skipped for generated files","commit_id":"'"$PB"'","submitted_at":"2026-10-13T10:00:00Z","html_url":"r87"}
+{"id":88,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Usage limit reached for this billing period.","commit_id":"'"$PC"'","submitted_at":"2026-10-13T11:00:00Z","html_url":"r88"}'
+run hp-noskip 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#129 a usage limit named in a real review or a bold score is a pass; a limit reached is skipped" 0 "$(printf '2026-10-13T09:00:00Z pass 1 head=%s\n2026-10-13T10:00:00Z pass 2 head=%s\n2026-10-13T11:00:00Z skipped head=%s Usage limit reached for this billing period.' "$PA" "$PB" "$PC")"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
