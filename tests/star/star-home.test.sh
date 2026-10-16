@@ -7,8 +7,8 @@ TMP=$(mktemp -d); trap 'chmod -R u+w "$TMP" 2>/dev/null; rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
-# init and register write ~/.juel/star-homes.json: never the owner's real one from a test
-export HOME="$TMP/home"; mkdir -p "$HOME"
+# init and register write ~/.juel/star-homes.json, or $JUEL_DIR's: never the owner's real one from a test
+export HOME="$TMP/home"; mkdir -p "$HOME"; unset JUEL_DIR
 [ -f "$SCRIPT" ] || { echo "FAIL star-home.sh missing"; exit 1; }
 mkrepo() { mkdir -p "$1" && (cd "$1" && git init -q . && git commit -q --allow-empty -m init); }
 real() { (cd "$1" && pwd -P); }
@@ -315,6 +315,28 @@ printf '{broken' > "$IH/star.json"
 sh "$SCRIPT" --cwd "$IMR" import "$SRC2/Review Fix.md" >/dev/null 2>"$TMP/imerr2"; rc=$?
 [ "$rc" -eq 1 ] && [ "$(wc -l < "$TMP/imerr2" | tr -d ' ')" = 1 ] && pass "#125 an unreadable star.json exits 1 with one line" || fail "#125 unreadable star.json (rc=$rc: $(cat "$TMP/imerr2"))"
 cp "$TMP/star.keep" "$IH/star.json"
+
+# lane a: I-1 JUEL_DIR, when set and not empty, replaces ~/.juel for the registry and its lock
+JD="$TMP/juel dir"
+rm -rf "$HOME/.juel"
+mkrepo "$TMP/jd"; JG=$(real "$TMP/jd")
+JH=$(JUEL_DIR="$JD" sh "$SCRIPT" --cwd "$JG" init)
+python3 - "$JD/star-homes.json" "$JH" "$JG" <<'PY' 2>/dev/null && pass "I-1 init lists the folder in \$JUEL_DIR/star-homes.json" || fail "I-1 init lists the folder in \$JUEL_DIR/star-homes.json ($(ls -A "$JD" 2>&1))"
+import json, sys
+assert {"name": "jd", "repo": sys.argv[3], "home": sys.argv[2]} in json.load(open(sys.argv[1]))
+PY
+[ -f "$JD/star-homes.json.lock" ] && [ ! -e "$HOME/.juel" ] && pass "I-1 the lock sits beside it and ~/.juel is never made" || fail "I-1 the lock sits beside it and ~/.juel is never made ($(ls -A "$HOME"))"
+[ "$(JUEL_DIR="$JD" sh "$SCRIPT" --cwd "$JG" register)" = "listed $JH" ] && [ ! -e "$HOME/.juel" ] && pass "I-1 register reads and writes the same registry" || fail "I-1 register reads and writes the same registry"
+[ "$(JUEL_DIR= sh "$SCRIPT" --cwd "$JG" register)" = "registered $JH" ] && [ -f "$HOME/.juel/star-homes.json" ] && pass "I-1 an empty JUEL_DIR is ~/.juel" || fail "I-1 an empty JUEL_DIR is ~/.juel ($(ls -A "$HOME"))"
+rm -rf "$HOME/.juel"
+[ "$(sh "$SCRIPT" --cwd "$JG" register)" = "registered $JH" ] && [ -f "$HOME/.juel/star-homes.json" ] && pass "I-1 an unset JUEL_DIR is ~/.juel, as before" || fail "I-1 an unset JUEL_DIR is ~/.juel, as before"
+printf 'a file, not a folder' > "$TMP/juel-file"
+out=$(JUEL_DIR="$TMP/juel-file" sh "$SCRIPT" --cwd "$JG" register 2>&1); rc=$?
+[ "$rc" = 1 ] && printf '%s\n' "$out" | grep -qF "star-home.sh: could not register $JH in $TMP/juel-file/star-homes.json (" && pass "I-1 a JUEL_DIR that cannot be used names its registry in the error" || fail "I-1 a JUEL_DIR that cannot be used names its registry in the error (rc=$rc: $out)"
+rm -rf "$HOME/.juel"; printf 'a file, not a folder' > "$HOME/.juel"
+JUEL_DIR= sh "$SCRIPT" --cwd "$JG" init >/dev/null 2>"$TMP/jd.err"
+grep -qF "star-home.sh: could not register $JH in ~/.juel/star-homes.json (" "$TMP/jd.err" && pass "I-1 without JUEL_DIR the error names ~/.juel/star-homes.json, as before" || fail "I-1 without JUEL_DIR the error names ~/.juel/star-homes.json, as before ($(cat "$TMP/jd.err"))"
+rm -f "$HOME/.juel"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
