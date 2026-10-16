@@ -146,6 +146,10 @@ grep -qF 'A worker sitting on a prompt is seen on its screen. STAR answers Claud
 grep -qF 'On Claude Code 2.1.287 and later, a band above STAR'"'"'s prompt shows the pools and what needs you, three items at a time, and you answer them right there' "$PAGE" && pass "LHmod the page shows the band, answered in place" || fail "LHmod band on the page"
 grep -qF 'With cswap installed it also shows each account'"'"'s usage and the one in use, and starts <code>cswap auto</code> for STAR'"'"'s Claude login when it is off.' "$PAGE" && pass "LHmod the page shows the cswap accounts" || fail "LHmod cswap on the page"
 grep -qF 'a direct <code>gh pr merge</code> is refused in STAR'"'"'s session and its workers, and so is reading a review, evidence, report or log file into STAR'"'"'s session.' "$PAGE" && pass "LHmod the page shows the guards" || fail "LHmod guards on the page"
+# the STAR dashboard (star-dashboard-server)
+grep -qF '<code>/juel:star dashboard</code> opens one local page for every STAR project on this Mac' "$PAGE" && pass "DASH the page names the dashboard" || fail "DASH dashboard on the page"
+grep -qF 'When STAR has a pick on something it asks you, it marks the option it recommends and says why in one line, never for a secret.' "$PAGE" && pass "DASH the page names STAR picks" || fail "DASH picks on the page"
+grep -qF 'A Slack message the dashboard routes to a project comes to you as a reply STAR drafted in your voice: send it, have it rewritten, or skip it.' "$PAGE" && pass "DASH the page names Slack replies" || fail "DASH Slack replies on the page"
 # the docs copy: docs/star-closed-loop.html changes in the same commit as this page
 DOCS="$ROOT/docs/star-closed-loop.html"
 if [ -f "$DOCS" ] && tail -n +2 "$PAGE" | cmp -s - "$DOCS"; then

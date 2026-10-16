@@ -102,7 +102,7 @@ the owner only for what a person must do: say go, supply a secret or an account,
 before go, approve a risky call, approve a PR on a project with no hosted reviewer, or answer an
 escalation.
 
-**Announce:** "Using juel:star." (in hand-over, `status` and `draft-brief` modes: say which mode.)
+**Announce:** "Using juel:star." (in hand-over, `status`, `dashboard` and `draft-brief` modes: say which mode.)
 
 ## Strict Execution Protocol (non-negotiable)
 
@@ -137,7 +137,7 @@ escalation.
 
 ## Preflight
 
-`status`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start: they skip this table (each
+`status`, `dashboard`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start: they skip this table (each
 states its own needs below) and the task list, and announce their own mode. So does a
 `/juel:star`, with or without refs, that finds STAR already running for this project in another
 terminal: it hands over and ends. Finding that out takes steps 1 and 2 of "Coordinator, or
@@ -191,6 +191,7 @@ Typed in the project (its main checkout, a linked worktree or any subfolder):
 | `/juel:star add a CSV export to the reports page, and SPH-12` | Free text and refs together: the text becomes a spec item and the ref an item, in one batch. Starts STAR, or hands both to the one running, like the row above |
 | `/juel:star` | Start STAR for this project, or resume it: the two are the same command |
 | `/juel:star status` | Print the Needs-you block and counts per state. Read-only |
+| `/juel:star dashboard` | Open the STAR dashboard: `sh S/dashboard.sh` starts the one local dashboard server on this Mac when it is not running, prints its URL and opens it. Needs no STAR running |
 | `/juel:star away` (or tell STAR "I'm leaving") | Ask once more what the batch summary left open, then write the handoff file and switch to away mode (below). Away holds no work |
 | `/juel:star back` (or tell STAR "I'm back") | Print the latest summary and the queue; leave away mode |
 | `/juel:star stop` | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
@@ -212,7 +213,7 @@ not check the session's model.
 
 Everything after `/juel:star` is read as words. A first word of `draft-brief` or `post-report` is
 that command: they take arguments.
-`status`, `away`, `back` and `stop` are commands only when they are the whole text, as `take over`
+`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text, as `take over`
 is, so `/juel:star stop the digest from sending twice` is a free-text brief, not a stop, and
 `/juel:star status badge on the dashboard` prints no status. When the whole text is `take over`, it
 is the user's "take over" ("Start, resume, stop"): this session becomes the coordinator even though
@@ -261,6 +262,18 @@ A message to STAR that says only `inbox` means "run a tick now".
 project." Otherwise `sh S/loops.sh --file HOME_DIR/open-loops.md list`, then counts per state from
 `ledger.md`. Print both. Nothing else.
 
+### `dashboard`
+
+`sh S/dashboard.sh`. It builds the dashboard's web app when it is missing or older than its sources
+(after checking free memory), starts the one dashboard server on this Mac when it is not running
+(`node <plugin>/dashboard/server/main.ts`, on 127.0.0.1 only, its port and token in
+`~/.juel/dashboard.json`), prints `STAR dashboard: <url>` and opens it. Print that line. It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder. The page lists
+every project in `~/.juel/star-homes.json` (one per project name: a folder that still exists wins
+over one that is gone), records answers with `loops.sh set-answer` and wakes STAR with `orca
+terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. A dashboard server that
+another checkout or plugin version started is stopped and replaced by this one's, on the same port
+and token. A non-zero exit: print its last line, nothing else.
+
 ### `away`, `back` and `stop` from another session
 
 In STAR's own session these run directly (see "Handoff" and "Stop"). From any other session of
@@ -274,7 +287,9 @@ not running → say so; the control file waits in the inbox.
 ledger and `star.json` from `S/template/`, the folders below, and one line in the repository's
 `.git/info/exclude` so git ignores it (never `.gitignore`: nothing shows as a change, and a
 read-only repository is fine). It records the project in `star.json` as
-`"project": {"name": <the main checkout's folder name>, "repo": <its path>}`. On the first start
+`"project": {"name": <the main checkout's folder name>, "repo": <its path>}`. It also lists the folder in `~/.juel/star-homes.json` (`{"name", "repo", "home"}`, once per home,
+under a lock): the registry the STAR dashboard reads. `sh S/star-home.sh register` does that alone.
+On the first start
 (`run` in `star.json` is still null, which is true exactly once) STAR looks the repo path up in
 `orca repo list --json` and adds the id to that block as `orcaRepo` (the Inbox step does the same
 later when the repo was not registered yet), and adds the remote as `remote`: the only one
@@ -327,6 +342,7 @@ gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
 evidence/<item>/                     the item's evidence folder, copied from its worktree before worktree-clean.sh removes it
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
+drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack reply STAR drafted: first line "to: slack <channelId> <threadTs, or ts>", then the reply
 memory/<project>.md
 ```
 
@@ -415,6 +431,12 @@ work gets the answer without waiting for the next tick.
 | a build was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "build was interrupted" --body "worktree: <path> (it must be clean before a restart: commit or discard what the interrupted run left)\nOptions: restart / drop"` |
 | a draft is ready | `loops.sh add --kind draft --project <p> --item <i> --title "<what the draft is>" --body "<draft path>\nOptions: send / drop"` |
 | a worker held an outward action, or a merge waits for something only a person gives | `loops.sh add --kind held --project <p> --item <i> --title "<action, or what the merge waits for>" --body "Options: done"` |
+| an inbox file brought a Slack message (a `slack:` block, the Inbox step) | `loops.sh add --kind slack-reply --project <p> --item slack --title "<from> in <channel>: <first 60 characters of its text>" --body "draft: <draft path>\nmessage: <permalink>\nSuggest: <the reply's first line>\nOptions: send (recommended) / rewrite: <how> / skip"` |
+
+**A pick.** When STAR adds an item and has a pick, it marks that option in the `Options:` line with a ` (recommended)` suffix (`Options: done (recommended) / can't now`) and adds a body line
+`Suggest: <one line, why>`. A `secret` step never gets either: no suggested value for a secret.
+The answer words do not change: the band and the dashboard send the option without the suffix, and
+the Answers step drops a trailing ` (recommended)` from an answer before it compares command words.
 
 `<batch>` is `B-<the inbox file's name without .md>` for the items one inbox file brought in (the
 name is unique), or `B-<UTC YYYYMMDDTHHMMSSZ>-<4 hex>` for a start or a migrate; every row of the
@@ -561,6 +583,9 @@ runs in <handle>", and end the turn.
    its message, stop and release each `stop <dispatch>` line it printed as above,
    release the claim (`"terminal": null` in `star.json`), tell the owner the folder may be half moved
    and that running `/juel:star` again retries the migrate, and end here: no reconcile and no tick.
+   Then `sh S/star-home.sh register`, so a folder made before the registry is listed for the
+   dashboard: it prints `registered <home>` or `listed <home>`; a non-zero exit is one line in the
+   status, never a stop.
    Then give every open row (not `done` or `dropped`) with no `counters.batch` the batch
    `B-<this start's UTC time, YYYYMMDDTHHMMSSZ>-<4 hex>`. For that batch's `brief-ready` rows,
    queue each one's person-only steps (its brief's `## Person-only steps`, and for a row moved
@@ -715,13 +740,37 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    also"); when in doubt, it is one item, and its brief worker can report `SPLIT`. Every row from one
    file gets `counters.batch=B-<the file's name without .md>`. Write the ledger, then delete the
    file.
+
+   A file with a `slack:` block is a Slack message the dashboard's watcher routed to this project,
+   not a work item: it adds no row. After its `repo:` check, write the reply as a draft,
+   `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md` (`<id>` the block's `id`): its first line
+   `to: slack <channelId> <threadTs>` (the block's `ts` when `threadTs` is `-`), then the reply. The
+   reply is in the owner's voice, at most two sentences, no greeting, and says only what STAR's own
+   files say (ledger states, brief titles, PR numbers); when they do not answer the message, the
+   reply says the owner will check, and so does its Suggest line. Then queue it (the `slack-reply`
+   row of the queue table) and delete the file. The block, under the file's `repo:` line:
+
+       slack:
+         id: <channelId>-<ts>
+         channel: <#name, or "a DM">
+         channelId: <id>
+         ts: <ts>
+         threadTs: <ts, or ->
+         from: <display name>
+         permalink: <url>
+         text: |
+           <the message, every line indented four spaces>
+         thread: |
+           <at most 5 earlier thread lines, "name: text">
 2. **Answers.** `sh S/loops.sh answers` prints one line per answered item. Act, then
    `loops.sh close <id>` (exit 4 means it is already closed: carry on). A command word counts only when it is
    the whole answer: lower-case it, strip punctuation at its two ends only (an apostrophe or a
    hyphen inside it stays: `can't now`, `ITEM-2`), and compare all of it with `go`, `yes`, `ok`,
    `approve`, `no`, `drop`, `drop it`, `drop it please`, `restart`, `send`, `done`, `can't now`,
-   `accept`, `retry` or `not merging`. For a `go-batch` item, `go except <items>` and `drop <item>` match
-   as prefixes, and the names after them compare case-insensitively with the batch's ledger names.
+   `accept`, `retry`, `skip` or `not merging`. For a `go-batch` item, `go except <items>` and `drop <item>` match
+   as prefixes, and the names after them compare case-insensitively with the batch's ledger names;
+   for a `slack-reply` item, `rewrite: <how>` matches as a prefix. A trailing ` (recommended)` is
+   dropped from an answer before any of this (an answer copied from the Options line).
    So `Drop.` and `restart!` count, while `go, but rename the flag` and `Drop the retry wrapper
    and call the queue directly` do not: anything longer than the bare word is feedback or a
    decision, and goes to the "anything else" row of its kind. An answer with no letter or digit in
@@ -774,6 +823,10 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `held` "could not move <item> to <status>…" | done | `counters.tracker=<status>` (the user moved it), then close it |
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
+   | `slack-reply` | send | load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
+   | `slack-reply` | `rewrite: <how>` | rewrite the draft's reply as `<how>` asks (the Inbox step's rules for a reply, first line kept), close the item and add the `slack-reply` item again with the new reply's first line on its Suggest line |
+   | `slack-reply` | skip | close it |
+   | `slack-reply` | anything else | close it and add it again with "(answer send, rewrite: <how> or skip)" at the end of its title |
    | `draft`, `held` | anything else | close it |
 3. **Messages**, only while some row is in a worker stage or waiting for a slot:
    `sh S/messages.sh --wait --timeout-ms 540000`. It prints `delivery <id> <n>`, then each message

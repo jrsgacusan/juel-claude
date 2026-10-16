@@ -252,7 +252,7 @@ sh "$SCRIPT" --file "$C" list >/dev/null 2>&1; [ $? -eq 0 ] && pass "a body line
 
 # With no --file, the queue is the project's own: the folder star-home.sh names for the current directory.
 mkdir -p "$TMP/proj" && (cd "$TMP/proj" && git init -q . && git commit -q --allow-empty -m init)
-PH=$(sh "$ROOT/skills/star/star-home.sh" --cwd "$TMP/proj" init)
+PH=$(HOME="$TMP/home" sh "$ROOT/skills/star/star-home.sh" --cwd "$TMP/proj" init)
 id=$(cd "$TMP/proj" && env -u JUEL_STAR_HOME sh "$SCRIPT" add --kind held --project proj --item a --title "from the project")
 [ "$id" = N-1 ] && grep -q ' · a · from the project$' "$PH/open-loops.md" && pass "the default queue is the project's" || fail "default queue ($id)"
 (cd "$TMP/proj" && git check-ignore -q "$PH/open-loops.md.seq") && pass "git ignores the id mark with the rest of the folder" || fail "seq not ignored"

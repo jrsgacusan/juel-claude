@@ -9,7 +9,7 @@ pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$HOOK" ] || { echo "FAIL star-session.sh missing"; exit 1; }
 mkdir -p "$TMP/app/src" "$TMP/other" && (cd "$TMP/app" && git init -q . && git commit -q --allow-empty -m init)
-H=$(sh "$ROOT/skills/star/star-home.sh" --cwd "$TMP/app" init)
+H=$(HOME="$TMP/home" sh "$ROOT/skills/star/star-home.sh" --cwd "$TMP/app" init)
 owner() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["terminal"]=(sys.argv[2] or None); json.dump(d,open(p,"w"),indent=2)' "$H/star.json" "$1"; }
 # run <cwd> <handle>
 run() { printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"compact"}' "$1" | env -u CLAUDE_ENV_FILE ORCA_TERMINAL_HANDLE="$2" sh "$HOOK"; }

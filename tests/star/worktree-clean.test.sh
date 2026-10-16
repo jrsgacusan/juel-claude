@@ -15,7 +15,7 @@ git init -q --bare "$TMP/remote.git"
 APP="$TMP/app"; mkdir -p "$APP"
 (cd "$APP" && git init -q -b main . && git commit -q --allow-empty -m init && git remote add origin "$TMP/remote.git" && git push -q origin main)
 APP=$(cd "$APP" && pwd -P)
-H=$(sh "$S/star-home.sh" --cwd "$APP" init)
+H=$(HOME="$TMP/home" sh "$S/star-home.sh" --cwd "$APP" init)
 L() { sh "$S/ledger.sh" --home "$H" "$@"; }
 
 mkdir -p "$TMP/bin"
