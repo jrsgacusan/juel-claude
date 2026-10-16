@@ -361,6 +361,24 @@ describe("Slack replies", () => {
     expect(screen.getByRole("region", { name: "Messages" })).toBeInTheDocument()
   })
 
+  it("on a phone with nothing waiting, the list still shows the watcher's status and its error", async () => {
+    phone()
+    server.use(
+      http.get("*/api/slack", () =>
+        HttpResponse.json({
+          status: { connected: true, workspace: "Acme", model: "haiku", lastCheck: null, error: "rate limited" },
+          routed: [],
+          unrouted: [],
+        })
+      )
+    )
+    renderApp("/sphere-app/slack")
+    expect(await screen.findByText(/rate limited/)).toBeVisible()
+    expect(screen.getByText(/The last check failed: rate limited/)).toBeVisible()
+    expect(screen.getByText(/Watching Acme/)).toBeVisible()
+    expect(screen.getByText("No Slack replies waiting.")).toBeVisible()
+  })
+
   it("a thread line keeps its bullets and its links", async () => {
     renderApp("/sphere-app/slack?loop=N-48")
     const reply = await screen.findByRole("region", { name: "Reply" })
