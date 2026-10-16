@@ -618,7 +618,9 @@ export function createDb(): MockDb {
           channel: "#releases",
           text: "which PR fixes the invoice time zone?",
           permalink: `https://example.slack.com/archives/C0RELEASES/p${lea.replace(".", "")}`,
-          thread: ["You: Invoice rounding fix is out in #207."],
+          thread: [
+            "You: Invoice rounding fix is out in #207:\n• the PR: https://github.com/example/sphere-app/pull/207\n• the notes: <https://example.com/notes/invoice-rounding|release notes>",
+          ],
           draftPath: draft(leaId),
           loopId: "N-48",
         },

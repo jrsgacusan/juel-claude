@@ -10,6 +10,7 @@ import {
   useSaveDraft,
 } from "@/api/queries"
 import type { RoutedMessage, UnroutedMessage } from "@/api/types"
+import { SlackText } from "@/components/slack-text"
 import { StarMark } from "@/components/status"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -192,7 +193,7 @@ export function RoutedDetail({
                   </span>
                 )}
               </span>
-              <span className="text-sm leading-6 break-words">{text}</span>
+              <SlackText text={text} className="text-sm leading-6" />
             </div>
           </li>
         ))}
@@ -229,7 +230,7 @@ export function RoutedDetail({
               value={value}
               onChange={(e) => setEdited(e.target.value)}
               onBlur={() => void persist()}
-              className="block min-h-[96px] w-full resize-y rounded-none border-0 px-4 py-3 text-[15px] leading-7 shadow-none focus-visible:ring-0"
+              className="block min-h-[96px] w-full resize-y rounded-none border-0 px-4 py-3 text-base leading-7 shadow-none focus-visible:ring-0 md:text-sm"
             />
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t px-3 py-2">
@@ -240,6 +241,7 @@ export function RoutedDetail({
               <Button
                 variant="ghost"
                 size="sm"
+                className="pointer-coarse:h-11"
                 disabled={disabled}
                 onClick={() =>
                   void answerLoop(
@@ -253,6 +255,7 @@ export function RoutedDetail({
               </Button>
               <Button
                 size="sm"
+                className="pointer-coarse:h-11"
                 disabled={disabled}
                 onClick={() => void sendReply()}
               >
@@ -275,10 +278,11 @@ export function RoutedDetail({
             value={ask}
             onChange={(e) => setAsk(e.target.value)}
             placeholder="Shorter, add the PR link, less formal"
-            className="h-9"
+            className="h-9 pointer-coarse:h-11"
           />
           <Button
             variant="outline"
+            className="pointer-coarse:h-11"
             disabled={disabled}
             onClick={() => rewrite(ask)}
           >
@@ -292,7 +296,7 @@ export function RoutedDetail({
               key={chip}
               variant="outline"
               size="sm"
-              className="h-7 rounded-full px-3 text-xs"
+              className="h-7 rounded-full px-3 text-xs pointer-coarse:h-11"
               disabled={disabled}
               onClick={() => setAsk(chip.toLowerCase())}
             >
@@ -348,9 +352,10 @@ export function UnroutedDetail({
           </p>
         </div>
       </div>
-      <p className="rounded-xl border bg-muted px-4 py-3 text-sm leading-6 break-words">
-        {message.text}
-      </p>
+      <SlackText
+        text={message.text}
+        className="rounded-xl border bg-muted px-4 py-3 text-sm leading-6"
+      />
       <Card className="gap-3 p-4">
         <Label htmlFor={`route-${message.id}`}>Send it to a project</Label>
         <div className="flex gap-2">
@@ -358,7 +363,7 @@ export function UnroutedDetail({
             <SelectTrigger
               id={`route-${message.id}`}
               aria-label="Project"
-              className="h-9 flex-1"
+              className="h-9 flex-1 pointer-coarse:h-11"
             >
               <SelectValue />
             </SelectTrigger>
@@ -371,7 +376,11 @@ export function UnroutedDetail({
               <SelectItem value="none">Not for STAR</SelectItem>
             </SelectContent>
           </Select>
-          <Button onClick={() => void go()} disabled={route.isPending}>
+          <Button
+            onClick={() => void go()}
+            disabled={route.isPending}
+            className="pointer-coarse:h-11"
+          >
             Route it
           </Button>
         </div>

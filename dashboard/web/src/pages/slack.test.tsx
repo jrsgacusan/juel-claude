@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { server } from "@/mocks/node"
 import { getDb, mockEvents, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
@@ -14,6 +14,15 @@ const draftFile = (from: string) => {
 }
 const RIA =
   "Not today. It's in final review now, and I expect it merged tomorrow morning, before the demo."
+const MARCO =
+  "Yes, it's mine (SPH-12). I'll share the new copy here before it ships."
+const setWidth = (value: number) =>
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value })
+const phone = () => {
+  setWidth(390)
+  return vi.spyOn(window, "scrollTo").mockImplementation(() => {})
+}
+afterEach(() => setWidth(1024))
 
 describe("Slack replies", () => {
   it("shows the watcher's status, the routed and unrouted messages and the first draft", async () => {
@@ -153,9 +162,7 @@ describe("Slack replies", () => {
 
   it("opens the message of a loop sent from Needs you", async () => {
     renderApp("/sphere-app/slack?loop=N-47")
-    expect(await screen.findByLabelText("Your reply")).toHaveValue(
-      "Yes, it's mine (SPH-12). I'll share the new copy here before it ships."
-    )
+    expect(await screen.findByLabelText("Your reply")).toHaveValue(MARCO)
   })
 
   it("opens the draft a search result names", async () => {
@@ -302,5 +309,60 @@ describe("Slack replies", () => {
         "Queued. STAR posts it to #sphere-eng as you when it next runs."
       )
     ).toBeInTheDocument()
+  })
+
+  it("on a phone, the messages show first, one opens on its own, and Back returns", async () => {
+    phone()
+    const { user, router } = renderApp("/sphere-app/slack")
+    const list = await screen.findByRole("region", { name: "Messages" })
+    expect(screen.queryByRole("region", { name: "Reply" })).not.toBeInTheDocument()
+    await user.click(within(list).getByText("which PR fixes the invoice time zone?"))
+    const reply = await screen.findByRole("region", { name: "Reply" })
+    const lea = getDb().slack.routed.find((m) => m.from === "Lea")?.id ?? ""
+    expect(router.state.location.search).toBe(`?${new URLSearchParams({ message: lea })}`)
+    expect(router.state.historyAction).toBe("PUSH")
+    expect(screen.queryByRole("region", { name: "Messages" })).not.toBeInTheDocument()
+    await user.click(within(reply).getByRole("button", { name: "Back to Slack replies" }))
+    expect(await screen.findByRole("region", { name: "Messages" })).toBeInTheDocument()
+    expect(router.state.location.search).toBe("")
+  })
+
+  it("on a phone, a loop sent from Needs you opens its message, and Back stays on the page", async () => {
+    phone()
+    const { user, router } = renderApp("/sphere-app/slack?loop=N-47")
+    expect(await screen.findByLabelText("Your reply")).toHaveValue(MARCO)
+    await user.click(screen.getByRole("button", { name: "Back to Slack replies" }))
+    expect(await screen.findByRole("region", { name: "Messages" })).toBeInTheDocument()
+    expect(router.state.historyAction).toBe("REPLACE")
+    expect(router.state.location.search).toBe("")
+  })
+
+  it("on a phone, an empty page says so with no Back, and the not-connected banner shows over the list", async () => {
+    phone()
+    setScenario("empty")
+    const first = renderApp("/sphere-app/slack")
+    expect(await screen.findByText("No Slack replies waiting.")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Back to Slack replies" })).not.toBeInTheDocument()
+    first.unmount()
+    setScenario("slack-off")
+    renderApp("/sphere-app/slack")
+    expect(await screen.findByText("Slack isn't connected")).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "Messages" })).toBeInTheDocument()
+  })
+
+  it("a thread line keeps its bullets and its links", async () => {
+    renderApp("/sphere-app/slack?loop=N-48")
+    const reply = await screen.findByRole("region", { name: "Reply" })
+    expect(await within(reply).findByRole("link", { name: "https://github.com/example/sphere-app/pull/207" })).toHaveAttribute("target", "_blank")
+    expect(within(reply).getByRole("link", { name: "release notes" })).toHaveAttribute("href", "https://example.com/notes/invoice-rounding")
+  })
+
+  it("the reply box is 16 px on a phone and the actions are 44 px on touch", async () => {
+    renderApp("/sphere-app/slack")
+    const box = await screen.findByLabelText("Your reply")
+    expect(box).toHaveClass("text-base", "md:text-sm")
+    expect(box).not.toHaveClass("text-[15px]")
+    for (const name of ["Skip", "Send reply", "Rewrite", "Shorter", "Add the PR link", "Less formal"])
+      expect(screen.getByRole("button", { name })).toHaveClass("pointer-coarse:h-11")
   })
 })
