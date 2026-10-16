@@ -4,6 +4,7 @@ import { setConnection } from "@/api/events"
 import { server } from "@/mocks/node"
 import { resetMockState } from "@/mocks/state"
 import { setConflict } from "@/lib/conflict"
+import { clearPendingBriefings } from "@/lib/pending-briefing"
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest"
 
 if (!window.matchMedia) {
@@ -44,6 +45,7 @@ afterEach(() => {
   localStorage.clear()
   document.documentElement.className = ""
   setConflict(null)
+  clearPendingBriefings()
   setConnection("connecting")
   server.resetHandlers()
   resetMockState()

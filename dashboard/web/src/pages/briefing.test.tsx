@@ -69,9 +69,18 @@ describe("Briefing", () => {
     expect(
       await within(chat).findByText("Also log who paused it")
     ).toBeInTheDocument()
+    // A partial turn (text so far, briefing D10) shows while the agent answers, and no
+    // "stopped" row shows in between.
+    await waitFor(
+      () =>
+        expect(within(chat).getByTestId("agent-streaming")).toHaveTextContent(
+          "Noted: Also log"
+        ),
+      { timeout: 3000 }
+    )
     expect(
-      await within(chat).findByTestId("agent-streaming")
-    ).toBeInTheDocument()
+      within(chat).queryByText(/The briefing agent stopped/)
+    ).not.toBeInTheDocument()
     expect(
       await within(chat).findByText(
         /^Noted: Also log who paused it\. I added it/,
@@ -88,6 +97,9 @@ describe("Briefing", () => {
     )
     expect(box).toHaveValue("")
     expect(b1()?.briefing.busy).toBe(false)
+    expect(
+      within(chat).queryByText(/The briefing agent stopped/)
+    ).not.toBeInTheDocument()
   })
 
   it("saves the tracker answer, warns when it is not connected, and creates the ticket", async () => {
@@ -230,6 +242,76 @@ describe("Briefing", () => {
     )
     expect(within(chat).getAllByText("Also log who paused it")).toHaveLength(1)
   }, 15_000)
+
+  it("puts the text back in the box when the server refuses the message", async () => {
+    server.use(
+      http.post("*/api/projects/:p/briefings/:id/messages", () =>
+        HttpResponse.json(
+          { error: "The agent is still answering" },
+          { status: 409 }
+        )
+      )
+    )
+    const { user } = renderApp("/sphere-app/briefing")
+    const box = await screen.findByLabelText("Message the briefing agent")
+    await user.type(box, "Also log who paused it{Enter}")
+    expect(
+      await screen.findByText(
+        "The agent is still answering. Wait for its reply, then send."
+      )
+    ).toBeInTheDocument()
+    expect(box).toHaveValue("Also log who paused it")
+    const chat = screen.getByRole("region", { name: "Conversation" })
+    expect(
+      within(chat).queryByText("Also log who paused it", { selector: "li" })
+    ).not.toBeInTheDocument()
+    expect(
+      within(chat).queryByText(/The briefing agent stopped/)
+    ).not.toBeInTheDocument()
+  })
+
+  it("does not bring back a message the done event already cleared", async () => {
+    // The POST answers after the whole turn has streamed: the done event clears the pending
+    // message first, and the late answer must not store it again.
+    server.use(
+      http.post(
+        "*/api/projects/:p/briefings/:id/messages",
+        async ({ params, request }) => {
+          const { text } = (await request.json()) as { text: string }
+          const entry = b1()
+          if (entry) {
+            entry.briefing.turns.push({ who: "me", text })
+            entry.briefing.turns.push({
+              who: "agent",
+              text: "Done already.",
+              done: true,
+            })
+          }
+          mockEvents.emit({
+            type: "briefing",
+            project: String(params.p),
+            id: String(params.id),
+            turn: { who: "agent", text: "Done already.", done: true },
+          })
+          await new Promise((resolve) => setTimeout(resolve, 100))
+          return new HttpResponse(null, { status: 202 })
+        }
+      )
+    )
+    const { user } = renderApp("/sphere-app/briefing")
+    const box = await screen.findByLabelText("Message the briefing agent")
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(box, "Also log who paused it{Enter}")
+    const chat = screen.getByRole("region", { name: "Conversation" })
+    expect(
+      await within(chat).findByText("Done already.", {}, { timeout: 3000 })
+    ).toBeInTheDocument()
+    await waitFor(() => expect(box).toHaveValue(""))
+    expect(within(chat).getAllByText("Also log who paused it")).toHaveLength(1)
+    expect(
+      within(chat).queryByText(/The briefing agent stopped/)
+    ).not.toBeInTheDocument()
+  })
 
   it("does not create a second ticket from the same briefing", async () => {
     const { user } = renderApp("/sphere-app/briefing")

@@ -19,7 +19,11 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
-import { setPendingBriefing, usePendingBriefing } from "@/lib/pending-briefing"
+import {
+  getPendingBriefing,
+  setPendingBriefing,
+  usePendingBriefing,
+} from "@/lib/pending-briefing"
 import { cn } from "@/lib/utils"
 
 function AgentTurn({
@@ -120,8 +124,17 @@ export function Conversation({
     [id, pending, project, refresh]
   )
 
+  // Only data fetched after the server took the message can tell whether the turn finished.
+  // Before that, busy is still false from the previous turn (briefing D7).
   useEffect(() => {
-    if (!pending || pending.failed || briefing.data?.busy || !briefing.data)
+    if (
+      !pending ||
+      pending.failed ||
+      pending.sentAt === null ||
+      !briefing.data ||
+      briefing.data.busy ||
+      briefing.dataUpdatedAt <= pending.sentAt
+    )
       return
     const lastOwner = [...briefing.data.turns]
       .reverse()
@@ -147,11 +160,23 @@ export function Conversation({
   const submit = async (value: string) => {
     const message = value.trim()
     if (!message || !id) return
-    setPendingBriefing(project, id, { text: message, failed: null })
+    setPendingBriefing(project, id, {
+      text: message,
+      failed: null,
+      sentAt: null,
+    })
     try {
       await send.mutateAsync({ text: message })
       setText("")
+      // The done or error event can arrive before the POST answers; then it already settled
+      // the pending message, and there is nothing to mark as sent.
+      const now = getPendingBriefing(project, id)
+      if (now && now.text === message && !now.failed && now.sentAt === null)
+        setPendingBriefing(project, id, { ...now, sentAt: Date.now() })
     } catch (error) {
+      // The server took nothing: drop the pending message and put the text back in the box.
+      setPendingBriefing(project, id, null)
+      setText(message)
       if (error instanceof ApiError && error.status === 409)
         toast.error(
           "The agent is still answering. Wait for its reply, then send."
