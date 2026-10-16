@@ -7,6 +7,7 @@
 #                                        prints one "stop <dispatch>" per worker of a removed stage,
 #                                        then "migrated gate" when it moved a v2.0.0 gate to Sol,
 #                                        then "current" or "migrated rows=<n>"
+#   star-home.sh [--cwd <dir>] import <spec path> copy an outside spec and the files beside it into STAR's items
 #   star-home.sh [--cwd <dir>] register  list the folder in ~/.juel/star-homes.json ({"name", "repo",
 #                                        "home"}, once per home, under a lock): the registry the STAR
 #                                        dashboard reads. Prints "registered <home>" (added or changed)
@@ -39,7 +40,7 @@
 # string "fallback" (v2.0.0's codex fallback) becomes {"agent": "claude", "model": "opus",
 # "effort": "xhigh"}. Any other gate value is the owner's and is left alone. init and migrate both
 # create every folder, evidence/ included (worktree-clean.sh copies a worktree's evidence there).
-# Exit: 0 ok; 1 not inside a usable git checkout, register with no STAR folder or a registry it
+# Exit: 0 ok; 1 not inside a usable git checkout, import cannot read or copy its spec, register with no STAR folder or a registry it
 # cannot read or write, a STAR folder migrate cannot read, or ledger.sh or loops.sh failing during
 # migrate (the message names it); 64 usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
@@ -97,7 +98,7 @@ def git(where, *args):
     return subprocess.run(["git", "-C", where, *args], capture_output=True, text=True)
 
 
-argv, cwd, cmd = sys.argv[1:], os.getcwd(), None
+argv, cwd, cmd, import_path = sys.argv[1:], os.getcwd(), None, None
 while argv:
     arg = argv.pop(0)
     if arg == "--cwd":
@@ -106,10 +107,17 @@ while argv:
         cwd = argv.pop(0)
     elif arg in ("path", "init", "migrate", "register") and cmd is None:
         cmd = arg
+    elif arg == "import" and cmd is None:
+        cmd = arg
+        if not argv:
+            die(64, "usage: star-home.sh [--cwd <dir>] path|init|migrate|import <spec path>|register")
+        import_path = argv.pop(0)
+        if argv:
+            die(64, f"unknown argument: {argv[0]}")
     else:
         die(64, f"unknown argument: {arg}")
 if cmd is None:
-    die(64, "usage: star-home.sh [--cwd <dir>] path|init|migrate|register")
+    die(64, "usage: star-home.sh [--cwd <dir>] path|init|migrate|import <spec path>|register")
 
 listing = git(cwd, "worktree", "list", "--porcelain")
 if listing.returncode != 0:
@@ -393,6 +401,110 @@ if cmd == "register":
     except (OSError, RegistryError) as e:
         die(1, f"could not register {home} in ~/.juel/star-homes.json ({register_why(e)})")
     sys.exit(0)
+
+
+if cmd == "import":
+    path = import_path
+    if not path or not os.path.isfile(path) or not os.access(path, os.R_OK):
+        die(1, f"{path} is not a readable file")
+    star_path = os.path.join(home, "star.json")
+    if not os.path.isfile(star_path):
+        die(1, f"no STAR folder at {home}: run star-home.sh init first")
+    spec_real = os.path.realpath(path)
+    home_real = os.path.realpath(home)
+    if spec_real == home_real or spec_real.startswith(home_real + os.sep):
+        print(path)
+        sys.exit(0)
+    try:
+        star_data = json.load(open(star_path, encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        star_data = {}
+    project_data = star_data.get("project") if isinstance(star_data, dict) else None
+    project = project_data.get("name") if isinstance(project_data, dict) else None
+    project = project if isinstance(project, str) and project else os.path.basename(main)
+    stem = os.path.splitext(os.path.basename(path))[0]
+    name = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", name).lstrip(".-")[:60] or "item"
+    given = os.path.dirname(os.path.abspath(path))
+    real = os.path.realpath(given)
+    try:
+        text_bytes = open(path, "rb").read()
+    except OSError as e:
+        die(1, f"{path} is not a readable file")
+    try:
+        text = text_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        text = None
+    candidates = {}
+
+    def add_candidate(candidate):
+        if not candidate or os.path.isabs(candidate) or ".." in candidate.split(os.sep):
+            return
+        full = os.path.realpath(os.path.join(real, candidate))
+        if not (full == real or full.startswith(real + os.sep)) or full == spec_real or not os.path.isfile(full):
+            return
+        candidates[full] = os.path.relpath(full, real)
+
+    source_text = text if text is not None else text_bytes.decode("utf-8", "ignore")
+    for match in re.finditer(r"`([^`]+)`|!?\[[^]]*\]\(([^)]+)\)|\S+", source_text):
+        token = next((g for g in match.groups() if g is not None), match.group(0))
+        token = token.strip().rstrip(".,:;!?)")
+        add_candidate(token)
+    prefixes = sorted({given + os.sep, real + os.sep}, key=len, reverse=True)
+    if source_text:
+        pattern = re.compile("|".join(re.escape(x) for x in prefixes))
+        for match in pattern.finditer(source_text):
+            tail = source_text[match.end():]
+            tail = re.split(r"[\s`'\")>]+", tail, maxsplit=1)[0].rstrip(".,:;!?")
+            if tail:
+                full = os.path.realpath(os.path.join(real, tail))
+                if full != spec_real and full.startswith(real + os.sep) and os.path.isfile(full):
+                    candidates[full] = os.path.relpath(full, real)
+    copies = [(spec_real, os.path.basename(path))] + sorted(candidates.items(), key=lambda kv: kv[1])
+    rewritten_prefixes = sorted(prefixes, key=len, reverse=True)
+    rewrite_re = re.compile("|".join(re.escape(x) for x in rewritten_prefixes))
+
+    def content(src):
+        raw = open(src, "rb").read()
+        try:
+            decoded = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw
+        return rewrite_re.sub(lambda _: dest + os.sep, decoded).encode("utf-8")
+
+    project_dir = os.path.join(home, "items", project)
+    os.makedirs(project_dir, exist_ok=True)
+    lock_path = os.path.join(home, "init.lock")
+    with open(lock_path, "a") as init_lock:
+        fcntl.flock(init_lock, fcntl.LOCK_EX)
+        number = 1
+        while True:
+            folder_name = name if number == 1 else f"{name}-{number}"
+            dest = os.path.join(project_dir, folder_name)
+            expected = {}
+            for src, rel in copies:
+                expected[rel] = content(src)
+            if os.path.isdir(dest) and all(os.path.isfile(os.path.join(dest, rel)) and open(os.path.join(dest, rel), "rb").read() == data
+                                           for rel, data in expected.items()):
+                print(os.path.join(dest, os.path.basename(path)))
+                sys.exit(0)
+            if os.path.exists(dest):
+                number += 1
+                continue
+            tmp = os.path.join(project_dir, f".{folder_name}.tmp.{os.getpid()}")
+            try:
+                os.makedirs(tmp)
+                for rel, data in expected.items():
+                    target = os.path.join(tmp, rel)
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    with open(target, "wb") as out_file:
+                        out_file.write(data)
+                os.rename(tmp, dest)
+            except OSError as e:
+                shutil.rmtree(tmp, ignore_errors=True)
+                die(1, f"could not import {path}: {e.strerror}")
+            print(os.path.join(dest, os.path.basename(path)))
+            sys.exit(0)
 
 
 os.makedirs(home, exist_ok=True)
