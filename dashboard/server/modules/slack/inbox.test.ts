@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { channelLabel, deliver, inboxName, inboxText, place, stamp } from './inbox.ts'
+import { idOf } from './state.ts'
 import { cleanup, msg, world } from './test-helpers.ts'
 
 test('a thread reply in a channel: the exact block of D1 and D9', () => {
@@ -137,5 +138,60 @@ test('a drafts folder that cannot be read is an error, never "no draft"', async 
   await writeFile(join(home, 'drafts'), 'not a folder')
   await assert.rejects(deliver(home, '20261016T050607Z-slack-abcd.md', 'C1-1.2', 'one\n'), /ENOTDIR/)
   await assert.rejects(readdir(join(home, 'inbox')), /ENOENT/)
+  await cleanup(w)
+})
+
+test('the recovery race: STAR ingests the reserved file and drafts it between the draft check and the link', async () => {
+  const w = await world()
+  const home = join(w.root, 'star')
+  const at = new Date('2026-10-16T05:06:07.123Z')
+  const m = msg()
+  const id = idOf(m)
+  const text = inboxText('/r/app', m)
+  const name = '20261016T050607Z-slack-abcd.md'
+  const draft = join(home, 'drafts', `2026-10-16-app-slack-${id}.md`)
+  const reply = 'to: slack C1 1700000000.000100\nYes.\n'
+  // A pending hand-over: a crash left the reserved file in inbox/ before the entry was marked delivered.
+  await mkdir(join(home, 'inbox'), { recursive: true })
+  await writeFile(join(home, 'inbox', name), text)
+  let ran = 0
+  const got = await deliver(home, name, id, text, at, async () => {
+    ran += 1
+    // STAR's tick, after deliver's draft check found no draft and before its link.
+    await rm(join(home, 'inbox', name))
+    await mkdir(join(home, 'drafts'), { recursive: true })
+    await writeFile(draft, reply)
+  })
+  assert.equal(ran, 1)
+  assert.equal(got, name)
+  const left = await readdir(join(home, 'inbox'))
+  assert.deepEqual(left, [name], 'the link writes the message again under its reserved name: the copy slack-handled.sh drops')
+  const body = await readFile(join(home, 'inbox', name), 'utf8')
+  assert.equal(body, text)
+  assert.ok(body.split('\n').includes(`  id: ${id}`))
+  assert.equal(await readFile(draft, 'utf8'), reply, 'the watcher never touches a draft')
+  await cleanup(w)
+})
+
+test('the seam runs only after a draft check that found no draft', async () => {
+  const w = await world()
+  const home = join(w.root, 'star')
+  const at = new Date('2026-10-16T05:06:07.123Z')
+  const m = msg()
+  const id = idOf(m)
+  const text = inboxText('/r/app', m)
+  const name = '20261016T050607Z-slack-abcd.md'
+  const draft = join(home, 'drafts', `2026-10-16-app-slack-${id}.md`)
+  const reply = 'to: slack C1 1700000000.000100\nYes.\n'
+  await mkdir(join(home, 'drafts'), { recursive: true })
+  await writeFile(draft, reply)
+  let ran = 0
+  const got = await deliver(home, name, id, text, at, async () => {
+    ran += 1
+  })
+  assert.equal(got, name)
+  assert.equal(ran, 0)
+  await assert.rejects(readdir(join(home, 'inbox')), /ENOENT/)
+  assert.equal(await readFile(draft, 'utf8'), reply)
   await cleanup(w)
 })
