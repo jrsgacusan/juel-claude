@@ -1,2 +1,3 @@
 #!/bin/sh
+# The real-stack suite's open: records each URL dashboard.sh opens in $STAR_E2E_FAKES/open.log; no browser starts.
 [ -z "${STAR_E2E_FAKES:-}" ] || printf '%s\n' "$*" >> "$STAR_E2E_FAKES/open.log"

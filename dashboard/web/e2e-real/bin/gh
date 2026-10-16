@@ -1,3 +1,9 @@
 #!/bin/sh
+# The real-stack suite's gh: stands in for the briefing module's GitHub create (dashboard/server/modules/briefing/create.ts) so no real gh runs; anything but "issue create" exits 64.
 [ -z "${STAR_E2E_FAKES:-}" ] || printf '%s\n' "$*" >> "$STAR_E2E_FAKES/gh.log"
-printf '%s\n' 'https://github.com/acme/sample/issues/77'
+if [ "${1:-}" = "issue" ] && [ "${2:-}" = "create" ]; then
+  printf '%s\n' 'https://github.com/acme/sample/issues/77'
+  exit 0
+fi
+printf '%s\n' 'fake gh: only issue create' >&2
+exit 64
