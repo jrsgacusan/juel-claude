@@ -440,6 +440,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <h3>Without one</h3>
         <ul>
           <li>An approval on the head from a person with write access</li>
+          <li>With <code>ownerApproval</code> set in <code>star.json</code>, your own PR merges self-approved under your grant where no branch rule asks for an approval; STAR's merge comment says so</li>
           <li>Not from the PR's author: GitHub doesn't count it, and agent approvals never count</li>
         </ul>
       </div>
@@ -453,10 +454,10 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>Give the brief: free text, tickets, or both. Feedback you give while an item's brief is still drafting lands in that brief.</li>
         <li>Read one batch summary, do the person-only steps, and say go. A step that asks for a value (a host name, an id) takes your answer as that value.</li>
         <li>Approve risky calls even in scope: data migrations, billing or pricing, production credentials or data, deleting data.</li>
-        <li>On a project with no hosted reviewer, have a teammate approve the PR.</li>
+        <li>On a project with no hosted reviewer, have a teammate approve the PR, or set <code>ownerApproval</code> in <code>star.json</code> when you are its only maintainer.</li>
         <li>Accept a report item's report before STAR posts it.</li>
         <li>When the review gate is down on every model: sign in again, or wait. STAR checks it every 30 minutes.</li>
-        <li>When <code>gh</code> cannot see a repository: set <code>tokenCmd</code> in <code>star.json</code> once (a keychain lookup). Every session in the project then gets the token.</li>
+        <li>When <code>gh</code> cannot see a repository: set <code>tokenCmd</code> in <code>star.json</code> once (a keychain lookup). Every session in the project then gets the token. With no <code>tokenCmd</code>, every worker acts as the same GitHub account STAR does.</li>
         <li>Answer an escalation: a merge-gate check failing twice, NOT-SAFE again after a re-scope, or a worker stalled again after STAR restarted it.</li>
       </ol>
       <p class="aside">Any time: read the decision records in each brief and overrule a call.</p>
@@ -472,8 +473,11 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>A codex gate still NOT SAFE after 3 rounds in a row, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again. In babysit the count starts over at each SAFE round and each push, so a base merge after a SAFE round gets a fresh budget.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>A worker sitting on a prompt is seen on its screen. STAR answers Claude Code's safety prompt for an <code>rm</code> inside the item's worktree or a scratchpad, and any other prompt comes to you.</li>
+        <li>A hosted review that reviewed nothing (a usage limit) is not a pass: STAR parks every babysit, asks you once, and starts them again when you answer retry.</li>
+        <li>A spec file outside the STAR folder is copied into it at ingest, with the files it names, so a scratch folder that goes away takes nothing with it.</li>
+        <li>The codex gate names every site of a finding class in one finding, and each fix covers every site of its pattern in the same round.</li>
         <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
-        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A hunk where one side edited a line and the other inserted lines right after it is merged as the edited line, then the inserted lines. A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it. A gate round on a base that moved and changed the branch's own files merges the base in first, so the round reviews a current head. The full regression gate and every live check run once per PR, before the first draft push. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the sweep, after a clean merge too. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
+        <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A hunk where one side edited a line and the other inserted lines right after it is merged as the edited line, then the inserted lines. A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it. A gate round on a base that moved and changed the branch's own files merges the base in first, so the round reviews a current head. Outside those syncs, a worker merges the base in only when the PR conflicts or a gate round refuses with base-moved. The full regression gate and every live check run once per PR, before the first draft push. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the sweep, after a clean merge too. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
         <li>Before a stage starts again, a gate its stopped worker left holding the lock is stopped and the worker's own terminal is closed (a session Orca reports released with no retained reason is ended; one a person kept is still kept or held), a terminal still printing holds the start, and a merge you order stops the worker still fixing that PR first, so two sessions never work on one item. A previous terminal Orca no longer lists is gone and never holds a start, and a terminal Orca kept after the worker was released, sitting at an empty prompt with the recap of Claude Code as its newest lines, counts as quiet.</li>
       </ul>
     </div>
