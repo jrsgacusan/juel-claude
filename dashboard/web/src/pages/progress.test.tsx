@@ -75,6 +75,23 @@ describe("Progress", () => {
 
   it("links an item waiting in a go-batch to that batch", async () => {
     const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-12"
+    )?.row
+    if (row) row.status = "needs-you"
+    const { user, router } = renderApp("/sphere-app/progress?item=SPH-12")
+    const sheet = await screen.findByRole("dialog")
+    await user.click(
+      await within(sheet).findByRole("link", { name: "Answer in Needs you" })
+    )
+    await waitFor(() =>
+      expect(
+        router.state.location.pathname + router.state.location.search
+      ).toBe("/sphere-app/needs?loop=N-41")
+    )
+  })
+
+  it("links an item with its own open loop to that loop, not its batch", async () => {
+    const row = getDb().items["sphere-app"]?.find(
       (d) => d.row.item === "SPH-14"
     )?.row
     if (row) row.status = "needs-you"
@@ -86,7 +103,7 @@ describe("Progress", () => {
     await waitFor(() =>
       expect(
         router.state.location.pathname + router.state.location.search
-      ).toBe("/sphere-app/needs?loop=N-41")
+      ).toBe("/sphere-app/needs?loop=N-44")
     )
   })
 

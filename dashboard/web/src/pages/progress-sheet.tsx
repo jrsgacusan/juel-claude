@@ -72,16 +72,17 @@ export function ItemSheet({
   const tone = row ? statusOf(row.status).tone : "run"
   const lastTone: StepTone = tone === "muted" ? "run" : tone
   const waiting = row && TAB_OF[row.status] === "needs"
-  // A go-batch loop's item is the batch; its body lines name the items it holds.
+  // The item's own open loop first; else the go-batch that holds it (a go-batch loop's item is the batch, and its body lines name the items).
   const names = row ? [row.item, row.ref].filter(Boolean) : []
   const inBatch = (body: string[]) =>
     body.some((line) =>
       line.split(/[\s,]+/).some((word) => names.includes(word))
     )
   const loop = row
-    ? (loops.data?.find(
+    ? (loops.data?.find((l) => l.item === row.item && !isAnswered(l)) ??
+      loops.data?.find(
         (l) => l.kind === "go-batch" && !isAnswered(l) && inBatch(l.body)
-      ) ?? loops.data?.find((l) => l.item === row.item && !isAnswered(l)))
+      ))
     : undefined
   const pr = row ? prLabel(row) : null
 
