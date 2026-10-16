@@ -557,10 +557,11 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
    `needs=` quotes its "busy, held by …" line.
 10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
     exited 71 (a lock file, manifest or directory problem, or dependencies still missing after one
-    install), or 124 (the command ran past its time limit and was stopped), or the
+    install), or 124 (the command ran past its time limit and was stopped), or 125 (a stalled
+    gate: the command printed nothing for `--idle-max` seconds and was stopped), or the
     dependency install failed (Phase 4's "Dependencies"). None of these is a red gate: do not start
-    fixing code. `needs=` quotes the script's message; for a failed install it is
-    `dependencies did not install: <one line>`.
+    fixing code. `needs=` quotes the script's message: for a stalled gate,
+    `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.
 11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
     quotes its "busy, held by …" line.
 12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
@@ -647,7 +648,12 @@ With more slots, the first waiters in the queue race for a freed slot.
 machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
 "busy, held by …" on stderr, means the queue ahead of it did not move for its whole
 `--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
-escalation. Exit 71 or 124 is `gate-unavailable`, except an exit 71 whose message says
+escalation. Exit 125 is a stalled gate, with this line on stderr:
+`gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`. The command went
+silent for `--idle-max` seconds (900 by default) and was stopped, and the lock is free again. It
+is not red and it is not run again: it is the `gate-unavailable` escalation at once, with
+`needs=stalled gate: <the stalled line>`.
+Exit 71 or 124 is `gate-unavailable`, except an exit 71 whose message says
 `dependencies are not installed`: run the resolved `commands.install` once (Phase 4's
 "Dependencies"), then the same line again; a second 71 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
 is red, and `run-gates.sh` names the gate that failed. Never remove the lock file by hand. Before

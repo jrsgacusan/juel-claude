@@ -308,5 +308,11 @@ has "#128 a base snapshot is named by its sha and read-only" "$R128b"
 has "#131 the fix covers every site of the pattern" "$R131b"
 has "#141 the Codex prompt runs only the plan's commands" 'Run only the commands the plan names, never the full suite or a build.'
 
+# lane c: #143 a stalled gate is gate-unavailable at once; #145 anchored ignore entries, and a planned file git ignores stops the build
+has "C143a exit 125 is a stalled gate, with its line" 'Exit 125 is a stalled gate, with this line on stderr: `gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`.'
+has "C143b a stalled gate is not red and not run again" 'It is not red and it is not run again: it is the `gate-unavailable` escalation at once, with `needs=stalled gate: <the stalled line>`.'
+has "C143c the escalation list names a stalled gate" 'or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and was stopped)'
+has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.'
+grep -qF 'stalled, the command printed nothing for' "$ROOT/skills/ship-ticket/gate-lock.sh" && pass "C143e gate-lock.sh prints the line the skill quotes" || fail "C143e gate-lock.sh prints the line the skill quotes"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
