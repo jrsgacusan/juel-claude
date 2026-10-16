@@ -1,7 +1,7 @@
 import { http, HttpResponse, type HttpHandler } from "msw/http"
 import { getDb, mockEvents } from "./state"
 
-// Routes added here: POST /api/projects/:p/slack/redraft.
+// Routes added here: POST /api/projects/:p/slack/redraft and PUT /api/slack/paused.
 const fail = (status: number, error: string) =>
   HttpResponse.json({ error }, { status })
 
@@ -11,6 +11,16 @@ const nextLoopId = (ids: string[]) => {
 }
 
 export const slackExtraHandlers: HttpHandler[] = [
+  http.put("*/api/slack/paused", async ({ request }) => {
+    const body = (await request.json().catch(() => null)) as {
+      paused?: unknown
+    } | null
+    if (typeof body?.paused !== "boolean")
+      return fail(400, "the body must be {paused: true} or {paused: false}")
+    getDb().slack.paused = body.paused
+    mockEvents.emit({ type: "change", what: "slack" })
+    return HttpResponse.json({ paused: body.paused })
+  }),
   http.post("*/api/projects/:p/slack/redraft", async ({ params, request }) => {
     const p = String(params.p)
     const body = (await request.json().catch(() => null)) as {

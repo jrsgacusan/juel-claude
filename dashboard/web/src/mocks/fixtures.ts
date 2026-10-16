@@ -581,6 +581,7 @@ export function createDb(): MockDb {
     },
     evidence: { "sphere-app": [], "sphere-api": [], "juel-claude": [] },
     slack: {
+      paused: false,
       status: {
         connected: true,
         lastCheck: ago(2),
