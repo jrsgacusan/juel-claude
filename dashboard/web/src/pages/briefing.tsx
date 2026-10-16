@@ -84,7 +84,9 @@ export function BriefingPage() {
     )
   }
 
-  const id = params.get("briefing") ?? briefings.data![0]?.id ?? null
+  // The page's own links use ?briefing=; search results use ?id= (the server's route).
+  const id =
+    params.get("briefing") ?? params.get("id") ?? briefings.data![0]?.id ?? null
   return (
     <>
       {refreshFailed(briefings) && (

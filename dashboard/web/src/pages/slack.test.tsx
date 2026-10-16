@@ -158,6 +158,22 @@ describe("Slack replies", () => {
     )
   })
 
+  it("opens the draft a search result names", async () => {
+    const path =
+      getDb().slack.routed.find((m) => m.from === "Lea")?.draftPath ?? ""
+    renderApp(
+      `/sphere-app/slack?draft=${encodeURIComponent(path.split("/").pop() ?? "")}`
+    )
+    expect(await screen.findByLabelText("Your reply")).toHaveValue(
+      "None yet. It's SPH-13, being built now. I'll post the PR here once it's open."
+    )
+  })
+
+  it("falls back to the first message when ?draft= names none", async () => {
+    renderApp("/sphere-app/slack?draft=gone.md")
+    expect(await screen.findByLabelText("Your reply")).toHaveValue(RIA)
+  })
+
   it("says when Slack isn't connected", async () => {
     setScenario("slack-off")
     renderApp("/sphere-app/slack")

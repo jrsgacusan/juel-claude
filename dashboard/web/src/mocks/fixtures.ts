@@ -878,7 +878,7 @@ export function createDb(): MockDb {
       sub: "#sphere-eng, draft ready",
       ref: "3m",
       project: HOME,
-      route: `slack?message=${encodeURIComponent(riaId)}`,
+      route: `slack?draft=${encodeURIComponent(draft(riaId).split("/").pop() ?? "")}`,
     },
     {
       group: "Briefings",
@@ -886,7 +886,7 @@ export function createDb(): MockDb {
       sub: "Briefed yesterday, became SPH-11",
       ref: "SPH-11",
       project: HOME,
-      route: "briefing?briefing=b0",
+      route: "briefing?id=b0",
     },
     {
       group: "Evidence",
@@ -910,7 +910,7 @@ export function createDb(): MockDb {
       sub: "#releases, draft ready",
       ref: "1h",
       project: HOME,
-      route: `slack?message=${encodeURIComponent(leaId)}`,
+      route: `slack?draft=${encodeURIComponent(draft(leaId).split("/").pop() ?? "")}`,
     },
     {
       group: "Items",

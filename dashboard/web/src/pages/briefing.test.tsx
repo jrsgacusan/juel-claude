@@ -60,6 +60,13 @@ describe("Briefing", () => {
     ).toBeDisabled()
   })
 
+  it("opens the briefing a search result names", async () => {
+    renderApp("/sphere-app/briefing?id=b0")
+    expect(
+      await screen.findByRole("combobox", { name: "Briefing" })
+    ).toHaveTextContent("Export reports as CSV")
+  })
+
   it("streams the agent's turn from briefing events", async () => {
     const { user } = renderApp("/sphere-app/briefing")
     const box = await screen.findByLabelText("Message the briefing agent")

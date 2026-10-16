@@ -89,6 +89,8 @@ export function SlackPage() {
   const slack = useSlack()
   const [messageParam, setMessageParam] = useSearchParam("message")
   const [loopParam] = useSearchParam("loop")
+  // Search results name a draft file (the server's /<p>/slack?draft=<name>).
+  const [draftParam] = useSearchParam("draft")
   const [done, setDone] = useState<Record<string, string>>({})
   if (slack.isPending)
     return (
@@ -114,6 +116,9 @@ export function SlackPage() {
   const loopId = loopParam
   const selected =
     all.find((m) => m.id === selectedId) ??
+    (draftParam
+      ? routed.find((m) => m.draftPath?.split("/").pop() === draftParam)
+      : undefined) ??
     routed.find((m) => m.loopId === loopId) ??
     routed[0] ??
     unrouted[0]
