@@ -17,7 +17,7 @@ Earlier in its thread or DM, oldest first (empty when there is none):
 </thread>
 {{rewrite}}
 First find what the reply needs, reading only:
-1. The repository's code and docs, and its history (git log, show, diff, blame, grep).
+1. The repository's code and docs (Read, Grep and Glob).
 2. STAR's briefs, ledger and open loops, and the project's pull requests and issues (gh pr view,
    list, diff, checks; gh issue view, list).
 3. The work item the message names, when it names one: a Linear key such as APP-77, or a GitHub

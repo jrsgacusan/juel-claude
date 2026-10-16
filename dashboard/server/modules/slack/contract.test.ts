@@ -58,14 +58,16 @@ test('config.json pins read-only Slack tools and denies every other tool the con
   assert.equal(config.allowedTools.length + config.disallowedTools.length, 27, 'the spike listed 27 Slack tools')
 })
 
-test('config.json gives the drafter read tools only: no Write or Edit, git and gh reads, Linear reads', async () => {
+test('config.json gives the drafter read tools only: no Write or Edit, no git, gh reads, Linear reads', async () => {
   const { drafter } = JSON.parse(await read('config.json')) as { drafter: { allowedTools: string[]; linearTools: string[]; disallowedTools: string[] } }
   for (const tool of ['Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch']) {
     assert.ok(drafter.disallowedTools.includes(tool), `${tool} is not denied`)
     assert.ok(!drafter.allowedTools.includes(tool), `${tool} is allowed`)
   }
   for (const tool of drafter.allowedTools) {
-    assert.match(tool, /^(Read|Grep|Glob|Bash\((git (log|show|diff|blame|grep|ls-files|status)|gh (pr (view|list|diff|checks)|issue (view|list))):\*\))$/)
+    assert.ok(!tool.startsWith('Bash(git'), `${tool} lets the model run git, whose options run programs and write files`)
+    assert.ok(!/^(Write|Edit|NotebookEdit)/.test(tool), `${tool} writes`)
+    assert.match(tool, /^(Read|Grep|Glob|Bash\(gh (pr (view|list|diff|checks)|issue (view|list)):\*\))$/)
   }
   for (const tool of drafter.linearTools) assert.match(tool, /^mcp__plugin_linear_linear__(get|list)_/)
   for (const write of ['save_issue', 'save_comment', 'delete_comment', 'create_attachment']) {
@@ -106,4 +108,8 @@ test('prompt.md asks for exactly the messages, exclusions and fields of the item
     assert.ok(prompt.includes(phrase), `prompt.md does not say: ${phrase}`)
   }
   assert.ok(!prompt.includes('a new question for the owner'))
+})
+
+test('drafter-prompt.md does not tell the drafter to run git', async () => {
+  assert.doesNotMatch(await read('drafter-prompt.md'), /\bgit (log|show|diff|blame|grep|ls-files|status)\b/)
 })
