@@ -41,8 +41,9 @@ export type CreateContext = {
   log: (line: string) => void
 }
 /**
- * A failed create carries `made` when the ticket exists but could not be recorded, so it must not be
- * made again, and `maybeMade` when the tracker's create tool ran but did not say what it made.
+ * A failed create carries `made` when the ticket exists but could not be recorded or sent to STAR's
+ * inbox, so it must not be made again, and `maybeMade` when it may exist (the tracker's create tool
+ * ran, or gh succeeded, without saying what it made); the briefing then stays marked.
  */
 export type CreateOutcome = { ok: true; created: Created } | { ok: false; error: string; made?: Created; maybeMade?: boolean }
 type Made = { ok: true; ref: string; url: string } | { ok: false; error: string; maybeMade?: boolean }
@@ -138,7 +139,8 @@ async function createGithub(ctx: CreateContext): Promise<Made> {
   if (exit.spawnError) return { ok: false, error: `gh could not start: ${exit.spawnError}` }
   if (exit.code !== 0) return { ok: false, error: tail(exit.stderr, 5) || `gh exited with ${exit.code ?? exit.signal}` }
   const url = lines.filter(line => line.startsWith('https://')).pop()
-  if (!url) return { ok: false, error: 'gh issue create printed no issue URL' }
+  // gh exits 0 only once the issue exists, so an answer with no https URL may still have made one.
+  if (!url) return { ok: false, error: `gh issue create exited 0 but printed no issue URL (${tail(lines.join('\n'), 3) || 'no output'})`, maybeMade: true }
   const number = /\/issues\/(\d+)/.exec(url)?.[1]
   return { ok: true, ref: number ? `#${number}` : url, url }
 }
@@ -190,7 +192,7 @@ async function createViaMcp(ctx: CreateContext, tracker: 'linear' | 'jira'): Pro
   const reason = error ?? (finished ? `the ${tracker} create did not say whether it made the issue` : tail(exit.stderr, 5) || `the ${tracker} create failed (exit ${exit.code ?? exit.signal})`)
   // The create tool ran, so the issue may exist even though the run did not report it.
   if ((called as boolean) && error === null) {
-    return { ok: false, error: `${reason} (its create tool ran: check ${tracker} before saving it as a spec)`, maybeMade: true }
+    return { ok: false, error: `${reason} (its create tool ran, so the issue may exist)`, maybeMade: true }
   }
   return { ok: false, error: reason }
 }
@@ -207,9 +209,10 @@ async function unmark(dir: string, failed: { ok: false; error: string; maybeMade
 
 /**
  * Makes the ticket and sends it to STAR (D8: one ticket per briefing). created.json is written as
- * `state: 'creating'` before anything is made; a create that makes nothing clears it, and a made
- * ticket rewrites it as `state: 'made'`. When that rewrite fails the mark stays, so the next press
- * answers 409 instead of making a second ticket; the made ticket is logged first either way.
+ * `state: 'creating'` before anything is made; a create that made nothing clears it, and a made
+ * ticket rewrites it as `state: 'made'`. When the ticket may exist (`maybeMade`), or that rewrite
+ * fails, the mark stays, so the next press answers 409 instead of making a second ticket; a made
+ * ticket is logged first either way.
  */
 export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
   const at = new Date().toISOString()
@@ -222,7 +225,10 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
   let made: Made | 'absent' = 'absent'
   if (ctx.tracker === 'github') made = await createGithub(ctx)
   else if (ctx.tracker === 'linear' || ctx.tracker === 'jira') made = await createViaMcp(ctx, ctx.tracker)
-  if (made !== 'absent' && !made.ok) return unmark(ctx.dir, made)
+  if (made !== 'absent' && !made.ok) {
+    if (!made.maybeMade) return unmark(ctx.dir, made)
+    return { ok: false, error: `${made.error}. The briefing stays marked, so no second ticket is made: check ${ctx.tracker} for the issue, then remove ${join(ctx.dir, 'created.json')} to try again or to save it as a spec`, maybeMade: true }
+  }
   let created: Created
   if (made === 'absent') {
     let specPath: string

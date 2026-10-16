@@ -106,9 +106,16 @@ test("a failed gh create keeps the draft, writes no inbox file and gives gh's er
   assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: [specPath()] })
 })
 
-test('gh that prints no issue URL is a failed create', async () => {
+test('gh that exits 0 but prints no issue URL may have made the issue, so the briefing stays marked', async () => {
   await play(w, 'gh', [{ stdout: 'something else\n' }])
-  assert.deepEqual(await createTicket(ctx('github')), { ok: false, error: 'gh issue create printed no issue URL' })
+  const outcome = await createTicket(ctx('github'))
+  assert.equal(outcome.ok, false)
+  if (outcome.ok) return
+  assert.equal(outcome.maybeMade, true)
+  assert.match(outcome.error, /exited 0 but printed no issue URL \(something else\)/)
+  assert.match(outcome.error, /check github for the issue/)
+  assert.equal((await readCreated(dir))?.state, 'creating')
+  assert.deepEqual(await inboxFiles(), [])
 })
 
 test('linear: a headless haiku run allowed only the create tools, when one is connected', async () => {
@@ -196,14 +203,16 @@ test('a connected tracker that answers in pretty-printed JSON is still read', as
   assert.equal(outcome.created.ref, 'ENG-8')
 })
 
-test('a create tool that ran without a usable answer may have made the issue, and says so', async () => {
+test('a create tool that ran without a usable answer may have made the issue: it says so and the briefing stays marked', async () => {
   const toolUse = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__linear__save_issue', input: {} }] } }
   await play(w, 'claude', [{ lines: [init('C1', ['mcp__linear__save_issue']), toolUse, say('Done, I think.'), done('Done, I think.')] }])
   const outcome = await createTicket(ctx('linear'))
   assert.equal(outcome.ok, false)
   if (outcome.ok) return
   assert.equal(outcome.maybeMade, true)
-  assert.match(outcome.error, /create tool ran: check linear/)
+  assert.match(outcome.error, /create tool ran, so the issue may exist/)
+  assert.match(outcome.error, /check linear for the issue/)
+  assert.equal((await readCreated(dir))?.state, 'creating')
   assert.deepEqual(await inboxFiles(), [])
   assert.ok(logs.some(line => line.includes('Done, I think.')))
 })

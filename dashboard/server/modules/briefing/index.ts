@@ -83,12 +83,12 @@ export function register(api: ModuleApi): void {
     return answer({ accepted: true }, 202)
   })
 
-  /** The create's answer: 201 after the nudge, or the failure, never one that offers a second ticket. */
+  /** The create's answer: 201 after the nudge, 500 with `made` when the ticket exists, else 502 (flagged `maybeMade` when it may exist; the briefing then stays marked). */
   async function finish(at: Located, tracker: string, outcome: CreateOutcome): Promise<Res> {
     const key = keyOf(at)
     if (!outcome.ok) {
       log(`briefing ${key}: ${tracker} create failed: ${outcome.error}`)
-      // The ticket exists but is not recorded: never the failure that offers to make it again.
+      // The ticket exists (unrecorded, or recorded but not in STAR's inbox yet): never the 502 that offers to make it again.
       if (outcome.made) return refuse(500, outcome.error, { tracker, made: outcome.made })
       return refuse(502, outcome.error, outcome.maybeMade ? { tracker, maybeMade: true } : { tracker })
     }
@@ -117,7 +117,9 @@ export function register(api: ModuleApi): void {
       // A create that did not finish may have made a ticket: never make another on a guess (D8).
       if (created?.state === 'creating') {
         const where = join(at.dir, 'created.json')
-        return refuse(409, `an earlier ${created.tracker} create of this briefing did not finish: check ${created.tracker} for the ticket (the dashboard log names any it made), then remove ${where} to try again`, { created })
+        const items = join(at.project.home, 'items', at.project.name)
+        const look = created.tracker === 'none' || created.tracker === 'synapse' ? `check ${items} for its spec item` : `check ${created.tracker} for the ticket, or ${items} for a spec item`
+        return refuse(409, `an earlier ${created.tracker} create of this briefing did not finish: ${look} (the dashboard log names anything it made), then remove ${where} to try again`, { created })
       }
       // Made before, but STAR's inbox file was never written: send that ticket now, never a second one.
       if (created?.inbox === null) {

@@ -377,3 +377,31 @@ test('a ticket made but not recorded is 500 with made, and the next press is 409
   assert.match(String(json(second).error), /did not finish/)
   assert.equal((await calls(w, 'gh')).length, 1)
 })
+
+
+test('a create that may have made an issue is 502 with maybeMade, and every later press is 409, not a second issue', async () => {
+  const toolUse = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__linear__save_issue', input: {} }] } }
+  await play(w, 'claude', [{ lines: [init('C1', ['mcp__linear__save_issue']), toolUse, say('Done, I think.'), done('Done, I think.')] }])
+  const id = await newBriefing()
+  await withDraft(id)
+  const first = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'linear' })
+  assert.equal(first.status, 502)
+  assert.equal(json(first).maybeMade, true)
+  for (const tracker of ['linear', 'none']) {
+    const again = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker })
+    assert.equal(again.status, 409, tracker)
+    assert.match(String(json(again).error), /did not finish: check linear for the ticket/)
+  }
+  assert.equal((await calls(w, 'claude')).length, 1)
+  assert.deepEqual(s.nudges, [])
+})
+
+test('a spec create that did not finish points at the spec folder, not at a tracker', async () => {
+  const id = await newBriefing()
+  await withDraft(id)
+  const mark = { tracker: 'none', ref: null, specPath: null, url: null, at: '2026-10-16T00:00:00.000Z', state: 'creating', inbox: null }
+  await writeFile(join(briefingDir(w.home, id)!, 'created.json'), JSON.stringify(mark))
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'none' })
+  assert.equal(res.status, 409)
+  assert.ok(String(json(res).error).includes(`did not finish: check ${join(w.home, 'items', 'proj')} for its spec item`), String(json(res).error))
+})
