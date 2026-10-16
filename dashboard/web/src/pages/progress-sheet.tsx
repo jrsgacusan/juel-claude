@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { age, clock } from "@/lib/format"
+import { itemLabel } from "@/lib/items"
 import { isAnswered } from "@/lib/loops"
 import { projectPath } from "@/lib/routes"
 import { prLabel, statusOf, stepText, TAB_OF } from "@/lib/status"
@@ -94,10 +95,10 @@ export function ItemSheet({
       >
         <SheetHeader className="p-0">
           <span className="font-mono text-xs text-muted-foreground">
-            {row?.ref ?? item}
+            {row ? itemLabel(row) : item}
           </span>
           <SheetTitle className="text-lg leading-snug">
-            {row?.title ?? row?.ref ?? row?.item ?? item ?? ""}
+            {row?.title ?? row?.item ?? item ?? ""}
           </SheetTitle>
           <SheetDescription className="sr-only">
             The item's branch, PR and step log

@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { age, dayLabel } from "@/lib/format"
+import { itemLabel } from "@/lib/items"
 import { prLabel, type ProgressTab, stepText, TAB_OF } from "@/lib/status"
 import { useSearchParam } from "@/lib/use-search-param"
 import { ItemSheet } from "./progress-sheet"
@@ -226,6 +227,7 @@ export function ProgressPage() {
                         <TableCell className="px-4 py-3">
                           <button
                             type="button"
+                            aria-label={`${itemLabel(row)} ${row.title ?? row.item}`}
                             onClick={(e) => {
                               e.stopPropagation()
                               setOpen(row.item)
@@ -233,7 +235,7 @@ export function ProgressPage() {
                             className="flex flex-col rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                           >
                             <span className="font-mono text-xs text-muted-foreground">
-                              {row.ref ?? row.item}
+                              {itemLabel(row)}{" "}
                             </span>
                             <span className="font-medium">
                               {row.title ?? row.item}
