@@ -2,6 +2,7 @@
 # Reads STAR's Orca inbox and prints only what STAR acts on, so heartbeats, replays and Orca's
 # JSON quirks never reach STAR's context.
 #   messages.sh [--home H] [--ack <delivery>] [--wait] [--timeout-ms <n>]
+#   messages.sh [--home H] --waiting
 # Runs `orca orchestration check [--ack D] [--wait] --types worker_done,escalation,question
 # [--timeout-ms N] --json`. Keeps worker_done, escalation and question messages. Drops heartbeats
 # (Orca returns them whatever --types says), "Rejected heartbeat" notices, every other type, and
@@ -27,10 +28,19 @@
 # Orca's JSON is read leniently: a raw line break inside a string does not make it unreadable.
 # orca runs in its own process group: TERM, INT or HUP to this script ends it too, and a wait
 # whose parent session is gone ends itself, so no waiter outlives the STAR command that made it.
+# --wait writes <home>/messages-wait, one line "<pid> <since>" (this script's pid and its UTC start,
+# YYYY-MM-DDTHH:MM:SSZ), before its first orca call, and removes it on every exit: a normal end, TERM,
+# INT or HUP. So whether a wait is outstanding survives a compaction or a restart. A file that names
+# another live wait is left as it is; a stale one is replaced.
+# --waiting reads that file and never calls orca. It takes no flag but --home and exits 0:
+#   waiting <pid> <since>    the file names a live messages.sh --wait
+#   none                     no file, or it names a process that is gone or is not a messages.sh --wait
+#                            (the stale file is removed)
 # Exit: 0, or 64 on bad usage.
 STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
 export STAR_HOME_DEFAULT
 exec python3 - "$@" <<'PY'
+import atexit
 import json
 import os
 import re
@@ -69,7 +79,82 @@ def stop(signum, _frame):
 for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
     signal.signal(sig, stop)
 
+
+def wait_file():
+    return os.path.join(home, "messages-wait") if home else None
+
+
+def is_wait(pid):
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    try:
+        words = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True,
+                               timeout=5).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    return bool(words) and os.path.basename(words[0]).lower().startswith("python") and "--wait" in words
+
+
+def read_wait(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def waiting_line():
+    path = wait_file()
+    text = read_wait(path) if path else None
+    if text is None:
+        return "none"
+    words = text.split()
+    if len(words) == 2 and words[0].isdigit() and is_wait(int(words[0])):
+        return f"waiting {words[0]} {words[1]}"
+    if read_wait(path) == text:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return "none"
+
+
+def claim():
+    path = wait_file()
+    if path is None:
+        return
+    tmp = os.path.join(home, f".messages-wait.tmp.{os.getpid()}")
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(f"{os.getpid()} {since}\n")
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            first = (read_wait(path) or "").split()[:1]
+            if not (first and first[0].isdigit() and is_wait(int(first[0]))):
+                os.replace(tmp, path)
+    except OSError:
+        pass
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def release():
+    path = wait_file()
+    if path and (read_wait(path) or "").split()[:1] == [str(os.getpid())]:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
 home, ack, wait, timeout, args = os.environ.get("STAR_HOME_DEFAULT") or "", None, False, None, sys.argv[1:]
+waiting = False
 while args:
     arg = args.pop(0)
     if arg in ("--home", "--ack", "--timeout-ms"):
@@ -86,8 +171,14 @@ while args:
             timeout = int(value)
     elif arg == "--wait":
         wait = True
+    elif arg == "--waiting":
+        waiting = True
     else:
         die(64, f"unknown argument: {arg}")
+if waiting and (ack is not None or wait or timeout is not None):
+    die(64, "--waiting takes no flag but --home")
+if waiting:
+    out(waiting_line())
 
 processed = set()
 try:
@@ -203,6 +294,9 @@ def show(m):
         print(f"cut {len(lines) - 12}")
 
 
+if wait:
+    atexit.register(release)
+    claim()
 end = time.monotonic() + (timeout or 0) / 1000
 pending = ack
 for _ in range(ROUNDS):
