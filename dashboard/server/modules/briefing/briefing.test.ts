@@ -22,6 +22,7 @@ const ROUTES = [
   'POST /api/projects/:p/briefings/:id/create',
   'GET /api/projects/:p/tracker',
   'PUT /api/projects/:p/tracker',
+  'DELETE /api/projects/:p/briefings/:id',
 ]
 
 let w: World
@@ -51,7 +52,7 @@ const markMade = async (id: string, extra: Record<string, unknown>): Promise<voi
 }
 const inboxPath = (): string => join(w.home, 'inbox', '20261016T000000Z-abcd.md')
 
-test('register adds exactly the seven routes', () => {
+test('register adds exactly the eight routes', () => {
   assert.deepEqual([...s.routes].sort(), [...ROUTES].sort())
 })
 
@@ -59,7 +60,7 @@ test('an unknown project is 404 on every route', async () => {
   for (const route of ROUTES) {
     const [method, path] = route.split(' ')
     const url = path.replace(':p', 'nope').replace(':id', '20261016T030405Z-abcd')
-    const res = await s.call(method as 'GET' | 'POST' | 'PUT', url, { text: 'x', tracker: 'none' })
+    const res = await s.call(method as 'GET' | 'POST' | 'PUT' | 'DELETE', url, { text: 'x', tracker: 'none' })
     assert.equal(res.status, 404, route)
     assert.equal(json(res).error, 'unknown project')
   }
@@ -147,10 +148,10 @@ test('GET briefings lists title, updatedAt and ref, newest first', async () => {
   const res = await s.call('GET', '/api/projects/proj/briefings')
   assert.equal(res.status, 200)
   const list = res.json as Record<string, unknown>[]
-  assert.deepEqual(list.map(item => Object.keys(item).sort()), [['id', 'ref', 'title', 'updatedAt'], ['id', 'ref', 'title', 'updatedAt']])
+  assert.deepEqual(list.map(item => Object.keys(item).sort()), [['deletable', 'id', 'ref', 'title', 'updatedAt'], ['deletable', 'id', 'ref', 'title', 'updatedAt']])
   const byId = new Map(list.map(item => [item.id, item]))
-  assert.deepEqual({ ...byId.get(drafted), updatedAt: 'x' }, { id: drafted, title: 'Retry the sync', updatedAt: 'x', ref: '#42' })
-  assert.deepEqual({ ...byId.get(empty), updatedAt: 'x' }, { id: empty, title: 'New briefing', updatedAt: 'x', ref: null })
+  assert.deepEqual({ ...byId.get(drafted), updatedAt: 'x' }, { id: drafted, title: 'Retry the sync', updatedAt: 'x', ref: '#42', deletable: true })
+  assert.deepEqual({ ...byId.get(empty), updatedAt: 'x' }, { id: empty, title: 'New briefing', updatedAt: 'x', ref: null, deletable: true })
   assert.ok(list.every(item => !Number.isNaN(Date.parse(String(item.updatedAt)))))
   assert.ok(String(list[0].updatedAt) >= String(list[1].updatedAt))
 })
@@ -577,4 +578,89 @@ test("a spec record's resume answers 201 with its spec path", async () => {
   const files = await readdir(join(w.home, 'inbox'))
   assert.equal(files.length, 1)
   assert.match(await readFile(join(w.home, 'inbox', files[0]), 'utf8'), new RegExp(`- ${specPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`))
+})
+
+const del = (id: string) => s.call('DELETE', `/api/projects/proj/briefings/${id}`)
+const exists = (id: string): Promise<boolean> => stat(briefingDir(w.home, id)!).then(() => true, () => false)
+const listed = async (): Promise<Record<string, boolean>> =>
+  Object.fromEntries(((await s.call('GET', '/api/projects/proj/briefings')).json as { id: string; deletable: boolean }[]).map(item => [item.id, item.deletable]))
+
+test('DELETE removes a briefing with no created.json, and nothing else', async () => {
+  const keep = await newBriefing()
+  const gone = await newBriefing()
+  await withDraft(gone)
+  await mkdir(join(w.home, 'inbox'), { recursive: true })
+  await writeFile(inboxPath(), 'repo: x\nrefs:\n- #42\n')
+  const res = await del(gone)
+  assert.deepEqual([res.status, res.json], [200, { deleted: true }])
+  assert.equal(await exists(gone), false)
+  assert.equal(await exists(keep), true)
+  assert.equal(await readFile(inboxPath(), 'utf8'), 'repo: x\nrefs:\n- #42\n')
+  assert.deepEqual(Object.keys(await listed()), [keep])
+})
+
+test('DELETE removes a briefing whose ticket STAR has', async () => {
+  for (const extra of [{ inbox: inboxPath(), queued: true }, { inbox: inboxPath() }]) {
+    const id = await newBriefing()
+    await markMade(id, extra)
+    const res = await del(id)
+    assert.deepEqual([res.status, res.json], [200, { deleted: true }], JSON.stringify(extra))
+    assert.equal(await exists(id), false)
+  }
+})
+
+test('DELETE refuses a briefing STAR may not have, and keeps it', async () => {
+  const cases: [Record<string, unknown>, string][] = [
+    [{ state: 'creating', ref: null, inbox: null }, 'its ticket create did not finish'],
+    [{ inbox: null }, 'STAR does not have its ticket yet'],
+    [{ inbox: inboxPath(), queued: false }, 'STAR does not have its ticket yet'],
+    [{ state: undefined }, 'its created.json is not a finished ticket record'],
+  ]
+  for (const [extra, why] of cases) {
+    const id = await newBriefing()
+    await markMade(id, extra)
+    const res = await del(id)
+    assert.deepEqual([res.status, res.json], [409, { error: why }], JSON.stringify(extra))
+    assert.equal(await exists(id), true)
+  }
+  const torn = await newBriefing()
+  await writeFile(join(briefingDir(w.home, torn)!, 'created.json'), '{not json')
+  const res = await del(torn)
+  assert.deepEqual([res.status, res.json], [409, { error: 'its created.json is not a finished ticket record' }])
+  assert.equal(await exists(torn), true)
+})
+
+test('DELETE refuses while a reply is being written, and the list says so until it ends', async () => {
+  await play(w, 'claude', [{ lines: [init('S1'), say(REPLY), done(REPLY)], wait: true }])
+  const id = await newBriefing()
+  assert.equal((await s.call('POST', `/api/projects/proj/briefings/${id}/messages`, { text: 'one' })).status, 202)
+  await until(async () => (await calls(w, 'claude')).length === 1)
+  const res = await del(id)
+  assert.deepEqual([res.status, res.json], [409, { error: 'a reply or a ticket create is running for this briefing' }])
+  assert.equal((await listed())[id], false)
+  await release(w)
+  await settled(id)
+  assert.equal((await listed())[id], true)
+  assert.equal((await del(id)).status, 200)
+})
+
+test('DELETE of an unknown or malformed briefing is 404 and removes nothing', async () => {
+  const keep = await newBriefing()
+  for (const [id, shown] of [['20261016T030405Z-abcd', '20261016T030405Z-abcd'], ['..%2F..%2Fetc', '../../etc'], ['%2E%2E', '..']]) {
+    const res = await del(id)
+    assert.deepEqual([res.status, res.json], [404, { error: `no briefing ${shown}` }], id)
+  }
+  assert.equal(await exists(keep), true)
+  assert.deepEqual(await readdir(w.home), ['briefings'])
+})
+
+test('GET briefings marks each item deletable by the same rule', async () => {
+  const fresh = await newBriefing()
+  const had = await newBriefing()
+  await markMade(had, { inbox: inboxPath(), queued: true })
+  const waiting = await newBriefing()
+  await markMade(waiting, { inbox: null })
+  const creating = await newBriefing()
+  await markMade(creating, { state: 'creating', ref: null, inbox: null })
+  assert.deepEqual(await listed(), { [fresh]: true, [had]: true, [waiting]: false, [creating]: false })
 })
