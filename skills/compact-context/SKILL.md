@@ -106,8 +106,15 @@ mkdir -p "$docsRoot/context"
 (If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
 the filesystem check above — config always takes precedence.)
 
-Ensure the repo's `.gitignore` contains unanchored `superpowers/` and `.superpowers/` entries —
-unanchored so they match at any depth. Add them if absent. This directory is scratch, not product.
+Ensure the repo's `.gitignore` ignores the docs root and the scratch folder with entries anchored
+to the repo root, so no other folder of the same name is ignored: the resolved `docsRoot` as a
+path from the repo root, with a leading and a trailing `/` (`/docs/superpowers/`, or
+`/docs/.superpowers/`), and `/.superpowers/`. Add each one that is absent. In the same change,
+replace a line that is exactly `superpowers/` with the docs root's entry, and a line that is
+exactly `.superpowers/` with `/.superpowers/`: an unanchored line ignores every folder of that
+name at any depth, so a plan's `tests/superpowers/` file could never be committed. Leave every
+other line as it is. A `docsRoot` outside the repo needs no entry. This directory is scratch, not
+product.
 
 **Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
 findings report, or context file that already exists at the derived path — append `-v2` before

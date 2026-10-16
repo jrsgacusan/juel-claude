@@ -106,5 +106,25 @@ tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF -- "$R141" && pass "#141 the executor
 grep -qF 'using the tests, checks, inspections or screenshots the plan names' "$EX" && pass "#141 the executor validates with the plan's own checks" || fail "#141 executor validation step"
 grep -qF 'never into a full-suite run or a build the plan does not write out' "$EX" && pass "#141 validation lines never become a full-suite run" || fail "#141 validation wording"
 
+# lane c: #145 a planned path that is git-ignored fails its task, and the run stops
+grep -qF '**A planned path that is git-ignored fails its task.**' "$EX" && pass "#145 a planned path that is git-ignored fails its task" || fail "#145 the failing-task rule"
+grep -qF '`task <N> failed: planned file <path> is git-ignored (<source>:<line>:<pattern>)`.' "$EX" && pass "#145 the report line" || fail "#145 the report line"
+tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF 'then fail the task: do not append its ledger line, do not start the next task, and end the run with this line in the report' && pass "#145 a failed task writes no ledger line and ends the run" || fail "#145 how the task fails"
+tr '\n' ' ' < "$PC" | tr -s ' ' | grep -qF 'A task whose `**Files:**` block names a path the repository ignores fails, and the run stops there' && pass "#145 the contract says it too" || fail "#145 the contract sentence"
+# the issue's repro: the rule in brackets is what the skill's own command prints before the tab
+CV=$(sed -n 's/.*`\(git check-ignore -v [^`]*\)`.*/\1/p' "$EX" | head -1)
+G2=$(mktemp -d); trap 'rm -rf "$G" "$G2"' EXIT
+(cd "$G2" && git init -q . && printf 'superpowers/\n' > .gitignore && mkdir -p tests/superpowers && touch tests/superpowers/a.test.sh)
+rule=$(cd "$G2" && sh -c "$(printf '%s' "$CV" | sed 's|<path>|tests/superpowers/a.test.sh|')" | cut -f1)
+[ -n "$CV" ] && [ "$rule" = ".gitignore:1:superpowers/" ] && pass "#145 the rule in the report comes from the skill's own check-ignore command" || fail "#145 check-ignore -v in a scratch repo (got: $rule)"
+# lane c: #145 every skill that sets up docsRoot anchors its ignore entries
+for s in ship-ticket execute review-and-execute receive-review-and-execute compact-context review-pr; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'unanchored `superpowers/`' "$F" && fail "#145 $s: still asks for unanchored entries" || pass "#145 $s: no unanchored entries"
+  tr '\n' ' ' < "$F" | tr -s ' ' | grep -qF '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`.' && pass "#145 $s: names the anchored entries" || fail "#145 $s: anchored entries"
+done
+for s in execute review-and-execute receive-review-and-execute; do
+  grep -qF "printf '/.superpowers/\n'" "$ROOT/skills/$s/SKILL.md" && pass "#145 $s: the ledger's exclude entry is anchored" || fail "#145 $s: the ledger's exclude entry"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

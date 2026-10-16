@@ -2,7 +2,7 @@
 # Runs one command while holding the machine-wide heavy-gate lock, so unattended workers never
 # run full test suites or builds at the same time.
 #
-# Usage: sh gate-lock.sh [--holder <label>] [--progress <file>] [--wait-max <seconds>] [--max-seconds <seconds>] -- <command> [args...]
+# Usage: sh gate-lock.sh [--holder <label>] [--progress <file>] [--wait-max <seconds>] [--max-seconds <seconds>] [--idle-max <seconds>] -- <command> [args...]
 #        sh gate-lock.sh --slots <n>
 #
 # What follows "--" is one command with its arguments, run as it is: no shell reads it. A line
@@ -62,6 +62,14 @@
 # or a slot's holder line changed, so a long queue that keeps moving never times out (#97).
 # Running: a command still going after --max-seconds (default 7200; 0 = no limit) is stopped
 # like a TERM, so one hung test runner cannot hold every project's gate for good.
+# Idle (#143): a command that prints nothing, on stdout or stderr, for --idle-max seconds (default
+# 900; 0 = no limit) is stopped the same way, so a test stuck on a server it started frees the
+# lock in minutes. To see that, the wrapper reads the command's stdout and stderr through pipes and
+# copies every byte to its own stdout and stderr as it arrives, unchanged (only when both go to one
+# file can the two interleave differently than a direct write would). With --idle-max 0 the
+# command writes straight to the wrapper's stdout and stderr, as before. The wrapper never waits
+# for the pipes to close, since a detached daemon may hold them. A gate inside a gate is not
+# watched again: the outer gate sees its output.
 #
 # With --progress <file>, a gate that has to wait appends one line to <file> when the wait starts,
 # and again every JUEL_GATE_LOCK_PROGRESS_SECONDS (default 600) while it waits:
@@ -73,11 +81,13 @@
 # Exit status: the command's own (128+n when a signal ended it, 127 when it could not start).
 # The wrapper's own codes never mean "the gate is red": 75 with "gate-lock.sh: busy, held by
 # <slot 1's holder>" when the queue ahead did not move for --wait-max seconds; 124 with "ran past"
-# when --max-seconds ended the command; 71 when the gate could not run at all (a lock file or the
-# queue cannot be opened or locked); 64 on bad usage.
+# when --max-seconds ended the command; 125 with "gate-lock.sh: stalled, the command printed
+# nothing for <n> s and was stopped" when --idle-max ended it; 71 when the gate could not run at
+# all (a lock file or the queue cannot be opened or locked); 64 on bad usage.
 exec python3 - "$@" <<'PY'
 import fcntl
 import re
+import select
 import errno
 import os
 import secrets
@@ -124,12 +134,12 @@ if sys.argv[1:2] == ["--slots"]:  # sh gate-lock.sh --slots <n>: how many gates 
     print(f"slots {sys.argv[2]}")
     sys.exit(0)
 
-holder, wait_max, max_seconds, progress, argv = "gate", None, None, None, sys.argv[1:]
+holder, wait_max, max_seconds, idle_max, progress, argv = "gate", None, None, None, None, sys.argv[1:]
 while argv:
     arg = argv.pop(0)
     if arg == "--":
         break
-    if arg not in ("--holder", "--wait-max", "--max-seconds", "--progress"):
+    if arg not in ("--holder", "--wait-max", "--max-seconds", "--idle-max", "--progress"):
         die(64, f"unknown argument: {arg}")
     if not argv or argv[0] == "--":
         die(64, f"{arg} needs a value")
@@ -139,6 +149,8 @@ while argv:
         wait_max = argv.pop(0)
     elif arg == "--progress":
         progress = argv.pop(0) or None
+    elif arg == "--idle-max":
+        idle_max = argv.pop(0)
     else:
         max_seconds = argv.pop(0)
 else:
@@ -147,6 +159,7 @@ if not argv:
     die(64, "no command given after --")
 wait_max = number("--wait-max", wait_max, 3600)
 max_seconds = number("--max-seconds", max_seconds, 7200)
+idle_max = number("--idle-max", idle_max, 900)
 poll = number("JUEL_GATE_LOCK_POLL", os.environ.get("JUEL_GATE_LOCK_POLL"), 5) or 0.01
 drain = number("JUEL_GATE_LOCK_DRAIN_SECONDS", os.environ.get("JUEL_GATE_LOCK_DRAIN_SECONDS"), 60)
 every = number("JUEL_GATE_LOCK_PROGRESS_SECONDS", os.environ.get("JUEL_GATE_LOCK_PROGRESS_SECONDS"), 600)
@@ -424,8 +437,9 @@ note(f"{holder} pid={os.getpid()} token={token}\n")
 starting = True
 try:
     # its own process group, with the lock's descriptor inherited
-    child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, pass_fds=[fd], preexec_fn=os.setpgrp,
-                             env={**os.environ, "JUEL_GATE_LOCK_HELD": token})
+    out = subprocess.PIPE if idle_max else None  # 0: no idle limit, the output goes straight through
+    child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out, pass_fds=[fd],
+                             preexec_fn=os.setpgrp, env={**os.environ, "JUEL_GATE_LOCK_HELD": token})
 except OSError as e:
     release()
     die(127 if isinstance(e, FileNotFoundError) else 126, f"cannot run {argv[0]}: {e.strerror}")
@@ -433,20 +447,80 @@ starting = False
 if early:
     on_signal(early[0], None)
 note(f"{holder} pid={os.getpid()} pgid={child.pid} token={token}\n")
-try:
-    rc = child.wait(timeout=max_seconds or None)  # 0 means no limit
-except subprocess.TimeoutExpired:
-    print(f"gate-lock.sh: the command ran past {max_seconds:g} s and was stopped", file=sys.stderr)
-    stop_group(child.pid, 5)
-    release()
-    sys.exit(124)
+pipes = {}  # read end -> the wrapper's own fd it is copied to
+if idle_max:
+    for r, to in ((child.stdout, 1), (child.stderr, 2)):
+        os.set_blocking(r.fileno(), False)
+        pipes[r.fileno()] = to
+dropped = set()  # the wrapper's own fds that failed a write: later output on them is discarded
+
+
+def copy(r):
+    """Copy what one pipe holds to its fd; returns the bytes read (0: nothing waiting, or the end)."""
+    try:
+        data = os.read(r, 65536)
+    except BlockingIOError:
+        return 0
+    except OSError:
+        data = b""
+    if not data:
+        pipes.pop(r, None)
+        return 0
+    to = pipes[r]
+    if to not in dropped:
+        try:
+            view = memoryview(data)
+            while view:
+                view = view[os.write(to, view):]
+        except OSError:
+            dropped.add(to)
+    return len(data)
+
+
+def pump(timeout):
+    """Copy what is ready for up to timeout seconds; True when any bytes arrived."""
+    if not pipes:
+        time.sleep(timeout)
+        return False
+    got = False
+    try:
+        ready = select.select(list(pipes), [], [], timeout)[0]
+    except (OSError, ValueError):
+        return False
+    for r in ready:
+        if copy(r):
+            got = True
+    return got
+
+
+begun = last = time.monotonic()
+while True:
+    rc = child.poll()
+    if rc is not None:
+        break
+    now = time.monotonic()
+    if max_seconds and now - begun >= max_seconds:
+        print(f"gate-lock.sh: the command ran past {max_seconds:g} s and was stopped", file=sys.stderr)
+        stop_group(child.pid, 5)
+        release()
+        sys.exit(124)
+    if idle_max and now - last >= idle_max:
+        print(f"gate-lock.sh: stalled, the command printed nothing for {idle_max:g} s and was stopped", file=sys.stderr)
+        stop_group(child.pid, 5)
+        release()
+        sys.exit(125)
+    if pump(0.1):
+        last = time.monotonic()
 # the group may still hold children of the command: give them the drain time, then stop them
 end = time.monotonic() + drain
 while group_alive(child.pid) and time.monotonic() < end:
-    time.sleep(0.1)
+    pump(0.1)
 if group_alive(child.pid):
     print(f"gate-lock.sh: stopping processes the command left running in group {child.pid}", file=sys.stderr)
     stop_group(child.pid, 2)
+for r in list(pipes):  # what is still buffered; never wait for an end a detached daemon may hold off
+    while r in pipes and copy(r):
+        pass
 release()
 sys.exit(code(rc))
 PY

@@ -89,6 +89,14 @@ of the two; that is normal and not a problem to report.
   `not committed: <path> is git-ignored`. Before each `git commit`, run
   `git diff --cached --no-renames --name-only --diff-filter=A | git check-ignore --no-index --stdin`;
   for each path it prints, `git rm --cached -q -- <path>` (the file stays on disk), then commit.
+- **A planned path that is git-ignored fails its task.** When a `not committed:` path is one a
+  task's `**Files:**` block names, or lies under a folder one names, commit the rest of the task
+  as the plan says, then fail the task: do not append its ledger line, do not start the next task,
+  and end the run with this line in the report, the part in brackets being what
+  `git check-ignore -v --no-index -- <path>` prints before the tab:
+  `task <N> failed: planned file <path> is git-ignored (<source>:<line>:<pattern>)`.
+  Never move or rename the file, or edit an ignore file, to get it committed: the caller decides.
+  This holds over "finish the highest-value subset" in Failure Handling.
 - **`.git` is a protected path under `--sandbox workspace-write`.** A commit only succeeds if the
   escalation is approved, and who approves is set by `approvals_reviewer` in
   `~/.codex/config.toml`: `user` means an interactive session prompts a human, and a

@@ -336,5 +336,36 @@ t1=$(date +%s)
 wait "$mh2" "$m3"
 [ "$rc" -eq 75 ] && [ ! -e "$TMP/m4.ran" ] && [ $((t1 - t0)) -le 3 ] && grep -q 'busy, held by H2' "$TMP/m4.err" && [ "$(tickets)" -eq 0 ] && pass "#97 a queue that never moves still gives up after --wait-max" || fail "#97 a stuck queue (rc=$rc, $((t1 - t0))s: $(cat "$TMP/m4.err"))"
 
+# lane c: #143 a gate that prints nothing for --idle-max seconds is stopped, frees the lock and exits 125
+# 35. A command that prints, then goes silent, is stopped at the idle limit with its own code and line.
+t0=$(date +%s)
+sh "$SCRIPT" --holder idle --idle-max 1 -- sh -c "echo started; sleep 30; echo late > '$TMP/idle.late'" > "$TMP/idle.out" 2> "$TMP/idle.err"; rc=$?
+t1=$(date +%s)
+[ "$rc" -eq 125 ] && [ $((t1 - t0)) -le 6 ] && [ "$(cat "$TMP/idle.out")" = "started" ] && [ "$(cat "$TMP/idle.err")" = "gate-lock.sh: stalled, the command printed nothing for 1 s and was stopped" ] && free && pass "#143 a silent gate is stopped at --idle-max with exit 125 and one stalled line, and the lock is free" || fail "#143 silent gate (rc=$rc, $((t1 - t0))s, err: $(cat "$TMP/idle.err"))"
+sleep 0.3; pgrep -f "$TMP/idle.late" >/dev/null && fail "#143 the silent gate's command still running" || pass "#143 the silent gate's command is gone"
+# 36. Output on stdout alone, or on stderr alone, keeps a gate going past the idle limit.
+for fd in 1 2; do
+  sh "$SCRIPT" --holder tick --idle-max 1 -- sh -c "i=0; while [ \$i -lt 6 ]; do i=\$((i + 1)); echo tick >&$fd; sleep 0.4; done; exit 4" > "$TMP/tick.1" 2> "$TMP/tick.2"; rc=$?
+  [ "$rc" -eq 4 ] && [ "$(grep -c '^tick$' "$TMP/tick.$fd")" -eq 6 ] && ! grep -q stalled "$TMP/tick.2" && pass "#143 output on fd $fd alone keeps a gate past --idle-max" || fail "#143 a gate printing on fd $fd (rc=$rc: $(grep -v '^tick$' "$TMP/tick.2"))"
+done
+# 37. Output streams through as it comes, byte for byte, each on its own stream.
+printf 'early\nout\nno newline' > "$TMP/st.want"
+sh "$SCRIPT" --holder stream --idle-max 5 -- sh -c "printf 'early\n'; sleep 2; printf 'out\nno newline'; printf 'err1\n' >&2" > "$TMP/st.out" 2> "$TMP/st.err" &
+st=$!
+until_ok grep -q early "$TMP/st.out"; early=$?
+kill -0 "$st" 2>/dev/null; running=$?
+wait "$st"; rc=$?
+[ "$early" -eq 0 ] && [ "$running" -eq 0 ] && [ "$rc" -eq 0 ] && cmp -s "$TMP/st.out" "$TMP/st.want" && [ "$(cat "$TMP/st.err")" = "err1" ] && pass "#143 output streams through as it comes, byte for byte, each on its own stream" || fail "#143 streamed output (rc=$rc early=$early running=$running)"
+# 38. --idle-max 0 is no idle limit: the command writes straight to the wrapper's own stdout.
+sh "$SCRIPT" --holder i0 --idle-max 0 -- sh -c "sleep 1.5; python3 -c 'import os; print(os.fstat(1).st_ino)'" > "$TMP/i0.out" 2> "$TMP/i0.err"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(cat "$TMP/i0.out")" = "$(ls -i "$TMP/i0.out" | awk '{print $1}')" ] && pass "#143 --idle-max 0 is no idle limit, and the output goes straight through" || fail "#143 --idle-max 0 (rc=$rc)"
+# 39. --idle-max takes a number of seconds, 0 or more; the header lists the flag and exit 125.
+for v in nope -1; do
+  sh "$SCRIPT" --holder ib --idle-max "$v" -- sh -c "echo ran > '$TMP/ib.ran'" 2>/dev/null; rc=$?
+  [ "$rc" -eq 64 ] && [ ! -e "$TMP/ib.ran" ] && pass "#143 a bad --idle-max ($v) is exit 64" || fail "#143 bad --idle-max ($v) gave $rc"
+done
+sh "$SCRIPT" --idle-max -- true 2>/dev/null; [ $? -eq 64 ] && pass "#143 --idle-max without a value is exit 64" || fail "#143 --idle-max usage"
+grep -qF -- '[--idle-max <seconds>]' "$SCRIPT" && grep -qF '125 with "gate-lock.sh: stalled, the command printed' "$SCRIPT" && pass "#143 the header lists --idle-max and exit 125" || fail "#143 header"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
