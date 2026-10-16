@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { message } from './claude.ts'
 import { createTicket, queueCreated } from './create.ts'
 import type { CreateOutcome } from './create.ts'
-import { briefingDir, createBriefing, isDir, listBriefings, readCreated, readDraft, readTurns } from './store.ts'
+import { briefingDir, createBriefing, isDir, listBriefings, readCreated, readDraft, readTurns, unqueued } from './store.ts'
 import { TRACKERS, asTracker, isTracker, resolveTracker, saveTracker } from './tracker.ts'
 import { runTurn } from './turn.ts'
 import type { ModuleApi, Project, Req, Res } from './types.ts'
@@ -121,9 +121,9 @@ export function register(api: ModuleApi): void {
         const look = created.tracker === 'none' || created.tracker === 'synapse' ? `check ${items} for its spec item` : `check ${created.tracker} for the ticket, or ${items} for a spec item`
         return refuse(409, `an earlier ${created.tracker} create of this briefing did not finish: ${look} (the dashboard log names anything it made), then remove ${where} to try again`, { created })
       }
-      // Made before, but created.json records no inbox file for it: queue that ticket now, never a second one (D13).
-      if (created?.inbox === null) {
-        return await finish(at, created.tracker, await queueCreated({ home: at.project.home, repo: at.project.repo, dir: at.dir }, created))
+      // Made, but not known to be queued: resume it, never a second inbox file (D1, D2).
+      if (created && unqueued(created)) {
+        return await finish(at, created.tracker, await queueCreated({ home: at.project.home, repo: at.project.repo, dir: at.dir }, created, { resume: true }))
       }
       if (created) return refuse(409, 'this briefing already made a ticket', { created })
       const draft = await readDraft(at.dir)
