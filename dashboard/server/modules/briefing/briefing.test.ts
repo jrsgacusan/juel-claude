@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import fsp, { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
-import { afterEach, beforeEach, test } from 'node:test'
+import { basename } from 'node:path'
+import { afterEach, beforeEach, mock, test } from 'node:test'
 
 import { ID_RE } from './ids.ts'
 import { register } from './index.ts'
 import { briefingDir, writeDraft } from './store.ts'
-import { block, calls, cleanup, done, init, play, release, say, stub, until, world } from './test-helpers.ts'
+import { block, calls, cleanup, done, ingest, init, play, release, say, stub, until, world } from './test-helpers.ts'
 import type { Stub, World } from './test-helpers.ts'
 
 const T = { title: 'Retry the sync', description: 'The sync drops on a flaky network.', criteria: ['A failed sync retries once'], outOfScope: ['Backoff tuning'] }
@@ -416,4 +418,36 @@ test('STAR is nudged only once its inbox file is written', async () => {
   await withDraft(id)
   assert.equal((await watching.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })).status, 201)
   assert.deepEqual(counts, [1])
+})
+
+test('STAR finishing the item while created.json cannot record its inbox file never gets a second inbox file', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = await newBriefing()
+  await withDraft(id)
+  const ingested: string[] = []
+  const inboxNow = async (): Promise<string[]> => readdir(join(w.home, 'inbox')).catch(() => [])
+  const realRename = fsp.rename
+  // Once an inbox file exists, STAR reads it, finishes the item and deletes the file, and only then
+  // does created.json's rewrite fail: the window the interrupted create leaves.
+  mock.method(fsp, 'rename', async (from: string, to: string) => {
+    if (basename(String(to)) === 'created.json' && (await inboxNow()).length > 0) {
+      ingested.push(...(await ingest(w.home, 'done')))
+      throw Object.assign(new Error('EIO: i/o error, rename'), { code: 'EIO' })
+    }
+    return realRename(from, to)
+  })
+  syncBuiltinESMExports()
+  try {
+    assert.equal((await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })).status, 500)
+  } finally {
+    mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  const again = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(again.status, 201)
+  assert.deepEqual(again.json, { ref: '#42', url: 'https://github.com/o/r/issues/42' })
+  ingested.push(...(await ingest(w.home, 'done')))
+  assert.deepEqual(ingested, ['#42'], 'exactly one inbox file for #42 ever reached STAR')
+  assert.deepEqual(s.nudges, ['proj'])
+  assert.equal((await calls(w, 'gh')).length, 1)
 })

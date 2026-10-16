@@ -1,7 +1,7 @@
 // Test scaffolding for the briefing module: a temp repo and STAR folder, fake `claude` and `gh`
 // binaries first on PATH (PATH is only the fake bin, /usr/bin and /bin, so the real ones are never
 // reached), and a stub ModuleApi that records routes, events, nudges and log lines.
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -92,6 +92,45 @@ export async function until<T>(probe: () => T | Promise<T>, ms = 5000): Promise<
     if (Date.now() > end) throw new Error('timed out waiting')
     await new Promise(resolve => setTimeout(resolve, 10))
   }
+}
+
+/** STAR's ledger table as skills/star/ledger.sh save() writes it. */
+export function ledgerText(rows: { item: string; ref: string; state: string }[]): string {
+  const header = '| item | ref | project | worktree | state | stage | round | task | dispatch | restarts | pr | head | cursor | verify | counters | updated |\n'
+  const separator = '|' + '---|'.repeat(16) + '\n'
+  const lines = rows.map(({ item, ref, state }) => `| ${item} | ${ref} | proj | - | ${state} | brief | 0 | - | - | 0 | - | - | - | - | - | 2026-10-16T00:00:00Z |\n`)
+  return header + separator + lines.join('')
+}
+
+/** Ingests inbox files the way STAR's Inbox step does, appending ledger rows then deleting files. */
+export async function ingest(home: string, state = 'done'): Promise<string[]> {
+  const dir = join(home, 'inbox')
+  let names: string[]
+  try {
+    names = (await readdir(dir)).filter(name => name.endsWith('.md')).sort()
+  } catch {
+    return []
+  }
+  const ledger = join(home, 'ledger.md')
+  try {
+    await readFile(ledger, 'utf8')
+  } catch (err) {
+    if ((err as { code?: string }).code !== 'ENOENT') throw err
+    await writeFile(ledger, ledgerText([]))
+  }
+  const refs: string[] = []
+  for (const name of names) {
+    const path = join(dir, name)
+    const text = await readFile(path, 'utf8')
+    const fileRefs = text.split('\n').filter(line => line.startsWith('- ')).map(line => line.slice(2))
+    for (const ref of fileRefs) {
+      refs.push(ref)
+      const n = refs.length
+      await appendFile(ledger, ledgerText([{ item: `i${n}`, ref, state }]).split('\n').slice(2).join('\n'))
+    }
+    await rm(path)
+  }
+  return refs
 }
 
 // The stream-json fields the module reads, from lines the real CLI printed (claude 2.1.301, checked 2026-10-16).
