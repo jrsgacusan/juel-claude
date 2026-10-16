@@ -1,0 +1,43 @@
+import { setupWorker } from "msw/browser"
+import type { StarEvent } from "@/api/types"
+import { handlers } from "./handlers"
+import {
+  mockEvents,
+  readScenario,
+  resetMockState,
+  failNextBriefingTurn,
+  setScenario,
+  type Scenario,
+} from "./state"
+
+// Development only (main.tsx imports this behind import.meta.env.DEV, brief D3).
+// Playwright uses events.drop() and restore(); emit(), use(), reset() and failNextBriefingTurn()
+// are for tests and a dev console. Scenarios come from localStorage['star-mock'] (readScenario).
+declare global {
+  interface Window {
+    __starMock?: {
+      events: { drop(): void; restore(): void; emit(event: StarEvent): void }
+      use(scenario: Scenario): void
+      failNextBriefingTurn(): void
+      reset(): void
+    }
+  }
+}
+
+export async function startMockWorker(): Promise<void> {
+  setScenario(readScenario())
+  window.__starMock = {
+    events: {
+      drop: () => mockEvents.drop(),
+      restore: () => mockEvents.restore(),
+      emit: (event) => mockEvents.emit(event),
+    },
+    use: setScenario,
+    failNextBriefingTurn,
+    reset: resetMockState,
+  }
+  await setupWorker(...handlers).start({
+    onUnhandledFrame: "bypass",
+    quiet: true,
+  })
+}

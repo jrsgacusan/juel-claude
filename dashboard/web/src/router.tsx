@@ -1,0 +1,49 @@
+import { createBrowserRouter, Navigate, type RouteObject } from "react-router"
+import { AppLayout } from "@/components/app-layout"
+import { RouteError } from "@/components/route-error"
+import { BriefingPage } from "@/pages/briefing"
+import { EvidencePage } from "@/pages/evidence"
+import { NeedsPage } from "@/pages/needs"
+import { NotFound } from "@/pages/not-found"
+import { ProgressPage } from "@/pages/progress"
+import { RootRedirect } from "@/pages/root-redirect"
+import { SlackPage } from "@/pages/slack"
+
+// Real page paths per project (brief D1). The dashboard server answers index.html for every
+// non-/api path, so a reload of /<project>/progress lands here.
+export const routes: RouteObject[] = [
+  { path: "/", Component: RootRedirect, errorElement: <RouteError /> },
+  {
+    path: "/:project",
+    Component: AppLayout,
+    errorElement: <RouteError />,
+    children: [
+      {
+        index: true,
+        element: <Navigate to="needs" replace />,
+        errorElement: <RouteError />,
+      },
+      { path: "needs", Component: NeedsPage, errorElement: <RouteError /> },
+      {
+        path: "progress",
+        Component: ProgressPage,
+        errorElement: <RouteError />,
+      },
+      { path: "slack", Component: SlackPage, errorElement: <RouteError /> },
+      {
+        path: "briefing",
+        Component: BriefingPage,
+        errorElement: <RouteError />,
+      },
+      {
+        path: "evidence",
+        Component: EvidencePage,
+        errorElement: <RouteError />,
+      },
+      { path: "*", Component: NotFound, errorElement: <RouteError /> },
+    ],
+  },
+  { path: "*", Component: NotFound, errorElement: <RouteError /> },
+]
+
+export const createAppRouter = () => createBrowserRouter(routes)
