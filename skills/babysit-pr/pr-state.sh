@@ -259,8 +259,8 @@ def hosted_passes(pr, repo, login):
     def by_login(item):
         return ((item.get("user") or {}).get("login") or "").lower() == login.lower()
 
-    SCORE = re.compile(r"\bconfidence\s+score\b", re.I)
-    SKIP = re.compile(r"(?:\bskipped\s+(?:this\s+)?review\b|\breview\s+skipped\b|\busage\s+limit\b|\bbilling\s+period\b|\bwould\s+exceed\b)", re.I)
+    SCORE = re.compile(r"confidence[^\n]{0,40}?\b[0-5](?:\.\d+)?\s*/\s*5\b", re.I)
+    SKIP = re.compile(r"\breviews?\s+(?:was|were|has been|have been|is)?\s*skipped\b|\bskipp(?:ed|ing)\s+(?:this\s+|the\s+)?review\b|\busage limit\b", re.I)
 
     def skip_reason(body):
         if SCORE.search(body):
