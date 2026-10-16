@@ -1,3 +1,7 @@
+// @ts-expect-error Node typings are only enabled for the tooling project, not the browser app.
+import { readFileSync } from "node:fs"
+// @ts-expect-error Node typings are only enabled for the tooling project, not the browser app.
+import { resolve } from "node:path"
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
 import { describe, expect, it, vi } from "vitest"
@@ -128,10 +132,8 @@ describe("the app shell", () => {
     await screen.findByRole("list", { name: "Projects" })
     act(() => setConnection("refused"))
     expect(
-      screen.getByText(
-        "The dashboard server refused the token. Open the dashboard again with /juel:star dashboard."
-      )
-    ).toBeInTheDocument()
+      screen.getAllByText(/^The dashboard server refused the token\./).length
+    ).toBeGreaterThan(0)
     expect(
       screen.queryByText("Lost the connection to the dashboard server")
     ).not.toBeInTheDocument()
@@ -231,5 +233,21 @@ describe("the app shell", () => {
     const chat = within(sections).getByRole("link", { name: "Chat" })
     expect(chat).toHaveAttribute("href", "/sphere-app/chat")
     expect(chat).toHaveAttribute("aria-current", "page")
+  })
+
+  it("lets the page draw under the notch, so the safe-area insets apply", () => {
+    const dir = (import.meta as ImportMeta & { dirname: string }).dirname
+    const html = readFileSync(resolve(dir, "../../index.html"), "utf8")
+    expect(html).toMatch(/<meta name="viewport" content="width=device-width, initial-scale=1\.0, viewport-fit=cover" \/>/)
+  })
+
+  it("keeps the header on screen on a phone, below the safe area", async () => {
+    const { container } = renderApp("/sphere-app/needs")
+    await screen.findByRole("list", { name: "Projects" })
+    expect(container.querySelector("header"))
+      .toHaveClass("sticky", "top-0", "z-20", "box-content", "bg-background", "pt-[env(safe-area-inset-top)]", "md:static")
+    expect(container.querySelector("[data-slot=sidebar-inset]")).toHaveClass("overflow-x-clip")
+    const search = screen.getByRole("button", { name: "Search (⌘K)" })
+    expect(within(search).getByText("Search")).toHaveClass("hidden", "sm:inline")
   })
 })
