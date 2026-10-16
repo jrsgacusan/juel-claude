@@ -322,6 +322,7 @@ handoff.md              the summaries written while the user is away (handoff.sh
 sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
 ledger.md               one row per item
 processed.log           <message id> <dispatch> <iso time>
+messages-wait           while a background message wait runs: "<pid> <iso start>" (messages.sh writes and removes it; --waiting reads it)
 inbox/                  one file per hand-over; deleted once ingested
 items/<project>/<name>.md            a spec item from a free-text brief, a split, or a re-scope's follow-up
 briefs/<project>/<item>.md
@@ -852,22 +853,37 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `slack-reply` | skip | close it |
    | `slack-reply` | anything else | close it and add it again with "(answer send, rewrite: <how> or skip)" at the end of its title |
    | `draft`, `held` | anything else | close it |
-3. **Messages**, only while some row is in a worker stage or waiting for a slot:
-   `sh S/messages.sh --wait --timeout-ms 540000`. It prints `delivery <id> <n>`, then each message
+3. **Messages**, only while work is active ("Active or idle"). The wait runs in the background, so
+   a chat message, a nudge or the owner's own words reach STAR within seconds.
+   **A wait that finished.** When this tick was woken by a wait's completion notification, or one
+   arrived since the last tick, read that wait's output: the background command's own lines, never
+   a log. It printed `delivery <id> <n>`, then each message
    as `msg <id> <type> <dispatch> <sent> [deadline=<iso>]` with at most 12 body lines indented by
    two spaces (`cut <n>` after them when the body was longer), or `none`. Heartbeats, "Rejected
    heartbeat" notices and messages already in `processed.log` never appear: the script drops them
    and acknowledges a batch that held nothing else, so an Orca nudge ("You have N orchestration
-   messages") whose batch holds only heartbeats is a no-op. Orca replays a delivery until it is
+   messages") whose batch holds only heartbeats is a no-op. Apply each message by the table below,
+   in the order of effects above: the ledger, then `processed.log`, then the ack, which the next
+   wait carries. A wait that printed no line or exited non-zero (it was ended) has nothing to apply.
+   **The next wait, never a second one.** Then `sh S/messages.sh --waiting`. It prints
+   `waiting <pid> <since>` while a wait is outstanding, else `none`; a wait that died without a
+   notification (the session closed, the process was killed) reads as `none`. Only on `none`, start
+   `sh S/messages.sh --wait --timeout-ms 540000` with the Bash tool's `run_in_background: true`, as
+   "Fill slots" runs `stage-start.sh`. Orca replays a delivery until it is
    acknowledged, so once every message in it is in the ledger and in `processed.log`, the next wait
    is `sh S/messages.sh --ack <delivery> --wait --timeout-ms 540000` (or `sh S/messages.sh --ack
-   <delivery>` alone when STAR is about to go idle). `none` is a tick; `unknown <why>` is a tick
-   too, named in the status line.
+   <delivery>` alone when STAR is about to go idle). On `waiting …` start nothing: the outstanding
+   wait brings the messages, so a tick that an Orca nudge, a chat message, the heartbeat or the
+   owner woke reads no messages itself. Never two waits at once, never a foreground wait, and never
+   a poll or a Monitor on the wait: its completion notification is what wakes STAR. The tick goes
+   on (Fill slots, Housekeeping, Write) without waiting for it, and STAR ends its turn ("Active or
+   idle"). A notification that arrives during a tick is applied by a tick that runs right after it.
+   `none` is a tick; `unknown <why>` is a tick too, named in the status line.
    `waiter-exists <pids>` means an earlier wait still holds this run's waiter (#38). The pids are
    orphaned waits only (`messages.sh` lists only waits whose parent is pid 1, never another live
-   session's): end each (`kill <pid>`), then wait again. `waiter-exists -` (none found): wait
-   again once; a second `waiter-exists -` in a row is handled as `unknown <why>` and files an
-   improvement issue.
+   session's): end each (`kill <pid>`), then start the wait again. `waiter-exists -` (none found):
+   start it again once; a second `waiter-exists -` in a row is handled as `unknown <why>` and files
+   an improvement issue.
    STAR reads only the report's lines (at most 12 lines): it
    never opens a review, evidence or log file, and never reads a worker's screen; the scripts do
    that and give one line back. A `cut` report: act on the first 12 lines and queue `--kind held`
@@ -1038,15 +1054,22 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    this tick's `step-check.sh` (`<item>: <diagnosis>`), each restart (`restarted <item> at <step>`),
    and each issue filed this tick ("filed issue #19").
 
-**Active or idle.** While any row is in `inbox`, `briefing`, `building`, `babysit-queued`,
-`babysitting` or `posting`, in `verifying` while its `verify` holds no `retry=` in the future, or in
-`queued` or `post-queued` while it may start, or while `gateDown` is set, stay in the turn and tick
-again (step 3's bounded wait is the clock). When every row is waiting on the user or finished, write
-`state: idle` and STAR ends its turn. It is woken by a hand-over nudge, by the user, or by the
-heartbeat, and each wake runs one tick. A `queued` row waiting for its `notBefore` date cannot
-start, so it does not keep STAR in the turn: the heartbeat's next wake tries it again. While a question is open in chat, STAR does not
-stay in the turn: each wake runs one tick, then STAR prints the open question again and ends the
-turn ("The batch summary and go").
+**Active or idle.** Work is active while any row is in `inbox`, `briefing`, `building`,
+`babysit-queued`, `babysitting` or `posting`, in `verifying` while its `verify` holds no `retry=` in
+the future, or in `queued` or `post-queued` while it may start, or while `gateDown` is set. While
+work is active, every tick ends with a message wait outstanding in the background (step 3 started
+it, or an earlier tick's is still alive), and STAR ends its turn. The wait's 9-minute timeout stays
+the clock: its completion notification wakes STAR for the next tick, and a wait that ends with
+`none` is a tick too, so Housekeeping runs at least every 9 minutes. With work active, a wait is
+outstanding or a tick runs, never neither. Any other wake (an Orca nudge, `inbox` from a hand-over
+or the dashboard, a chat message, the heartbeat, the owner typing) runs one tick as well, and that
+tick starts no second wait. When every row is waiting on the user or finished, write
+`state: idle`, start no wait, and STAR ends its turn. It is woken by a hand-over or dashboard nudge,
+by the user, or by the heartbeat, and each wake runs one tick; a wait still outstanding ends by
+itself, and its notification runs one more tick. A `queued` row waiting for its `notBefore` date
+cannot start, so it is not active work: the heartbeat's next wake tries it again. While a question
+is open in STAR's terminal, each wake runs one tick, then STAR prints the open question again and
+ends the turn ("The batch summary and go").
 
 ## Stages
 
@@ -1962,6 +1985,12 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - **A stop in the middle of a tick:** nothing is lost and nothing runs twice. A message not yet in
   `processed.log` is replayed into the same end state (the order of effects above); a row written
   before its `task-create` goes back to its waiting state; an inbox file read twice adds no row.
+- **The background message wait:** a wait belongs to the session that started it, and only that
+  session hears its notification. After a compaction, `sh S/messages.sh --waiting` says whether
+  it is still alive (`waiting <pid> <since>`): no second wait starts, and its notification still
+  comes. After a restart the old session's wait ends by itself (its parent is gone), and a wait
+  that died without a notification reads as `none` (`--waiting` removes its stale file): the next
+  tick starts a new one. `waiter-exists` still ends a wait Orca holds for a dead one (#38).
 - **A v1 STAR folder:** the start's first step, `star-home.sh migrate`, brings it to schema 2. It
   keeps `star.json.v1.bak` and `ledger.md.v1.bak`, moves each row out of a removed state with a
   decision record in its brief, and prints the workers of the removed stages, which STAR stops and
@@ -1984,6 +2013,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   worktree).
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
+- One message wait at a time, always in the background: `messages.sh --waiting` first, and a
+  wait starts only on `none`.
 - The work item's status is written only by STAR, from the row's state ("The tracker status").
 - Never put a project's details in an improvement issue: placeholders only, and `star-issue.sh`
   refuses the rest.
@@ -2007,6 +2038,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Starting a build before its batch's go | Only a `go-batch` answer, or a parent's grant, stamps `approved:` |
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
 | Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
+| Starting `messages.sh --wait` while one is outstanding, or in the foreground | `messages.sh --waiting` first: start one only on `none`, with `run_in_background: true`, and end the turn; its notification runs the next tick |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
 | Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
@@ -2051,6 +2083,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | An item that may only be built after a date | `notBefore` in its brief: the row stays `queued`, and the status line says `<item> waits until <date>` until then |
 | A check turns out to need a person in the middle of a build | The build escalates `needs-human-input`: the brief missed a person-only step |
 | An Orca nudge whose batch holds only heartbeats | `messages.sh` acknowledges it; nothing happens |
+| A chat message, a nudge or the heartbeat arrives while a message wait is outstanding | One tick runs and starts no second wait; the outstanding wait brings the messages, and its notification runs the next tick |
 | The codex gate errors twice | The build escalates `review-unavailable`, quoting the gate's `ERROR` line |
 | The base moves under a gate loop and changes the branch's own files | The round prints `ERROR base-moved`: the worker merges the base in, runs the sweep and runs the same round again; it is not an error, and STAR does nothing (#113) |
 | The review gate is down on every model (`ERROR gate-down`) | STAR parks each build and babysit that reports it, starts no new ones, asks the owner once, and checks the gate every 30 minutes until it is back |

@@ -764,5 +764,27 @@ has "#129 the merge order counts only pass lines" "$S129C"
 has "#125 the row's ref is the imported path" "$S125"
 grep -qF 'the raw reference in `ref`' "$SKILL" && fail "#125 no raw reference left in the Inbox step" || pass "#125 no raw reference left in the Inbox step"
 
+# lane b: STAR's contract for chat, the background wait, away and the Slack drafter
+# the background message wait (spec 3.2)
+has "LB1a step 3 asks messages.sh --waiting first" 'Then `sh S/messages.sh --waiting`. It prints `waiting <pid> <since>` while a wait is outstanding, else `none`'
+has "LB1b a wait starts only on none, in the background" 'Only on `none`, start `sh S/messages.sh --wait --timeout-ms 540000` with the Bash tool'"'"'s `run_in_background: true`'
+has "LB1c never two waits, never foreground, never polled" 'Never two waits at once, never a foreground wait, and never a poll or a Monitor on the wait: its completion notification is what wakes STAR.'
+has "LB1d a wake during a wait reads no messages" 'On `waiting …` start nothing: the outstanding wait brings the messages, so a tick that an Orca nudge, a chat message, the heartbeat or the owner woke reads no messages itself.'
+has "LB1e a wait that died reads as none" 'a wait that died without a notification (the session closed, the process was killed) reads as `none`'
+has "LB1f the order of effects is unchanged" 'in the order of effects above: the ledger, then `processed.log`, then the ack, which the next wait carries.'
+has "LB1g the tick reads the finished wait's own lines" 'read that wait'"'"'s output: the background command'"'"'s own lines, never a log.'
+has "LB1h the tick goes on and STAR ends its turn" 'The tick goes on (Fill slots, Housekeeping, Write) without waiting for it, and STAR ends its turn'
+has "LB1i an orphaned waiter is ended and the wait started again" 'end each (`kill <pid>`), then start the wait again.'
+has "LB1j a wait is outstanding or a tick runs" 'With work active, a wait is outstanding or a tick runs, never neither.'
+has "LB1k the wait's timeout stays the clock" 'The wait'"'"'s 9-minute timeout stays the clock: its completion notification wakes STAR for the next tick'
+has "LB1l idle starts no wait" 'write `state: idle`, start no wait, and STAR ends its turn.'
+has "LB1m any other wake starts no second wait" 'runs one tick as well, and that tick starts no second wait.'
+tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF 'bounded wait is the clock' && fail "LB1n the foreground clock is gone" || pass "LB1n the foreground clock is gone"
+has "LB1o recovery: a wait belongs to its session" '**The background message wait:** a wait belongs to the session that started it'
+has "LB1p recovery: --waiting after a compaction" 'After a compaction, `sh S/messages.sh --waiting` says whether it is still alive'
+g "LB1q the home lists messages-wait" 'messages-wait           while a background message wait runs: "<pid> <iso start>"'
+has "LB1r hard rule: one wait at a time" '- One message wait at a time, always in the background: `messages.sh --waiting` first, and a wait starts only on `none`.'
+g "LB1s common mistake: a second or foreground wait" '| Starting `messages.sh --wait` while one is outstanding, or in the foreground |'
+g "LB1t edge case: a wake during a wait" '| A chat message, a nudge or the heartbeat arrives while a message wait is outstanding |'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

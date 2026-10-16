@@ -118,7 +118,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
 
   <figure>
     <div class="scroll">
-      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 NOT-SAFE rounds in a row or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
+      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief; STAR ingests it, woken within seconds by a message wait that runs in the background; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 NOT-SAFE rounds in a row or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
         <defs>
           <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -138,6 +138,10 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <text class="tag tg-star" x="408" y="137" text-anchor="end">STAR</text>
         <text class="t" x="56" y="144">Ingest</text>
         <text class="s" x="56" y="163">refs → items · free text → spec items</text>
+        <line class="edge dot" x1="420" y1="148" x2="470" y2="148"/>
+        <rect class="note" x="470" y="120" width="270" height="56" rx="8"/>
+        <text class="tsm" x="486" y="143">Background message wait</text>
+        <text class="s" x="486" y="162">a message reaches STAR in seconds</text>
         <line class="edge" x1="230" y1="176" x2="230" y2="218" marker-end="url(#ah1)"/>
         <text class="lbl" x="242" y="202">one brief worker per item</text>
 
@@ -471,6 +475,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>Capacity and 503 errors retry with backoff, then move to a fallback model, then the session runs the plan itself. The codex gate retries Sol, then runs the same review on Claude. With both down, STAR parks builds and babysits, asks you once, and checks the gate every 30 minutes until it is back.</li>
         <li>A worker stalled on a model at capacity, or left at an empty prompt under an <code>API Error:</code> line (a connection lost or a server error mid-response), gets up to three retry nudges in one silent stretch, shared by both; the API error nudge also tells it to check a background command it started before starting it again. Then a brief, babysit or post worker restarts once, and a build comes to you to restart or drop. A progress line comes only from the step it names, never from a timer the worker left running, and the probe reads the screen before the progress log, so a stalled worker does not read as moving.</li>
         <li>A codex gate still NOT SAFE after 3 rounds in a row, or a second Greptile pass still not clean, goes back to STAR, which re-scopes and builds again. In babysit the count starts over at each SAFE round and each push, so a base merge after a SAFE round gets a fresh budget.</li>
+        <li>STAR waits for worker messages in the background, one wait at a time, so a chat message, a nudge or your own words reach it within seconds. The wait's 9-minute limit is still the clock, a wait that died is replaced on the next tick, and an idle STAR starts none.</li>
         <li>STAR answers a worker's in-scope question at once, product calls included, from the sourced options the worker brings.</li>
         <li>A worker sitting on a prompt is seen on its screen. STAR answers Claude Code's safety prompt for an <code>rm</code> inside the item's worktree or a scratchpad, and any other prompt comes to you.</li>
         <li>A hosted review that reviewed nothing (a usage limit) is not a pass: STAR parks every babysit, asks you once, and starts them again when you answer retry.</li>

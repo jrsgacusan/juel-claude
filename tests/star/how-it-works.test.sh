@@ -174,5 +174,9 @@ grep -qF 'The codex gate names every site of a finding class in one finding' "$P
 grep -qF 'With no <code>tokenCmd</code>, every worker acts as the same GitHub account STAR does.' "$PAGE" && pass "R137 the page says workers act as STAR's account" || fail "R137 ghLogin on the page"
 grep -qF "STAR's own scripts use that account too, whatever account the keyring has active." "$PAGE" && pass "R137b the page says STAR's scripts use the configured account" || fail "R137b STAR's scripts on the page"
 
+# lane b: the page shows chat, the background wait, away and the Slack drafter
+grep -qF 'STAR ingests it, woken within seconds by a message wait that runs in the background' "$PAGE" && pass "LB1 the drawing's label names the background wait" || fail "LB1 background wait in the aria-label"
+grep -qF '>Background message wait</text>' "$PAGE" && pass "LB1 the drawing shows the background wait" || fail "LB1 background wait in the drawing"
+grep -qF 'STAR waits for worker messages in the background, one wait at a time, so a chat message, a nudge or your own words reach it within seconds.' "$PAGE" && pass "LB1 Never stalls names the background wait" || fail "LB1 background wait in Never stalls"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
