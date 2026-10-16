@@ -93,3 +93,15 @@ test('ledgerRefs throws, naming the file, when ledger.md cannot be read', async 
     await cleanup(w)
   }
 })
+
+test("ledgerRefs reads a header and rows written without their closing pipe the way ledger.sh and parseLedger do", async () => {
+  const w = await world()
+  try {
+    const lines = ledgerText([{ item: 'a', ref: '#42', state: 'done' }]).split('\n')
+    lines[0] = lines[0].slice(0, -1)
+    await writeFile(join(w.home, 'ledger.md'), lines.join('\n'))
+    assert.deepEqual(await ledgerRefs(w.home), ['#42'])
+  } finally {
+    await cleanup(w)
+  }
+})
