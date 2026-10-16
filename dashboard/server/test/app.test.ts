@@ -485,3 +485,33 @@ test("a module that throws is logged and skipped while a working one serves, see
     fs.rmSync(mods, { recursive: true, force: true });
   }
 });
+
+test("a module's DELETE route answers through the app", async () => {
+  const mods = fs.mkdtempSync(
+    path.join(fs.realpathSync(process.env["TMPDIR"] ?? "/tmp"), "star-mods-"),
+  );
+  fs.mkdirSync(path.join(mods, "gone"));
+  fs.writeFileSync(
+    path.join(mods, "gone", "index.ts"),
+    [
+      "export function register(api) {",
+      "  api.route('DELETE', '/api/gone/:id', async req => ({ json: { deleted: req.params.id } }))",
+      "}",
+      "",
+    ].join("\n"),
+  );
+  const env = await setup({ modulesDir: mods });
+  try {
+    const res = await env.api("/api/gone/b1", { method: "DELETE" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { deleted: "b1" });
+    assert.equal((await env.api("/api/gone/b1")).status, 405);
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(env.juel, "dashboard.log"), "utf8"),
+      /ignored/,
+    );
+  } finally {
+    await env.close();
+    fs.rmSync(mods, { recursive: true, force: true });
+  }
+});

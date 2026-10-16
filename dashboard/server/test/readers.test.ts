@@ -165,3 +165,14 @@ test("the router matches params and tells a wrong method from a missing path", a
   assert.equal(r.match("POST", "/api/projects/app/items/issue-1"), "method");
   assert.equal(r.match("GET", "/api/projects/app/items"), undefined);
 });
+
+test("the router routes DELETE like any other method", () => {
+  const r = new Router();
+  r.add("DELETE", "/api/projects/:p/briefings/:id", async (req) => ({
+    json: req.params,
+  }));
+  const hit = r.match("DELETE", "/api/projects/app/briefings/b1");
+  assert.ok(hit && hit !== "method");
+  assert.deepEqual(hit.params, { p: "app", id: "b1" });
+  assert.equal(r.match("GET", "/api/projects/app/briefings/b1"), "method");
+});
