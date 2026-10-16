@@ -316,5 +316,17 @@ out=$(cd "$TMP" && sh "$SCRIPT" "$R4/docs/plans/e.md" "$BASE4" --repo-dir "$R4")
 out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/e.md" --repo-dir "$R4"); rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] && pass "#134 --print on a plan that names nothing prints nothing" || fail "#134 empty --print (rc=$rc: $out)"
 
+# gate r1 (#134): a label more indented than the block's label stays inside the block
+cat > "$R4/docs/plans/g.md" <<'EOF'
+**Files:**
+- Modify: these files
+  - Create: `src/a.sh`
+  - `src/b.sh`
+- Test: `tests/`
+EOF
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/g.md" --repo-dir "$R4"); rc=$?
+want=$(printf 'scope src/a.sh\nscope src/b.sh\nscope tests/')
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 a deeper label inside a nested block keeps the block open" || fail "#134 deeper label (rc=$rc: $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

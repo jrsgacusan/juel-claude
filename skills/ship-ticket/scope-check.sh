@@ -217,7 +217,8 @@ while i < len(lines):
         entries += 1
         i += 1
         continue
-    # A prose label opens an indented Files block. A line at its indent closes it.
+    # A prose label opens an indented Files block. A line at its indent closes it; a deeper label
+    # is a nested line, so names from its remainder keep the block open.
     base_indent = len(indent.expandtabs(8))
     block = []
     j = i + 1
@@ -227,8 +228,13 @@ while i < len(lines):
             j += 1
             continue
         nested_indent = len(nested[:len(nested) - len(nested.lstrip(" \t"))].expandtabs(8))
-        if nested_indent <= base_indent or LABEL.match(nested):
+        nested_label = LABEL.match(nested)
+        if nested_indent <= base_indent:
             break
+        if nested_label:
+            block.extend(names(nested_label.groups()[1], bare=True))
+            j += 1
+            continue
         body = nested.lstrip(" \t")
         is_item = bool(re.match(r"^(?:[-*+]\s+|\d+[.)]\s+)", body))
         body = re.sub(r"^(?:[-*+]\s+|\d+[.)]\s+)", "", body)
