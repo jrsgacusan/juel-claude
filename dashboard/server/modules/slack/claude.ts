@@ -17,11 +17,11 @@ export type CliResult = {
   tooLarge: boolean
 }
 
-export const STDOUT_MAX = 4 * 1024 * 1024
+const STDOUT_MAX = 4 * 1024 * 1024
 const STDERR_MAX = 16 * 1024
 const KILL_AFTER_MS = 5000
 
-export const message = (err: unknown): string => (err instanceof Error ? err.message : String(err))
+export const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err))
 
 export function runCli(opts: CliOptions): Promise<CliResult> {
   return new Promise(resolve => {
@@ -30,7 +30,7 @@ export function runCli(opts: CliOptions): Promise<CliResult> {
       child = spawn(opts.bin, opts.args, { cwd: opts.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
     } catch (err) {
       // spawn throws at once for an argument it refuses: a run that could not start, never a throw.
-      resolve({ code: null, signal: null, stdout: '', stderr: '', spawnError: message(err), timedOut: false, tooLarge: false })
+      resolve({ code: null, signal: null, stdout: '', stderr: '', spawnError: errorText(err), timedOut: false, tooLarge: false })
       return
     }
     const max = opts.maxStdout ?? STDOUT_MAX

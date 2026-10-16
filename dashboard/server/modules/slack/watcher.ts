@@ -8,7 +8,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { message as errorText, runCli } from './claude.ts'
+import { errorText, runCli } from './claude.ts'
 import { channelLabel, inboxText, writeInbox } from './inbox.ts'
 import { parseEnvelope } from './parse.ts'
 import { readDrafts, readOpenReplies, replyOf } from './replies.ts'

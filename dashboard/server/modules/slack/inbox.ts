@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto'
 import { link, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { idOf } from './state.ts'
 import type { Message } from './state.ts'
 
 const flat = (text: string): string => text.replace(/\r/g, '').replace(/\n/g, ' ')
@@ -15,7 +16,7 @@ const block = (text: string): string[] =>
     .split('\n')
     .map(line => `    ${line}`)
 
-/** S2: "a DM" for a DM or a group DM, else "#<name>". */
+/** S2: "a DM" when the id is a DM's (D...) or the model said "a DM" (how a group DM arrives), else "#<name>". */
 export function channelLabel(channelId: string, channel: string): string {
   const name = flat(channel).trim()
   if (channelId.startsWith('D') || /^a dm$/i.test(name)) return 'a DM'
@@ -26,7 +27,7 @@ export function inboxText(repo: string, m: Message): string {
   const lines = [
     `repo: ${flat(repo)}`,
     'slack:',
-    `  id: ${m.channelId}-${m.ts}`,
+    `  id: ${idOf(m)}`,
     `  channel: ${channelLabel(m.channelId, m.channel)}`,
     `  channelId: ${m.channelId}`,
     `  ts: ${m.ts}`,

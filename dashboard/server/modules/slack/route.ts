@@ -1,7 +1,8 @@
 // D2: which project a message names. Each project's signals come from its STAR folder (ledger.md
-// through hooks/star.ts, the briefs' item.ref and branch lines) and its repository's origin remote.
-// The rules run in order and the first that matches any project decides: one project is routed, two
-// or more are a tie, and a tie is never guessed.
+// through hooks/star.ts, the briefs' item.ref and branch lines), its repository's origin remote, and
+// its project and repo folder names; rule 5, a learned channel, comes from routes.json. The rules
+// run in order and the first that matches any project decides: one project is routed, two or more
+// are a tie, and a tie is never guessed.
 import { execFile } from 'node:child_process'
 import { readdir, readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -13,19 +14,19 @@ import type { Project } from './types.ts'
 export type Signals = { project: string; refs: string[]; prs: number[]; slug: string | null; branches: string[]; names: string[] }
 export type Decision = { project: string } | { project: null; why: 'none' | 'tie' }
 
-const readText = async (file: string): Promise<string> => {
-  try {
-    return await readFile(file, 'utf8')
-  } catch {
-    return ''
-  }
-}
+const readText = (file: string): Promise<string> => readFile(file, 'utf8').catch(() => '')
 const unquote = (value: string): string =>
   value
     .trim()
     .replace(/^(['"])(.*)\1$/, '$2')
     .trim()
 const isValue = (value: string): boolean => value !== '' && value !== 'null' && value !== '~' && value !== '-'
+
+/** The unquoted value `re` captures from the line, or null when it does not match or is empty. */
+const valueIn = (re: RegExp, line: string): string | null => {
+  const value = unquote(re.exec(line)?.[1] ?? '')
+  return isValue(value) ? value : null
+}
 
 /** A brief's item.ref and branch, read from its front matter only. */
 export function briefSignals(text: string): { ref: string | null; branch: string | null } {
@@ -38,13 +39,9 @@ export function briefSignals(text: string): { ref: string | null; branch: string
     if (line.trim() === '---') break
     if (/^\S/.test(line)) {
       inItem = /^item:\s*$/.test(line)
-      const b = /^branch:(.*)$/.exec(line)
-      const value = b ? unquote(b[1] ?? '') : ''
-      if (isValue(value)) branch = value
+      branch = valueIn(/^branch:(.*)$/, line) ?? branch
     } else if (inItem) {
-      const r = /^\s+ref:(.*)$/.exec(line)
-      const value = r ? unquote(r[1] ?? '') : ''
-      if (isValue(value)) ref = value
+      ref = valueIn(/^\s+ref:(.*)$/, line) ?? ref
     }
   }
   return { ref, branch }
@@ -78,12 +75,7 @@ export async function signalsOf(project: Project): Promise<Signals> {
     }
   }
   const dir = join(project.home, 'briefs', project.name)
-  let files: string[] = []
-  try {
-    files = (await readdir(dir)).filter(name => name.endsWith('.md')).sort()
-  } catch {
-    files = []
-  }
+  const files = (await readdir(dir).catch((): string[] => [])).filter(name => name.endsWith('.md')).sort()
   for (const file of files) {
     const { ref, branch } = briefSignals(await readText(join(dir, file)))
     if (ref) refs.push(ref)
