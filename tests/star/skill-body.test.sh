@@ -849,5 +849,7 @@ has "F1a rewrite re-adds the item with a (redrafting) title" 'close the answered
 has "F1b the redraft runs on the new item's id" '--loop <the NEW item'"'"'s id>'
 has "F1c redrafted drops the (redrafting) suffix" 'without its ` (redrafting)` ending'
 has "F1d a second rewrite while one runs" 'the newest request wins'
+# fix-1: a refused send closes the item and re-adds it unanswered
+has "F2a a refused send re-adds the item" 'close the item and add it again unanswered, with ` (no reply to send: answer rewrite: <how> or skip)` at the end of its title'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
