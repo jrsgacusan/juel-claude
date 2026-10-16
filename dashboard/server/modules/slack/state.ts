@@ -1,7 +1,9 @@
 // The watcher's state, plain JSON under ~/.juel/slack/ (from os.homedir() at every call, so a test
 // points HOME at a temp folder): seen.json, routes.json, unrouted.json and status.json. A missing
-// file is its default; a file that cannot be read or does not hold what the watcher writes is a
-// StateError, never read as empty (S6: that would raise every message again). Writes are atomic.
+// file is its default. A file that cannot be read, is not JSON, or does not hold what the watcher
+// writes (every seen.json entry a whole message) is a StateError, never read as empty (S6: that
+// would raise every message again). status.json fields of the wrong type read as their defaults.
+// Writes are atomic: a temp file, then a rename.
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
@@ -27,17 +29,37 @@ export type Routes = Record<string, string>
 export type Status = { connected: boolean; lastCheck: string | null; error: string | null; model: string; workspace: string | null }
 
 export const MINUTE_MS = 60_000
-export const DAY_MS = 24 * 60 * MINUTE_MS
+export const DAY_MS = 24 * MINUTE_MS
 export const KEEP_MS = 30 * DAY_MS
 
 export class StateError extends Error {}
 
-export const juelDir = (): string => join(homedir(), '.juel')
+const juelDir = (): string => join(homedir(), '.juel')
 export const slackDir = (): string => join(juelDir(), 'slack')
 export const idOf = (m: { channelId: string; ts: string }): string => `${m.channelId}-${m.ts}`
 export const defaultStatus = (model: string): Status => ({ connected: false, lastCheck: null, error: null, model, workspace: null })
+export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+export const oneLine = (text: string, max = 200): string => text.replace(/\s+/g, ' ').trim().slice(0, max)
+/** The message is still waiting for a project: neither routed nor dropped. */
+export const isUnrouted = (seen: Seen, id: string): boolean => Object.hasOwn(seen, id) && seen[id]?.project === null
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const CHANNEL_ID = /^[A-Z0-9]+$/i
+const TS = /^\d+\.\d+$/
+const STRINGS = ['channelId', 'channel', 'ts', 'from', 'text', 'permalink']
+
+/** Why a value is not a message of the item's step 2 (with S10's path-safe ids), else null. */
+export function messageProblem(item: unknown): string | null {
+  if (!isObject(item)) return 'not an object'
+  for (const key of STRINGS) if (typeof item[key] !== 'string') return `${key} is not a string`
+  if (!CHANNEL_ID.test(item.channelId as string)) return 'channelId is not a Slack id'
+  if (!TS.test(item.ts as string)) return 'ts is not a Slack ts'
+  if (item.threadTs !== null && !(typeof item.threadTs === 'string' && TS.test(item.threadTs))) return 'threadTs is not a Slack ts or null'
+  if (!(item.permalink as string).startsWith('https://')) return 'permalink is not an https link'
+  if (!Array.isArray(item.thread) || item.thread.length > 5 || !item.thread.every(line => typeof line === 'string')) {
+    return 'thread is not at most 5 strings'
+  }
+  return null
+}
 
 /** The file's JSON, undefined when it does not exist. */
 async function readJson(name: string): Promise<unknown> {
@@ -56,6 +78,14 @@ async function readJson(name: string): Promise<unknown> {
   }
 }
 
+/** The file's JSON when `valid` accepts it; `empty` when the file does not exist. */
+async function readValid<T>(name: string, empty: T, valid: (data: unknown) => boolean): Promise<T> {
+  const data = await readJson(name)
+  if (data === undefined) return empty
+  if (!valid(data)) throw new StateError(`${name} does not hold what the watcher wrote`)
+  return data as T
+}
+
 async function writeJson(name: string, value: unknown): Promise<void> {
   const dir = slackDir()
   await mkdir(dir, { recursive: true })
@@ -71,34 +101,17 @@ async function writeJson(name: string, value: unknown): Promise<void> {
 }
 
 const isEntry = (v: unknown): boolean =>
-  isObject(v) &&
-  typeof v.seenAt === 'string' &&
-  typeof v.channelId === 'string' &&
-  typeof v.ts === 'string' &&
-  (v.project === null || typeof v.project === 'string')
+  isObject(v) && messageProblem(v) === null && typeof v.seenAt === 'string' && (v.project === null || typeof v.project === 'string')
 
-export async function readSeen(): Promise<Seen> {
-  const data = await readJson('seen.json')
-  if (data === undefined) return {}
-  if (!isObject(data) || !Object.values(data).every(isEntry)) throw new StateError('seen.json does not hold what the watcher wrote')
-  return data as Seen
-}
+export const readSeen = (): Promise<Seen> => readValid<Seen>('seen.json', {}, data => isObject(data) && Object.values(data).every(isEntry))
 export const writeSeen = (seen: Seen): Promise<void> => writeJson('seen.json', seen)
 
-export async function readRoutes(): Promise<Routes> {
-  const data = await readJson('routes.json')
-  if (data === undefined) return {}
-  if (!isObject(data) || !Object.values(data).every(v => typeof v === 'string')) throw new StateError('routes.json does not hold what the watcher wrote')
-  return data as Routes
-}
+export const readRoutes = (): Promise<Routes> =>
+  readValid<Routes>('routes.json', {}, data => isObject(data) && Object.values(data).every(v => typeof v === 'string'))
 export const writeRoutes = (routes: Routes): Promise<void> => writeJson('routes.json', routes)
 
-export async function readUnrouted(): Promise<string[]> {
-  const data = await readJson('unrouted.json')
-  if (data === undefined) return []
-  if (!Array.isArray(data) || !data.every(v => typeof v === 'string')) throw new StateError('unrouted.json does not hold what the watcher wrote')
-  return data as string[]
-}
+export const readUnrouted = (): Promise<string[]> =>
+  readValid<string[]>('unrouted.json', [], data => Array.isArray(data) && data.every(v => typeof v === 'string'))
 export const writeUnrouted = (ids: string[]): Promise<void> => writeJson('unrouted.json', ids)
 
 /** status.json (D8); `model` is always the configured one. */

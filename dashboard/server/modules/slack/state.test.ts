@@ -38,6 +38,12 @@ test('a damaged state file is a StateError, never read as empty', async () => {
     ['seen.json', '{not json', readSeen, /seen\.json is not JSON/],
     ['seen.json', '[]', readSeen, /seen\.json does not hold/],
     ['seen.json', '{"C1-1.2": {"seenAt": 1}}', readSeen, /seen\.json does not hold/],
+    [
+      'seen.json',
+      JSON.stringify({ 'C1-1700000000.000100': { seenAt: '2026-10-16T00:00:00.000Z', channelId: 'C1', ts: '1700000000.000100', project: null } }),
+      readSeen,
+      /seen\.json does not hold/,
+    ],
     ['routes.json', '{"C1": 3}', readRoutes, /routes\.json does not hold/],
     ['unrouted.json', '{}', readUnrouted, /unrouted\.json does not hold/],
     ['status.json', '[]', () => readStatus('haiku'), /status\.json does not hold/],

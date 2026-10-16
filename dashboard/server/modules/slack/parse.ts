@@ -1,8 +1,9 @@
 // D7: what counts as the expected JSON. The CLI's --output-format json envelope must not be
 // is_error and must carry a result string; the result (one json code fence stripped) is an array of
 // messages, {"workspace", "messages"} (D8) or {"connected": false, "why"}. One invalid element fails
-// the whole answer. Error texts are fixed words: they never quote the answer, which holds message
-// text.
+// the whole answer. Error texts never quote the answer, which holds message text: they are fixed
+// words, plus the envelope's subtype when claude reports an error.
+import { isObject, messageProblem, oneLine } from './state.ts'
 import type { Message } from './state.ts'
 
 export type Parsed =
@@ -11,13 +12,8 @@ export type Parsed =
   | { kind: 'error'; error: string; cli: boolean }
 
 const FENCE = /^\s*```(?:json)?[ \t]*\n([\s\S]*?)\n?[ \t]*```\s*$/
-const CHANNEL_ID = /^[A-Z0-9]+$/i
-const TS = /^\d+\.\d+$/
-const STRINGS = ['channelId', 'channel', 'ts', 'from', 'text', 'permalink']
 
 const bad = (why: string): Parsed => ({ kind: 'error', error: `the answer is not the expected JSON: ${why}`, cli: false })
-const oneLine = (text: string, max: number): string => text.replace(/\s+/g, ' ').trim().slice(0, max)
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 export function parseEnvelope(stdout: string): Parsed {
   let envelope: unknown
@@ -60,7 +56,7 @@ export function parseResult(text: string): Parsed {
   }
   const messages: Message[] = []
   for (const [i, item] of list.entries()) {
-    const why = invalid(item)
+    const why = messageProblem(item)
     if (why) return bad(`message ${i + 1}: ${why}`)
     const m = item as Message
     messages.push({
@@ -75,18 +71,4 @@ export function parseResult(text: string): Parsed {
     })
   }
   return { kind: 'messages', workspace, messages }
-}
-
-/** Why one element is not a message of the item's step 2 (with S10's path-safe ids), else null. */
-function invalid(item: unknown): string | null {
-  if (!isObject(item)) return 'not an object'
-  for (const key of STRINGS) if (typeof item[key] !== 'string') return `${key} is not a string`
-  if (!CHANNEL_ID.test(item.channelId as string)) return 'channelId is not a Slack id'
-  if (!TS.test(item.ts as string)) return 'ts is not a Slack ts'
-  if (item.threadTs !== null && !(typeof item.threadTs === 'string' && TS.test(item.threadTs))) return 'threadTs is not a Slack ts or null'
-  if (!(item.permalink as string).startsWith('https://')) return 'permalink is not an https link'
-  if (!Array.isArray(item.thread) || item.thread.length > 5 || !item.thread.every(line => typeof line === 'string')) {
-    return 'thread is not at most 5 strings'
-  }
-  return null
 }
