@@ -1,6 +1,7 @@
-// Turns a briefing's draft into a ticket (brief D5, D9, B6-B8): an issue through gh for github, an
-// issue through the tracker's MCP create tool in a headless haiku run for linear and jira when that
-// tool is connected, else a STAR spec item. Then created.json, and an inbox file so STAR picks it up.
+// Turns a briefing's draft into a ticket (brief D5, D8, D9, D13, B6-B8): an issue through gh for
+// github, an issue through the tracker's MCP create tool in a headless haiku run for linear and jira
+// when that tool is connected, else a STAR spec item. created.json marks the create before anything is
+// made (D8), then records the made ticket, then an inbox file tells STAR (at least once, D13).
 import { mkdir, rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
@@ -111,7 +112,7 @@ export function createPrompt(tracker: 'linear' | 'jira', project: string | null,
   ].join('\n\n')
 }
 
-/** The last JSON object in the text: a line of its own, or else one spread over several lines. */
+/** The last line that is a JSON object; when no line is, the last object spread over several lines. */
 export function lastJson(text: string): CliEvent | null {
   for (const line of text.split('\n').reverse()) {
     const value = parseObject(line)
@@ -155,8 +156,8 @@ async function createViaMcp(ctx: CreateContext, tracker: 'linear' | 'jira'): Pro
   let stop = (): void => {}
   const run = runCli({
     bin: 'claude',
-    // dontAsk: only the allowed create tools run, whatever default mode the owner's settings give;
-    // --tools "" leaves no built-in tool (D5).
+    // dontAsk: nothing waits on a prompt, and a tool runs only when --allowedTools, the owner's own
+    // allow rules or a hook approve it; --tools "" leaves no built-in tool (D5).
     args: ['-p', '--model', 'haiku', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'dontAsk', '--tools', '', '--allowedTools', tools.join(','), '--', createPrompt(tracker, ctx.trackerProject, ctx.draft)],
     cwd: ctx.repo,
     onEvent: event => {
@@ -252,9 +253,10 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
 }
 
 /**
- * Tells STAR about a made ticket: a new inbox file, then created.json rewritten with its path. On a
- * failure created.json keeps `inbox: null` and no inbox file is left behind, so pressing Create
- * again runs this again (the create route) and STAR gets exactly one inbox file for the ticket.
+ * Tells STAR about a made ticket: a new inbox file, then created.json rewritten with its path. When
+ * the rewrite fails the inbox file is taken back, so created.json keeps `inbox: null` and pressing
+ * Create again runs this again (the create route). STAR hears of the ticket at least once; a
+ * duplicate inbox file after an interrupted create is accepted (D13).
  */
 export async function queueCreated(ctx: Pick<CreateContext, 'home' | 'repo' | 'dir'>, created: Created): Promise<CreateOutcome> {
   const name = created.ref ?? created.specPath ?? ''

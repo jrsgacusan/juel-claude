@@ -121,7 +121,7 @@ export function register(api: ModuleApi): void {
         const look = created.tracker === 'none' || created.tracker === 'synapse' ? `check ${items} for its spec item` : `check ${created.tracker} for the ticket, or ${items} for a spec item`
         return refuse(409, `an earlier ${created.tracker} create of this briefing did not finish: ${look} (the dashboard log names anything it made), then remove ${where} to try again`, { created })
       }
-      // Made before, but STAR's inbox file was never written: send that ticket now, never a second one.
+      // Made before, but created.json records no inbox file for it: queue that ticket now, never a second one (D13).
       if (created?.inbox === null) {
         return await finish(at, created.tracker, await queueCreated({ home: at.project.home, repo: at.project.repo, dir: at.dir }, created))
       }

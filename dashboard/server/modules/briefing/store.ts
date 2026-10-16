@@ -1,5 +1,5 @@
-// A briefing on disk: <STAR folder>/briefings/<id>/ holding transcript.jsonl, draft.json, session
-// and, once a ticket exists, created.json (brief D7, D8).
+// A briefing on disk: <STAR folder>/briefings/<id>/ holding transcript.jsonl and draft.json (brief D7),
+// session (D3, D15) and, once a create starts, created.json (D8).
 import { appendFile, mkdir, readFile, readdir, rename, rm, stat, truncate, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
@@ -18,8 +18,9 @@ export type Created = {
   /** STAR's inbox file for the ticket; null until it is written. Absent on a record this module could not read. */
   inbox?: string | null
   /**
-   * 'creating' is written before anything is made and stays when the made ticket could not be
-   * recorded, so a later press never makes a second one (D8); 'made' once the ticket is recorded.
+   * 'creating' is written before anything is made. It stays when a ticket was or may have been made
+   * but not recorded, or the create never finished, so a later press never makes a second one (D8);
+   * a create that made nothing removes the file. 'made' once the ticket is recorded.
    */
   state?: 'creating' | 'made'
 }
@@ -161,9 +162,10 @@ async function sizeOf(path: string): Promise<number | null> {
 }
 
 /**
- * Saves a finished turn as one change (D7): both transcript lines and the new draft land together,
- * or neither does. The draft is staged in a temp file, the lines appended, then the draft renamed
- * into place. On any failure the temp file goes and the transcript is cut back to its old length.
+ * Saves a finished turn as one change (D7): when a step fails, neither the transcript lines nor the
+ * new draft land. The draft is staged in a temp file, the lines appended, then the draft renamed
+ * into place. On any failure the temp file goes and the transcript is cut back to its old length
+ * (a process killed mid-save is not covered).
  */
 export async function saveTurn(dir: string, turns: Turn[], draft: Ticket): Promise<void> {
   const transcript = join(dir, 'transcript.jsonl')

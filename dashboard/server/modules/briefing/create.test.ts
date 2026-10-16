@@ -163,7 +163,7 @@ test('a create run that ends before its init event is a failed create', async ()
   assert.deepEqual(await inboxFiles(), [])
 })
 
-test('synapse and none write the spec item without running claude', async () => {
+test('synapse writes the spec item without running claude', async () => {
   const outcome = await createTicket(ctx('synapse'))
   if (!outcome.ok) assert.fail(outcome.error)
   assert.equal(await readFile(specPath(), 'utf8'), `---\nstatus: todo\ntitle: Retry the sync\n---\n${BODY}`)

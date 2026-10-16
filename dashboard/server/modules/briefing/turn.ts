@@ -1,7 +1,8 @@
-// One briefing turn (brief D2, D3, D6, D7, D10): runs the read-only agent on the owner's text,
+// One briefing turn (brief D2, D3, D6, D7, D10, D15): runs the read-only agent on the owner's text,
 // streams its reply as briefing events and, only when the turn succeeds, saves the draft and appends
-// both turns to the transcript. A turn the CLI fails writes nothing but the session id its init event
-// gave, and a save the disk refuses is undone (saveTurn).
+// both turns to the transcript. A turn the CLI fails changes only `session`: it saves the id an init
+// event gave, and forgets a saved session only when the CLI says it is gone (D15). A save the disk
+// refuses is undone (saveTurn).
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, relative, sep } from 'node:path'
 
@@ -71,7 +72,7 @@ export async function runTurn(ctx: TurnContext): Promise<TurnResult> {
 
   const onEvent = (event: CliEvent): void => {
     if (event.type === 'system' && event.subtype === 'init') {
-      // Hook lines come before init, the first line that carries the session id (D3).
+      // Hook lines come before init; the session id is taken from init only (D3).
       sawInit = true
       const session = event.session_id
       if (typeof session === 'string' && session !== '' && session !== stored) {

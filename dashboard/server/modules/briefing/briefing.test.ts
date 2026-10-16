@@ -319,7 +319,7 @@ test('a transcript line that is not a turn is skipped, and the list still answer
   assert.deepEqual(json(await s.call('GET', `/api/projects/proj/briefings/${id}`)).turns, [{ who: 'me', text: 'Add a retry', files: [] }])
 })
 
-test('a ticket made but not recorded is 500 with made, never the 502 that offers to make it again', async () => {
+test('a ticket made whose inbox file cannot be written is 500 with made, never the 502 that offers to make it again', async () => {
   await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
   const id = await newBriefing()
   await withDraft(id)
