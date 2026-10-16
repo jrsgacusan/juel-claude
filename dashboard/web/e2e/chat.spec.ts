@@ -37,6 +37,9 @@ test("a message to a stopped STAR waits in its inbox", async ({ page }) => {
   await openApp(page, "/juel-claude/chat")
   await expect(page.getByText("STAR isn't running. Your message waits in its inbox.")).toBeVisible()
   await send(page, "are you there?")
-  await expect(page.getByText("Waits for STAR's next start")).toBeVisible()
+  // The sidebar's away switch carries the same note; this one sits under the sent message.
+  await expect(
+    page.locator('li[data-who="me"]', { hasText: "are you there?" }).getByText("Waits for STAR's next start")
+  ).toBeVisible()
   await noHorizontalScroll(page)
 })

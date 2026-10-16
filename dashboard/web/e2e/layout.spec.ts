@@ -12,7 +12,14 @@ test("every page fits the width", async ({ page }) => {
     "/juel-claude/needs",
   ]) {
     await goInApp(page, path)
-    await expect(page.locator("h1, h2").first()).toBeVisible()
+    if (isPhone(page) && path.endsWith("/briefing")) {
+      // On a phone Briefing swaps its Chat and Draft panes behind tabs and shows no heading, to keep the height.
+      await expect(page.getByRole("tab", { name: "Chat", exact: true })).toBeVisible()
+      await expect(page.getByRole("tab", { name: "Draft", exact: true })).toBeVisible()
+    } else {
+      // A detail on a phone hides the list's heading, so the check wants a heading that is shown.
+      await expect(page.locator("h1:visible, h2:visible").first()).toBeVisible()
+    }
     await noHorizontalScroll(page)
   }
 })
@@ -105,6 +112,11 @@ test("the Workers card shows a square per slot, and away waits for STAR", async 
 test("on a phone the header stays on screen while the page scrolls", async ({ page }) => {
   test.skip(!isPhone(page), "the header is sticky below md only")
   await openApp(page, "/sphere-app/progress")
+  // Scroll only once the items have loaded: while the page shows its loading state it is shorter than the screen.
+  await expect(page.getByRole("tab", { name: /^Running/ })).toBeVisible()
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight))
+    .toBe(true)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
   await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeInViewport()
