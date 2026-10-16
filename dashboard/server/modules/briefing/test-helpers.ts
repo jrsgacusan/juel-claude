@@ -1,6 +1,7 @@
-// Test scaffolding for the briefing module: a temp repo and STAR folder, fake `claude` and `gh`
-// binaries first on PATH (PATH is only the fake bin, /usr/bin and /bin, so the real ones are never
-// reached), and a stub ModuleApi that records routes, events, nudges and log lines.
+// Test scaffolding for the briefing module: a temp repo and STAR folder, the STAR ledger fixture and
+// `ingest`, fake `claude` and `gh` binaries first on PATH (PATH is only the fake bin, /usr/bin and
+// /bin, so the real ones are never reached), and a stub ModuleApi that records routes, events,
+// nudges and log lines.
 import { appendFile, chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -102,7 +103,7 @@ export function ledgerText(rows: { item: string; ref: string; state: string }[])
   return header + separator + lines.join('')
 }
 
-/** Ingests inbox files the way STAR's Inbox step does, appending ledger rows then deleting files. */
+/** Does what STAR's Inbox step does in its order (ledger row first, then file deleted), adding a row for every ref without STAR's open-row skip or `repo:` check; `state` defaults to `done`. Item names continue from the rows already in `ledger.md` (`i<rows + 1>`), so two calls never repeat a name. */
 export async function ingest(home: string, state = 'done'): Promise<string[]> {
   const dir = join(home, 'inbox')
   let names: string[]
@@ -112,12 +113,15 @@ export async function ingest(home: string, state = 'done'): Promise<string[]> {
     return []
   }
   const ledger = join(home, 'ledger.md')
+  let existingLedger: string
   try {
-    await readFile(ledger, 'utf8')
+    existingLedger = await readFile(ledger, 'utf8')
   } catch (err) {
     if ((err as { code?: string }).code !== 'ENOENT') throw err
     await writeFile(ledger, ledgerText([]))
+    existingLedger = ledgerText([])
   }
+  let item = existingLedger.split('\n').slice(2).filter(line => line.trim().startsWith('|') && line.trim().endsWith('|')).length + 1
   const refs: string[] = []
   for (const name of names) {
     const path = join(dir, name)
@@ -125,8 +129,7 @@ export async function ingest(home: string, state = 'done'): Promise<string[]> {
     const fileRefs = text.split('\n').filter(line => line.startsWith('- ')).map(line => line.slice(2))
     for (const ref of fileRefs) {
       refs.push(ref)
-      const n = refs.length
-      await appendFile(ledger, ledgerText([{ item: `i${n}`, ref, state }]).split('\n').slice(2).join('\n'))
+      await appendFile(ledger, ledgerText([{ item: `i${item++}`, ref, state }]).split('\n').slice(2).join('\n'))
     }
     await rm(path)
   }

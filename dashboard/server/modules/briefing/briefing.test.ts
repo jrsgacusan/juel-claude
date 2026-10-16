@@ -550,3 +550,31 @@ test('after a resume, the next press is 409 and nudges nothing more', async () =
   assert.deepEqual(s.nudges, ['proj'])
   assert.equal((await calls(w, 'gh')).length, 0)
 })
+
+test('a press on an inbox: null record whose ticket STAR already has writes nothing, whatever the row\'s state', async () => {
+  for (const state of ['inbox', 'done', 'dropped']) {
+    const id = await newBriefing()
+    await markMade(id, { inbox: null })
+    await writeFile(join(w.home, 'ledger.md'), ledgerText([{ item: 'issue-42', ref: '#42', state }]))
+    const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+    assert.equal(res.status, 201, state)
+    assert.deepEqual(await readdir(join(w.home, 'inbox')).catch(() => []), [], state)
+    const created = JSON.parse(await readFile(join(briefingDir(w.home, id)!, 'created.json'), 'utf8')) as Record<string, unknown>
+    assert.equal(created.queued, true, state)
+    assert.equal(s.nudges.length, state === 'inbox' ? 1 : state === 'done' ? 2 : 3, state)
+  }
+  assert.deepEqual(await calls(w, 'gh'), [])
+})
+
+test("a spec record's resume answers 201 with its spec path", async () => {
+  const id = await newBriefing()
+  const specPath = join(w.home, 'items', 'proj', 'retry-the-sync.md')
+  const url = '/api/projects/proj/file?path=items%2Fproj%2Fretry-the-sync.md'
+  await writeFile(join(briefingDir(w.home, id)!, 'created.json'), JSON.stringify({ tracker: 'none', ref: null, specPath, url, at: '2026-10-16T00:00:00.000Z', state: 'made', inbox: null }))
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'none' })
+  assert.equal(res.status, 201)
+  assert.deepEqual(res.json, { specPath, url })
+  const files = await readdir(join(w.home, 'inbox'))
+  assert.equal(files.length, 1)
+  assert.match(await readFile(join(w.home, 'inbox', files[0]), 'utf8'), new RegExp(`- ${specPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`))
+})
