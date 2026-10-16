@@ -18,7 +18,7 @@ import { readDrafts, readOpenReplies, replyOf } from './replies.ts'
 import type { Draft, OpenReply } from './replies.ts'
 import { routeMessage, signalsOf } from './route.ts'
 import { keeps, ownerNames } from './filter.ts'
-import { loadConfig, pluginIds, readSlackSettings } from './settings.ts'
+import { loadConfig, pluginIds, readSlackSettings, writePaused } from './settings.ts'
 import type { Config } from './settings.ts'
 import {
   DAY_MS,
@@ -395,7 +395,15 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     }
   }
 
+  // Spec 3.14: the owner's switch. The timer keeps running; a tick while paused logs once per pause.
+  let pauseLogged = false
   const tick = (): void => {
+    if (readSlackSettings().paused) {
+      if (!pauseLogged) log('slack: paused, no scheduled check')
+      pauseLogged = true
+      return
+    }
+    pauseLogged = false
     void check().catch(err => log(`slack check failed: ${errorText(err)}`))
   }
 
@@ -438,7 +446,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     name === undefined ? Promise.resolve(false) : stat(join(home, 'inbox', name)).then(() => true, () => false)
 
   /** GET /api/slack: {status, routed, unrouted}; routed follows D5 and S7, both newest first. */
-  async function listing(): Promise<{ status: Status; routed: Listed[]; unrouted: Record<string, string>[] }> {
+  async function listing(): Promise<{ status: Status; routed: Listed[]; unrouted: Record<string, string>[]; paused: boolean }> {
     const status = await statusOrDefault()
     // S6: an unreadable file lists as empty, and the status says why.
     const problems: string[] = []
@@ -481,7 +489,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       .map(id => ({ id, entry: seen[id] as Entry }))
       .sort((a, b) => byTsDesc(a.entry, b.entry))
       .map(({ id, entry }) => ({ id, from: entry.from, channel: channelLabel(entry.channelId, entry.channel), text: entry.text, permalink: entry.permalink }))
-    return { status, routed, unrouted }
+    return { status, routed, unrouted, paused: readSlackSettings().paused }
   }
 
   /**
@@ -555,6 +563,18 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     return { status: 200, json: { ...outcome, status: await statusOrDefault() } }
   })
   api.route('POST', '/api/slack/:id/route', routeOne)
+  // Spec 3.14: PUT {paused: boolean} flips the "Check Slack" switch; it applies at the next tick.
+  api.route('PUT', '/api/slack/paused', async req => {
+    const paused = isObject(req.body) && Object.keys(req.body).length === 1 ? req.body.paused : undefined
+    if (typeof paused !== 'boolean') return { status: 400, json: { error: 'the body must be {paused: true} or {paused: false}' } }
+    try {
+      await writePaused(paused)
+    } catch (err) {
+      return { status: 500, json: { error: errorText(err) } }
+    }
+    emitChange()
+    return { status: 200, json: { paused } }
+  })
 
   /**
    * POST /api/projects/:p/slack/redraft {loop, how} (I-10): checks the open slack-reply item and its

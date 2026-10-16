@@ -10,11 +10,11 @@ import { createSlack } from './watcher.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-test('register starts the watcher: four routes, and a first check at once', async () => {
+test('register starts the watcher: five routes, and a first check at once', async () => {
   const w = await world()
   const s = stub([])
   register(s.api)
-  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route', 'POST /api/projects/:p/slack/redraft'])
+  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route', 'PUT /api/slack/paused', 'POST /api/projects/:p/slack/redraft'])
   await until(async () => (await calls(w)).length === 1)
   await until(async () => {
     try {

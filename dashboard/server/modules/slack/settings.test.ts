@@ -3,12 +3,13 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { installedPlugin, loadConfig, pluginIds, readSlackSettings } from './settings.ts'
+import { readFile } from 'node:fs/promises'
+import { installedPlugin, loadConfig, pluginIds, readSlackSettings, writePaused } from './settings.ts'
 import { slackDir } from './state.ts'
 import { cleanup, world } from './test-helpers.ts'
 import type { World } from './test-helpers.ts'
 
-const DEFAULTS = { everyMin: 5, plugin: null, linearPlugin: null, names: [], drafter: { model: 'opus', timeoutMin: 10 } }
+const DEFAULTS = { everyMin: 5, plugin: null, linearPlugin: null, names: [], drafter: { model: 'opus', timeoutMin: 10 }, paused: false }
 const writeDashboard = async (w: World, value: unknown): Promise<void> => {
   await mkdir(join(w.home, '.juel'), { recursive: true })
   await writeFile(join(w.home, '.juel', 'dashboard.json'), typeof value === 'string' ? value : JSON.stringify(value))
@@ -21,7 +22,7 @@ test('readSlackSettings: the defaults, then each key of slack in dashboard.json 
     port: 4767,
     slack: { everyMin: 0, plugin: 'slack@claude-plugins-official', linearPlugin: ' linear@mine ', names: ['Jrs', ' ', 'jrs', 'JR', 7], drafter: { model: 'sonnet', timeoutMin: 3 } },
   })
-  assert.deepEqual(readSlackSettings(), { everyMin: 0, plugin: 'slack@claude-plugins-official', linearPlugin: 'linear@mine', names: ['Jrs', 'JR'], drafter: { model: 'sonnet', timeoutMin: 3 } })
+  assert.deepEqual(readSlackSettings(), { everyMin: 0, plugin: 'slack@claude-plugins-official', linearPlugin: 'linear@mine', names: ['Jrs', 'JR'], drafter: { model: 'sonnet', timeoutMin: 3 }, paused: false })
   await writeDashboard(w, { slack: { plugin: '', names: 'Jrs', drafter: { model: ' ', timeoutMin: 0 } } })
   assert.deepEqual(readSlackSettings(), DEFAULTS)
   await cleanup(w)
@@ -98,5 +99,24 @@ test('pluginIds: dashboard.json first, then installed_plugins.json, then config.
   await installed(w, { 'slack@claude-plugins-official': [{ scope: 'user' }], 'linear@mine': [{ scope: 'user' }] })
   assert.deepEqual(pluginIds(config, none), { slack: 'slack@claude-plugins-official', linear: 'linear@mine' })
   assert.deepEqual(pluginIds(config, { plugin: 'slack@set', linearPlugin: 'linear@set' }), { slack: 'slack@set', linear: 'linear@set' })
+  await cleanup(w)
+})
+
+test('slack.paused reads true only for true; writePaused keeps every other key and leaves no paused key when cleared (spec 3.14)', async () => {
+  const w = await world()
+  assert.equal(readSlackSettings().paused, false)
+  for (const [value, want] of [[true, true], [false, false], ['yes', false], [1, false]] as [unknown, boolean][]) {
+    await writeDashboard(w, { slack: { paused: value } })
+    assert.equal(readSlackSettings().paused, want, String(value))
+  }
+  const other = { port: 4767, token: 'abc', pid: 42, slack: { everyMin: 2, names: ['Jrs'] } }
+  await writeDashboard(w, other)
+  await writePaused(true)
+  assert.equal(readSlackSettings().paused, true)
+  const paused = JSON.parse(await readFile(join(w.home, '.juel', 'dashboard.json'), 'utf8'))
+  assert.deepEqual(paused, { ...other, slack: { ...other.slack, paused: true } })
+  await writePaused(false)
+  assert.deepEqual(JSON.parse(await readFile(join(w.home, '.juel', 'dashboard.json'), 'utf8')), other)
+  assert.equal(readSlackSettings().paused, false)
   await cleanup(w)
 })
