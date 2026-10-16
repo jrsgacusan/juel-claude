@@ -176,6 +176,8 @@ export type SlackState = {
   status: SlackStatus
   routed: RoutedMessage[]
   unrouted: UnroutedMessage[]
+  /** True while the "Check Slack" switch is off (spec 3.14). */
+  paused: boolean
 }
 export type RouteRequest = { project: string }
 export type BriefingSummary = {

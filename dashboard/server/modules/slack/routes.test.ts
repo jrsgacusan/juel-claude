@@ -32,13 +32,13 @@ const HOUR = 3_600_000
 const DEFAULT_STATUS = { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null, stderr: null }
 type Listing = { status: unknown; routed: Record<string, unknown>[]; unrouted: Record<string, unknown>[] }
 
-test('the module registers four routes; GET before any check has the default status and empty lists', async () => {
+test('the module registers five routes; GET before any check has the default status and empty lists', async () => {
   const w = await world()
   const s = stub([])
   const d = drafter()
   createSlack(s.api, { now: () => NOW, everyMs: HOUR, draft: d.draft })
-  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route', 'POST /api/projects/:p/slack/redraft'])
-  assert.deepEqual(await s.call('GET', '/api/slack'), { status: 200, json: { status: DEFAULT_STATUS, routed: [], unrouted: [] } })
+  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route', 'PUT /api/slack/paused', 'POST /api/projects/:p/slack/redraft'])
+  assert.deepEqual(await s.call('GET', '/api/slack'), { status: 200, json: { status: DEFAULT_STATUS, routed: [], unrouted: [], paused: false } })
   await cleanup(w)
 })
 
@@ -105,7 +105,7 @@ test('GET leaves out a project that is no longer registered, and an unrouted id 
   await slack.idle()
   await writeState(w, 'unrouted.json', ['C1-1600000000.000000'])
   registered.length = 0
-  assert.deepEqual((await s.call('GET', '/api/slack')).json, { status: await readState(w, 'status.json'), routed: [], unrouted: [] })
+  assert.deepEqual((await s.call('GET', '/api/slack')).json, { status: await readState(w, 'status.json'), routed: [], unrouted: [], paused: false })
   await play(w, [answer([])])
   await slack.check()
   await slack.idle()
@@ -278,5 +278,29 @@ test('GET with a damaged seen.json lists nothing and says why in its status', as
   assert.deepEqual(json.routed, [])
   assert.deepEqual(json.unrouted, [])
   assert.match(json.status.error, /seen\.json is not JSON/)
+  await cleanup(w)
+})
+
+// lane l: the Check Slack switch (spec 3.14)
+test('PUT /api/slack/paused: a bad body is a 400 that writes nothing; true and false set and clear slack.paused', async () => {
+  const w = await world()
+  const file = join(w.home, '.juel', 'dashboard.json')
+  await mkdir(join(w.home, '.juel'), { recursive: true })
+  await writeFile(file, JSON.stringify({ port: 4767, slack: { everyMin: 2 } }))
+  const before = await readFile(file, 'utf8')
+  const s = stub([])
+  createSlack(s.api, { now: () => NOW, everyMs: 0 })
+  const want = { status: 400, json: { error: 'the body must be {paused: true} or {paused: false}' } }
+  for (const body of [{ paused: 'yes' }, {}, null, 'true', { paused: true, extra: 1 }]) {
+    assert.deepEqual(await s.call('PUT', '/api/slack/paused', body), want, JSON.stringify(body))
+  }
+  assert.equal(await readFile(file, 'utf8'), before)
+  assert.equal(s.events.length, 0)
+  assert.deepEqual(await s.call('PUT', '/api/slack/paused', { paused: true }), { status: 200, json: { paused: true } })
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { port: 4767, slack: { everyMin: 2, paused: true } })
+  assert.deepEqual(s.events, [{ type: 'change', what: 'slack' }])
+  assert.deepEqual(await s.call('PUT', '/api/slack/paused', { paused: false }), { status: 200, json: { paused: false } })
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { port: 4767, slack: { everyMin: 2 } })
+  assert.equal(s.events.length, 2)
   await cleanup(w)
 })

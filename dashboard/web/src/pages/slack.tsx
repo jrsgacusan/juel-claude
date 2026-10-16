@@ -4,6 +4,7 @@ import { useParams } from "react-router"
 import { useSlack } from "@/api/queries"
 import type { RoutedMessage, UnroutedMessage } from "@/api/types"
 import { Banner } from "@/components/banners"
+import { SlackCheckSwitch } from "@/components/slack-check-switch"
 import {
   ListDetail,
   useListSelection,
@@ -177,7 +178,12 @@ export function SlackPage() {
                 <MessageSquare className="size-4" />
                 <h1 className="text-base font-semibold">Slack replies</h1>
               </div>
-              {slack.data!.status.connected ? (
+              {slack.data!.paused ? (
+                <p className="flex items-center gap-1.5 text-xs text-wait-fg">
+                  <Dot tone="wait" />
+                  Paused. Slack is not checked until you turn it back on.
+                </p>
+              ) : slack.data!.status.connected ? (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Dot tone="done" pulse />
                   {model
@@ -197,6 +203,7 @@ export function SlackPage() {
                   The last check failed: {slack.data!.status.error}
                 </p>
               )}
+              <SlackCheckSwitch paused={slack.data!.paused} />
             </div>
             {all.length === 0 && narrow ? (
               noneWaiting

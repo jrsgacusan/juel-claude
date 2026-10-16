@@ -259,6 +259,7 @@ export const handlers = [
       },
       routed: isEmpty() ? [] : db.slack.routed,
       unrouted: isEmpty() ? [] : db.slack.unrouted,
+      paused: db.slack.paused,
     })
   }),
   http.post(`${API}/slack/:id/route`, async ({ params, request }) => {

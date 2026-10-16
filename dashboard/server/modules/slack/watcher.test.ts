@@ -31,6 +31,7 @@ import {
   writeState,
 } from './test-helpers.ts'
 import type { Scenario, World } from './test-helpers.ts'
+import { writePaused } from './settings.ts'
 import type { Project } from './types.ts'
 
 const NOW = new Date('2026-10-16T12:00:00.000Z')
@@ -636,5 +637,30 @@ test('a check returns once the messages are routed; each project is nudged when 
   assert.deepEqual([...s.nudges].sort(), ['app', 'web'])
   assert.deepEqual([...asked].sort(), ['app', 'web'])
   assert.equal((await inboxFiles(app)).length + (await inboxFiles(web)).length, 2)
+  await cleanup(w)
+})
+
+// lane l: the Check Slack switch (spec 3.14)
+test('slack.paused: a scheduled tick runs no check and logs once; Check now runs; unpausing needs no restart', async () => {
+  const w = await world()
+  await mkdir(join(w.home, '.juel'), { recursive: true })
+  await writeFile(join(w.home, '.juel', 'dashboard.json'), JSON.stringify({ port: 4767, slack: { paused: true } }))
+  await play(w, [answer([])])
+  const s = stub([])
+  const slack = createSlack(s.api, { now: () => NOW, everyMs: 30 })
+  slack.start()
+  await sleep(250)
+  assert.deepEqual(await calls(w), [], 'a paused tick runs nothing')
+  assert.equal(s.logs.filter(line => line === 'slack: paused, no scheduled check').length, 1)
+  assert.equal(((await s.call('GET', '/api/slack')).json as { paused: boolean }).paused, true)
+  const res = await s.call('POST', '/api/slack/check')
+  assert.equal(res.status, 200)
+  await slack.idle()
+  assert.equal((await calls(w)).length, 1, 'Check now runs while paused')
+  await writePaused(false)
+  assert.equal(((await s.call('GET', '/api/slack')).json as { paused: boolean }).paused, false)
+  await until(async () => (await calls(w)).length >= 2)
+  slack.stop()
+  await slack.idle()
   await cleanup(w)
 })

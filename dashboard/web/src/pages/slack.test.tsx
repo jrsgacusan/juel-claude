@@ -502,4 +502,14 @@ describe("Slack replies", () => {
     expect(await screen.findByText("Drafted for you")).toBeInTheDocument()
     expect(screen.queryByText("Drafted by STAR")).not.toBeInTheDocument()
   })
+
+  it("reads Paused in the wait colour, with the switch off, when the server holds a pause", async () => {
+    getDb().slack.paused = true
+    renderApp("/sphere-app/slack")
+    expect(
+      await screen.findByText("Paused. Slack is not checked until you turn it back on.")
+    ).toHaveClass("text-wait-fg")
+    expect(screen.getByRole("switch", { name: "Check Slack" })).toHaveAttribute("aria-checked", "false")
+    expect(screen.queryByText(/^Watching/)).not.toBeInTheDocument()
+  })
 })

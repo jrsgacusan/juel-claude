@@ -30,6 +30,7 @@ export const paths = {
   slack: () => "/api/slack",
   slackRoute: (id: string) => `/api/slack/${e(id)}/route`,
   slackCheck: () => "/api/slack/check",
+  slackPaused: () => "/api/slack/paused",
   briefings: (p: string) => `${project(p)}/briefings`,
   briefing: (p: string, id: string) => `${project(p)}/briefings/${e(id)}`,
   briefingMessages: (p: string, id: string) =>

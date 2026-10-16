@@ -2,6 +2,7 @@
 // `slack` keys of <JUEL_DIR>/dashboard.json (I-12), read from disk at every call so an edit applies
 // without a restart. A missing or damaged file, or a key of the wrong type, reads as its default.
 import { readFileSync } from 'node:fs'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +20,8 @@ export type SlackSettings = {
   linearPlugin: string | null
   names: string[]
   drafter: { model: string; timeoutMin: number }
+  /** True while the owner's "Check Slack" switch is off (spec 3.14): no scheduled check runs. */
+  paused: boolean
 }
 
 const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null)
@@ -51,7 +54,28 @@ export function readSlackSettings(): SlackSettings {
       model: text(drafter.model) ?? 'opus',
       timeoutMin: typeof timeout === 'number' && Number.isFinite(timeout) && timeout > 0 ? timeout : 10,
     },
+    paused: slack.paused === true,
   }
+}
+
+/** Sets or clears `slack.paused` in dashboard.json, keeping every other key (temp file, then rename). */
+export async function writePaused(paused: boolean): Promise<void> {
+  const file = join(juelDir(), 'dashboard.json')
+  let data: Record<string, unknown> = {}
+  try {
+    const read = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    if (isObject(read)) data = read
+  } catch {
+    // no readable file: start from an empty object
+  }
+  const slack = isObject(data.slack) ? { ...data.slack } : {}
+  if (paused) slack.paused = true
+  else delete slack.paused
+  data.slack = slack
+  await mkdir(juelDir(), { recursive: true })
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`
+  await writeFile(temp, `${JSON.stringify(data, null, 2)}\n`)
+  await rename(temp, file)
 }
 
 /**
