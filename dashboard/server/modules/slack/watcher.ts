@@ -20,7 +20,9 @@ import {
   defaultStatus,
   idOf,
   isObject,
+  isPending,
   isUnrouted,
+  unroute,
   oneLine,
   prune,
   readEveryMin,
@@ -172,7 +174,8 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     try {
       moved = await locked(async () => {
         const before = await readStatus(config.model).catch(() => defaultStatus(config.model))
-        const after: Status = { ...before, connected: connected ?? before.connected, error }
+        // D8: when Slack is not connected, no workspace is known.
+        const after: Status = { ...before, connected: connected ?? before.connected, error, ...(connected === false ? { workspace: null } : {}) }
         await writeStatus(after)
         return after.connected !== before.connected || after.error !== before.error
       })
@@ -184,8 +187,11 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   }
 
   /**
-   * S4: the lists first, then the inbox files, then status.json, all under the lock. A message whose
-   * inbox file cannot be written goes back to the unrouted list, where the owner can route it by hand.
+   * S4: under the lock, the lists first, with each routed entry reserving its inbox file name
+   * (delivered false), then the inbox files, then the entries marked delivered, then status.json.
+   * Hand-overs an earlier run left pending (a crash between its commit and its mark) are finished
+   * here too, exactly once (`deliver`). A message whose inbox file cannot be written goes back to the
+   * unrouted list, where the owner can route it by hand. The workspace is this answer's (D8).
    */
   async function apply(messages: Message[], workspace: string | null, start: Date): Promise<Applied> {
     const projects = routable()
@@ -197,18 +203,22 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       const seen: Seen = kept.seen
       // An id whose entry is gone (a crash between two writes) or was routed by hand leaves the list.
       const unrouted = [...new Set(kept.unrouted)].filter(id => isUnrouted(seen, id))
-      const toInbox: { project: Project; id: string; entry: Entry }[] = []
+      const handOver: { project: Project; id: string }[] = []
+      for (const [id, entry] of Object.entries(seen)) {
+        const project = isPending(entry) ? projects.find(p => p.name === entry.project) : undefined
+        if (project) handOver.push({ project, id })
+      }
       let added = 0
       for (const m of messages) {
         const id = idOf(m)
         if (Object.hasOwn(seen, id)) continue
         const decision = routeMessage(m, signals, routes)
         const project = decision.project === null ? undefined : projects.find(p => p.name === decision.project)
-        const entry: Entry = { ...m, seenAt: start.toISOString(), project: project ? project.name : null }
-        seen[id] = entry
         if (project) {
-          toInbox.push({ project, id, entry })
+          seen[id] = { ...m, seenAt: start.toISOString(), project: project.name, inbox: inboxName(start), delivered: false }
+          handOver.push({ project, id })
         } else {
+          seen[id] = { ...m, seenAt: start.toISOString(), project: null }
           unrouted.push(id)
           added += 1
         }
@@ -217,24 +227,26 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       await writeSeen(seen)
       const files = new Map<string, number>()
       let failed = 0
-      for (const { project, id, entry } of toInbox) {
+      for (const { project, id } of handOver) {
+        const entry = seen[id] as Entry
         try {
-          await deliver(project.home, inboxName(start), idOf(entry), inboxText(project.repo, entry), start)
+          const inbox = await deliver(project.home, entry.inbox as string, id, inboxText(project.repo, entry), start)
+          seen[id] = { ...entry, inbox, delivered: true }
           files.set(project.name, (files.get(project.name) ?? 0) + 1)
         } catch (err) {
           log(`slack: an inbox file could not be written, so its message waits in unrouted: ${errorText(err)}`)
-          seen[id] = { ...entry, project: null }
+          seen[id] = unroute(entry)
           unrouted.push(id)
           failed += 1
         }
       }
-      if (failed > 0) {
+      if (handOver.length > 0) {
         await writeUnrouted(unrouted)
         await writeSeen(seen)
       }
-      await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace: workspace ?? before.workspace })
+      await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace })
       return {
-        routed: toInbox.length - failed,
+        routed: handOver.length - failed,
         unrouted: added + failed,
         pruned: kept.pruned,
         statusMoved: !before.connected || before.error !== null,
@@ -359,10 +371,11 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   }
 
   /**
-   * POST /api/slack/:id/route {project} (S8): seen.json first (the commit), then the inbox file,
-   * then the learned channel (D3) and the unrouted list. A failed inbox write puts seen.json back and
-   * is a 500, so the route can be tried again as it is. A crash between the commit and the inbox
-   * file loses that hand-over, still listed by GET, and never writes a second file (S4).
+   * POST /api/slack/:id/route {project} (S8): seen.json first (the commit, with the inbox name it
+   * reserves), then the inbox file, then the entry marked delivered, the learned channel (D3) and the
+   * unrouted list. A failed inbox write puts seen.json back and is a 500, so the route can be tried
+   * again as it is. A crash after the commit leaves a pending hand-over the next check finishes,
+   * exactly once (S4).
    */
   async function routeOne(req: Req): Promise<Res> {
     const id = req.params.id ?? ''
@@ -389,12 +402,21 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         }
         const project = routable().find(p => p.name === want)
         if (!project) return { res: { status: 400, json: { error: `unknown project ${want}` } } }
-        await writeSeen({ ...seen, [id]: { ...entry, project: project.name } })
+        const at = now()
+        const routed: Entry = { ...entry, project: project.name, inbox: inboxName(at), delivered: false }
+        // The commit: from here a crash leaves a pending hand-over, which the next check finishes.
+        await writeSeen({ ...seen, [id]: routed })
+        let inbox: string
         try {
-          await deliver(project.home, inboxName(now()), id, inboxText(project.repo, entry))
+          inbox = await deliver(project.home, routed.inbox as string, id, inboxText(project.repo, routed), at)
         } catch (err) {
           await writeSeen(seen).catch((undo: unknown) => log(`slack: seen.json could not be put back after a failed route: ${errorText(undo)}`))
           throw err
+        }
+        try {
+          await writeSeen({ ...seen, [id]: { ...routed, inbox, delivered: true } })
+        } catch (err) {
+          log(`slack: seen.json could not mark a hand-over delivered; the next check will: ${errorText(err)}`)
         }
         // D3: the owner's route teaches the channel. The route stands if this write fails.
         try {
