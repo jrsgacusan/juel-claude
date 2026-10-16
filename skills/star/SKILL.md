@@ -742,13 +742,25 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    file.
 
    A file with a `slack:` block is a Slack message the dashboard's watcher routed to this project,
-   not a work item: it adds no row. After its `repo:` check, write the reply as a draft,
-   `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md` (`<id>` the block's `id`): its first line
-   `to: slack <channelId> <threadTs>` (the block's `ts` when `threadTs` is `-`), then the reply. The
-   reply is in the owner's voice, at most two sentences, no greeting, and says only what STAR's own
-   files say (ledger states, brief titles, PR numbers); when they do not answer the message, the
-   reply says the owner will check, and so does its Suggest line. Then queue it (the `slack-reply`
-   row of the queue table) and delete the file. The block, under the file's `repo:` line:
+   not a work item: it adds no row. The watcher hands a message over at least once, so the same
+   message can come again, that day or a later one. After its `repo:` check, before anything else,
+   run `sh S/slack-handled.sh --home HOME_DIR <id>` (`<id>` the block's `id`) and act on its line:
+   - `handled sent <draft name>` or `handled drafted <draft name>`: STAR already raised this message.
+     Delete the file and do nothing else: no draft, no queue item, no notification.
+   - `queue <draft path>`: the draft was written but its item never was (STAR stopped in between).
+     Add the `slack-reply` item for that draft, its Suggest line the reply's first line (the
+     draft's second line), without rewriting the draft, then delete the file.
+   - `new`: write the reply as a draft, `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`: its
+     first line `to: slack <channelId> <threadTs>` (the block's `ts` when `threadTs` is `-`), then the
+     reply. The reply is in the owner's voice, at most two sentences, no greeting, and says only
+     what STAR's own files say (ledger states, brief titles, PR numbers); when they do not answer the
+     message, the reply says the owner will check, and so does its Suggest line. Then queue it (the
+     `slack-reply` row of the queue table) and delete the file.
+   - No line, or any other exit: leave the file where it is and queue `--kind held`
+     "slack-handled.sh could not check inbox file <name>; it stays in the inbox until the check runs":
+     a check that could not run never drafts a reply twice and never loses the message.
+
+   The block, under the file's `repo:` line:
 
        slack:
          id: <channelId>-<ts>

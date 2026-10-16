@@ -150,6 +150,7 @@ grep -qF 'a direct <code>gh pr merge</code> is refused in STAR'"'"'s session and
 grep -qF '<code>/juel:star dashboard</code> opens one local page for every STAR project on this Mac' "$PAGE" && pass "DASH the page names the dashboard" || fail "DASH dashboard on the page"
 grep -qF 'When STAR has a pick on something it asks you, it marks the option it recommends and says why in one line, never for a secret.' "$PAGE" && pass "DASH the page names STAR picks" || fail "DASH picks on the page"
 grep -qF 'A Slack message the dashboard routes to a project comes to you as a reply STAR drafted in your voice: send it, have it rewritten, or skip it.' "$PAGE" && pass "DASH the page names Slack replies" || fail "DASH Slack replies on the page"
+grep -qF 'STAR raises each Slack message once, even when the watcher hands it over twice.' "$PAGE" && pass "DASH the page says each Slack message is raised once" || fail "DASH a Slack message raised once on the page"
 # the docs copy: docs/star-closed-loop.html changes in the same commit as this page
 DOCS="$ROOT/docs/star-closed-loop.html"
 if [ -f "$DOCS" ] && tail -n +2 "$PAGE" | cmp -s - "$DOCS"; then

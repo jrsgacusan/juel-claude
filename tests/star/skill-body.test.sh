@@ -694,6 +694,14 @@ g "DASH32 no Slack tool writes nothing to sent.log" 'and write nothing to `sent.
 g "DASH33 a reply is marked sent only once it posted" 'once the post succeeds, append that line to `sent.log`'
 g "DASH34 anything else asks again" '(answer send, rewrite: <how> or skip)'
 g "DASH35 a failed post writes nothing to sent.log" 'A post that fails: write nothing to `sent.log`'
+g "DASH36 a slack: file is checked against what STAR already raised" '`sh S/slack-handled.sh --home HOME_DIR <id>`'
+g "DASH37 handled: STAR already raised the message" '`handled sent <draft name>` or `handled drafted <draft name>`: STAR already raised this message.'
+g "DASH38 handled: the file is deleted and nothing is raised" 'Delete the file and do nothing else: no draft, no queue item, no notification.'
+g "DASH39 queue: the item is added for the draft already written" '`queue <draft path>`: the draft was written but its item never was'
+g "DASH40 queue: the draft is not rewritten" 'without rewriting the draft, then delete the file.'
+g "DASH41 new: the reply is drafted as before" '`new`: write the reply as a draft,'
+g "DASH42 a check that could not run keeps the file" 'No line, or any other exit: leave the file where it is and queue `--kind held`'
+g "DASH43 the held item names the file" 'slack-handled.sh could not check inbox file <name>'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
