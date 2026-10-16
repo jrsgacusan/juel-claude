@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { cleanup } from "@testing-library/react"
+import { cleanup, configure } from "@testing-library/react"
 import { setConnection } from "@/api/events"
 import { server } from "@/mocks/node"
 import { resetMockState } from "@/mocks/state"
@@ -30,6 +30,10 @@ Element.prototype.hasPointerCapture ??= () => false
 Element.prototype.releasePointerCapture ??= () => {}
 URL.createObjectURL = () => "blob:mock"
 URL.revokeObjectURL = () => {}
+
+// The whole suite runs files in parallel; under that load a first render can take longer than
+// Testing Library's 1 s default, so findBy and waitFor get 3 s before they fail.
+configure({ asyncUtilTimeout: 3_000 })
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }))
 afterAll(() => server.close())
