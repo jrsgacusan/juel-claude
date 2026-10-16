@@ -12,7 +12,7 @@ const CONTRACT = `export type Project = { name: string; repo: string; home: stri
 export type Req = { params: Record<string, string>; query: URLSearchParams; body: unknown }
 export type Res = { status?: number; json?: unknown }
 export type ModuleApi = {
-  route(method: 'GET' | 'POST' | 'PUT', path: string, handler: (req: Req) => Promise<Res>): void
+  route(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, handler: (req: Req) => Promise<Res>): void
   emit(event: { type: string; project?: string; [k: string]: unknown }): void
   projects(): Project[]
   nudge(project: string): Promise<boolean>
@@ -34,12 +34,14 @@ test('types.ts is the module contract of D1, unchanged', async () => {
 test('config.json pins read-only Slack tools and denies every other tool the connector exposes', async () => {
   const config = JSON.parse(await read('config.json')) as {
     plugin: string
+    linearPlugin: string
     model: string
     timeoutMin: number
     allowedTools: string[]
     disallowedTools: string[]
   }
   assert.equal(config.plugin, 'slack@anthropic-plugin-directory')
+  assert.equal(config.linearPlugin, 'linear@claude-plugins-official')
   assert.equal(config.model, 'haiku')
   assert.equal(config.timeoutMin, 4)
   for (const tool of config.allowedTools) {
@@ -56,15 +58,37 @@ test('config.json pins read-only Slack tools and denies every other tool the con
   assert.equal(config.allowedTools.length + config.disallowedTools.length, 27, 'the spike listed 27 Slack tools')
 })
 
+test('config.json gives the drafter read tools only: no Write or Edit, git and gh reads, Linear reads', async () => {
+  const { drafter } = JSON.parse(await read('config.json')) as { drafter: { allowedTools: string[]; linearTools: string[]; disallowedTools: string[] } }
+  for (const tool of ['Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch']) {
+    assert.ok(drafter.disallowedTools.includes(tool), `${tool} is not denied`)
+    assert.ok(!drafter.allowedTools.includes(tool), `${tool} is allowed`)
+  }
+  for (const tool of drafter.allowedTools) {
+    assert.match(tool, /^(Read|Grep|Glob|Bash\((git (log|show|diff|blame|grep|ls-files|status)|gh (pr (view|list|diff|checks)|issue (view|list))):\*\))$/)
+  }
+  for (const tool of drafter.linearTools) assert.match(tool, /^mcp__plugin_linear_linear__(get|list)_/)
+  for (const write of ['save_issue', 'save_comment', 'delete_comment', 'create_attachment']) {
+    assert.ok(drafter.disallowedTools.includes(`mcp__plugin_linear_linear__${write}`), `${write} is not denied`)
+  }
+  assert.deepEqual([...drafter.allowedTools, ...drafter.linearTools].filter(tool => drafter.disallowedTools.includes(tool)), [])
+})
+
 test('prompt.md asks for exactly the messages, exclusions and fields of the item, in the window', async () => {
   const prompt = await read('prompt.md')
-  for (const field of ['"channelId"', '"channel"', '"ts"', '"threadTs"', '"from"', '"text"', '"permalink"', '"thread"']) {
+  for (const field of ['"channelId"', '"channel"', '"ts"', '"threadTs"', '"from"', '"text"', '"permalink"', '"thread"', '"why"']) {
     assert.ok(prompt.includes(field), `no field ${field}`)
   }
   for (const phrase of [
-    "a DM or a group DM whose latest message is not the owner's",
-    'a mention of the owner',
-    'a thread the owner is in, a new question for the owner',
+    '"dm": in a 1:1 DM with the owner',
+    '"mention": it mentions the owner',
+    '"asks": it asks the owner for something',
+    'A group DM is never "dm"',
+    'thread messages meant for someone else',
+    '"owner"',
+    '"displayName"',
+    '"realName"',
+    '{{names}}',
     'bots',
     'thank-yous',
     'FYIs',
@@ -81,4 +105,5 @@ test('prompt.md asks for exactly the messages, exclusions and fields of the item
   ]) {
     assert.ok(prompt.includes(phrase), `prompt.md does not say: ${phrase}`)
   }
+  assert.ok(!prompt.includes('a new question for the owner'))
 })

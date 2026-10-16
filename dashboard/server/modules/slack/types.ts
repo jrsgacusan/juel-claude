@@ -5,7 +5,7 @@ export type Project = { name: string; repo: string; home: string; terminal: stri
 export type Req = { params: Record<string, string>; query: URLSearchParams; body: unknown }
 export type Res = { status?: number; json?: unknown }
 export type ModuleApi = {
-  route(method: 'GET' | 'POST' | 'PUT', path: string, handler: (req: Req) => Promise<Res>): void
+  route(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, handler: (req: Req) => Promise<Res>): void
   emit(event: { type: string; project?: string; [k: string]: unknown }): void
   projects(): Project[]
   nudge(project: string): Promise<boolean>

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readdir, writeFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -8,7 +8,6 @@ import {
   StateError,
   isPending,
   prune,
-  readEveryMin,
   readRoutes,
   readSeen,
   readStatus,
@@ -30,7 +29,7 @@ test('a missing state file is its default, and the folder follows HOME', async (
   assert.deepEqual(await readSeen(), {})
   assert.deepEqual(await readRoutes(), {})
   assert.deepEqual(await readUnrouted(), [])
-  assert.deepEqual(await readStatus('haiku'), { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null })
+  assert.deepEqual(await readStatus('haiku'), { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null, stderr: null })
   await cleanup(w)
 })
 
@@ -83,7 +82,7 @@ test('a routed entry is pending until delivered; unroute drops its reservation',
 test('writes are atomic: each file is whole and no temp file is left', async () => {
   const w = await world()
   const entry: Entry = { ...msg(), seenAt: NOW.toISOString(), project: null }
-  const status = { connected: true, lastCheck: NOW.toISOString(), error: null, model: 'haiku', workspace: 'Acme' }
+  const status = { connected: true, lastCheck: NOW.toISOString(), error: null, model: 'haiku', workspace: 'Acme', stderr: null }
   await writeSeen({ 'C1-1700000000.000100': entry })
   await writeRoutes({ C9: 'app' })
   await writeStatus(status)
@@ -98,25 +97,4 @@ test('prune drops entries first seen more than 30 days ago, and their unrouted i
   const at = (ago: number): Entry => ({ ...msg(), seenAt: new Date(NOW.getTime() - ago).toISOString(), project: null })
   const seen = { old: at(KEEP_MS + 1), edge: at(KEEP_MS), fresh: at(0) }
   assert.deepEqual(prune(seen, ['old', 'fresh'], NOW), { seen: { edge: seen.edge, fresh: seen.fresh }, unrouted: ['fresh'], pruned: 1 })
-})
-
-test('readEveryMin is slack.everyMin from ~/.juel/dashboard.json, else 5', async () => {
-  const w = await world()
-  assert.equal(readEveryMin(), 5)
-  await mkdir(join(w.home, '.juel'), { recursive: true })
-  const cases: [string, number][] = [
-    [JSON.stringify({ port: 4767, slack: { everyMin: 2 } }), 2],
-    [JSON.stringify({ slack: { everyMin: 0.5 } }), 0.5],
-    [JSON.stringify({ port: 4767 }), 5],
-    [JSON.stringify({ slack: { everyMin: 0 } }), 5],
-    [JSON.stringify({ slack: { everyMin: -1 } }), 5],
-    [JSON.stringify({ slack: { everyMin: '2' } }), 5],
-    ['null', 5],
-    ['{oops', 5],
-  ]
-  for (const [text, want] of cases) {
-    await writeFile(join(w.home, '.juel', 'dashboard.json'), text)
-    assert.equal(readEveryMin(), want, text)
-  }
-  await cleanup(w)
 })

@@ -1,5 +1,6 @@
 {
   "plugin": "slack@anthropic-plugin-directory",
+  "linearPlugin": "linear@claude-plugins-official",
   "model": "haiku",
   "timeoutMin": 4,
   "allowedTools": [
@@ -32,5 +33,69 @@
     "mcp__plugin_slack_slack__slack_update_canvas",
     "mcp__plugin_slack_slack__slack_update_list",
     "mcp__plugin_slack_slack__slack_update_list_record"
-  ]
+  ],
+  "drafter": {
+    "allowedTools": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git diff:*)",
+      "Bash(git blame:*)",
+      "Bash(git grep:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git status:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)"
+    ],
+    "linearTools": [
+      "mcp__plugin_linear_linear__get_issue",
+      "mcp__plugin_linear_linear__list_issues",
+      "mcp__plugin_linear_linear__list_comments",
+      "mcp__plugin_linear_linear__get_project",
+      "mcp__plugin_linear_linear__get_document"
+    ],
+    "disallowedTools": [
+      "Write",
+      "Edit",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "mcp__plugin_linear_linear__create_attachment",
+      "mcp__plugin_linear_linear__create_attachment_from_upload",
+      "mcp__plugin_linear_linear__create_issue_label",
+      "mcp__plugin_linear_linear__delete_attachment",
+      "mcp__plugin_linear_linear__delete_comment",
+      "mcp__plugin_linear_linear__delete_diff_comment",
+      "mcp__plugin_linear_linear__delete_status_update",
+      "mcp__plugin_linear_linear__mark_notification",
+      "mcp__plugin_linear_linear__merge_diff",
+      "mcp__plugin_linear_linear__prepare_attachment_upload",
+      "mcp__plugin_linear_linear__resolve_diff_thread",
+      "mcp__plugin_linear_linear__restore_issue_label",
+      "mcp__plugin_linear_linear__restore_project_label",
+      "mcp__plugin_linear_linear__retire_issue_label",
+      "mcp__plugin_linear_linear__retire_project_label",
+      "mcp__plugin_linear_linear__save_comment",
+      "mcp__plugin_linear_linear__save_diff_comment",
+      "mcp__plugin_linear_linear__save_document",
+      "mcp__plugin_linear_linear__save_issue",
+      "mcp__plugin_linear_linear__save_issue_label",
+      "mcp__plugin_linear_linear__save_milestone",
+      "mcp__plugin_linear_linear__save_project",
+      "mcp__plugin_linear_linear__save_project_label",
+      "mcp__plugin_linear_linear__save_release",
+      "mcp__plugin_linear_linear__save_release_note",
+      "mcp__plugin_linear_linear__save_status_update",
+      "mcp__plugin_linear_linear__share_issue",
+      "mcp__plugin_linear_linear__submit_diff_review",
+      "mcp__plugin_linear_linear__unshare_issue",
+      "mcp__plugin_linear_linear__update_diff"
+    ]
+  }
 }

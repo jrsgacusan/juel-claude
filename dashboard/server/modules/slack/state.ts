@@ -5,12 +5,14 @@
 // would raise every message again). status.json fields of the wrong type read as their defaults.
 // Writes are atomic: a temp file, then a rename.
 import { randomBytes } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-/** One message as the check's answer gives it (the item's step 2). */
+/** Why a message waits on the owner (D17): a 1:1 DM, a mention, or it asks the owner for something. */
+export type Why = 'dm' | 'mention' | 'asks'
+export type Owner = { id: string; displayName: string; realName: string }
+/** One message as the check's answer gives it (the item's step 2). `why` is missing on entries written before D17. */
 export type Message = {
   channelId: string
   channel: string
@@ -20,6 +22,7 @@ export type Message = {
   text: string
   permalink: string
   thread: string[]
+  why?: Why
 }
 /**
  * A seen.json entry (D5): the message, when it was first seen, and its project (null while unrouted,
@@ -30,7 +33,7 @@ export type Entry = Message & { seenAt: string; project: string | null; inbox?: 
 export type Seen = Record<string, Entry>
 /** routes.json: channel id to project name, learned only from the owner's routes (D3). */
 export type Routes = Record<string, string>
-export type Status = { connected: boolean; lastCheck: string | null; error: string | null; model: string; workspace: string | null }
+export type Status = { connected: boolean; lastCheck: string | null; error: string | null; model: string; workspace: string | null; stderr: string | null }
 
 export const MINUTE_MS = 60_000
 export const DAY_MS = 24 * 60 * MINUTE_MS
@@ -38,10 +41,11 @@ export const KEEP_MS = 30 * DAY_MS
 
 export class StateError extends Error {}
 
-const juelDir = (): string => join(homedir(), '.juel')
+/** I-1: JUEL_DIR when set and not empty, else ~/.juel. */
+export const juelDir = (): string => process.env.JUEL_DIR || join(homedir(), '.juel')
 export const slackDir = (): string => join(juelDir(), 'slack')
 export const idOf = (m: { channelId: string; ts: string }): string => `${m.channelId}-${m.ts}`
-export const defaultStatus = (model: string): Status => ({ connected: false, lastCheck: null, error: null, model, workspace: null })
+export const defaultStatus = (model: string): Status => ({ connected: false, lastCheck: null, error: null, model, workspace: null, stderr: null })
 export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 export const oneLine = (text: string, max = 200): string => text.replace(/\s+/g, ' ').trim().slice(0, max)
 /** The message is still waiting for a project: neither routed nor dropped. */
@@ -144,6 +148,7 @@ export async function readStatus(model: string): Promise<Status> {
     error: typeof data.error === 'string' ? data.error : null,
     model,
     workspace: typeof data.workspace === 'string' ? data.workspace : null,
+    stderr: typeof data.stderr === 'string' ? data.stderr : null,
   }
 }
 export const writeStatus = (status: Status): Promise<void> => writeJson('status.json', status)
@@ -158,16 +163,4 @@ export function prune(seen: Seen, unrouted: string[], now: Date): { seen: Seen; 
     else kept[id] = entry
   }
   return { seen: kept, unrouted: unrouted.filter(id => Object.hasOwn(kept, id)), pruned }
-}
-
-/** ~/.juel/dashboard.json's slack.everyMin when it is a positive number, else 5. */
-export function readEveryMin(): number {
-  try {
-    const data = JSON.parse(readFileSync(join(juelDir(), 'dashboard.json'), 'utf8')) as unknown
-    const slack = isObject(data) ? data.slack : undefined
-    const every = isObject(slack) ? slack.everyMin : undefined
-    return typeof every === 'number' && Number.isFinite(every) && every > 0 ? every : 5
-  } catch {
-    return 5
-  }
 }
