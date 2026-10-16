@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { isConflictMarkers } from "@/api/client"
 import { useAnswer, useItems, useSlack } from "@/api/queries"
 import type { Loop } from "@/api/types"
+import { SlackText } from "@/components/slack-text"
 import { StarMark, StateBadge } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -98,7 +99,7 @@ export function LoopDetail({
             <Icon className="size-3" />
             {label}
           </Badge>
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="min-w-0 font-mono text-xs break-all text-muted-foreground">
             {loop.item}
           </span>
           {loop.askedAt !== null && (
@@ -141,7 +142,7 @@ export function LoopDetail({
               {message.from} in {message.channel}
             </span>
           )}
-          <p className="break-words">{message?.text ?? loop.title}</p>
+          <SlackText text={message?.text ?? loop.title} />
         </div>
       ) : (
         body.map((line) => (
@@ -219,16 +220,20 @@ export function LoopDetail({
         )}
         <div className="flex items-center gap-2">
           {loop.kind === "slack-reply" && (
-            <Button variant="outline" asChild>
+            <Button variant="outline" asChild className="pointer-coarse:h-11">
               <Link to={projectPath(project, "slack", { loop: loop.id })}>
                 <PenLine />
                 Edit the draft
               </Link>
             </Button>
           )}
-          <Button onClick={() => void send()} disabled={answer.isPending}>
+          <Button
+            onClick={() => void send()}
+            disabled={answer.isPending}
+            className="pointer-coarse:h-11"
+          >
             Send to STAR
-            <span className="opacity-60">⌘↵</span>
+            <span className="opacity-60 pointer-coarse:hidden">⌘↵</span>
           </Button>
         </div>
       </div>

@@ -14,7 +14,7 @@ const Link = ({ href, children }: { href: string; children: ReactNode }) => (
     href={href}
     target="_blank"
     rel="noopener noreferrer"
-    className="break-all font-medium underline underline-offset-2"
+    className="font-medium break-all underline underline-offset-2"
   >
     {children}
   </a>
@@ -26,8 +26,10 @@ function splitTrailing(raw: string): [string, string] {
   for (;;) {
     const last = url[url.length - 1]
     const unmatched =
-      last === ")" && (url.match(/\)/g) ?? []).length > (url.match(/\(/g) ?? []).length
-    if (last !== undefined && (TRAILING.includes(last) || unmatched)) url = url.slice(0, -1)
+      last === ")" &&
+      (url.match(/\)/g) ?? []).length > (url.match(/\(/g) ?? []).length
+    if (last !== undefined && (TRAILING.includes(last) || unmatched))
+      url = url.slice(0, -1)
     else break
   }
   return [url, raw.slice(url.length)]
@@ -44,11 +46,19 @@ function inline(line: string): ReactNode[] {
     if (bare !== undefined) {
       const [url, rest] = splitTrailing(bare)
       const href = decode(url)
-      out.push(<Link key={key++} href={href}>{href}</Link>)
+      out.push(
+        <Link key={key++} href={href}>
+          {href}
+        </Link>
+      )
       if (rest) out.push(decode(rest))
     } else if (target !== undefined && WEB.test(target)) {
       const href = decode(target)
-      out.push(<Link key={key++} href={href}>{label ? decode(label) : href}</Link>)
+      out.push(
+        <Link key={key++} href={href}>
+          {label ? decode(label) : href}
+        </Link>
+      )
     } else {
       out.push(decode(label ?? whole))
     }
@@ -67,7 +77,8 @@ function blocks(text: string): Block[] {
     if (line.trim() === "") {
       current = null
     } else if (BULLET.test(line)) {
-      if (current?.kind !== "ul") out.push((current = { kind: "ul", items: [] }))
+      if (current?.kind !== "ul")
+        out.push((current = { kind: "ul", items: [] }))
       current.items.push(line.replace(BULLET, ""))
     } else {
       if (current?.kind !== "p") out.push((current = { kind: "p", lines: [] }))
@@ -78,7 +89,13 @@ function blocks(text: string): Block[] {
 }
 
 /** A Slack message as React elements only: line breaks, bullets, and http(s) links. Never HTML. */
-export function SlackText({ text, className }: { text: string; className?: string }) {
+export function SlackText({
+  text,
+  className,
+}: {
+  text: string
+  className?: string
+}) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-2 break-words", className)}>
       {blocks(text).map((block, i) =>

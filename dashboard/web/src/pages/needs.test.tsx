@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { getConnection } from "@/api/events"
 import { server } from "@/mocks/node"
 import { getDb, mockEvents, setScenario } from "@/mocks/state"
@@ -8,6 +8,14 @@ import { renderApp } from "@/test/render"
 
 const loopAnswer = (id: string) =>
   getDb().loops["sphere-app"]?.find((l) => l.id === id)?.answer
+
+const setWidth = (value: number) =>
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value })
+const phone = () => {
+  setWidth(390)
+  return vi.spyOn(window, "scrollTo").mockImplementation(() => {})
+}
+afterEach(() => setWidth(1024))
 
 describe("Needs you", () => {
   it("lists the open loops with tab counts, blocked work first", async () => {
@@ -348,5 +356,74 @@ describe("Needs you", () => {
       await screen.findByText("A new question from the build worker")
     ).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /^All\s*10$/ })).toBeInTheDocument()
+  })
+
+  it("on a phone, shows the list, opens an item on its own, and Back keeps the tab", async () => {
+    phone()
+    const { user, router } = renderApp("/sphere-app/needs")
+    await user.click(await screen.findByRole("tab", { name: /^Slack\s*3$/ }))
+    const list = screen.getByRole("region", { name: "Open loops" })
+    expect(screen.queryByRole("region", { name: "Answer" })).not.toBeInTheDocument()
+    await user.click(within(list).getByRole("button", { name: /Lea in #releases/ }))
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(await within(detail).findByText("which PR fixes the invoice time zone?")).toBeInTheDocument()
+    expect(router.state.historyAction).toBe("PUSH")
+    expect(router.state.location.search).toBe("?loop=N-48")
+    expect(screen.queryByRole("region", { name: "Open loops" })).not.toBeInTheDocument()
+    await user.click(within(detail).getByRole("button", { name: "Back to Needs you" }))
+    const again = await screen.findByRole("region", { name: "Open loops" })
+    expect(router.state.location.search).toBe("")
+    expect(screen.getByRole("tab", { name: /^Slack\s*3$/ })).toHaveAttribute("aria-selected", "true")
+    expect(within(again).getAllByRole("button")).toHaveLength(3)
+  })
+
+  it("fades the list in once when the tab changes", async () => {
+    const { user } = renderApp("/sphere-app/needs")
+    const list = await screen.findByRole("region", { name: "Open loops" })
+    const before = within(list).getByRole("list")
+    expect(before).toHaveClass("motion-fade-in")
+    await user.click(screen.getByRole("tab", { name: /^Blocked\s*4$/ }))
+    const after = within(list).getByRole("list")
+    expect(after).not.toBe(before)
+    expect(after).toHaveClass("motion-fade-in")
+  })
+
+  it("on a phone, Back from a linked item removes it in place", async () => {
+    phone()
+    const { user, router } = renderApp("/sphere-app/needs?loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(screen.queryByRole("region", { name: "Open loops" })).not.toBeInTheDocument()
+    await user.click(within(detail).getByRole("button", { name: "Back to Needs you" }))
+    expect(await screen.findByRole("region", { name: "Open loops" })).toBeInTheDocument()
+    expect(router.state.historyAction).toBe("REPLACE")
+    expect(router.state.location.search).toBe("")
+  })
+
+  it("on a phone, a loop STAR already closed shows the list, not another item", async () => {
+    phone()
+    renderApp("/sphere-app/needs?loop=N-99")
+    expect(await screen.findByRole("region", { name: "Open loops" })).toBeInTheDocument()
+    expect(screen.queryByRole("region", { name: "Answer" })).not.toBeInTheDocument()
+  })
+
+  it("hides the ⌘↵ hint on touch and grows its buttons to 44 px", async () => {
+    renderApp("/sphere-app/needs?loop=N-45")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    const send = within(detail).getByRole("button", { name: /Send to STAR/ })
+    expect(within(send).getByText("⌘↵")).toHaveClass("pointer-coarse:hidden")
+    expect(send).toHaveClass("pointer-coarse:h-11")
+    expect(within(detail).getByRole("link", { name: /Edit the draft/ })).toHaveClass("pointer-coarse:h-11")
+    expect(within(detail).getByText("slack")).toHaveClass("break-all")
+  })
+
+  it("shows a Slack item's message with its bullets and links", async () => {
+    const lea = getDb().slack.routed.find((m) => m.from === "Lea")
+    if (!lea) throw new Error("fixture Lea missing")
+    lea.text =
+      "which PR fixes the invoice time zone?\n• the bug: https://github.com/example/sphere-app/issues/88\n• the PR, if there is one"
+    renderApp("/sphere-app/needs?loop=N-48")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(await within(detail).findByRole("link", { name: "https://github.com/example/sphere-app/issues/88" })).toHaveAttribute("target", "_blank")
+    expect(within(within(detail).getByRole("list")).getAllByRole("listitem")).toHaveLength(2)
   })
 })

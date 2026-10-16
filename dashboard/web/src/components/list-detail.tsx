@@ -12,21 +12,32 @@ const subscribe = (notify: () => void) => {
 
 /** Below md (768 px). Read synchronously on the first render, so a phone never flashes the wide layout. */
 export function useNarrow() {
-  return useSyncExternalStore(subscribe, () => window.innerWidth < 768, () => false)
+  return useSyncExternalStore(
+    subscribe,
+    () => window.innerWidth < 768,
+    () => false
+  )
 }
 
 /** The selected item's URL param. On a phone, selecting pushes history so the browser's Back returns to the list. */
-export function useListSelection(name: string, aliases: readonly string[] = []) {
+export function useListSelection(
+  name: string,
+  aliases: readonly string[] = []
+) {
   const [value, set] = useSearchParam(name)
   const narrow = useNarrow()
   const location = useLocation()
   const navigate = useNavigate()
   const select = (next: string) => {
-    if (narrow) set(next, { replace: false, clear: aliases, state: { listDetail: true } })
+    if (narrow)
+      set(next, { replace: false, clear: aliases, state: { listDetail: true } })
     else set(next, { clear: aliases })
   }
   const back = () => {
-    if ((location.state as { listDetail?: unknown } | null)?.listDetail === true) navigate(-1)
+    if (
+      (location.state as { listDetail?: unknown } | null)?.listDetail === true
+    )
+      navigate(-1)
     else set(null, { clear: aliases })
   }
   return { value, select, back }
@@ -69,7 +80,11 @@ export function ListDetail({
       {(!narrow || showDetail) && (
         <section
           aria-label={detailLabel}
-          className={cn("min-h-0 min-w-0 md:overflow-y-auto", narrow && "motion-fade-in", detailClassName)}
+          className={cn(
+            "min-h-0 min-w-0 md:overflow-y-auto",
+            narrow && "motion-fade-in",
+            detailClassName
+          )}
         >
           {narrow && onBack && (
             <div className="border-b px-2 py-1.5">
