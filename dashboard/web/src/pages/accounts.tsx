@@ -23,7 +23,7 @@ import {
 } from "@/components/page-state"
 import { Dot } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
-import { agoText } from "@/lib/format"
+import { agoFromMs, agoText } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 function LimitRow({
@@ -120,7 +120,7 @@ function AccountCard({ account: a }: { account: Account }) {
         {a.status && <span>{`Usage reading: ${a.status}`}</span>}
         {a.isStale && (
           <span>
-            {`Last good reading, ${agoText(new Date(Date.now() - (a.usageAgeSeconds ?? 0) * 1000).toISOString())}`}
+            {`Last good reading, ${agoFromMs((a.usageAgeSeconds ?? 0) * 1000)}`}
           </span>
         )}
         {login && (

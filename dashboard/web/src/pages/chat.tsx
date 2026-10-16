@@ -159,6 +159,7 @@ export function ChatPage() {
       }
     )
   }
+  const starRunning = chat.data?.starRunning ?? true
   const answered = new Set(rows.flatMap((m) => (m.who === "star" && m.replyTo ? [m.replyTo] : [])))
   const next = overview.data?.resume.next
   return (
@@ -167,6 +168,7 @@ export function ChatPage() {
         <RefreshNotice what="the chat" error={chat.error} onRetry={() => void chat.refetch()} />
       )}
       <div className={cn(FILL_HEIGHT, "flex min-w-0 flex-col")}>
+        <h1 className="sr-only">Chat with STAR</h1>
         {next && (
           <section
             aria-label="STAR's next step"
@@ -207,7 +209,7 @@ export function ChatPage() {
                     {m.text}
                   </p>
                   {!answered.has(m.id) &&
-                    (chat.data.starRunning ? (
+                    (starRunning ? (
                       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <span aria-hidden="true" className="motion-breathe size-1.5 rounded-full bg-run" />
                         STAR is reading…
@@ -227,7 +229,7 @@ export function ChatPage() {
             )}
           </ol>
         </div>
-        {!chat.data.starRunning && (
+        {!starRunning && (
           <p role="status" className="mx-auto w-full max-w-2xl shrink-0 px-4 text-xs text-wait-fg">
             STAR isn't running. Your message waits in its inbox.
           </p>

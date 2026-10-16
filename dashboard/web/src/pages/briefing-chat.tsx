@@ -28,6 +28,9 @@ import {
 import { cn } from "@/lib/utils"
 import { Composer, useStickToBottom } from "./chat"
 
+/** When a message was sent; read in the send handler, never during render. */
+const sentNow = (): number => Date.now()
+
 function AgentTurn({
   turn,
   streaming = false,
@@ -175,7 +178,7 @@ export function Conversation({
       // the pending message, and there is nothing to mark as sent.
       const now = getPendingBriefing(project, id)
       if (now && now.text === message && !now.failed && now.sentAt === null)
-        setPendingBriefing(project, id, { ...now, sentAt: Date.now() })
+        setPendingBriefing(project, id, { ...now, sentAt: sentNow() })
     } catch (error) {
       // The server took nothing: drop the pending message and put the text back in the box.
       setPendingBriefing(project, id, null)

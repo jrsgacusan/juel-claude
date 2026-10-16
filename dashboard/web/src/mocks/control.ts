@@ -14,7 +14,7 @@ export const controlHandlers: HttpHandler[] = [
     const project = db.projects.find((candidate) => candidate.name === p)
     const overview = db.overview[p]
     if (!project || !overview) return fail(404, `No project named ${p}`)
-    let body: unknown = null
+    let body: unknown
     try {
       body = await request.json()
     } catch {

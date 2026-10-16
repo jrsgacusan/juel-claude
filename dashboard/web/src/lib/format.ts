@@ -27,7 +27,11 @@ export function agoText(
   now = Date.now()
 ): string {
   const ms = since(iso, now)
-  if (ms === null) return ""
+  return ms === null ? "" : agoFromMs(ms)
+}
+
+/** agoText for an age already in milliseconds: no clock is read, so it is safe in render. */
+export function agoFromMs(ms: number): string {
   if (ms < MINUTE) return "just now"
   if (ms < HOUR) return `${Math.floor(ms / MINUTE)} min ago`
   if (ms < DAY) return `${Math.floor(ms / HOUR)} h ago`

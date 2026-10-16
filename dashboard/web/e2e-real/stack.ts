@@ -38,7 +38,9 @@ export function paths(root: string): StackPaths {
  */
 export function launchEnv(root: string): NodeJS.ProcessEnv {
   const stack = paths(root)
-  const { JUEL_DIR: _juel, XDG_DATA_HOME: _xdg, ...inherited } = process.env
+  const inherited = { ...process.env }
+  delete inherited.JUEL_DIR
+  delete inherited.XDG_DATA_HOME
   return {
     ...inherited,
     HOME: stack.home,
