@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -194,5 +194,54 @@ test('POST /api/slack/check answers when the check ends, and 409 while one runs'
     status: 200,
     json: { ok: true, routed: 0, unrouted: 0, status: { connected: true, lastCheck: NOW.toISOString(), error: null, model: 'haiku', workspace: 'Acme' } },
   })
+  await cleanup(w)
+})
+
+test('two routes of one message at once: one wins, one inbox file, one nudge', async () => {
+  const w = await world()
+  const web = await project(w, 'web')
+  const s = stub([web])
+  const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR })
+  await play(w, [answer([msg({ channelId: 'C9', ts: '1700000001.000000', text: 'lunch?' })])])
+  await slack.check()
+  const url = '/api/slack/C9-1700000001.000000/route'
+  const results = await Promise.all([s.call('POST', url, { project: 'web' }), s.call('POST', url, { project: 'web' })])
+  assert.deepEqual(results.map(res => res.status).sort(), [200, 404])
+  assert.equal((await inboxFiles(web)).length, 1)
+  assert.deepEqual(s.nudges, ['web'])
+  await cleanup(w)
+})
+
+test('a route whose inbox file cannot be written is a 500 that changes nothing, and can be tried again', async () => {
+  const w = await world()
+  const web = await project(w, 'web')
+  const s = stub([web])
+  const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR })
+  await play(w, [answer([msg({ channelId: 'C9', ts: '1700000001.000000', text: 'lunch?' })])])
+  await slack.check()
+  const seen = await readFile(state(w, 'seen.json'), 'utf8')
+  await writeFile(join(web.home, 'inbox'), 'not a folder')
+  const url = '/api/slack/C9-1700000001.000000/route'
+  assert.equal((await s.call('POST', url, { project: 'web' })).status, 500)
+  assert.equal(await readFile(state(w, 'seen.json'), 'utf8'), seen)
+  assert.deepEqual(await readState(w, 'unrouted.json'), ['C9-1700000001.000000'])
+  assert.equal(existsSync(state(w, 'routes.json')), false)
+  assert.deepEqual(s.nudges, [])
+  await rm(join(web.home, 'inbox'))
+  assert.equal((await s.call('POST', url, { project: 'web' })).status, 200)
+  assert.equal((await inboxFiles(web)).length, 1)
+  assert.deepEqual(await readState(w, 'routes.json'), { C9: 'web' })
+  await cleanup(w)
+})
+
+test('GET with a damaged seen.json lists nothing and says why in its status', async () => {
+  const w = await world()
+  const s = stub([])
+  createSlack(s.api, { now: () => NOW, everyMs: HOUR })
+  await writeState(w, 'seen.json', '{not json')
+  const json = (await s.call('GET', '/api/slack')).json as Listing & { status: { error: string } }
+  assert.deepEqual(json.routed, [])
+  assert.deepEqual(json.unrouted, [])
+  assert.match(json.status.error, /seen\.json is not JSON/)
   await cleanup(w)
 })

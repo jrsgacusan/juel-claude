@@ -4,7 +4,7 @@
 // inbox file (D9), then a nudge. Also the module's three routes. Nothing here sends anything to
 // Slack: the run can use the pinned read tools only.
 import { readFileSync } from 'node:fs'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -19,6 +19,9 @@ import {
   MINUTE_MS,
   defaultStatus,
   idOf,
+  isObject,
+  isUnrouted,
+  oneLine,
   prune,
   readEveryMin,
   readRoutes,
@@ -37,13 +40,15 @@ import type { ModuleApi, Project, Req, Res } from './types.ts'
 const HERE = dirname(fileURLToPath(import.meta.url))
 /** setInterval's longest delay: a longer one fires at once. */
 const MAX_DELAY_MS = 2 ** 31 - 1
+/** D5's mark for a message the owner dropped. A project by this name is never routed to. */
+const DROPPED = 'none'
 
 export type Config = { plugin: string; model: string; timeoutMin: number; allowedTools: string[]; disallowedTools: string[] }
 export const loadConfig = (): Config => JSON.parse(readFileSync(join(HERE, 'config.json'), 'utf8')) as Config
-export const loadPrompt = (): string => readFileSync(join(HERE, 'prompt.md'), 'utf8')
+const loadPrompt = (): string => readFileSync(join(HERE, 'prompt.md'), 'utf8')
 
 /** The read-only run: D6, with S1's --settings, --setting-sources and --permission-mode. */
-export function argsOf(config: Config): string[] {
+function argsOf(config: Config): string[] {
   return [
     '-p',
     '--model',
@@ -74,7 +79,7 @@ export function windowStart(lastCheck: string | null, now: Date): Date {
   return new Date(Math.min(start, now.getTime() - 2 * MINUTE_MS))
 }
 
-export function fillPrompt(template: string, since: Date, now: Date): string {
+function fillPrompt(template: string, since: Date, now: Date): string {
   const unix = (at: Date): string => String(Math.floor(at.getTime() / 1000))
   return template
     .replaceAll('{{since_ts}}', unix(since))
@@ -83,7 +88,6 @@ export function fillPrompt(template: string, since: Date, now: Date): string {
     .replaceAll('{{now_iso}}', now.toISOString())
 }
 
-const oneLine = (text: string, max = 200): string => text.replace(/\s+/g, ' ').trim().slice(0, max)
 const lastLine = (text: string): string => oneLine(text.trim().split('\n').pop() ?? '')
 
 /** Newest Slack ts first. */
@@ -93,7 +97,7 @@ function byTsDesc(a: { ts: string }, b: { ts: string }): number {
   return Number(bi) - Number(ai) || bf.padEnd(6, '0').localeCompare(af.padEnd(6, '0'))
 }
 
-export type SlackOptions = { bin?: string; everyMs?: number; timeoutMs?: number; now?: () => Date; config?: Config }
+export type SlackOptions = { bin?: string; everyMs?: number; timeoutMs?: number; now?: () => Date }
 export type CheckOutcome = { ok: boolean; routed: number; unrouted: number }
 export type Slack = {
   /** Runs a check now and answers when it ends; null when one is already running. */
@@ -104,7 +108,7 @@ export type Slack = {
   readonly everyMs: number
 }
 
-type Applied = { routed: number; unrouted: number; pruned: number; changed: boolean; files: Map<string, number> }
+type Applied = { routed: number; unrouted: number; pruned: number; statusMoved: boolean; files: Map<string, number> }
 
 type Listed = {
   id: string
@@ -120,7 +124,7 @@ type Listed = {
 type RouteDone = { res: Res } | { project: string }
 
 export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
-  const config = opts.config ?? loadConfig()
+  const config = loadConfig()
   const template = loadPrompt()
   const bin = opts.bin ?? 'claude'
   const now = opts.now ?? ((): Date => new Date())
@@ -135,7 +139,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       console.error(`slack: ${what} failed: ${errorText(err)}`)
     }
   }
-  const changed = (): void => safely('emit', () => api.emit({ type: 'change', what: 'slack' }))
+  const emitChange = (): void => safely('emit', () => api.emit({ type: 'change', what: 'slack' }))
   // Counts and errors only: never a message's text, a person's name or a channel.
   const log = (line: string): void => safely('log', () => api.log(line))
   const nudge = async (project: string): Promise<boolean> => {
@@ -146,11 +150,14 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       return false
     }
   }
+  /** The registered projects a message can go to: never one named like D5's dropped mark. */
+  const routable = (): Project[] => api.projects().filter(p => p.name !== DROPPED)
 
   // One writer of the state files at a time: a check's writes and a route never interleave.
+  // `chain` never rejects, so each step runs after the one before it, however that one ended.
   let chain: Promise<unknown> = Promise.resolve()
   function locked<T>(act: () => Promise<T>): Promise<T> {
-    const next = chain.then(act, act)
+    const next = chain.then(act)
     chain = next.catch(() => undefined)
     return next
   }
@@ -164,26 +171,24 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     let moved = false
     try {
       moved = await locked(async () => {
-        let before: Status
-        try {
-          before = await readStatus(config.model)
-        } catch {
-          before = defaultStatus(config.model)
-        }
-        const after: Status = { ...before, connected: connected ?? before.connected, error, model: config.model }
+        const before = await readStatus(config.model).catch(() => defaultStatus(config.model))
+        const after: Status = { ...before, connected: connected ?? before.connected, error }
         await writeStatus(after)
         return after.connected !== before.connected || after.error !== before.error
       })
     } catch (err) {
       log(`slack: status.json could not be written: ${errorText(err)}`)
     }
-    if (moved) changed()
+    if (moved) emitChange()
     return { ok: false, routed: 0, unrouted: 0 }
   }
 
-  /** S4: the lists first, then the inbox files, then status.json, all under the lock. */
+  /**
+   * S4: the lists first, then the inbox files, then status.json, all under the lock. A message whose
+   * inbox file cannot be written goes back to the unrouted list, where the owner can route it by hand.
+   */
   async function apply(messages: Message[], workspace: string | null, start: Date): Promise<Applied> {
-    const projects = api.projects()
+    const projects = routable()
     const signals = await Promise.all(projects.map(p => signalsOf(p)))
     return locked(async (): Promise<Applied> => {
       const before = await readStatus(config.model)
@@ -191,8 +196,8 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       const routes = await readRoutes()
       const seen: Seen = kept.seen
       // An id whose entry is gone (a crash between two writes) or was routed by hand leaves the list.
-      const unrouted = [...new Set(kept.unrouted)].filter(id => seen[id]?.project === null)
-      const toInbox: { project: Project; entry: Entry }[] = []
+      const unrouted = [...new Set(kept.unrouted)].filter(id => isUnrouted(seen, id))
+      const toInbox: { project: Project; id: string; entry: Entry }[] = []
       let added = 0
       for (const m of messages) {
         const id = idOf(m)
@@ -202,7 +207,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         const entry: Entry = { ...m, seenAt: start.toISOString(), project: project ? project.name : null }
         seen[id] = entry
         if (project) {
-          toInbox.push({ project, entry })
+          toInbox.push({ project, id, entry })
         } else {
           unrouted.push(id)
           added += 1
@@ -211,16 +216,30 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       await writeUnrouted(unrouted)
       await writeSeen(seen)
       const files = new Map<string, number>()
-      for (const { project, entry } of toInbox) {
+      let failed = 0
+      for (const { project, id, entry } of toInbox) {
         try {
           await writeInbox(project.home, inboxText(project.repo, entry))
           files.set(project.name, (files.get(project.name) ?? 0) + 1)
         } catch (err) {
-          log(`slack: an inbox file could not be written: ${errorText(err)}`)
+          log(`slack: an inbox file could not be written, so its message waits in unrouted: ${errorText(err)}`)
+          seen[id] = { ...entry, project: null }
+          unrouted.push(id)
+          failed += 1
         }
       }
+      if (failed > 0) {
+        await writeUnrouted(unrouted)
+        await writeSeen(seen)
+      }
       await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace: workspace ?? before.workspace })
-      return { routed: toInbox.length, unrouted: added, pruned: kept.pruned, changed: !before.connected || before.error !== null, files }
+      return {
+        routed: toInbox.length - failed,
+        unrouted: added + failed,
+        pruned: kept.pruned,
+        statusMoved: !before.connected || before.error !== null,
+        files,
+      }
     })
   }
 
@@ -257,7 +276,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       if (!(await nudge(project))) log(`slack: STAR was not reached: ${count} inbox file(s) wait for its next tick`)
     }
     log(`slack check: ${parsed.messages.length} found, ${applied.routed} routed, ${applied.unrouted} unrouted, ${applied.pruned} pruned`)
-    if (applied.routed + applied.unrouted + applied.pruned > 0 || applied.changed) changed()
+    if (applied.routed + applied.unrouted + applied.pruned > 0 || applied.statusMoved) emitChange()
     return { ok: true, routed: applied.routed, unrouted: applied.unrouted }
   }
 
@@ -289,34 +308,28 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     timer = null
   }
 
-  async function statusOrDefault(): Promise<Status> {
-    try {
-      return await readStatus(config.model)
-    } catch (err) {
-      return { ...defaultStatus(config.model), error: errorText(err) }
-    }
-  }
+  const statusOrDefault = (): Promise<Status> =>
+    readStatus(config.model).catch((err: unknown) => ({ ...defaultStatus(config.model), error: errorText(err) }))
 
   /** GET /api/slack: {status, routed, unrouted}; routed follows D5 and S7, both newest first. */
   async function listing(): Promise<{ status: Status; routed: Listed[]; unrouted: Record<string, string>[] }> {
     const status = await statusOrDefault()
-    let seen: Seen = {}
-    let ids: string[] = []
-    try {
-      seen = await readSeen()
-    } catch {
-      seen = {}
-    }
-    try {
-      ids = await readUnrouted()
-    } catch {
-      ids = []
-    }
+    // S6: an unreadable file lists as empty, and the status says why.
+    const problems: string[] = []
+    const seen = await readSeen().catch((err: unknown): Seen => {
+      problems.push(errorText(err))
+      return {}
+    })
+    const ids = await readUnrouted().catch((err: unknown): string[] => {
+      problems.push(errorText(err))
+      return []
+    })
+    if (problems.length > 0) status.error = [status.error, ...problems].filter(Boolean).join('; ')
     const projects = api.projects()
     const replies = new Map<string, { drafts: Draft[]; loops: OpenReply[] | null }>()
     const routed: Listed[] = []
     for (const [id, entry] of Object.entries(seen).sort(([, a], [, b]) => byTsDesc(a, b))) {
-      const project = entry.project === null || entry.project === 'none' ? undefined : projects.find(p => p.name === entry.project)
+      const project = entry.project === null || entry.project === DROPPED ? undefined : projects.find(p => p.name === entry.project)
       if (!project) continue
       let found = replies.get(project.name)
       if (!found) {
@@ -338,51 +351,58 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       })
     }
     const unrouted = [...new Set(ids)]
-      .filter(id => Object.hasOwn(seen, id) && seen[id]?.project === null)
+      .filter(id => isUnrouted(seen, id))
       .map(id => ({ id, entry: seen[id] as Entry }))
       .sort((a, b) => byTsDesc(a.entry, b.entry))
       .map(({ id, entry }) => ({ id, from: entry.from, channel: channelLabel(entry.channelId, entry.channel), text: entry.text, permalink: entry.permalink }))
     return { status, routed, unrouted }
   }
 
-  /** POST /api/slack/:id/route {project} (S8): the inbox file first, then the state, then the nudge. */
+  /**
+   * POST /api/slack/:id/route {project} (S8): seen.json first (the commit), then the inbox file,
+   * then the learned channel (D3) and the unrouted list. A failed inbox write puts seen.json back and
+   * is a 500, so the route can be tried again as it is. A crash between the commit and the inbox
+   * file loses that hand-over, still listed by GET, and never writes a second file (S4).
+   */
   async function routeOne(req: Req): Promise<Res> {
     const id = req.params.id ?? ''
-    const body = req.body
-    const want = typeof body === 'object' && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>).project : undefined
+    const want = isObject(req.body) ? req.body.project : undefined
     let done: RouteDone
     try {
       done = await locked(async (): Promise<RouteDone> => {
         const seen = await readSeen()
         const ids = await readUnrouted()
-        const entry = ids.includes(id) && Object.hasOwn(seen, id) && seen[id]?.project === null ? (seen[id] as Entry) : null
+        const entry = ids.includes(id) && isUnrouted(seen, id) ? (seen[id] as Entry) : null
         if (entry === null) return { res: { status: 404, json: { error: `no unrouted message ${id}` } } }
         if (typeof want !== 'string' || want === '') return { res: { status: 400, json: { error: 'project must be a project name or "none"' } } }
-        const rest = ids.filter(other => other !== id)
-        const keepUnrouted = async (): Promise<void> => {
+        const dropFromUnrouted = async (): Promise<void> => {
           try {
-            await writeUnrouted(rest)
+            await writeUnrouted(ids.filter(other => other !== id))
           } catch (err) {
             log(`slack: unrouted.json could not be written: ${errorText(err)}`)
           }
         }
-        if (want === 'none') {
-          await writeSeen({ ...seen, [id]: { ...entry, project: 'none' } })
-          await keepUnrouted()
-          return { project: 'none' }
+        if (want === DROPPED) {
+          await writeSeen({ ...seen, [id]: { ...entry, project: DROPPED } })
+          await dropFromUnrouted()
+          return { project: DROPPED }
         }
-        const project = api.projects().find(p => p.name === want)
+        const project = routable().find(p => p.name === want)
         if (!project) return { res: { status: 400, json: { error: `unknown project ${want}` } } }
-        const file = await writeInbox(project.home, inboxText(project.repo, entry))
+        await writeSeen({ ...seen, [id]: { ...entry, project: project.name } })
         try {
-          // D3: the owner's route teaches the channel; seen.json's write is the commit.
-          await writeRoutes({ ...(await readRoutes()), [entry.channelId]: project.name })
-          await writeSeen({ ...seen, [id]: { ...entry, project: project.name } })
+          await writeInbox(project.home, inboxText(project.repo, entry))
         } catch (err) {
-          await rm(file, { force: true })
+          await writeSeen(seen).catch((undo: unknown) => log(`slack: seen.json could not be put back after a failed route: ${errorText(undo)}`))
           throw err
         }
-        await keepUnrouted()
+        // D3: the owner's route teaches the channel. The route stands if this write fails.
+        try {
+          await writeRoutes({ ...(await readRoutes()), [entry.channelId]: project.name })
+        } catch (err) {
+          log(`slack: routes.json could not be written, so the channel was not learned: ${errorText(err)}`)
+        }
+        await dropFromUnrouted()
         return { project: project.name }
       })
     } catch (err) {
@@ -390,10 +410,10 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       return { status: 500, json: { error: errorText(err) } }
     }
     if ('res' in done) return done.res
-    changed()
-    if (done.project === 'none') {
+    emitChange()
+    if (done.project === DROPPED) {
       log('slack: 1 message dropped by hand')
-      return { status: 200, json: { project: 'none' } }
+      return { status: 200, json: { project: DROPPED } }
     }
     const nudged = await nudge(done.project)
     log(`slack: 1 message routed by hand${nudged ? '' : '; STAR was not reached'}`)
@@ -407,7 +427,6 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     return { status: 200, json: { ...outcome, status: await statusOrDefault() } }
   })
   api.route('POST', '/api/slack/:id/route', routeOne)
-
 
   return { check, start, stop, everyMs }
 }

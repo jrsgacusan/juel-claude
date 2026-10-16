@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -103,23 +104,35 @@ test("a routed message becomes one inbox file in its project's STAR folder, then
   assert.equal((await inboxFiles(app)).length, 1)
   assert.deepEqual(s.nudges, ['app'])
   assert.equal(s.events.length, 1, 'a check that changed nothing emits nothing')
+  // Routing by content never learns a channel (D3): a later message in C1 naming nothing is unrouted.
+  await play(w, [answer([msg({ ts: '1700000003.000000', text: 'and the docs?' })])])
+  assert.deepEqual(await slack.check(), { ok: true, routed: 0, unrouted: 1 })
+  assert.equal((await inboxFiles(app)).length, 1)
+  assert.equal(existsSync(state(w, 'routes.json')), false)
   await cleanup(w)
 })
 
-test('no match or a tie goes to unrouted.json, with no inbox file and no nudge', async () => {
+test('no match or a tie goes to unrouted.json, with no inbox file and no nudge; listed again, nothing changes', async () => {
   const w = await world()
   const app = await project(w, 'app')
   const web = await project(w, 'web')
   const s = stub([app, web])
+  const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR })
   const none = msg({ ts: '1700000001.000000', text: 'lunch?' })
   const tie = msg({ ts: '1700000002.000000', text: 'app and web are down' })
   await play(w, [answer([none, tie])])
-  assert.deepEqual(await createSlack(s.api, { now: () => NOW, everyMs: HOUR }).check(), { ok: true, routed: 0, unrouted: 2 })
+  assert.deepEqual(await slack.check(), { ok: true, routed: 0, unrouted: 2 })
   assert.deepEqual(await readState(w, 'unrouted.json'), ['C1-1700000001.000000', 'C1-1700000002.000000'])
   assert.equal((await readState(w, 'seen.json'))['C1-1700000001.000000'].project, null)
   assert.deepEqual(await inboxFiles(app), [])
   assert.deepEqual(await inboxFiles(web), [])
   assert.deepEqual(s.nudges, [])
+  assert.equal(s.events.length, 1)
+  // D4's overlap lists them again: no new entry, no new id, no event.
+  const seen = await readFile(state(w, 'seen.json'), 'utf8')
+  assert.deepEqual(await slack.check(), { ok: true, routed: 0, unrouted: 0 })
+  assert.equal(await readFile(state(w, 'seen.json'), 'utf8'), seen)
+  assert.deepEqual(await readState(w, 'unrouted.json'), ['C1-1700000001.000000', 'C1-1700000002.000000'])
   assert.equal(s.events.length, 1)
   await cleanup(w)
 })
@@ -197,6 +210,14 @@ for (const f of FAILURES) {
     assert.equal((await calls(w)).length, 1, 'no retry before the next interval')
     await slack.check()
     assert.equal(s.events.length, 1, 'the same failure again changes nothing status.json shows')
+    // The next good check clears the error, and says so once.
+    await play(w, [answer([])])
+    assert.deepEqual(await slack.check(), { ok: true, routed: 0, unrouted: 0 })
+    const cleared = await readState(w, 'status.json')
+    assert.equal(cleared.error, null)
+    assert.equal(cleared.connected, true)
+    assert.equal(cleared.lastCheck, NOW.toISOString())
+    assert.equal(s.events.length, 2)
     await cleanup(w)
   })
 }
@@ -265,5 +286,38 @@ test('an emit or a log that throws never fails a check', async () => {
   await play(w, [answer([msg({ text: 'lunch?' })])])
   assert.deepEqual(await createSlack(s.api, { now: () => NOW, everyMs: HOUR }).check(), { ok: true, routed: 0, unrouted: 1 })
   assert.equal(s.events.length, 1)
+  await cleanup(w)
+})
+
+test('a routed message whose inbox file cannot be written waits in unrouted, and routing it by hand tries again', async () => {
+  const w = await world()
+  const app = await project(w, 'app', { briefs: { 'fix.md': brief({ name: 'fix', ref: 'APP-77' }) } })
+  await writeFile(join(app.home, 'inbox'), 'not a folder')
+  const s = stub([app])
+  const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR })
+  await play(w, [answer([msg({ text: 'is APP-77 landing today?' })])])
+  assert.deepEqual(await slack.check(), { ok: true, routed: 0, unrouted: 1 })
+  assert.equal((await readState(w, 'seen.json'))['C1-1700000000.000100'].project, null)
+  assert.deepEqual(await readState(w, 'unrouted.json'), ['C1-1700000000.000100'])
+  assert.deepEqual(s.nudges, [])
+  assert.ok(s.logs.some(line => line.startsWith('slack: an inbox file could not be written')), s.logs.join('\n'))
+  assert.ok(s.logs.includes('slack check: 1 found, 0 routed, 1 unrouted, 0 pruned'), s.logs.join('\n'))
+  await rm(join(app.home, 'inbox'))
+  assert.deepEqual(await s.call('POST', '/api/slack/C1-1700000000.000100/route', { project: 'app' }), {
+    status: 200,
+    json: { project: 'app', nudged: true },
+  })
+  assert.equal((await inboxFiles(app)).length, 1)
+  await cleanup(w)
+})
+
+test('a project named "none" is never routed to: that name marks a dropped message (D5)', async () => {
+  const w = await world()
+  const none = await project(w, 'none')
+  const s = stub([none])
+  await play(w, [answer([msg({ text: 'none of the builds pass' })])])
+  assert.deepEqual(await createSlack(s.api, { now: () => NOW, everyMs: HOUR }).check(), { ok: true, routed: 0, unrouted: 1 })
+  assert.deepEqual(await inboxFiles(none), [])
+  assert.deepEqual(s.nudges, [])
   await cleanup(w)
 })
