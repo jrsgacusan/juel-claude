@@ -1,7 +1,7 @@
-import { useInfiniteQuery } from "@tanstack/react-query"
-import { apiJson } from "./client"
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { apiJson, sendJson } from "./client"
 import { keys } from "./queries"
-import type { ChatState } from "./types"
+import type { ChatSendRequest, ChatSendResponse, ChatState } from "./types"
 
 export function chatPath(p: string, before?: string | null): string {
   const base = `/api/projects/${encodeURIComponent(p)}/chat`
@@ -33,3 +33,13 @@ export const useChat = (p: string) =>
     getNextPageParam: (last) => (last.hasMore ? (last.messages[0]?.id ?? null) : null),
     select: (data) => threadOf(data.pages),
   })
+
+export function useSendChat(p: string) {
+  const qc = useQueryClient()
+  return useMutation<ChatSendResponse, Error, ChatSendRequest>({
+    mutationFn: ({ text }) => sendJson<ChatSendResponse>("POST", chatPath(p), { text }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.chat(p) })
+    },
+  })
+}

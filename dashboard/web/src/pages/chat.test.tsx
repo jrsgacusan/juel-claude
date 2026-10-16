@@ -68,4 +68,109 @@ describe("Chat", () => {
     renderApp("/sphere-app/chat")
     expect(await screen.findByTestId("page-error")).toHaveTextContent("Couldn't load the chat.")
   })
+
+  it("sends with Enter on a fine pointer and shows STAR is reading until the reply arrives", async () => {
+    const { user } = renderApp("/sphere-app/chat")
+    const box = await screen.findByLabelText("Message STAR")
+    expect(box).toHaveClass("text-base", "md:text-sm")
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(box, "how's it going?{Enter}")
+    expect(await within(thread()).findByText("how's it going?")).toBeInTheDocument()
+    expect(box).toHaveValue("")
+    expect(within(thread()).getByText("STAR is reading…")).toBeInTheDocument()
+    expect(
+      await within(thread()).findByText("Two workers are building:", {}, { timeout: 3000 })
+    ).toBeInTheDocument()
+    expect(within(thread()).queryByText("STAR is reading…")).not.toBeInTheDocument()
+    const sent = chatThread("sphere-app").filter((m) => m.who === "me").at(-1)!
+    expect(sent.text).toBe("how's it going?")
+    expect(chatThread("sphere-app").at(-1)).toMatchObject({ who: "star", replyTo: sent.id })
+  })
+
+  it("makes a newline with Enter on a touch screen and sends with the Send button", async () => {
+    mockPointer(true)
+    const { user } = renderApp("/sphere-app/chat")
+    const box = await screen.findByLabelText("Message STAR")
+    const before = chatThread("sphere-app").length
+    await user.type(box, "line one{Enter}line two")
+    expect(box).toHaveValue("line one\nline two")
+    expect(chatThread("sphere-app")).toHaveLength(before)
+    const send = screen.getByRole("button", { name: "Send" })
+    expect(send).toHaveClass("pointer-coarse:size-11")
+    await user.click(send)
+    const bubble = await within(thread()).findByText("line one line two")
+    expect(bubble.textContent).toBe("line one\nline two")
+    expect(chatThread("sphere-app")[before]?.text).toBe("line one\nline two")
+  })
+
+  it("makes a newline with Shift+Enter on a fine pointer", async () => {
+    const { user } = renderApp("/sphere-app/chat")
+    const box = await screen.findByLabelText("Message STAR")
+    const before = chatThread("sphere-app").length
+    await user.type(box, "a{Shift>}{Enter}{/Shift}b")
+    expect(box).toHaveValue("a\nb")
+    expect(chatThread("sphere-app")).toHaveLength(before)
+  })
+
+  it("keeps a message sent while STAR is stopped waiting, then shows STAR's reply once", async () => {
+    const { user } = renderApp("/juel-claude/chat")
+    expect(
+      await screen.findByText("STAR isn't running. Your message waits in its inbox.")
+    ).toBeInTheDocument()
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(await screen.findByLabelText("Message STAR"), "are you there?{Enter}")
+    expect(await within(thread()).findByText("are you there?")).toBeInTheDocument()
+    expect(await within(thread()).findByText("Waits for STAR's next start")).toBeInTheDocument()
+    expect(within(thread()).queryByText("STAR is reading…")).not.toBeInTheDocument()
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    expect(chatThread("juel-claude").filter((m) => m.who === "star")).toHaveLength(0)
+    // STAR starts, finds the message in its inbox and answers it.
+    const sent = chatThread("juel-claude")[0]!
+    getDb().projects.find((p) => p.name === "juel-claude")!.state = "running"
+    act(() => {
+      postStarReply("juel-claude", sent.id, "Here now. **Nothing** is in flight.")
+    })
+    expect(await within(thread()).findByText("Nothing")).toBeInTheDocument()
+    expect(within(thread()).getAllByText(/Here now\./)).toHaveLength(1)
+    expect(within(thread()).queryByText("Waits for STAR's next start")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("STAR isn't running. Your message waits in its inbox.")
+    ).not.toBeInTheDocument()
+  })
+
+  it("scrolls the thread in its own box, stays put while the reader is scrolled up, and leaves the window alone", async () => {
+    const intoView = vi.spyOn(Element.prototype, "scrollIntoView")
+    const windowScroll = vi.spyOn(window, "scrollTo").mockImplementation(() => {})
+    const { user } = renderApp("/sphere-app/chat")
+    const box = await screen.findByTestId("chat-scroll")
+    let top = 0
+    Object.defineProperty(box, "scrollHeight", { configurable: true, get: () => 900 })
+    Object.defineProperty(box, "clientHeight", { configurable: true, get: () => 300 })
+    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top, set: (v: number) => { top = v } })
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(screen.getByLabelText("Message STAR"), "status?{Enter}")
+    await waitFor(() => expect(top).toBe(900))
+    top = 100
+    fireEvent.scroll(box)
+    await within(thread()).findByText("Two workers are building:", {}, { timeout: 3000 })
+    expect(top).toBe(100)
+    expect(intoView).not.toHaveBeenCalled()
+    expect(windowScroll).not.toHaveBeenCalled()
+  })
+
+  it("puts the text back and says why when the send fails", async () => {
+    server.use(
+      http.post("*/api/projects/:p/chat", () =>
+        HttpResponse.json({ error: "A chat message is at most 8000 characters" }, { status: 400 })
+      )
+    )
+    const { user } = renderApp("/sphere-app/chat")
+    const box = await screen.findByLabelText("Message STAR")
+    await user.type(box, "hello{Enter}")
+    expect(
+      await screen.findByText("Couldn't send it: A chat message is at most 8000 characters")
+    ).toBeInTheDocument()
+    expect(box).toHaveValue("hello")
+    expect(within(thread()).queryByText("hello")).not.toBeInTheDocument()
+  })
 })
