@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { messageText } from './store.ts'
 import type { ChatMessage } from './store.ts'
-import type { Project } from './types.ts'
+import type { ModuleApi, Project, Req, Res } from './types.ts'
 
 export type World = { root: string; home: string; project: Project }
 
@@ -32,4 +32,58 @@ export const MSGS: ChatMessage[] = [
 export async function writeThread(home: string, messages: readonly ChatMessage[]): Promise<void> {
   await mkdir(join(home, 'chat'), { recursive: true })
   for (const m of messages) await writeFile(join(home, 'chat', `${m.id}.md`), messageText(m))
+}
+
+export type Stub = {
+  api: ModuleApi
+  routes: string[]
+  nudges: string[]
+  logs: string[]
+  call: (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, body?: unknown) => Promise<Res>
+}
+
+function match(pattern: string, path: string): Record<string, string> | null {
+  const want = pattern.split('/')
+  const got = path.split('/')
+  if (want.length !== got.length) return null
+  const params: Record<string, string> = {}
+  for (let i = 0; i < want.length; i++) {
+    if (want[i].startsWith(':')) params[want[i].slice(1)] = decodeURIComponent(got[i])
+    else if (want[i] !== got[i]) return null
+  }
+  return params
+}
+
+/** A ModuleApi that records routes, nudges and logs, and `call` to run a registered handler as the server would. */
+export function stub(projects: Project[], nudge?: (project: string) => Promise<boolean>): Stub {
+  const handlers: { method: string; path: string; handler: (req: Req) => Promise<Res> }[] = []
+  const s: Stub = {
+    routes: [],
+    nudges: [],
+    logs: [],
+    api: {
+      route(method, path, handler) {
+        s.routes.push(`${method} ${path}`)
+        handlers.push({ method, path, handler })
+      },
+      emit() {},
+      projects: () => projects,
+      async nudge(project) {
+        s.nudges.push(project)
+        return nudge ? nudge(project) : true
+      },
+      log(line) {
+        s.logs.push(line)
+      },
+    },
+    async call(method, url, body) {
+      const [pathname, search = ''] = url.split('?')
+      for (const route of handlers) {
+        const params = route.method === method ? match(route.path, pathname) : null
+        if (params) return route.handler({ params, query: new URLSearchParams(search), body })
+      }
+      throw new Error(`no route for ${method} ${url}`)
+    },
+  }
+  return s
 }
