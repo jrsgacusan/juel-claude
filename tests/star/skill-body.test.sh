@@ -708,6 +708,8 @@ g "LH121f the slug rule points at the collision rule (#121)" '6 words, unless th
 g "LH122a the merge order counts distinct heads (#122)" '`updated`. The count is of distinct heads with a `pass` line (#122). `grep -c` counts `pass` lines,'
 g "LH122b the count relies on one pass line per head (#122)" 'and each one is a distinct head because `juel:babysit-pr` gives a head at most one `pass` line (a'
 g "LH122c the hosted log keeps one pass line per head (#122)" '`<iso> pass <n> head=<sha>` (at most one per head) or `<iso> refresh head=<sha>` (a status refresh, or a second run on a head that already has a `pass` line, #122)'
+g "LH122d babysit rewrites an older log's second pass line for one head (#122)" 'later hosted run on that head is logged `refresh`) and, in its Phase 1, rewrites a second `pass`'
+grep -qF 'and is counted as written.' "$SKILL" && fail "LH122e no log is counted with two pass lines for one head (#122)" || pass "LH122e no log is counted with two pass lines for one head (#122)"
 # #123: an API error at the prompt gets the capacity rule's nudges
 g "LH123a the capacity rule covers stalled: api error (#123)" '`stalled: model at capacity` or `stalled: api error` (#123) → the'
 g "LH123b the API error nudge, with Enter (#123)" 'orca terminal send --terminal <terminal> --text "STAR: your last model call failed with an API error. Continue where you stopped; a background command you started may still be running, so check it before you start it again." --enter --json'

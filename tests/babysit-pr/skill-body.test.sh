@@ -340,6 +340,8 @@ grep -qF 'The passes used are the `pass` lines in that file' "$SKILL" && fail "B
 g "B123a a progress line comes only from its own step (#123)" 'A progress line is written only by the step it names, at that step, never by a background or detached timer loop the worker starts'
 g "B123b gate-lock.sh --progress stays the one timer writer (#123)" '`gate-lock.sh --progress` stays the one writer on a timer, since it lives only as long as the gate it waits for'
 g "B122f a refresh also logs a second run on a passed head (#122)" 'when you comment for a status refresh, or for a second run (below). A second hosted run on a head'
+g "B122g an older log's second pass line for one head becomes a refresh (#122)" 'When the log exists and holds a second `pass` line for a head that already has one (a log'
+g "B122h the first pass line of each head is kept (#122)" '`<its iso> refresh head=<that sha>`, keeping the first `pass` line of each head and every other'
 g "B120a the base sync names the edit next to an insertion (#120)" 'to one list), or one side inserted lines right after a line the other side edited (#120), or'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

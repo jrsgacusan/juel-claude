@@ -324,6 +324,8 @@ both_ways adjacent-either-side v.txt txt 'a\nb\nz\n' 'a\nb\nb\nz\n' 'a\nB\nz\n' 
 # block that repeats the edited line stay conflicts; a package.json hunk and CRLF lines resolve
 both_ways adjacent-edit-spans-the-point v.txt txt 'h\nL\nM\nt\n' 'h\nL\nX\nM\nt\n' 'h\nL2\nM2\nt\n' conflict
 both_ways adjacent-edit-spans-the-point-feat-inserts v.txt txt 'h\nL\nM\nt\n' 'h\nL2\nM2\nt\n' 'h\nL\nX\nM\nt\n' conflict
+both_ways adjacent-gapped-edit v.txt txt 'a\na\na\na\na\n' 'a\na\na\nX\na\na\n' 'E0\na\nE2\na\na\n' conflict
+both_ways adjacent-gapped-edit-feat-inserts v.txt txt 'a\na\na\na\na\n' 'E0\na\nE2\na\na\n' 'a\na\na\nX\na\na\n' conflict
 both_ways adjacent-cr-inside-a-line v.txt txt 'h\na\rb\nt\n' 'h\na\rZ\rb\nt\n' 'h\nA\rb\nt\n' conflict
 both_ways adjacent-block-repeats-the-edit v.txt txt 'h\nfoo(1)\nt\n' 'h\nfoo(1)\nfoo(2)\nt\n' 'h\nfoo(2)\nt\n' conflict
 both_ways adjacent-package-json package.json txt '{\n  "dependencies": {\n    "a": "1.0.0",\n    "c": "3.0.0"\n  }\n}\n' '{\n  "dependencies": {\n    "a": "1.0.0",\n    "b": "2.0.0",\n    "c": "3.0.0"\n  }\n}\n' '{\n  "dependencies": {\n    "a": "1.1.0",\n    "c": "3.0.0"\n  }\n}\n' '{\n  "dependencies": {\n    "a": "1.1.0",\n    "b": "2.0.0",\n    "c": "3.0.0"\n  }\n}\n'
