@@ -113,7 +113,7 @@ describe("Chat", () => {
   })
 
   it("keeps a message sent while STAR is stopped waiting, then shows STAR's reply once", async () => {
-    const { user } = renderApp("/juel-claude/chat")
+    const { user, client } = renderApp("/juel-claude/chat")
     expect(
       await screen.findByText("STAR isn't running. Your message waits in its inbox.")
     ).toBeInTheDocument()
@@ -129,6 +129,7 @@ describe("Chat", () => {
     getDb().projects.find((p) => p.name === "juel-claude")!.state = "running"
     act(() => {
       postStarReply("juel-claude", sent.id, "Here now. **Nothing** is in flight.")
+      void client.invalidateQueries({ queryKey: ["projects"] })
     })
     expect(await within(thread()).findByText("Nothing")).toBeInTheDocument()
     expect(within(thread()).getAllByText(/Here now\./)).toHaveLength(1)
@@ -172,6 +173,29 @@ describe("Chat", () => {
     ).toBeInTheDocument()
     expect(box).toHaveValue("hello")
     expect(within(thread()).queryByText("hello")).not.toBeInTheDocument()
+  })
+
+  it("follows the project's running state without waiting for a chat refetch", async () => {
+    const { user, client } = renderApp("/juel-claude/chat")
+    const banner = "STAR isn't running. Your message waits in its inbox."
+    expect(await screen.findByText(banner)).toBeInTheDocument()
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(await screen.findByLabelText("Message STAR"), "ping{Enter}")
+    expect(await within(thread()).findByText("Waits for STAR's next start")).toBeInTheDocument()
+    const project = getDb().projects.find((p) => p.name === "juel-claude")!
+    project.state = "running"
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["projects"] })
+    })
+    await waitFor(() => expect(screen.queryByText(banner)).not.toBeInTheDocument())
+    expect(within(thread()).getByText("STAR is reading…")).toBeInTheDocument()
+    expect(within(thread()).queryByText("Waits for STAR's next start")).not.toBeInTheDocument()
+    project.state = "stopped"
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["projects"] })
+    })
+    expect(await screen.findByText(banner)).toBeInTheDocument()
+    expect(within(thread()).getByText("Waits for STAR's next start")).toBeInTheDocument()
   })
 
   it("starts a switched-to project's chat fresh: no carried text, no other project's message", async () => {

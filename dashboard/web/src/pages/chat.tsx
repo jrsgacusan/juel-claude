@@ -10,7 +10,7 @@ import {
 import { useParams } from "react-router"
 import { toast } from "sonner"
 import { useChat, useSendChat } from "@/api/chat"
-import { useOverview } from "@/api/queries"
+import { useOverview, useProjects } from "@/api/queries"
 import type { ChatMessage } from "@/api/types"
 import { Markdown } from "@/components/markdown"
 import {
@@ -130,6 +130,7 @@ export function ChatPage() {
   const { project = "" } = useParams()
   const chat = useChat(project)
   const overview = useOverview(project)
+  const projects = useProjects()
   const send = useSendChat(project)
   const [text, setText] = useState("")
 
@@ -159,7 +160,10 @@ export function ChatPage() {
       }
     )
   }
-  const starRunning = chat.data?.starRunning ?? true
+  // The projects query follows STAR's start and stop (as the AwaySwitch does); the chat payload only
+  // refetches on a chat event or a send, so it is the fallback while the projects load.
+  const current = projects.data?.find((p) => p.name === project)
+  const starRunning = current ? current.state !== "stopped" : (chat.data?.starRunning ?? true)
   const answered = new Set(rows.flatMap((m) => (m.who === "star" && m.replyTo ? [m.replyTo] : [])))
   const next = overview.data?.resume.next
   return (
