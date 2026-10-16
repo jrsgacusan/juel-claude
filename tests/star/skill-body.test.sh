@@ -161,8 +161,8 @@ assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"age
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
-assert [k for k in d if k != "tokenCmd"] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
-assert d.get("tokenCmd") is None, d.get("tokenCmd")
+assert [k for k in d if k not in ("tokenCmd", "ownerApproval", "hostedDown", "ghLogin")] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert d.get("tokenCmd") is None and d.get("ownerApproval") is None and d.get("hostedDown") is None and d.get("ghLogin") is None, d
 assert d["notified"] == [], d["notified"]
 for k in ("mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
     assert d[k] is None, (k, d[k])

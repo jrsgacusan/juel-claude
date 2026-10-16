@@ -330,7 +330,7 @@ reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the ver
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
-reviews/<project>/<item>-hosted.log      one line per hosted-reviewer run a babysit worker logged: `<iso> pass <n> head=<sha>` (at most one per head) or `<iso> refresh head=<sha>` (a status refresh, or a second run on a head that already has a `pass` line, #122); when it is missing, babysit rebuilds it from the PR's reviews and the reviewer's summary comments (`pr-state.sh --hosted-passes`) before it counts a pass
+reviews/<project>/<item>-hosted.log      one line per hosted-reviewer run a babysit worker logged: `<iso> pass <n> head=<sha>` (at most one per head) or `<iso> refresh head=<sha>` (a status refresh, or a second run on a head that already has a `pass` line, #122); `<iso> skipped head=<sha> <reason>` for a run that reviewed nothing (#129), never a pass; when it is missing, babysit rebuilds it from the PR's reviews and the reviewer's summary comments (`pr-state.sh --hosted-passes`) before it counts a pass
 reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
@@ -367,12 +367,15 @@ Settings in `star.json`:
   "executor": { "model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol" },   // runs every written plan
   "gate":     { "model": "latest-sol", "effort": "xhigh", "fallback": { "agent": "claude", "model": "opus", "effort": "xhigh" }, "maxRounds": 3 },   // the review gate: Sol, then Claude
   "hostedReviewer": null,                                // or { "login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2, "refreshOutsideCap": true }
+  "ownerApproval": null,                                 // or { "login": "<the owner's GitHub login>", "since": "<iso>", "words": "<the owner's order>" }: the owner's grant where nobody else reviews
   "hostGate": { "minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25 },
   "progressDeadlineMin": 30,                             // no progress for this long: a check-in
   "mcps":     { "mobbin": "available", "context7": "needs-sign-in" },   // null in a new folder; every start writes it from the Preflight: available, needs-sign-in or absent
   "gateDown": null,                                      // while the review gate is down: { "since", "why", "checked" }
+  "hostedDown": null,                                    // while the hosted reviewer reviews nothing (a usage limit): { "since", "why" }
   "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" },  // null = off
-  "tokenCmd": null                                       // or a command that prints a GitHub token, such as a keychain lookup
+  "tokenCmd": null,                                      // or a command that prints a GitHub token, such as a keychain lookup
+  "ghLogin": null                                        // STAR's own gh login, written at every start
 }
 ```
 
@@ -404,7 +407,9 @@ Set it to a command that prints a token for it, such as `security find-generic-p
 the plugin's session hook then adds `export GH_TOKEN="$(<tokenCmd>)"` to every session that starts
 in this project, STAR's and every worker's, so `gh`, and every script that runs it, has the token.
 The hook writes the command, never the token, and leaves a session that already has `GH_TOKEN`
-alone. The command must be quick and must not ask anything.
+alone. The command must be quick and must not ask anything. With `tokenCmd` null, the hook keys the token to `ghLogin`, STAR's own `gh` login (start step 2): it writes `export GH_TOKEN="$(gh auth token --user <ghLogin>)"`, so every worker acts as the account STAR does, never the keyring's active one (#137). A `ghLogin` with any character outside `A-Za-z0-9-` writes nothing.
+
+`ownerApproval` (null when absent, so off) is the owner's standing grant in a repository with no second reviewer (#124): `{"login": "<the owner's GitHub login>", "since": "<iso>", "words": "<the owner's order>"}`. The merge gate reads it from this file (`pr-verify.sh --merge-gate --home HOME_DIR`), never from a flag: when its `login` is the PR's author and `review-rule.sh` prints `none` or `required 0` for the base, the gate passes without a second person's approval as `PASS self-approved under the owner's grant`, and every other condition still holds. A rule that requires an approval, or one that cannot be read, keeps the gate waiting. `merge.sh` then says so in the comment it posts before merging, and the babysit worker waits for no approval and requests no reviewer.
 
 `hostedReviewer.refreshOutsideCap` (true when absent) says whether a status refresh after the
 last pass stays outside `maxPasses`. A project whose own rule counts every run the hosted reviewer
@@ -598,7 +603,7 @@ runs in <handle>", and end the turn.
    `$ORCA_TERMINAL_HANDLE` in `star.json`, and the Preflight's Mobbin and context7 states as
    `"mcps": {"mobbin": "<state>", "context7": "<state>"}`. Every start writes it again, so a sign-in
    made between runs shows at the next start. Workers read it: it tells them which research MCPs
-   STAR's session found.
+   STAR's session found. Record STAR's own `gh` login as `ghLogin`: `gh api user --jq .login`, run in this session; no line or a non-zero exit leaves `ghLogin` as it was and says so in the status line.
 3. `caffeinate`: when `star.json` has a pid and `ps -p <pid> -o comm=` prints `caffeinate`, kill it.
    Start a new one (`caffeinate -dimsu >/dev/null 2>&1 &`) and record its pid. It deliberately
    outlives a closed session, so the workers' Mac stays awake.
@@ -731,8 +736,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    file. No `project.orcaRepo` in `star.json` yet: look the repo path up in `orca repo list --json`.
    Found → write it to `star.json` as `project.orcaRepo`. Not found → `--kind held` "register this
    repo with Orca: orca repo add" and leave the file: the queue keeps one such item, however many
-   ticks pass. Otherwise add one `inbox` row per ref with its item name (the naming rule above) and the raw
-   reference in `ref`, skipping a ref that already has an open row. A `text:` block is a
+   ticks pass. Otherwise, before `ledger.sh name` and `ledger.sh add`, run `sh S/star-home.sh import <ref>` on every spec-path ref (a ref that holds a `/` or ends in `.md`) and use the path it prints as the ref: a spec outside `HOME_DIR` is copied, with the files beside it that it names, into `HOME_DIR/items/<project>/<kebab name>/`, so the row's `ref` and the brief's `item.path` never name a folder that can vanish (#125). The same source handed over twice prints the same copy, so it still makes one row. A non-zero exit adds no row for that ref: queue `--kind held` "inbox file <name>: <ref> cannot be imported: <its line>". Then add one `inbox` row per ref with its item name (the naming rule above) and the raw reference in `ref`, skipping a ref that already has an open row. A `text:` block is a
    free-text brief: write each distinct piece of work it names as a spec item,
    `HOME_DIR/items/<project>/<kebab name>.md` (frontmatter `status: todo` and `title: <a short
    title>`, then the words that describe that piece, verbatim), and add it as an `inbox` row whose
@@ -842,6 +846,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `held` "could not move <item> to <status>…" | done | `counters.tracker=<status>` (the user moved it), then close it |
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
+   | `held` "the hosted reviewer is not reviewing…" | `retry` | set `hostedDown` to null in `star.json` and close the item: "Fill slots" starts the parked babysits again (#129) |
    | `slack-reply` | send | load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
    | `slack-reply` | `rewrite: <how>` | rewrite the draft's reply as `<how>` asks (the Inbox step's rules for a reply, first line kept), close the item and add the `slack-reply` item again with the new reply's first line on its Suggest line |
    | `slack-reply` | skip | close it |
@@ -881,6 +886,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `DONE item=… pr=<url> head=<sha> review=<path>` | first `sh S/done-check.sh <item> --pr <url> --head <sha>`. `OK` → record the PR and head, free the build slot, row → `babysit-queued`, clear `mismatch=`. When the brief carries another author's PR (#94: `sed -n 's/^Decision: carried as a new PR: \([^ ]*\) .*/\1/p' <brief>` prints its URL) and its `## Decisions` has no record of closing it (`grep -cF 'close <that url>: carried on' <brief>` prints 0), also `loops.sh add --kind person --project <p> --item <item> --title "close <that url>: carried on <pr url>" --body "brief: <brief path>\nstep: -\nkind: account\nOptions: done / can't now"`: the owner closes the original now that its new PR is open, and the `person` rows record the answer. `MISMATCH <what>` → record the PR and head; with no `mismatch=` yet: write `mismatch=1`, append to the brief's `## Decisions` "- <date> the report did not check out: <what>; resume the gate loop on the existing PR", row → `queued`. With `mismatch=1` already: → `escalated`, queue `--kind escalation` "the report did not check out twice: <what>" (`reason=mismatch`). `PENDING <why>`, no line, or a non-zero exit → process and ack the message as for any report, record the PR and head, and keep the row `building` with `verify` = `retry=<now + 2 min>`: it has reported, so neither the reconcile step nor Housekeeping's probe treats it as a lost worker, and Housekeeping runs `done-check.sh` again once that time has passed. Exit 64 (`done-check.sh` refused its arguments) also files an improvement issue |
    | `RESCOPE item=… reason=<gate or hosted-review> review=<path>` | free the slot. When the row has `counters.rescoped=1` or its brief has `rescopedFrom:` → `escalated`, queue `--kind escalation` "NOT-SAFE again after a re-scope" with the review's path. Otherwise row → `inbox` with `counters.rescope=<the review file's name>`: its next brief stage narrows the item (`--rescope`) |
    | `READY item=… pr=… head=<sha> cursor=<cursor>` | record head and cursor; row → `verifying`; run the merge gate now ("The merge gate"). The cursor is an opaque string from `pr-state.sh` (a time, then `#` and the ids already seen in that second): store it and pass it back as `--since` exactly as it came |
+   | `ESCALATION item=… reason=hosted-unavailable …` in a `worker_done` | the hosted reviewer reviewed nothing (a usage or billing limit), which holds for every PR, not just this one (#129). Record `cursor` when given, free the slot, row → `babysit-queued` (it resumes with `--since <cursor>`), and append "- <date> the hosted reviewer is not reviewing: <why>; parked until you answer retry" to the brief's `## Decisions`, `<why>` being the line's `needs=`. When `hostedDown` in `star.json` is null or absent: set it to `{"since": "<now>", "why": "<why>"}`, queue `--kind held` "the hosted reviewer is not reviewing since <since>: <why>. Answer retry once it can review again", and notify. When it is set already: nothing more, so one held item stands for every parked row |
    | `ESCALATION item=… reason=review-unavailable needs=ERROR gate-down …` in a `worker_done` | the review gate is down for every model, Sol and its Claude fallback ("Gate down", in "Stages"). Record `cursor` when given, free the slot, row → its stage's waiting state (`queued` for a build, `babysit-queued` for a babysit, which resumes with `--since <cursor>`), and append "- <date> the review gate is down: <why>; parked until it is back" to the brief's `## Decisions`. When `gateDown` in `star.json` is null or absent: set it to `{"since": "<now>", "why": "<why>", "checked": "<now>"}`, queue `--kind held` "the review gate is down since <since>: <why>. Answer retry to check it now", and notify. When it is set already: nothing more, so one held item stands for every parked row |
    | `ESCALATION item=… phase=… reason=… [cursor=<cursor>] needs=…` in a `worker_done` | record `cursor` when given; row → `escalated`; queue `--kind escalation` (and `--kind draft` with it when the report has a `DRAFT <path>` line); notify; free the slot. `reason=ci-missing` (babysit found no CI run on the PR's head while the PR does not conflict with its base, #102) is the owner's to look at: missing checks are never a pass, so STAR neither answers it nor restarts the stage on its own |
    | `MERGED item=… pr=<url>` (a babysit worker saw the PR merged) | handle it as `pr-verify.sh` printing `MERGED`: release record, row → `done` |
@@ -917,7 +923,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    `failed` only gets the queue item). Every other answer is ignored in these states. So no slot
    is ever given to an item whose PR is already merged or closed.
    While `gateDown` is set, start no build and no babysit: those rows wait for the gate ("Gate
-   down"); brief and post stages need no gate and still start.
+   down"); brief and post stages need no gate and still start. While `hostedDown` is set, start no babysit: those rows wait for the owner's `retry` (#129); builds, briefs and posts still start.
    Then, for each free slot, the row next in line: `sh S/stage-start.sh <stage> <item>`. Run it with the Bash
    tool's `run_in_background: true` and wait for its completion notification,
    like `gate-lock.sh` in a worker: creating a worktree with a setup hook, clearing the dialogs
@@ -1447,14 +1453,14 @@ nothing else: it overrides any request for a prose summary, Orca's worker preamb
 ## The merge gate
 
 Each tick, every `verifying` row (past the `retry=` time in its `verify` when one is set) runs the
-merge gate on the head its `READY` reported: `sh S/pr-verify.sh <pr url> --head <head> --merge-gate`,
-adding `--hosted <hostedReviewer.login>` when `star.json`'s `hostedReviewer` is set.
+merge gate on the head its `READY` reported: `sh S/pr-verify.sh <pr url> --head <head> --merge-gate --home HOME_DIR`,
+adding `--hosted <hostedReviewer.login>` when `star.json`'s `hostedReviewer` is set. `--hosted` takes only `hostedReviewer.login`, never the owner's own login: `ownerApproval` is how a repository with no second reviewer merges.
 It prints one line. `PASS` needs all of: the PR is open, not a draft, and its head is the head given;
 a comment by the PR's author that starts `Codex gate: PASS (head <that head>`; every check that
 reported is green, and GitHub's merge state is not blocked, behind or dirty; a reply from the PR's
 author on every unresolved review thread someone else opened (the fix, or a `Disposition:` with the
 reason); and, without a hosted reviewer, an approving review on this head by someone other than
-the PR's author, with nobody's latest review asking for changes. With a hosted reviewer the gate
+the PR's author (or, when `ownerApproval` applies, none: the gate prints `PASS self-approved under the owner's grant`), with nobody's latest review asking for changes. With a hosted reviewer the gate
 reads none of its review: the babysit worker judged it clean on this exact head, from guidelines,
 before it reported `READY` (`juel:babysit-pr`), and the head check holds the gate to that head.
 
@@ -1623,7 +1629,7 @@ the brief's `## Decisions` (later workers read it as binding, and the user can o
 or in chat), and name it in the next status line. So is every rule STAR sends a worker unasked (a
 gate policy, how to write progress lines, any instruction it must keep following): append
 `- <date> STAR to the <stage> worker (<subject>): <body>` to the brief's `## Decisions` before the
-`send` (#99). A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.
+`send` (#99). A rule about merging the base quotes this rule whole: Outside babysit's Phase 4 sync before `READY` and STAR's "Sync after the base moved", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with `ERROR base-moved`, never otherwise. A one-time nudge (`act`, the check-in, the report-shape re-send) is not a rule.
 
 **Checking in.** Each tick, Housekeeping runs `step-check.sh` for every worker the probe found
 running (`ok`, `quiet …` or `stale …`). It reads the worker's activity (progress lines, commits
