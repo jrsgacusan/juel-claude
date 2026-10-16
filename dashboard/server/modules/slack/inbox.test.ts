@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { channelLabel, deliver, inboxName, inboxText, stamp } from './inbox.ts'
+import { channelLabel, deliver, inboxName, inboxText, place, stamp } from './inbox.ts'
 import { cleanup, msg, world } from './test-helpers.ts'
 
 test('a thread reply in a channel: the exact block of D1 and D9', () => {
@@ -100,5 +100,42 @@ test('deliver writes the reserved name once, takes a fresh name on a clash, and 
   await writeFile(join(home, 'drafts', '2026-10-16-app-slack-C1-5.6.md'), 'to: slack C1 5.6\nYes.\n')
   assert.equal(await deliver(home, '20261016T050607Z-slack-ffff.md', 'C1-5.6', 'three\n', at), '20261016T050607Z-slack-ffff.md')
   assert.equal((await readdir(join(home, 'inbox'))).length, 2)
+  await cleanup(w)
+})
+
+test('the reserved file gone between the link and the read: done means handed over, never a fresh name', async () => {
+  const w = await world()
+  const dir = join(w.root, 'star', 'inbox')
+  const name = '20261016T050607Z-slack-abcd.md'
+  const at = new Date('2026-10-16T05:06:07.123Z')
+  await mkdir(dir, { recursive: true })
+  // A dangling symlink holds the name for link() (EEXIST) and is missing for readFile() (ENOENT):
+  // the moment STAR consumed the file between the two.
+  await symlink(join(w.root, 'gone.md'), join(dir, name))
+  let looks = 0
+  const drafted = async (): Promise<boolean> => {
+    looks += 1
+    return true
+  }
+  assert.equal(await place(dir, 'one\n', name, at, drafted), name)
+  assert.equal(looks, 1)
+  assert.deepEqual(await readdir(dir), [name], 'no second inbox file')
+  // No draft: the name is retried, never swapped for a fresh one; a name that stays held is an error.
+  await assert.rejects(place(dir, 'two\n', name, at, async () => false), /no free inbox file name/)
+  assert.deepEqual(await readdir(dir), [name], 'no fresh name for a consumed file')
+  // Once the name is free, it is the name used.
+  await rm(join(dir, name))
+  assert.equal(await place(dir, 'three\n', name, at, async () => false), name)
+  assert.equal(await readFile(join(dir, name), 'utf8'), 'three\n')
+  await cleanup(w)
+})
+
+test('a drafts folder that cannot be read is an error, never "no draft"', async () => {
+  const w = await world()
+  const home = join(w.root, 'star')
+  await mkdir(home, { recursive: true })
+  await writeFile(join(home, 'drafts'), 'not a folder')
+  await assert.rejects(deliver(home, '20261016T050607Z-slack-abcd.md', 'C1-1.2', 'one\n'), /ENOTDIR/)
+  await assert.rejects(readdir(join(home, 'inbox')), /ENOENT/)
   await cleanup(w)
 })
