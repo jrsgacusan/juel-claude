@@ -121,6 +121,7 @@ export function BriefingPage() {
             briefings={briefings.data!}
             onPick={(next) => setParams({ briefing: next })}
             newButton={newButton}
+            onDeleted={() => setParams({}, { replace: true })}
           />
           <DraftPanel
             key={`draft-${id ?? "none"}`}

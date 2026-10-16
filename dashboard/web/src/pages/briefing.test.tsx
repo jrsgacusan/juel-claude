@@ -548,4 +548,59 @@ describe("Briefing", () => {
     expect(chat).toHaveClass("max-md:hidden")
     expect(draft).not.toHaveClass("max-md:hidden")
   })
+
+  it("shows Delete only when the briefing is deletable", async () => {
+    const first = renderApp("/sphere-app/briefing")
+    const chat = await screen.findByRole("region", { name: "Conversation" })
+    expect(await within(chat).findByRole("button", { name: "Delete" })).toBeInTheDocument()
+    first.unmount()
+    server.use(
+      http.get("*/api/projects/:p/briefings", () =>
+        HttpResponse.json([
+          { id: "b1", title: "Pause a member's seat", updatedAt: new Date().toISOString(), ref: null, deletable: false },
+        ])
+      )
+    )
+    renderApp("/sphere-app/briefing")
+    const again = await screen.findByRole("region", { name: "Conversation" })
+    await within(again).findByText(/^Admins keep asking to pause/)
+    expect(within(again).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument()
+  })
+
+  it("deletes a briefing after a confirmation in the page", async () => {
+    const confirm = vi.spyOn(window, "confirm")
+    const { user, router } = renderApp("/sphere-app/briefing?briefing=b1")
+    const chat = await screen.findByRole("region", { name: "Conversation" })
+    await user.click(await within(chat).findByRole("button", { name: "Delete" }))
+    const ask = within(chat).getByRole("group", { name: "Delete this briefing" })
+    expect(ask).toHaveTextContent(
+      `Delete "Pause a member's seat"? This removes its chat and draft. Tickets, inbox files and STAR's rows stay.`
+    )
+    await user.click(within(ask).getByRole("button", { name: "Keep it" }))
+    expect(within(chat).queryByRole("group", { name: "Delete this briefing" })).not.toBeInTheDocument()
+    expect(b1()).toBeDefined()
+    await user.click(within(chat).getByRole("button", { name: "Delete" }))
+    await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
+    expect(await screen.findByText(`Deleted "Pause a member's seat".`)).toBeInTheDocument()
+    expect(b1()).toBeUndefined()
+    await waitFor(() => expect(router.state.location.search).toBe(""))
+    expect(await screen.findByRole("combobox", { name: "Briefing" })).toHaveTextContent("Export reports as CSV")
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it("says why the server refused to delete, and keeps the briefing", async () => {
+    server.use(
+      http.delete("*/api/projects/:p/briefings/:id", () =>
+        HttpResponse.json({ error: "its ticket is still being created" }, { status: 409 })
+      )
+    )
+    const { user } = renderApp("/sphere-app/briefing")
+    const chat = await screen.findByRole("region", { name: "Conversation" })
+    await user.click(await within(chat).findByRole("button", { name: "Delete" }))
+    await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
+    expect(
+      await within(chat).findByText("Couldn't delete this briefing: its ticket is still being created")
+    ).toBeInTheDocument()
+    expect(b1()).toBeDefined()
+  })
 })

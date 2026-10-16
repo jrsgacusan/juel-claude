@@ -1,8 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { FileText, RotateCcw } from "lucide-react"
+import { FileText, RotateCcw, Trash2 } from "lucide-react"
 import { type ReactNode, useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { ApiError } from "@/api/client"
+import { useDeleteBriefing } from "@/api/briefings"
 import { subscribeBriefing } from "@/api/events"
 import { keys, useBriefing, useSendBriefingMessage } from "@/api/queries"
 import type { BriefingSummary, BriefingTurn } from "@/api/types"
@@ -71,6 +72,7 @@ export function Conversation({
   briefings,
   onPick,
   newButton,
+  onDeleted,
   className,
 }: {
   project: string
@@ -78,11 +80,15 @@ export function Conversation({
   briefings: BriefingSummary[]
   onPick: (id: string) => void
   newButton: ReactNode
+  onDeleted: () => void
   className?: string
 }) {
   const briefing = useBriefing(project, id)
   const send = useSendBriefingMessage(project, id ?? "")
   const qc = useQueryClient()
+  const remove = useDeleteBriefing(project)
+  const [confirming, setConfirming] = useState<{ id: string; title: string } | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [text, setText] = useState("")
   const [streaming, setStreaming] = useState<BriefingTurn | null>(null)
   const pending = usePendingBriefing(project, id)
@@ -215,8 +221,67 @@ export function Conversation({
             ))}
           </SelectContent>
         </Select>
+        {current?.deletable && !briefing.data?.busy && !inFlight && !confirming && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="pointer-coarse:h-11"
+            onClick={() => {
+              setDeleteError(null)
+              setConfirming({ id: current.id, title: current.title })
+            }}
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </Button>
+        )}
         {newButton}
       </div>
+      {confirming && (
+        <div
+          role="group"
+          aria-label="Delete this briefing"
+          className="flex flex-col gap-2 border-b bg-stop-bg px-4 py-3 text-sm text-stop-fg"
+        >
+          <p className="wrap-anywhere">{`Delete "${confirming.title}"? This removes its chat and draft. Tickets, inbox files and STAR's rows stay.`}</p>
+          {deleteError && <p role="alert">{`Couldn't delete this briefing: ${deleteError}`}</p>}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              className="pointer-coarse:h-11"
+              disabled={remove.isPending}
+              onClick={() =>
+                remove.mutate(
+                  { id: confirming.id },
+                  {
+                    onSuccess: () => {
+                      setPendingBriefing(project, confirming.id, null)
+                      toast.success(`Deleted "${confirming.title}".`)
+                      setConfirming(null)
+                      onDeleted()
+                    },
+                    onError: (error) => setDeleteError(errorMessage(error)),
+                  }
+                )
+              }
+            >
+              Delete briefing
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="pointer-coarse:h-11"
+              onClick={() => {
+                setConfirming(null)
+                setDeleteError(null)
+              }}
+            >
+              Keep it
+            </Button>
+          </div>
+        </div>
+      )}
       <div
         ref={ref}
         onScroll={onScroll}
