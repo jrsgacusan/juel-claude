@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowUp, FileText, RotateCcw } from "lucide-react"
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
+import { FileText, RotateCcw } from "lucide-react"
+import { type ReactNode, useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { ApiError } from "@/api/client"
 import { subscribeBriefing } from "@/api/events"
 import { keys, useBriefing, useSendBriefingMessage } from "@/api/queries"
 import type { BriefingSummary, BriefingTurn } from "@/api/types"
+import { Markdown } from "@/components/markdown"
 import { StarMark } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,7 +18,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import {
   getPendingBriefing,
@@ -25,6 +25,7 @@ import {
   usePendingBriefing,
 } from "@/lib/pending-briefing"
 import { cn } from "@/lib/utils"
+import { Composer, useStickToBottom } from "./chat"
 
 function AgentTurn({
   turn,
@@ -55,15 +56,10 @@ function AgentTurn({
             ))}
           </div>
         )}
-        <p
-          className={cn(
-            "text-sm leading-6 break-words",
-            streaming &&
-              "animate-pulse text-muted-foreground motion-reduce:animate-none"
-          )}
-        >
-          {turn.text}
-        </p>
+        <Markdown
+          text={turn.text}
+          className={cn(streaming && "motion-breathe text-muted-foreground")}
+        />
       </div>
     </li>
   )
@@ -75,12 +71,14 @@ export function Conversation({
   briefings,
   onPick,
   newButton,
+  className,
 }: {
   project: string
   id: string | null
   briefings: BriefingSummary[]
   onPick: (id: string) => void
   newButton: ReactNode
+  className?: string
 }) {
   const briefing = useBriefing(project, id)
   const send = useSendBriefingMessage(project, id ?? "")
@@ -88,7 +86,6 @@ export function Conversation({
   const [text, setText] = useState("")
   const [streaming, setStreaming] = useState<BriefingTurn | null>(null)
   const pending = usePendingBriefing(project, id)
-  const end = useRef<HTMLLIElement>(null)
 
   const refresh = useCallback(() => {
     void Promise.all([
@@ -149,10 +146,6 @@ export function Conversation({
     queueMicrotask(() => setStreaming(null))
   }, [briefing.data, briefing.dataUpdatedAt, id, pending, project])
 
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" })
-  }, [briefing.data?.turns.length, streaming?.text])
-
   const lastMine =
     [...(briefing.data?.turns ?? [])].reverse().find((t) => t.who === "me")
       ?.text ?? ""
@@ -163,6 +156,7 @@ export function Conversation({
   const submit = async (value: string) => {
     const message = value.trim()
     if (!message || !id || inFlight) return
+    pin()
     setPendingBriefing(project, id, {
       text: message,
       failed: null,
@@ -190,11 +184,17 @@ export function Conversation({
 
   const current = briefings.find((b) => b.id === id)
   const showPending = pending !== null && pending.text !== lastMine
+  const { ref, onScroll, pin } = useStickToBottom(
+    `${briefing.data?.turns.length ?? 0}:${streaming?.text.length ?? 0}:${showPending}:${briefing.data?.busy ?? false}`
+  )
 
   return (
     <section
       aria-label="Conversation"
-      className="flex min-h-0 min-w-0 flex-col border-b lg:border-r lg:border-b-0"
+      className={cn(
+        "flex min-h-0 min-w-0 flex-col border-b lg:border-r lg:border-b-0",
+        className
+      )}
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
         <Select value={id ?? undefined} onValueChange={onPick}>
@@ -217,7 +217,12 @@ export function Conversation({
         </Select>
         {newButton}
       </div>
-      <div className="min-h-0 flex-1 lg:overflow-y-auto">
+      <div
+        ref={ref}
+        onScroll={onScroll}
+        data-testid="briefing-scroll"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
         <ol
           className="mx-auto flex max-w-2xl flex-col gap-6 p-4 sm:p-6"
           aria-live="polite"
@@ -256,7 +261,7 @@ export function Conversation({
             turn.who === "me" ? (
               <li
                 key={i}
-                className="ml-auto max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 break-words"
+                className="ml-auto max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap wrap-anywhere"
               >
                 {turn.text}
               </li>
@@ -265,7 +270,7 @@ export function Conversation({
             )
           )}
           {showPending && (
-            <li className="ml-auto max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 break-words">
+            <li className="ml-auto max-w-[85%] rounded-2xl bg-muted px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap wrap-anywhere">
               {pending.text}
             </li>
           )}
@@ -295,45 +300,23 @@ export function Conversation({
               </Button>
             </li>
           )}
-          <li ref={end} aria-hidden="true" />
         </ol>
       </div>
-      <div className="p-3 sm:p-4">
-        <div className="mx-auto max-w-2xl rounded-xl border bg-card shadow-sm focus-within:ring-2 focus-within:ring-ring">
-          <label htmlFor="brief-input" className="sr-only">
-            Message the briefing agent
-          </label>
-          <Textarea
-            id="brief-input"
-            rows={2}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault()
-                void submit(text)
-              }
-            }}
-            placeholder="Answer its questions, or say what to change"
-            className="block min-h-0 w-full resize-none border-0 bg-transparent px-4 pt-3 shadow-none focus-visible:ring-0"
-          />
-          <div className="flex items-center justify-between gap-2 px-3 pb-3">
-            <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant="outline">Opus</Badge>
-              <span className="truncate">{`Reads ${project}, changes nothing`}</span>
-            </span>
-            <Button
-              size="icon"
-              className="size-8 rounded-full"
-              aria-label="Send"
-              onClick={() => void submit(text)}
-              disabled={send.isPending || !id || inFlight}
-            >
-              <ArrowUp />
-            </Button>
-          </div>
-        </div>
-      </div>
+      <Composer
+        inputId="brief-input"
+        label="Message the briefing agent"
+        placeholder="Answer its questions, or say what to change"
+        value={text}
+        onChange={setText}
+        onSend={() => void submit(text)}
+        sendDisabled={send.isPending || !id || inFlight}
+        footer={
+          <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">Opus</Badge>
+            <span className="truncate">{`Reads ${project}, changes nothing`}</span>
+          </span>
+        }
+      />
     </section>
   )
 }

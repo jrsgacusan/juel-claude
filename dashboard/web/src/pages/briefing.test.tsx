@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { getConnection } from "@/api/events"
 import { server } from "@/mocks/node"
 import {
@@ -21,6 +21,17 @@ async function pickTracker(
   const draft = screen.getByRole("region", { name: "Ticket draft" })
   await user.click(within(draft).getByRole("combobox", { name: "Tracker" }))
   await user.click(await screen.findByRole("option", { name }))
+}
+
+/** A matchMedia whose (pointer: coarse) answer a test picks; every other query is false. */
+function mockPointer(coarse: boolean) {
+  const noop = () => {}
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query: string) =>
+      ({ matches: query === "(pointer: coarse)" ? coarse : false, media: query, onchange: null,
+        addEventListener: noop, removeEventListener: noop, addListener: noop, removeListener: noop,
+        dispatchEvent: () => false }) as unknown as MediaQueryList
+  )
 }
 
 describe("Briefing", () => {
@@ -473,5 +484,68 @@ describe("Briefing", () => {
     expect(await screen.findByTestId("page-error")).toHaveTextContent(
       "Couldn't load the briefings."
     )
+  })
+
+  it("renders the agent's turns as Markdown and the owner's as typed", async () => {
+    server.use(
+      http.get("*/api/projects/:p/briefings/:id", () =>
+        HttpResponse.json({
+          busy: false,
+          draft: null,
+          turns: [
+            { who: "me", text: "pause **one** seat" },
+            { who: "agent", text: "## Plan\n\n- pause\n- resume\n\nSee `seats.ts`." },
+          ],
+        })
+      )
+    )
+    renderApp("/sphere-app/briefing")
+    const chat = await screen.findByRole("region", { name: "Conversation" })
+    expect(await within(chat).findByRole("heading", { level: 2, name: "Plan" })).toBeInTheDocument()
+    expect(within(chat).getByText("seats.ts").tagName).toBe("CODE")
+    expect(within(chat).getByText("pause **one** seat")).toBeInTheDocument()
+  })
+
+  it("makes a newline with Enter on a touch screen and sends with the Send button", async () => {
+    mockPointer(true)
+    const { user } = renderApp("/sphere-app/briefing")
+    const box = await screen.findByLabelText("Message the briefing agent")
+    expect(box).toHaveClass("text-base", "md:text-sm")
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(box, "Also log it{Enter}with the time")
+    expect(box).toHaveValue("Also log it\nwith the time")
+    expect(b1()?.briefing.busy).toBe(false)
+    await user.click(screen.getByRole("button", { name: "Send" }))
+    const chat = screen.getByRole("region", { name: "Conversation" })
+    const mine = await within(chat).findByText("Also log it with the time")
+    expect(mine.textContent).toBe("Also log it\nwith the time")
+  })
+
+  it("scrolls the conversation in its own box, never the window", async () => {
+    const intoView = vi.spyOn(Element.prototype, "scrollIntoView")
+    const { user } = renderApp("/sphere-app/briefing")
+    const box = await screen.findByTestId("briefing-scroll")
+    let top = 0
+    Object.defineProperty(box, "scrollHeight", { configurable: true, get: () => 900 })
+    Object.defineProperty(box, "clientHeight", { configurable: true, get: () => 300 })
+    Object.defineProperty(box, "scrollTop", { configurable: true, get: () => top, set: (v: number) => { top = v } })
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(screen.getByLabelText("Message the briefing agent"), "Also log who paused it{Enter}")
+    await waitFor(() => expect(top).toBe(900))
+    const chat = screen.getByRole("region", { name: "Conversation" })
+    await within(chat).findByText(/^Noted: Also log who paused it\./, {}, { timeout: 3000 })
+    expect(intoView).not.toHaveBeenCalled()
+  })
+
+  it("shows Chat and Draft as tabs below md", async () => {
+    const { user } = renderApp("/sphere-app/briefing")
+    expect(await screen.findByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true")
+    const chat = screen.getByRole("region", { name: "Conversation" })
+    const draft = screen.getByRole("region", { name: "Ticket draft" })
+    expect(chat).not.toHaveClass("max-md:hidden")
+    expect(draft).toHaveClass("max-md:hidden")
+    await user.click(screen.getByRole("tab", { name: "Draft" }))
+    expect(chat).toHaveClass("max-md:hidden")
+    expect(draft).not.toHaveClass("max-md:hidden")
   })
 })
