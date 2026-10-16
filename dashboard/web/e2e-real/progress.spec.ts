@@ -4,6 +4,7 @@ test("items are named by their ledger name, with a tracker ref only beside it", 
   page,
 }) => {
   await openApp(page, "/sample/progress")
+  await page.getByRole("tab", { name: /^All\s*4$/ }).click()
   await expect(
     page.getByRole("button", {
       name: /^invoice-export Export invoices as CSV$/,
@@ -32,6 +33,7 @@ test("items are named by their ledger name, with a tracker ref only beside it", 
 
 test("a row opens its step log", async ({ page }) => {
   await openApp(page, "/sample/progress")
+  await page.getByRole("tab", { name: /^All\s*4$/ }).click()
   await page
     .getByRole("button", { name: /^invoice-export Export invoices as CSV$/ })
     .click()
@@ -52,4 +54,26 @@ test("a row opens its step log", async ({ page }) => {
   ).toBeVisible()
   await expect(sheet.getByText(/\/Users\/owner\/star\/items/)).toHaveCount(0)
   await expect(page).toHaveURL(/\/sample\/progress\?item=invoice-export$/)
+})
+
+test("Progress opens on Running", async ({ page }) => {
+  await openApp(page, "/sample/progress")
+  await expect(
+    page.getByRole("tab", { name: /^Running\s*1$/ })
+  ).toHaveAttribute("aria-selected", "true")
+  await expect(
+    page.getByRole("button", { name: /^csv-import Import customers from CSV$/ })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /^invoice-export / })
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("navigation", { name: "Item pages" })
+  ).toHaveCount(0)
+  await page.getByRole("tab", { name: /^All\s*4$/ }).click()
+  await expect(
+    page.getByRole("button", {
+      name: /^invoice-export Export invoices as CSV$/,
+    })
+  ).toBeVisible()
 })
