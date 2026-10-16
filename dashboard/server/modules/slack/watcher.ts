@@ -1,7 +1,7 @@
 // The Slack watcher (STAR dashboard, part 4): one check at a time, at start and then every
 // everyMin minutes. A check is one read-only `claude -p` run (D6 with S1) whose answer is checked
 // (D7), deduped against seen.json, routed (D2) and handed to the routed project's STAR as a slack:
-// inbox file (D9), then a nudge. Also the module's three routes. Nothing here sends anything to
+// inbox file (D9), then a nudge. The check answers once the messages are routed: each hand-over then runs in the background. Also the module's three routes. Nothing here sends anything to
 // Slack: the run can use the pinned read tools only.
 import { readFileSync } from 'node:fs'
 import { mkdir, stat } from 'node:fs/promises'
@@ -114,7 +114,7 @@ function byTsDesc(a: { ts: string }, b: { ts: string }): number {
 export type SlackOptions = { bin?: string; everyMs?: number; timeoutMs?: number; now?: () => Date; draft?: Drafter; loopsSh?: string; redraftEveryMs?: number }
 export type CheckOutcome = { ok: boolean; routed: number; unrouted: number }
 export type Slack = {
-  /** Runs a check now and answers when it ends; null when one is already running. */
+  /** Runs a check now and answers once the messages are routed and their hand-overs queued; null when one is already running. */
   check(): Promise<CheckOutcome | null>
   /** A check at once, then one every everyMs (S5); a tick while a check runs is skipped. */
   start(): void
@@ -329,6 +329,15 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     }
   }
 
+  /** One queued hand-over: its draft and inbox file, then a nudge of its own project as soon as it is done. */
+  async function handOverAndNudge(job: Job, at: Date): Promise<void> {
+    const result = await handOver(job, at)
+    if (result === 'delivered') {
+      if (!(await nudge(job.project.name))) log('slack: STAR was not reached: 1 inbox file waits for its next tick')
+    }
+    if (result !== 'waiting') emitChange()
+  }
+
   async function run(): Promise<CheckOutcome> {
     const start = now()
     let lastCheck: string | null
@@ -354,6 +363,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     const parsed = parseEnvelope(out.stdout)
     if (parsed.kind === 'disconnected') return fail('not-connected', `Slack is not connected: ${parsed.why}`, false, stderr)
     if (parsed.kind === 'error') return fail(parsed.cli ? 'cli-error' : 'bad-json', parsed.error, undefined, stderr)
+    if (parsed.dropped) log(`slack check: ${parsed.dropped} message(s) dropped for a missing or invalid why`)
     const names = ownerNames(parsed.owner, settings.names)
     const kept = parsed.messages.filter(m => keeps(m, parsed.owner?.id ?? null, names))
     let committed: Committed
@@ -362,21 +372,11 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     } catch (err) {
       return fail('state', errorText(err))
     }
-    const files = new Map<string, number>()
-    let routed = 0
-    let unrouted = committed.added
-    for (const job of committed.jobs) {
-      const done = await handOver(job, start)
-      if (done === 'delivered') {
-        routed += 1
-        files.set(job.project.name, (files.get(job.project.name) ?? 0) + 1)
-      } else if (done === 'unrouted') {
-        unrouted += 1
-      }
-    }
-    for (const [project, count] of files) {
-      if (!(await nudge(project))) log(`slack: STAR was not reached: ${count} inbox file(s) wait for its next tick`)
-    }
+    // The check ends once the messages are routed and their hand-overs queued. The drafts, the inbox
+    // files and the nudges follow in the background, one drafter at a time (`oneDraft`).
+    for (const job of committed.jobs) inBackground(handOverAndNudge(job, start))
+    const routed = committed.jobs.length
+    const unrouted = committed.added
     if (parsed.messages.length > kept.length) log(`slack check: ${parsed.messages.length - kept.length} dropped by the filter`)
     log(`slack check: ${parsed.messages.length} found, ${routed} routed, ${unrouted} unrouted, ${committed.pruned} pruned`)
     if (routed + unrouted + committed.pruned > 0 || committed.statusMoved) emitChange()

@@ -33,7 +33,7 @@ const REWRITE = `The owner asked for a new version of the reply below: {{how}}
 Keep what they did not ask to change.
 `
 
-/** The read-only run: no Write or Edit, git and gh reads, the pinned Slack and Linear reads. */
+/** The read-only run: no Write or Edit, no git, gh reads, the pinned Slack and Linear reads. */
 export function draftArgs(model: string, home: string, plugins: PluginIds | null, config: Config): string[] {
   const enabled: Record<string, boolean> = plugins === null ? {} : { [plugins.slack]: true, [plugins.linear]: true }
   const allowed = [...config.drafter.allowedTools, ...(plugins === null ? [] : [...config.allowedTools, ...config.drafter.linearTools])]

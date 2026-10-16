@@ -1,13 +1,13 @@
 // D7: what counts as the expected JSON. The CLI's --output-format json envelope must not be
 // is_error and must carry a result string; the result (one json code fence stripped) is an array of
 // messages, {"workspace", "messages"} (D8) or {"connected": false, "why"}. One invalid element fails
-// the whole answer. Error texts never quote the answer, which holds message text: they are fixed
+// the whole answer, except a missing or invalid why: that message is dropped and counted (dropped). Error texts never quote the answer, which holds message text: they are fixed
 // words, plus the envelope's subtype when claude reports an error.
 import { isObject, messageProblem, oneLine } from './state.ts'
 import type { Message, Owner } from './state.ts'
 
 export type Parsed =
-  | { kind: 'messages'; workspace: string | null; messages: Message[]; owner: Owner | null }
+  | { kind: 'messages'; workspace: string | null; messages: Message[]; owner: Owner | null; dropped?: number }
   | { kind: 'disconnected'; why: string }
   | { kind: 'error'; error: string; cli: boolean }
 
@@ -65,11 +65,15 @@ export function parseResult(text: string): Parsed {
     return bad('the result is not an array or an object')
   }
   const messages: Message[] = []
+  let dropped = 0
   for (const [i, item] of list.entries()) {
     const why = messageProblem(item)
     if (why) return bad(`message ${i + 1}: ${why}`)
     const m = item as Message
-    if (m.why !== 'dm' && m.why !== 'mention' && m.why !== 'asks') return bad(`message ${i + 1}: why is not dm, mention or asks`)
+    if (m.why !== 'dm' && m.why !== 'mention' && m.why !== 'asks') {
+      dropped++
+      continue
+    }
     messages.push({
       channelId: m.channelId,
       channel: m.channel,
@@ -82,5 +86,5 @@ export function parseResult(text: string): Parsed {
       why: m.why,
     })
   }
-  return { kind: 'messages', workspace, messages, owner }
+  return { kind: 'messages', workspace, messages, owner, ...(dropped > 0 ? { dropped } : {}) }
 }

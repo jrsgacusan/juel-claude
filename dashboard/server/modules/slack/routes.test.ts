@@ -54,6 +54,7 @@ test('GET lists the routed replies still open (D5) and the unrouted messages, ne
   const lost = msg({ ts: '1700000004.000000', channelId: 'D5', channel: 'Bo', text: 'lunch?' })
   await play(w, [answer([drafted, sent, fresh, lost])])
   await slack.check()
+  await slack.idle()
   const draftPath = (ts: string): string => `drafts/2026-10-16-app-slack-C1-${ts}.md`
   const ids = (json: Listing): unknown[] => json.routed.map(r => [r.id, r.draftPath, r.loopId])
   // STAR has read nothing: every routed message is listed, drafted or not.
@@ -101,11 +102,13 @@ test('GET leaves out a project that is no longer registered, and an unrouted id 
   const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR, draft: d.draft })
   await play(w, [answer([msg({ text: 'APP-77?' })])])
   await slack.check()
+  await slack.idle()
   await writeState(w, 'unrouted.json', ['C1-1600000000.000000'])
   registered.length = 0
   assert.deepEqual((await s.call('GET', '/api/slack')).json, { status: await readState(w, 'status.json'), routed: [], unrouted: [] })
   await play(w, [answer([])])
   await slack.check()
+  await slack.idle()
   assert.deepEqual(await readState(w, 'unrouted.json'), [])
   await cleanup(w)
 })
@@ -120,6 +123,7 @@ test('POST route sends an unrouted message to a project, learns its channel, and
   const m = msg({ channelId: 'C9', ts: '1700000001.000000', text: 'lunch?' })
   await play(w, [answer([m])])
   await slack.check()
+  await slack.idle()
   s.events.length = 0
   assert.deepEqual(await s.call('POST', '/api/slack/C9-1700000001.000000/route', { project: 'web' }), { status: 200, json: { project: 'web', drafting: true } })
   await slack.idle()
@@ -136,6 +140,7 @@ test('POST route sends an unrouted message to a project, learns its channel, and
   // Rule 5: a new message in that channel, naming nothing, goes to web.
   await play(w, [answer([msg({ channelId: 'C9', ts: '1700000002.000000', text: 'and dinner?' })])])
   assert.deepEqual(await slack.check(), { ok: true, routed: 1, unrouted: 0 })
+  await slack.idle()
   assert.equal((await inboxFiles(web)).length, 2)
   // It is no longer unrouted: routing it again is a 404.
   assert.equal((await s.call('POST', '/api/slack/C9-1700000001.000000/route', { project: 'web' })).status, 404)
@@ -152,6 +157,7 @@ test('POST route with "none" drops it without learning; an unknown id is 404 and
   const url = '/api/slack/C9-1700000001.000000/route'
   await play(w, [answer([m])])
   await slack.check()
+  await slack.idle()
   assert.equal((await s.call('POST', '/api/slack/C9-1700000009.000000/route', { project: 'app' })).status, 404)
   assert.equal((await s.call('POST', url, { project: 'nope' })).status, 400)
   assert.equal((await s.call('POST', url, {})).status, 400)
@@ -180,6 +186,7 @@ test('a route while a check runs keeps both: the check writes what it reads unde
   const second = msg({ channelId: 'C8', ts: '1700000002.000000', text: 'dinner?' })
   await play(w, [answer([first]), { wait: true, stdout: envelope({ workspace: 'Acme', messages: [second] }) }])
   await slack.check()
+  await slack.idle()
   const running = slack.check()
   await until(async () => (await calls(w)).length === 2)
   assert.equal((await s.call('POST', '/api/slack/C9-1700000001.000000/route', { project: 'web' })).status, 200)
@@ -224,6 +231,7 @@ test('two routes of one message at once: one wins, one inbox file, one nudge', a
   const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR, draft: d.draft })
   await play(w, [answer([msg({ channelId: 'C9', ts: '1700000001.000000', text: 'lunch?' })])])
   await slack.check()
+  await slack.idle()
   const url = '/api/slack/C9-1700000001.000000/route'
   const results = await Promise.all([s.call('POST', url, { project: 'web' }), s.call('POST', url, { project: 'web' })])
   assert.deepEqual(results.map(res => res.status).sort(), [200, 404])
@@ -242,6 +250,7 @@ test('a route whose inbox file cannot be written goes back to unrouted, learns n
   const m = msg({ channelId: 'C9', ts: '1700000001.000000', text: 'lunch?' })
   await play(w, [answer([m])])
   await slack.check()
+  await slack.idle()
   await writeFile(join(web.home, 'inbox'), 'not a folder')
   const url = '/api/slack/C9-1700000001.000000/route'
   assert.equal((await s.call('POST', url, { project: 'web' })).status, 200)

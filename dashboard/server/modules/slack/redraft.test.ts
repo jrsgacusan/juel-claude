@@ -19,6 +19,7 @@ async function routed(w: World, d: DraftStub, opts: Partial<SlackOptions> = {}) 
   const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR, draft: d.draft, ...opts })
   await play(w, [answer([msg({ text: 'is APP-77 landing today?' })])])
   await slack.check()
+  await slack.idle()
   const draft = join(app.home, 'drafts', `2026-10-16-app-slack-${ID}.md`)
   return { app, s, slack, draft }
 }
