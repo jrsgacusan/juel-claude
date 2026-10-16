@@ -15,8 +15,10 @@ export type Created = {
   specPath: string | null
   url: string | null
   at: string
-  /** STAR's inbox file for the ticket; null until it is written. Absent on a record this module could not read. */
+  /** STAR's inbox file path, recorded before the file is written; null until a path is drawn. */
   inbox?: string | null
+  /** False while `inbox` is the write-ahead path; true once STAR has the file. Absent on parent records. */
+  queued?: boolean
   /**
    * 'creating' is written before anything is made. It stays when a ticket was or may have been made
    * but not recorded, or the create never finished, so a later press never makes a second one (D8);
@@ -197,6 +199,11 @@ export async function writeCreated(dir: string, created: Created): Promise<boole
 /** Replaces created.json in one rename, so a reader never sees half a record. */
 export async function rewriteCreated(dir: string, created: Created): Promise<void> {
   await replaceFile(join(dir, 'created.json'), `${JSON.stringify(created, null, 2)}\n`)
+}
+
+/** Whether a made record is not known to be in STAR's queue yet. */
+export function unqueued(created: Created): boolean {
+  return created.inbox === null || (typeof created.inbox === 'string' && created.queued === false)
 }
 
 /** The list title (D8): the draft's title, else the owner's first turn cut to 60 characters. */

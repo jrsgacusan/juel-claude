@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
-import { afterEach, beforeEach, test } from 'node:test'
+import fsp, { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
+import { basename, dirname, join } from 'node:path'
+import { afterEach, beforeEach, mock, test } from 'node:test'
 
-import { CREATE_TOOLS, createTicket, lastJson, queueCreated, slugOf, ticketBody, writeInbox } from './create.ts'
+import { CREATE_TOOLS, createTicket, drawInbox, inboxContent, lastJson, queueCreated, slugOf, ticketBody } from './create.ts'
 import type { CreateContext } from './create.ts'
 import { stamp } from './ids.ts'
-import { briefingDir, createBriefing, readCreated, writeDraft } from './store.ts'
-import { calls, cleanup, done, init, play, say, world } from './test-helpers.ts'
+import { briefingDir, createBriefing, readCreated, unqueued, writeDraft } from './store.ts'
+import type { Created } from './store.ts'
+import { calls, cleanup, done, init, ledgerText, play, say, world } from './test-helpers.ts'
 import type { World } from './test-helpers.ts'
 import type { Ticket } from './ticket.ts'
 
@@ -29,6 +32,15 @@ afterEach(async () => {
 
 const ctx = (tracker: CreateContext['tracker'], trackerProject: string | null = null, at = dir): CreateContext => ({ project: 'proj', repo: w.repo, home: w.home, dir: at, tracker, trackerProject, draft: T, log: line => { logs.push(line) } })
 const specPath = (name = 'retry-the-sync.md'): string => join(w.home, 'items', 'proj', name)
+const GH = { tracker: 'github', ref: '#42', specPath: null, url: 'https://github.com/o/r/issues/42', at: '2026-10-16T00:00:00.000Z', state: 'made' as const }
+const q = () => ({ home: w.home, repo: w.repo, dir })
+const at = (name = '20261016T000000Z-abcd.md') => join(w.home, 'inbox', name)
+/** Writes created.json as the module does and returns its text. */
+async function record(created: Created): Promise<string> {
+  const text = `${JSON.stringify(created, null, 2)}\n`
+  await writeFile(join(dir, 'created.json'), text)
+  return text
+}
 
 async function inboxFiles(): Promise<string[]> {
   try {
@@ -84,6 +96,8 @@ test('github: gh issue create in the repo, ref #<n>, created.json and the inbox 
   assert.equal(outcome.created.url, 'https://github.com/o/r/issues/42')
   assert.equal(outcome.created.specPath, null)
   assert.equal(outcome.created.tracker, 'github')
+  assert.equal(outcome.created.queued, true)
+  assert.equal(outcome.created.inbox, join(w.home, 'inbox', (await inboxFiles())[0]))
   const [call] = await calls(w, 'gh')
   assert.deepEqual(call.argv, ['issue', 'create', '--title', 'Retry the sync', '--body-file', '-'])
   assert.equal(call.cwd, w.repo)
@@ -187,16 +201,16 @@ test('a second spec with the same slug takes -2, and nothing is overwritten', as
   assert.equal((await inboxFiles()).length, 2)
 })
 
-test('writeInbox never overwrites an inbox file', async () => {
+test('drawInbox skips a taken name and writes no file', async () => {
   const now = new Date('2026-10-16T03:04:05Z')
   await mkdir(join(w.home, 'inbox'), { recursive: true })
   const taken = join(w.home, 'inbox', `${stamp(now)}-aaaa.md`)
   await writeFile(taken, 'repo: other\nrefs:\n- #1\n')
   const suffixes = ['aaaa', 'bbbb']
-  const path = await writeInbox(w.home, w.repo, '#2', now, () => suffixes.shift()!)
+  const path = await drawInbox(w.home, now, () => suffixes.shift()!)
   assert.equal(basename(path), '20261016T030405Z-bbbb.md')
   assert.equal(await readFile(taken, 'utf8'), 'repo: other\nrefs:\n- #1\n')
-  assert.equal(await readFile(path, 'utf8'), `repo: ${w.repo}\nrefs:\n- #2\n`)
+  await assert.rejects(stat(path))
 })
 
 test('a connected tracker that answers in pretty-printed JSON is still read', async () => {
@@ -239,10 +253,14 @@ test('a ticket made while the inbox cannot be written keeps inbox: null, and que
   assert.equal(outcome.made?.ref, '#42')
   assert.match(outcome.error, /#42 was made, but STAR's inbox file could not be written/)
   assert.ok(logs.some(line => line.includes('made #42 (https://github.com/o/r/issues/42)')))
-  assert.equal((await readCreated(dir))?.inbox, null)
+  const made = await readCreated(dir)
+  assert.equal(made?.tracker, GH.tracker)
+  assert.equal(made?.ref, GH.ref)
+  assert.equal(made?.inbox, null)
+  assert.equal(made?.queued, false)
 
   await rm(join(w.home, 'inbox'))
-  const queued = await queueCreated({ home: w.home, repo: w.repo, dir }, (await readCreated(dir))!)
+  const queued = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
   if (!queued.ok) assert.fail(queued.error)
   assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: ['#42'] })
   const [file] = await inboxFiles()
@@ -272,19 +290,21 @@ test('a create that cannot record what it made stays marked as creating, so no s
   assert.ok(logs.some(line => line.includes('made #42')))
 })
 
-test('queueCreated takes its inbox file back when created.json cannot record it', async () => {
-  const made = { tracker: 'github', ref: '#42', specPath: null, url: 'https://github.com/o/r/issues/42', at: '2026-10-16T00:00:00.000Z', state: 'made' as const, inbox: null }
-  await writeFile(join(dir, 'created.json'), JSON.stringify(made))
+test('a failed final rewrite on a resume leaves the inbox file, says press Create again, and the next press records it', async () => {
+  const made = { ...GH, inbox: at(), queued: false }
+  await mkdir(join(w.home, 'inbox'), { recursive: true })
+  await record(made)
   await mkdir(join(dir, `.created.json.${process.pid}.tmp`))
-  const failed = await queueCreated({ home: w.home, repo: w.repo, dir }, made)
+  const failed = await queueCreated(q(), made, { resume: true })
   assert.equal(failed.ok, false)
-  assert.match(failed.ok ? '' : failed.error, /could not record its inbox file/)
-  assert.deepEqual(await inboxFiles(), [])
-  assert.equal((await readCreated(dir))?.inbox, null)
+  assert.match(failed.ok ? '' : failed.error, /Press Create again to record it/)
+  assert.equal(await readFile(at(), 'utf8'), inboxContent(w.repo, '#42'))
+  assert.equal((await readCreated(dir))?.queued, false)
   await rm(join(dir, `.created.json.${process.pid}.tmp`), { recursive: true })
-  const queued = await queueCreated({ home: w.home, repo: w.repo, dir }, made)
+  const queued = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
   if (!queued.ok) assert.fail(queued.error)
-  assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: ['#42'] })
+  assert.equal(queued.created.queued, true)
+  assert.deepEqual(await inboxFiles(), [basename(at())])
 })
 
 test('a spec item that cannot be written is a failed create, and its mark is cleared', async () => {
@@ -295,4 +315,167 @@ test('a spec item that cannot be written is a failed create, and its mark is cle
   assert.match(outcome.ok ? '' : outcome.error, /the spec item could not be written/)
   assert.equal(await readCreated(dir), null)
   assert.deepEqual(await inboxFiles(), [])
+})
+
+test('unqueued: inbox null and queued false are unqueued; queued, the parent\'s form and an unreadable record are not', () => {
+  assert.equal(unqueued({ ...GH, inbox: null }), true)
+  assert.equal(unqueued({ ...GH, inbox: at(), queued: false }), true)
+  assert.equal(unqueued({ ...GH, inbox: at(), queued: true }), false)
+  assert.equal(unqueued({ ...GH, inbox: at() }), false)
+  assert.equal(unqueued({ tracker: 'unknown', ref: null, specPath: null, url: null, at: '' }), false)
+})
+
+test('a failed inbox write leaves the write-ahead record and no file, and the next press writes at that path', async () => {
+  await record({ ...GH, inbox: null, queued: false })
+  const inbox = join(w.home, 'inbox')
+  await mkdir(inbox)
+  try {
+    await chmod(inbox, 0o555)
+    const failed = await queueCreated(q(), (await readCreated(dir))!)
+    assert.equal(failed.ok, false)
+    assert.match(failed.ok ? '' : failed.error, /STAR's inbox file could not be written/)
+    const writtenAhead = await readCreated(dir)
+    assert.equal(writtenAhead?.queued, false)
+    assert.equal(typeof writtenAhead?.inbox, 'string')
+    assert.equal(dirname(writtenAhead!.inbox!), inbox)
+    assert.deepEqual(await inboxFiles(), [])
+    await chmod(inbox, 0o755)
+    const queued = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
+    if (!queued.ok) assert.fail(queued.error)
+    assert.equal(queued.created.inbox, writtenAhead!.inbox)
+    assert.equal(queued.created.queued, true)
+    assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: ['#42'] })
+  } finally {
+    await chmod(inbox, 0o755).catch(() => {})
+  }
+})
+
+test('a failed write-ahead rewrite writes no inbox file and leaves the record as it was', async () => {
+  const text = await record({ ...GH, inbox: null, queued: false })
+  const tmp = join(dir, `.created.json.${process.pid}.tmp`)
+  await mkdir(tmp)
+  try {
+    const failed = await queueCreated(q(), (await readCreated(dir))!)
+    assert.equal(failed.ok, false)
+    assert.match(failed.ok ? '' : failed.error, /STAR's inbox file could not be written/)
+    assert.deepEqual(await inboxFiles(), [])
+    assert.equal(await readFile(join(dir, 'created.json'), 'utf8'), text)
+  } finally {
+    await rm(tmp, { recursive: true, force: true })
+  }
+})
+
+test("a resume finds this ticket's file at the recorded path: nothing is written, and the ledger is never read", async () => {
+  await mkdir(join(w.home, 'inbox'), { recursive: true })
+  await writeFile(at(), inboxContent(w.repo, '#42'))
+  await writeFile(join(w.home, 'ledger.md'), '# not a ledger\n')
+  await record({ ...GH, inbox: at(), queued: false })
+  const queued = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
+  if (!queued.ok) assert.fail(queued.error)
+  assert.deepEqual(queued.created, { ...GH, inbox: at(), queued: true })
+  assert.deepEqual(await readCreated(dir), queued.created)
+  assert.deepEqual(await inboxFiles(), [basename(at())])
+})
+
+test("a resume with the file gone and a ledger row for the ref writes nothing, whatever the row's state", async () => {
+  for (const state of ['inbox', 'building', 'done', 'dropped']) {
+    await rm(join(w.home, 'inbox'), { recursive: true, force: true })
+    await record({ ...GH, inbox: at(), queued: false })
+    await writeFile(join(w.home, 'ledger.md'), ledgerText([{ item: 'issue-42', ref: '#42', state }]))
+    const queued = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
+    if (!queued.ok) assert.fail(queued.error)
+    assert.equal(queued.created.queued, true)
+    assert.deepEqual(await inboxFiles(), [])
+  }
+})
+
+test("a spec record's resume matches its spec path in the ledger", async () => {
+  const spec = '/s/items/proj/retry-the-sync.md'
+  const made: Created = { tracker: 'none', ref: null, specPath: spec, url: '/api/…', at: GH.at, state: 'made', inbox: at(), queued: false }
+  await record(made)
+  await writeFile(join(w.home, 'ledger.md'), ledgerText([{ item: 'retry', ref: spec, state: 'done' }]))
+  const queued = await queueCreated(q(), made, { resume: true })
+  if (!queued.ok) assert.fail(queued.error)
+  assert.deepEqual(queued.created, { ...made, queued: true })
+  assert.deepEqual(await inboxFiles(), [])
+})
+
+test('a resume with the file gone and no row for the ref writes the file at the recorded path', async () => {
+  for (const ledger of [null, ledgerText([{ item: 'short', ref: '#4', state: 'done' }, { item: 'long', ref: '#420', state: 'done' }])]) {
+    await rm(join(w.home, 'inbox'), { recursive: true, force: true })
+    await rm(join(w.home, 'ledger.md'), { force: true })
+    await mkdir(join(w.home, 'inbox'), { recursive: true })
+    if (ledger !== null) await writeFile(join(w.home, 'ledger.md'), ledger)
+    await record({ ...GH, inbox: at(), queued: false })
+    const queued = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
+    if (!queued.ok) assert.fail(queued.error)
+    assert.deepEqual(await inboxFiles(), [basename(at())])
+    assert.equal(await readFile(at(), 'utf8'), inboxContent(w.repo, '#42'))
+  }
+})
+
+test("a ledger.md that is not STAR's ledger fails the resume, naming the file, and writes nothing", async () => {
+  const text = await record({ ...GH, inbox: at(), queued: false })
+  await writeFile(join(w.home, 'ledger.md'), '| item | ref |\n|---|---|\n| a | #42 |\n')
+  const failed = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
+  assert.equal(failed.ok, false)
+  assert.match(failed.ok ? '' : failed.error, /nothing was written/)
+  assert.match(failed.ok ? '' : failed.error, new RegExp(join(w.home, 'ledger.md').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  assert.deepEqual(await inboxFiles(), [])
+  assert.equal(await readFile(join(dir, 'created.json'), 'utf8'), text)
+})
+
+test("a file at the recorded path with another ticket's content is left alone: a new path is drawn, recorded and written", async () => {
+  await mkdir(join(w.home, 'inbox'), { recursive: true })
+  await writeFile(at(), inboxContent(w.repo, '#7'))
+  await record({ ...GH, inbox: at(), queued: false })
+  const queued = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
+  if (!queued.ok) assert.fail(queued.error)
+  assert.notEqual(queued.created.inbox, at())
+  assert.equal(dirname(queued.created.inbox!), join(w.home, 'inbox'))
+  assert.equal(await readFile(at(), 'utf8'), inboxContent(w.repo, '#7'))
+  assert.equal(await readFile(queued.created.inbox!, 'utf8'), inboxContent(w.repo, '#42'))
+  assert.equal((await inboxFiles()).length, 2)
+  assert.deepEqual(await readCreated(dir), queued.created)
+})
+
+test('a recorded inbox path that cannot be read fails the resume and writes nothing', async () => {
+  await mkdir(at(), { recursive: true })
+  const text = await record({ ...GH, inbox: at(), queued: false })
+  const failed = await queueCreated(q(), (await readCreated(dir))!, { resume: true })
+  assert.equal(failed.ok, false)
+  assert.match(failed.ok ? '' : failed.error, /could not be read/)
+  assert.equal(await readFile(join(dir, 'created.json'), 'utf8'), text)
+  assert.deepEqual(await inboxFiles(), [basename(at())])
+})
+
+test('a failed final rewrite on a first create leaves the inbox file, and the next press records it without a second file', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const realRename = fsp.rename
+  mock.method(fsp, 'rename', async (from: string, to: string) => {
+    if (basename(String(to)) === 'created.json' && readFileSync(from, 'utf8').includes('"queued": true')) {
+      throw Object.assign(new Error('EIO: i/o error, rename'), { code: 'EIO' })
+    }
+    return realRename(from, to)
+  })
+  syncBuiltinESMExports()
+  let outcome
+  try {
+    outcome = await createTicket(ctx('github'))
+  } finally {
+    mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  assert.equal(outcome.ok, false)
+  if (outcome.ok) return
+  assert.equal(outcome.made?.ref, '#42')
+  assert.match(outcome.error, /Press Create again to record it/)
+  const made = await readCreated(dir)
+  assert.equal(made?.queued, false)
+  assert.equal(typeof made?.inbox, 'string')
+  assert.equal((await inboxFiles()).length, 1)
+  const queued = await queueCreated(q(), made!, { resume: true })
+  if (!queued.ok) assert.fail(queued.error)
+  assert.equal(queued.created.queued, true)
+  assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: ['#42'] })
 })

@@ -1,15 +1,16 @@
 // Turns a briefing's draft into a ticket (brief D5, D8, D9, D13, B6-B8): an issue through gh for
 // github, an issue through the tracker's MCP create tool in a headless haiku run for linear and jira
 // when that tool is connected, else a STAR spec item. created.json marks the create before anything is
-// made (D8), then records the made ticket, then an inbox file tells STAR (at least once, D13).
-import { mkdir, rm } from 'node:fs/promises'
+// made (D8), then records the made ticket, then an inbox file tells STAR exactly once (D13).
+import { mkdir, rm, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 
 import { contentOf, message, parseObject, runCli, tail } from './claude.ts'
 import type { CliEvent } from './claude.ts'
 import { hex4, stamp } from './ids.ts'
-import { rewriteCreated, writeCreated, writeNew } from './store.ts'
+import { readText, rewriteCreated, writeCreated, writeNew } from './store.ts'
 import type { Created } from './store.ts'
+import { ledgerRefs } from './ledger.ts'
 import type { Ticket } from './ticket.ts'
 import type { Tracker } from './tracker.ts'
 
@@ -84,13 +85,23 @@ export async function writeSpecItem(home: string, project: string, draft: Ticket
   throw new Error(`no free spec name for ${slug} in ${dir}`)
 }
 
-/** A new STAR inbox file (skills/star/SKILL.md:244-254); another suffix on a clash, never an overwrite. */
-export async function writeInbox(home: string, repo: string, ref: string, now: Date = new Date(), suffix: () => string = hex4): Promise<string> {
+/** STAR's inbox format (skills/star/SKILL.md:244-254). */
+export function inboxContent(repo: string, ref: string): string {
+  return `repo: ${repo}\nrefs:\n- ${ref}\n`
+}
+
+/** Draws a new STAR inbox path without writing it; another suffix on a clash, never an overwrite. */
+export async function drawInbox(home: string, now: Date = new Date(), suffix: () => string = hex4): Promise<string> {
   const dir = join(home, 'inbox')
   await mkdir(dir, { recursive: true })
   for (let tries = 0; tries < 100; tries++) {
     const path = join(dir, `${stamp(now)}-${suffix()}.md`)
-    if (await writeNew(path, `repo: ${repo}\nrefs:\n- ${ref}\n`)) return path
+    try {
+      await stat(path)
+    } catch (err) {
+      if ((err as { code?: string }).code === 'ENOENT') return path
+      throw err
+    }
   }
   throw new Error(`no free inbox name in ${dir}`)
 }
@@ -238,9 +249,9 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
     } catch (err) {
       return unmark(ctx.dir, { ok: false, error: `the spec item could not be written: ${message(err)}` })
     }
-    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at, state: 'made', inbox: null }
+    created = { tracker: ctx.tracker, ref: null, specPath, url: specUrl(ctx.project, specPath), at, state: 'made', inbox: null, queued: false }
   } else {
-    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at, state: 'made', inbox: null }
+    created = { tracker: ctx.tracker, ref: made.ref, specPath: null, url: made.url, at, state: 'made', inbox: null, queued: false }
   }
   const name = created.ref ?? created.specPath ?? ''
   ctx.log(`briefing ${ctx.project}/${basename(ctx.dir)}: made ${name} (${created.url})`)
@@ -253,30 +264,77 @@ export async function createTicket(ctx: CreateContext): Promise<CreateOutcome> {
 }
 
 /**
- * Tells STAR about a made ticket: a new inbox file, then created.json rewritten with its path. When
- * the rewrite fails the inbox file is taken back, so created.json keeps `inbox: null` and pressing
- * Create again runs this again (the create route). STAR hears of the ticket at least once; a
- * duplicate inbox file after an interrupted create is accepted (D13).
+ * Tells STAR about a made ticket exactly once (D1): record a path before writing its inbox file,
+ * then settle the record as queued. A resume checks that recorded file, then STAR's ledger, before
+ * using exclusive create; a failed settle leaves the file for the next Create press.
  */
-export async function queueCreated(ctx: Pick<CreateContext, 'home' | 'repo' | 'dir'>, created: Created): Promise<CreateOutcome> {
+export async function queueCreated(ctx: Pick<CreateContext, 'home' | 'repo' | 'dir'>, created: Created, options: { resume?: boolean } = {}): Promise<CreateOutcome> {
   const name = created.ref ?? created.specPath ?? ''
-  let inbox: string
-  try {
-    inbox = await writeInbox(ctx.home, ctx.repo, name)
-  } catch (err) {
-    return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: created }
-  }
-  const queued: Created = { ...created, inbox }
-  try {
-    await rewriteCreated(ctx.dir, queued)
-  } catch (err) {
-    // Take the inbox file back, so the next press writes exactly one.
-    try {
-      await rm(inbox, { force: true })
-    } catch (undo) {
-      return { ok: false, error: `${name} is in STAR's inbox (${inbox}), but created.json could not record it (${message(err)}) and the inbox file could not be taken back (${message(undo)}): remove it before pressing Create again`, made: created }
+  const content = inboxContent(ctx.repo, name)
+  let record = created
+  let persisted = created
+  let ledger: string[] | null = null
+  for (let round = 0; round < 100; round++) {
+    if (typeof record.inbox !== 'string') {
+      let path: string
+      try {
+        path = await drawInbox(ctx.home)
+      } catch (err) {
+        return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: persisted }
+      }
+      const ahead: Created = { ...record, inbox: path, queued: false }
+      try {
+        await rewriteCreated(ctx.dir, ahead)
+      } catch (err) {
+        return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: persisted }
+      }
+      record = ahead
+      persisted = ahead
     }
-    return { ok: false, error: `${name} was made, but created.json could not record its inbox file: ${message(err)}. Press Create again to send it to STAR.`, made: created }
+    const path = record.inbox
+    if (typeof path !== 'string') continue
+    let existing: string | null
+    try {
+      existing = await readText(path)
+    } catch (err) {
+      return { ok: false, error: `${name} was made, but its recorded inbox file ${path} could not be read: ${message(err)}. Press Create again to send it to STAR.`, made: persisted }
+    }
+    if (existing === content) {
+      // settle below
+    } else if (existing === null) {
+      if (options.resume && ledger === null) {
+        try {
+          ledger = await ledgerRefs(ctx.home)
+        } catch (err) {
+          return { ok: false, error: `${name} was made, but STAR's ledger could not be checked for it, so nothing was written: ${message(err)}. Fix the ledger, then press Create again.`, made: persisted }
+        }
+        if (ledger.includes(name)) {
+          // STAR already ingested this ticket; settle without creating a file.
+        } else {
+          try {
+            if (!await writeNew(path, content)) continue
+          } catch (err) {
+            return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: persisted }
+          }
+        }
+      } else if (!options.resume || ledger === null || !ledger.includes(name)) {
+        try {
+          if (!await writeNew(path, content)) continue
+        } catch (err) {
+          return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: ${message(err)}. Press Create again to send it to STAR.`, made: persisted }
+        }
+      }
+    } else {
+      record = { ...record, inbox: null, queued: false }
+      continue
+    }
+    const settled: Created = { ...record, queued: true }
+    try {
+      await rewriteCreated(ctx.dir, settled)
+    } catch (err) {
+      return { ok: false, error: `${name} is in STAR's queue (${path}), but created.json could not record it: ${message(err)}. Press Create again to record it; no second inbox file is written.`, made: persisted }
+    }
+    return { ok: true, created: settled }
   }
-  return { ok: true, created: queued }
+  return { ok: false, error: `${name} was made, but STAR's inbox file could not be written: no free inbox name in ${join(ctx.home, 'inbox')}. Press Create again to send it to STAR.`, made: persisted }
 }
