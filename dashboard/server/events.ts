@@ -66,6 +66,7 @@ export const WHATS = [
   "drafts",
   "slack",
   "briefings",
+  "chat",
 ] as const;
 export type What = (typeof WHATS)[number];
 const FOLDERS: Readonly<Record<string, What>> = {
@@ -74,6 +75,7 @@ const FOLDERS: Readonly<Record<string, What>> = {
   drafts: "drafts",
   slack: "slack",
   briefings: "briefings",
+  chat: "chat",
 };
 
 /** What a changed path (relative to the STAR folder) is about; a path fs.watch did not name could be any of them. */
@@ -113,6 +115,7 @@ export function signatures(home: string): Record<string, string> {
     drafts: tree("drafts"),
     slack: tree("slack"),
     briefings: tree("briefings"),
+    chat: tree("chat"),
   };
 }
 

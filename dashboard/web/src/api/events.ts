@@ -67,6 +67,10 @@ export function keysFor(event: ChangeEvent): QueryKey[] {
       return [["slack"], ["draft"]]
     case "briefings":
       return [scoped("briefings"), scoped("briefing")]
+    case "chat":
+      return [scoped("chat")]
+    case "accounts":
+      return [["accounts"]]
     default: {
       const unknown: never = event.what
       void unknown

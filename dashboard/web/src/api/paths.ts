@@ -37,4 +37,9 @@ export const paths = {
   briefingCreate: (p: string, id: string) =>
     `${project(p)}/briefings/${e(id)}/create`,
   tracker: (p: string) => `${project(p)}/tracker`,
+  chat: (p: string, before?: string) =>
+    `${project(p)}/chat${before === undefined ? "" : `?before=${e(before)}`}`,
+  away: (p: string) => `${project(p)}/away`,
+  slackRedraft: (p: string) => `${project(p)}/slack/redraft`,
+  accounts: () => "/api/accounts",
 }

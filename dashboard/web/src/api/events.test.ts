@@ -1,5 +1,6 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { keys } from "./queries"
 import type { BriefingEvent } from "./types"
 import {
   getConnection,
@@ -67,6 +68,17 @@ describe("the event stream", () => {
       ["briefings", p],
       ["briefing", p],
     ])
+  })
+  it("maps a chat change to its thread and an accounts change to the accounts", () => {
+    const p = "sphere-app"
+    expect(keysFor({ type: "change", project: p, what: "chat" })).toEqual([
+      keys.chat(p),
+    ])
+    expect(keys.chat(p)).toEqual(["chat", p])
+    expect(keysFor({ type: "change", what: "accounts" })).toEqual([
+      keys.accounts,
+    ])
+    expect(keys.accounts).toEqual(["accounts"])
   })
   it("sends the token, invalidates on change events and hands briefing events on", async () => {
     sessionStorage.setItem("star-token", "tok")

@@ -1,7 +1,9 @@
 import { createBrowserRouter, Navigate, type RouteObject } from "react-router"
 import { AppLayout } from "@/components/app-layout"
 import { RouteError } from "@/components/route-error"
+import { AccountsPage } from "@/pages/accounts"
 import { BriefingPage } from "@/pages/briefing"
+import { ChatPage } from "@/pages/chat"
 import { EvidencePage } from "@/pages/evidence"
 import { NeedsPage } from "@/pages/needs"
 import { NotFound } from "@/pages/not-found"
@@ -29,6 +31,7 @@ export const routes: RouteObject[] = [
         Component: ProgressPage,
         errorElement: <RouteError />,
       },
+      { path: "chat", Component: ChatPage, errorElement: <RouteError /> },
       { path: "slack", Component: SlackPage, errorElement: <RouteError /> },
       {
         path: "briefing",
@@ -38,6 +41,11 @@ export const routes: RouteObject[] = [
       {
         path: "evidence",
         Component: EvidencePage,
+        errorElement: <RouteError />,
+      },
+      {
+        path: "accounts",
+        Component: AccountsPage,
         errorElement: <RouteError />,
       },
       { path: "*", Component: NotFound, errorElement: <RouteError /> },

@@ -30,6 +30,7 @@ test("a changed path maps to what changed; lock and temp files map to nothing", 
     "drafts",
     "slack",
     "briefings",
+    "chat",
   ]);
 });
 
@@ -168,6 +169,7 @@ test("a burst of changes makes one event per what; a change fs.watch did not nam
     assert.equal(events.filter((e) => e["what"] === "loops").length, 1);
     assert.deepEqual(events.map((e) => e["what"]).sort(), [
       "briefings",
+      "chat",
       "drafts",
       "evidence",
       "ledger",
@@ -188,6 +190,21 @@ test("signatures change when a file under a watched folder changes", () => {
   const after = signatures(home);
   assert.notEqual(before["progress"], after["progress"]);
   assert.equal(before["ledger"], after["ledger"]);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test("lane 0: a file under chat/ is a chat change, for the watch and for the poll", () => {
+  assert.deepEqual(whatOf("chat/20261017T101500Z-me-a1b2.md"), ["chat"]);
+  const home = tempHome();
+  const before = signatures(home);
+  fs.mkdirSync(path.join(home, "chat"));
+  fs.writeFileSync(
+    path.join(home, "chat", "20261017T101500Z-me-a1b2.md"),
+    "id: 20261017T101500Z-me-a1b2\n",
+  );
+  const after = signatures(home);
+  assert.equal(typeof after["chat"], "string");
+  assert.notEqual(before["chat"], after["chat"]);
   fs.rmSync(home, { recursive: true, force: true });
 });
 
