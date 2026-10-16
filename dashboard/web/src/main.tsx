@@ -7,7 +7,7 @@ import { captureToken } from "@/api/token"
 import { AppProviders } from "@/app"
 import { createAppRouter } from "@/router"
 
-// Before the router reads the URL: ?t= goes to sessionStorage and leaves the address bar.
+// Before the router reads the URL: ?t= goes to localStorage (sessionStorage or memory when storage refuses) and leaves the address bar.
 captureToken()
 
 async function enableMocking(): Promise<void> {

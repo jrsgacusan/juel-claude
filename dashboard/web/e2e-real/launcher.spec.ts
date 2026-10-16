@@ -55,3 +55,37 @@ test("a second run only opens the URL", () => {
     dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)
   ).toHaveLength(1)
 })
+
+test("a new page keeps the token, and a browser without it can paste it", async ({
+  page,
+  browser,
+}) => {
+  await openApp(page)
+  const again = await page.context().newPage()
+  await again.goto(`${e2e().origin}/sample/needs`)
+  await expect(
+    again.getByRole("link", { name: /^sample/ }).first()
+  ).toBeVisible()
+  await expect(again.getByLabel("Dashboard token")).toHaveCount(0)
+  await again.close()
+  const fresh = await browser.newContext()
+  try {
+    const other = await fresh.newPage()
+    await other.goto(`${e2e().origin}/sample/needs`)
+    const field = other.getByLabel("Dashboard token")
+    await field.fill("0".repeat(32))
+    await other.getByRole("button", { name: "Use this token" }).click()
+    await expect(
+      other.getByText(
+        "The dashboard server refused that token. Paste the whole link /juel:star dashboard printed, so nothing is cut off."
+      )
+    ).toBeVisible()
+    await field.fill(e2e().url)
+    await other.getByRole("button", { name: "Use this token" }).click()
+    await expect(
+      other.getByRole("link", { name: /^sample/ }).first()
+    ).toBeVisible()
+  } finally {
+    await fresh.close()
+  }
+})

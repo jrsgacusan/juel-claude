@@ -1,11 +1,14 @@
 import { QueryClient } from "@tanstack/react-query"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { mockEvents } from "@/mocks/state"
 import { keys } from "./queries"
 import type { BriefingEvent } from "./types"
 import {
   getConnection,
   keysFor,
   parseFrames,
+  PING_TIMEOUT_MS,
+  reconnectEvents,
   startEvents,
   subscribeBriefing,
   subscribeConnection,
@@ -24,12 +27,23 @@ function stream() {
     }),
     send: (event: unknown) =>
       controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)),
+    ping: () => controller.enqueue(encoder.encode(": ping\n\n")),
     end: () => controller.close(),
   }
 }
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: state })
+  document.dispatchEvent(new Event("visibilitychange"))
+}
+/** Fake timers and clock only: stream reads keep running on real microtasks. */
+const useClock = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
 describe("the event stream", () => {
   const stops: Array<() => void> = []
-  afterEach(() => stops.splice(0).forEach((stop) => stop()))
+  afterEach(() => {
+    stops.splice(0).forEach((stop) => stop())
+    Reflect.deleteProperty(document, "visibilityState")
+    vi.useRealTimers()
+  })
   it("parses data frames and keeps a partial frame for the next chunk", () => {
     expect(parseFrames('data: {"a":1}\n\ndata: {"b"')).toEqual({
       events: [{ a: 1 }],
@@ -210,5 +224,102 @@ describe("the event stream", () => {
     }
     expect(call?.predicate?.({ queryKey: ["file", "/x"] })).toBe(false)
     expect(call?.predicate?.({ queryKey: ["loops", "p"] })).toBe(true)
+  })
+  it("reconnects at once, without showing lost, after 35 s with no ping", async () => {
+    useClock()
+    const [first, second] = [stream(), stream()]
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response)
+    const states: string[] = []
+    stops.push(subscribeConnection(() => states.push(getConnection())))
+    stops.push(startEvents(new QueryClient(), { fetchImpl }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getConnection()).toBe("open")
+    await vi.advanceTimersByTimeAsync(30_000)
+    first.ping()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(34_999)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(getConnection()).toBe("open"))
+    expect(states).toEqual(["open"])
+    expect(PING_TIMEOUT_MS).toBe(35_000)
+  })
+  it("becoming visible with the stream lost reconnects at once and refetches when it is back", async () => {
+    useClock()
+    const start = Date.now()
+    const s = stream()
+    const fetchImpl = vi.fn<typeof fetch>().mockRejectedValueOnce(new TypeError("Failed to fetch")).mockResolvedValueOnce(s.response)
+    const client = new QueryClient()
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    stops.push(startEvents(client, { fetchImpl }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getConnection()).toBe("lost")
+    setVisibility("hidden")
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    setVisibility("visible")
+    await vi.waitFor(() => expect(getConnection()).toBe("open"))
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(Date.now() - start).toBeLessThan(5000)
+    expect(invalidate).toHaveBeenCalledTimes(1)
+  })
+  it("becoming visible with the stream open keeps it and refetches the queries once, until stopped", async () => {
+    const s = stream()
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(s.response)
+    const client = new QueryClient()
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    const stop = startEvents(client, { fetchImpl })
+    await vi.waitFor(() => expect(getConnection()).toBe("open"))
+    setVisibility("hidden")
+    expect(invalidate).not.toHaveBeenCalled()
+    setVisibility("visible")
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    const { predicate } = invalidate.mock.calls[0]?.[0] as { predicate: (q: { queryKey: readonly unknown[] }) => boolean }
+    expect(predicate({ queryKey: ["file", "/x"] })).toBe(false)
+    expect(predicate({ queryKey: ["chat", "sphere-app"] })).toBe(true)
+    stop()
+    setVisibility("visible")
+    reconnectEvents()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+  it("becoming visible after a sleep longer than the ping timeout restarts the stream", async () => {
+    useClock()
+    const [first, second] = [stream(), stream()]
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response)
+    const client = new QueryClient()
+    const invalidate = vi.spyOn(client, "invalidateQueries")
+    stops.push(startEvents(client, { fetchImpl }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getConnection()).toBe("open")
+    vi.setSystemTime(Date.now() + 40_000) // the phone slept: the clock moved and no timer ran
+    setVisibility("visible")
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1))
+  })
+  it("reconnectEvents retries a refused stream with the token stored since", async () => {
+    const s = stream()
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(null, { status: 401 })).mockResolvedValueOnce(s.response)
+    stops.push(startEvents(new QueryClient(), { fetchImpl }))
+    await vi.waitFor(() => expect(getConnection()).toBe("refused"))
+    localStorage.setItem("star-token", "pasted")
+    reconnectEvents()
+    await vi.waitFor(() => expect(getConnection()).toBe("open"))
+    expect(new Headers(fetchImpl.mock.calls[1]?.[1]?.headers).get("X-Star-Token")).toBe("pasted")
+  })
+  it("the mock stream pings every 25 s like the server, and drop() stops it", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
+    const reader = mockEvents.open().getReader()
+    const next = async () => new TextDecoder().decode((await reader.read()).value)
+    expect(await next()).toBe(": connected\n\n")
+    vi.advanceTimersByTime(24_999)
+    mockEvents.emit({ type: "change", project: "p", what: "loops" })
+    expect(await next()).toBe('data: {"type":"change","project":"p","what":"loops"}\n\n')
+    vi.advanceTimersByTime(1)
+    expect(await next()).toBe(": ping\n\n")
+    mockEvents.drop()
+    expect((await reader.read()).done).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
   })
 })

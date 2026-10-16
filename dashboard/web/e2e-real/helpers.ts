@@ -54,7 +54,7 @@ export async function openApp(
   page: Page,
   path = "/sample/needs"
 ): Promise<void> {
-  // The first load hands ?t= to sessionStorage (src/api/token.ts captureToken); later loads in this tab read it there.
+  // The first load hands ?t= to localStorage (src/api/token.ts captureToken); later loads and new pages in this browser read it there.
   await page.goto(e2e().url)
   await expect(page).toHaveURL(/\/sample\/needs$/)
   if (path !== "/sample/needs") await page.goto(e2e().origin + path)

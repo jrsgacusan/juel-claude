@@ -106,40 +106,76 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
     )
   })
 }
-export type EventsOptions = { retryMs?: number; fetchImpl?: typeof fetch }
+export const PING_TIMEOUT_MS = 35_000
+export type EventsOptions = {
+  retryMs?: number
+  pingTimeoutMs?: number
+  fetchImpl?: typeof fetch
+}
+let current: (() => void) | null = null
+/** Restarts the stream started last, at once; a no-op when none runs. */
+export function reconnectEvents(): void {
+  current?.()
+}
+const parked = (signal: AbortSignal) =>
+  new Promise<void>((resolve) =>
+    signal.addEventListener("abort", () => resolve(), { once: true })
+  )
+const staleQueries = {
+  predicate: (query: { queryKey: readonly unknown[] }) =>
+    query.queryKey[0] !== "file",
+}
 export function startEvents(
   client: QueryClient,
   options: EventsOptions = {}
 ): () => void {
   const retryMs = options.retryMs ?? 5000
+  const pingTimeoutMs = options.pingTimeoutMs ?? PING_TIMEOUT_MS
   const fetchImpl = options.fetchImpl ?? ((input, init) => fetch(input, init))
-  const controller = new AbortController()
+  let stopped = false
   let lostOnce = false
   let warnedMalformed = false
+  let attempt = new AbortController()
+  let watchdog: ReturnType<typeof setTimeout> | undefined
+  let lastByteAt = Date.now()
+  const restart = () => attempt.abort()
+  const fed = () => {
+    lastByteAt = Date.now()
+    clearTimeout(watchdog)
+    watchdog = setTimeout(restart, pingTimeoutMs)
+  }
   const run = async () => {
-    while (!controller.signal.aborted) {
+    while (!stopped) {
+      attempt = new AbortController()
+      const { signal } = attempt
       try {
         const res = await fetchImpl(apiUrl(paths.events()), {
           headers: apiHeaders({ Accept: "text/event-stream" }),
-          signal: controller.signal,
+          signal,
         })
         if (res.status === 401) {
           setConnection("refused")
-          return
+          await parked(signal)
+          lostOnce = true
+          continue
         }
         if (!res.ok || !res.body)
           throw new Error(`the event stream answered ${res.status}`)
         setConnection("open")
-        if (lostOnce)
-          void client.invalidateQueries({
-            predicate: (query) => query.queryKey[0] !== "file",
-          })
+        if (lostOnce) void client.invalidateQueries(staleQueries)
         const reader = res.body.getReader()
+        signal.addEventListener(
+          "abort",
+          () => void reader.cancel().catch(() => {}),
+          { once: true }
+        )
+        fed()
         const decoder = new TextDecoder()
         let buffer = ""
         for (;;) {
           const { value, done } = await reader.read()
           if (done) break
+          fed()
           buffer += decoder.decode(value, { stream: true })
           const parsed = parseFrames(buffer, () => {
             if (warnedMalformed) return
@@ -151,14 +187,30 @@ export function startEvents(
         }
         throw new Error("the event stream ended")
       } catch (error) {
-        if (controller.signal.aborted) return
+        if (stopped) return
         lostOnce = true
+        if (signal.aborted) continue
         console.warn("[events] lost the stream:", error)
         setConnection("lost")
-        await sleep(retryMs, controller.signal)
+        await sleep(retryMs, signal)
+      } finally {
+        clearTimeout(watchdog)
       }
     }
   }
+  const onVisible = () => {
+    if (document.visibilityState !== "visible" || stopped) return
+    if (getConnection() === "open" && Date.now() - lastByteAt <= pingTimeoutMs)
+      void client.invalidateQueries(staleQueries)
+    else restart()
+  }
+  document.addEventListener("visibilitychange", onVisible)
+  current = restart
   void run()
-  return () => controller.abort()
+  return () => {
+    stopped = true
+    document.removeEventListener("visibilitychange", onVisible)
+    attempt.abort()
+    if (current === restart) current = null
+  }
 }
