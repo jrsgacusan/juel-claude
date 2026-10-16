@@ -14,6 +14,7 @@ import { useFileBlob } from "@/api/files"
 import { useEvidenceItem } from "@/api/queries"
 import type { EvidenceFile, EvidenceRecord } from "@/api/types"
 import { ErrorState } from "@/components/page-state"
+import { Pager } from "@/components/pager"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -27,6 +28,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { clock, dateTime, dayLabel } from "@/lib/format"
 import { errorMessage } from "@/lib/errors"
+import { usePage } from "@/lib/paginate"
 import { prLabel } from "@/lib/status"
 
 // The four check cards read the release record the server sends (API contract, 2026-10-16).
@@ -49,7 +51,11 @@ function Thumb({
   file: EvidenceFile
   onOpen: (file: EvidenceFile) => void
 }) {
-  const content = useFileBlob(file.url, file.kind)
+  // A recording is a play tile: its bytes are fetched only when it opens (FullSize), never for a thumbnail.
+  const content = useFileBlob(
+    file.kind === "video" ? null : file.url,
+    file.kind
+  )
   const [mediaError, setMediaError] = useState(false)
   return (
     <button
@@ -70,16 +76,6 @@ function Thumb({
             onError={() => setMediaError(true)}
           />
         )}
-        {file.kind === "video" && content.url && !mediaError && (
-          <video
-            src={content.url}
-            muted
-            preload="metadata"
-            aria-hidden="true"
-            className="size-full object-cover"
-            onError={() => setMediaError(true)}
-          />
-        )}
         {file.kind === "text" && content.text !== null && (
           <span className="absolute inset-0 flex flex-col gap-1 overflow-hidden p-3 font-mono text-[10px] leading-4 text-muted-foreground">
             {content.text
@@ -93,7 +89,7 @@ function Thumb({
           </span>
         )}
         {file.kind === "video" && (
-          <span className="absolute inset-0 grid place-items-center bg-black/25">
+          <span className="absolute inset-0 grid place-items-center">
             <span className="grid size-9 place-items-center rounded-full bg-background/90 text-foreground shadow">
               <Play className="size-4" />
             </span>
@@ -125,6 +121,35 @@ function Thumb({
         {file.name}
       </span>
     </button>
+  )
+}
+
+const FILES_PER_PAGE = 12
+
+function FileGrid({
+  files,
+  label,
+  onOpen,
+}: {
+  files: EvidenceFile[]
+  label: string
+  onOpen: (file: EvidenceFile) => void
+}) {
+  const { page, pageCount, pageItems, setPage } = usePage(files, {
+    pageSize: FILES_PER_PAGE,
+  })
+  return (
+    <>
+      <div
+        key={page}
+        className="motion-fade-in grid grid-cols-2 gap-3 sm:grid-cols-3"
+      >
+        {pageItems.map((file) => (
+          <Thumb key={file.url} file={file} onOpen={onOpen} />
+        ))}
+      </div>
+      <Pager page={page} pageCount={pageCount} onPage={setPage} label={label} />
+    </>
   )
 }
 
@@ -167,6 +192,7 @@ function FullSize({ file }: { file: EvidenceFile }) {
         src={content.url ?? ""}
         controls
         autoPlay
+        playsInline
         aria-label={file.name}
         className="max-h-[75vh] w-full rounded-lg border bg-black"
         onError={() => setMediaError(true)}
@@ -242,7 +268,12 @@ export function EvidenceDetailView({
         </p>
         <div className="flex flex-wrap gap-2">
           {d.pr ? (
-            <Button variant="outline" size="sm" asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              asChild
+              className="pointer-coarse:h-11"
+            >
               <a href={d.pr} target="_blank" rel="noreferrer">
                 <GitPullRequest className="size-3.5" />
                 PR {prLabel({ pr: "-", prUrl: d.pr }) ?? "link"}
@@ -252,6 +283,7 @@ export function EvidenceDetailView({
           <Button
             variant="outline"
             size="sm"
+            className="pointer-coarse:h-11"
             onClick={() => setRecordOpen(true)}
           >
             <FileText className="size-3.5" />
@@ -293,11 +325,11 @@ export function EvidenceDetailView({
                 </span>
               </p>
             )}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {group.files.map((file) => (
-                <Thumb key={file.url} file={file} onOpen={setZoom} />
-              ))}
-            </div>
+            <FileGrid
+              files={group.files}
+              label={`Pages of ${group.criterion ?? "files"}`}
+              onOpen={setZoom}
+            />
           </div>
         ))}
       </div>

@@ -251,4 +251,46 @@ describe("Evidence", () => {
     expect(within(again).getByText("Page 3 of 3")).toBeInTheDocument()
     expect(rows(again)[0]).toHaveAccessibleName(/^API-5\b/)
   })
+
+  it("a video thumbnail is a play tile that downloads nothing until it opens", async () => {
+    const requested: string[] = []
+    server.events.on("request:start", ({ request }) => {
+      requested.push(request.url)
+    })
+    try {
+      const { user } = renderApp("/sphere-app/evidence?item=SPH-4")
+      const detail = await screen.findByRole("region", { name: "Evidence detail" })
+      const tile = await within(detail).findByRole("button", { name: "Open clear-all.webm" })
+      await waitFor(() =>
+        expect(requested.some((u) => u.includes("filters-in-url.png"))).toBe(true)
+      )
+      expect(requested.some((u) => u.includes("clear-all.webm"))).toBe(false)
+      expect(tile.querySelector("video")).toBeNull()
+      await user.click(tile)
+      const dialog = await screen.findByRole("dialog", { name: "clear-all.webm" })
+      const video = await within(dialog).findByLabelText("clear-all.webm")
+      expect(video).toHaveAttribute("playsinline")
+      expect(requested.some((u) => u.includes("clear-all.webm"))).toBe(true)
+    } finally {
+      server.events.removeAllListeners()
+    }
+  })
+
+  it("pages a grid of 30 files twelve at a time", async () => {
+    const { user } = renderApp("/sphere-api/evidence?item=API-25")
+    const detail = await screen.findByRole("region", { name: "Evidence detail" })
+    const shots = () => within(detail).getAllByRole("button", { name: /^Open shot-/ })
+    await waitFor(() => expect(shots()).toHaveLength(12))
+    expect(shots()[0]).toHaveAccessibleName("Open shot-01.png")
+    const nav = within(detail).getByRole("navigation", { name: "Pages of files" })
+    expect(nav).toHaveTextContent("Page 1 of 3")
+    const grid = shots()[0]!.parentElement
+    await user.click(within(nav).getByRole("button", { name: "Next page" }))
+    expect(shots()[0]).toHaveAccessibleName("Open shot-13.png")
+    expect(shots()[0]!.parentElement).not.toBe(grid)
+    expect(shots()[0]!.parentElement).toHaveClass("motion-fade-in")
+    await user.click(within(nav).getByRole("button", { name: "Next page" }))
+    expect(shots()).toHaveLength(6)
+    expect(shots()[5]).toHaveAccessibleName("Open shot-30.png")
+  })
 })
