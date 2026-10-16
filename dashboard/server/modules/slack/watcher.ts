@@ -4,11 +4,13 @@
 // inbox file (D9), then a nudge. Also the module's three routes. Nothing here sends anything to
 // Slack: the run can use the pinned read tools only.
 import { readFileSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { errorText, runCli } from './claude.ts'
+import { MIN_FREE_BYTES, draftName, draftReply, findDraft, freeMemory, serial, toLine, writeDraft } from './drafter.ts'
+import type { Drafter } from './drafter.ts'
 import { channelLabel, deliver, inboxName, inboxText } from './inbox.ts'
 import { parseEnvelope } from './parse.ts'
 import { readDrafts, readOpenReplies, replyOf } from './replies.ts'
@@ -107,7 +109,7 @@ function byTsDesc(a: { ts: string }, b: { ts: string }): number {
   return Number(bi) - Number(ai) || bf.padEnd(6, '0').localeCompare(af.padEnd(6, '0'))
 }
 
-export type SlackOptions = { bin?: string; everyMs?: number; timeoutMs?: number; now?: () => Date }
+export type SlackOptions = { bin?: string; everyMs?: number; timeoutMs?: number; now?: () => Date; draft?: Drafter }
 export type CheckOutcome = { ok: boolean; routed: number; unrouted: number }
 export type Slack = {
   /** Runs a check now and answers when it ends; null when one is already running. */
@@ -115,10 +117,15 @@ export type Slack = {
   /** A check at once, then one every everyMs (S5); a tick while a check runs is skipped. */
   start(): void
   stop(): void
+  /** Resolves once no hand-over or redraft runs in the background. */
+  idle(): Promise<void>
   readonly everyMs: number
 }
 
-type Applied = { routed: number; unrouted: number; pruned: number; statusMoved: boolean; files: Map<string, number> }
+/** One routed message to hand over: `fresh` was reserved just now, `learn` teaches its channel (D3) after the hand-over. */
+type Job = { project: Project; id: string; entry: Entry; fresh: boolean; learn: boolean }
+type Committed = { jobs: Job[]; added: number; pruned: number; statusMoved: boolean }
+type HandedOver = 'delivered' | 'unrouted' | 'waiting'
 
 type Listed = {
   id: string
@@ -131,7 +138,7 @@ type Listed = {
   draftPath: string | null
   loopId: string | null
 }
-type RouteDone = { res: Res } | { project: string }
+type RouteDone = { res: Res } | { project: string } | { job: Job; at: Date }
 
 export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   const config = loadConfig()
@@ -140,6 +147,19 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   const now = opts.now ?? ((): Date => new Date())
   const everyMs = Math.min(opts.everyMs ?? readSlackSettings().everyMin * MINUTE_MS, MAX_DELAY_MS)
   const timeoutMs = opts.timeoutMs ?? config.timeoutMin * MINUTE_MS
+  const draft: Drafter = opts.draft ?? (req => draftReply(req, { bin }))
+  // One drafter at a time, for a check, a route by hand and a redraft alike.
+  const oneDraft = serial()
+  // Ids whose hand-over runs now, so a later check does not start it twice.
+  const inFlight = new Set<string>()
+  const background = new Set<Promise<unknown>>()
+  const inBackground = (work: Promise<unknown>): void => {
+    const tracked = work.catch(() => undefined).finally(() => background.delete(tracked))
+    background.add(tracked)
+  }
+  const idle = async (): Promise<void> => {
+    while (background.size > 0) await Promise.allSettled([...background])
+  }
 
   // The server's emit and log may throw. Nothing a timer or a route started may end the server.
   const safely = (what: string, act: () => void): void => {
@@ -196,27 +216,25 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   }
 
   /**
-   * S4: under the lock, the lists first, with each routed entry reserving its inbox file name
-   * (delivered false), then the inbox files, then the entries marked delivered, then status.json.
-   * Hand-overs an earlier run left pending (a crash between its commit and its mark) are finished
-   * here too, exactly once (`deliver`). A fresh hand-over that fails goes back to the unrouted list, where the owner can route it by hand;
-   * a pending one that fails stays pending for the next check. The workspace is this answer's (D8).
+   * S4, the commit: under the lock, the lists first, with each routed entry reserving its inbox file
+   * name (delivered false), then status.json. Pending hand-overs an earlier run left (a crash, a
+   * drafter waiting for memory) come back as jobs too, unless one is running now. The drafts and the
+   * inbox files follow, one job at a time (`handOver`). The workspace is this answer's (D8).
    */
-  async function apply(messages: Message[], workspace: string | null, start: Date): Promise<Applied> {
+  async function commit(messages: Message[], workspace: string | null, start: Date): Promise<Committed> {
     const projects = routable()
     const signals = await Promise.all(projects.map(p => signalsOf(p)))
-    return locked(async (): Promise<Applied> => {
+    return locked(async (): Promise<Committed> => {
       const before = await readStatus(config.model)
       const kept = prune(await readSeen(), await readUnrouted(), start)
       const routes = await readRoutes()
       const seen: Seen = kept.seen
       // An id whose entry is gone (a crash between two writes) or was routed by hand leaves the list.
       const unrouted = [...new Set(kept.unrouted)].filter(id => isUnrouted(seen, id))
-      // fresh: reserved by this check, so nothing of it can be written yet.
-      const handOver: { project: Project; id: string; fresh: boolean }[] = []
+      const jobs: Job[] = []
       for (const [id, entry] of Object.entries(seen)) {
-        const project = isPending(entry) ? projects.find(p => p.name === entry.project) : undefined
-        if (project) handOver.push({ project, id, fresh: false })
+        const project = isPending(entry) && !inFlight.has(id) ? projects.find(p => p.name === entry.project) : undefined
+        if (project) jobs.push({ project, id, entry, fresh: false, learn: false })
       }
       let added = 0
       for (const m of messages) {
@@ -225,8 +243,9 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         const decision = routeMessage(m, signals, routes)
         const project = decision.project === null ? undefined : projects.find(p => p.name === decision.project)
         if (project) {
-          seen[id] = { ...m, seenAt: start.toISOString(), project: project.name, inbox: inboxName(start), delivered: false }
-          handOver.push({ project, id, fresh: true })
+          const entry: Entry = { ...m, seenAt: start.toISOString(), project: project.name, inbox: inboxName(start), delivered: false }
+          seen[id] = entry
+          jobs.push({ project, id, entry, fresh: true, learn: false })
         } else {
           seen[id] = { ...m, seenAt: start.toISOString(), project: null }
           unrouted.push(id)
@@ -235,41 +254,77 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       }
       await writeUnrouted(unrouted)
       await writeSeen(seen)
-      const files = new Map<string, number>()
-      let failed = 0
-      let waiting = 0
-      for (const { project, id, fresh } of handOver) {
-        const entry = seen[id] as Entry
-        try {
-          const inbox = await deliver(project.home, entry.inbox as string, id, inboxText(project.repo, entry), start)
-          seen[id] = { ...entry, inbox, delivered: true }
-          files.set(project.name, (files.get(project.name) ?? 0) + 1)
-        } catch (err) {
-          if (fresh) {
-            log(`slack: an inbox file could not be written, so its message waits in unrouted: ${errorText(err)}`)
-            seen[id] = unroute(entry)
-            unrouted.push(id)
-            failed += 1
-          } else {
-            // An earlier run may have written its file: sending it back to unrouted could hand it over twice.
-            log(`slack: a pending hand-over could not be finished, so the next check tries again: ${errorText(err)}`)
-            waiting += 1
+      await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace, stderr: null })
+      return { jobs, added, pruned: kept.pruned, statusMoved: !before.connected || before.error !== null }
+    })
+  }
+
+  /**
+   * I-11: the draft first (a draft already there is used, else the drafter writes one, below 3 GB
+   * free memory it waits), always written to drafts/ even when the drafter failed, then the inbox
+   * file that names it, then the entry marked delivered and, for a route by hand, the learned channel.
+   * A fresh hand-over that fails goes back to the unrouted list, where the owner can route it by
+   * hand; a pending one that fails stays pending for the next check.
+   */
+  async function handOver(job: Job, at: Date): Promise<HandedOver> {
+    const { project, id, entry } = job
+    inFlight.add(id)
+    try {
+      const home = project.home
+      let path = await findDraft(home, id)
+      let drafterError: string | null = null
+      if (path === null) {
+        const made = await oneDraft(async () => {
+          const free = await freeMemory()
+          if (free < MIN_FREE_BYTES) return { free }
+          const result = await draft({ project, message: entry }).catch((err: unknown) => ({ ok: false as const, why: errorText(err) }))
+          const written = join(home, 'drafts', draftName(project.name, id, at))
+          await writeDraft(written, toLine(entry), result.ok ? result.text : '')
+          return { written, error: result.ok ? null : oneLine(result.why) }
+        })
+        if ('free' in made) {
+          log(`slack: a hand-over waits for free memory: ${(made.free / 1024 ** 3).toFixed(1)} GB free, ${MIN_FREE_BYTES / 1024 ** 3} GB needed`)
+          return 'waiting'
+        }
+        path = made.written
+        drafterError = made.error
+      }
+      const text = inboxText(project.repo, entry, path, drafterError)
+      await locked(async () => {
+        const inbox = await deliver(home, entry.inbox as string, text, at)
+        const seen = await readSeen()
+        await writeSeen({ ...seen, [id]: { ...(seen[id] ?? entry), inbox, delivered: true } })
+        if (job.learn) {
+          // D3: the owner's route teaches the channel. The route stands if this write fails.
+          try {
+            await writeRoutes({ ...(await readRoutes()), [entry.channelId]: project.name })
+          } catch (err) {
+            log(`slack: routes.json could not be written, so the channel was not learned: ${errorText(err)}`)
           }
         }
+      })
+      return 'delivered'
+    } catch (err) {
+      if (!job.fresh) {
+        // An earlier run may have written its file: sending it back to unrouted could hand it over twice.
+        log(`slack: a pending hand-over could not be finished, so the next check tries again: ${errorText(err)}`)
+        return 'waiting'
       }
-      if (handOver.length > 0) {
-        await writeUnrouted(unrouted)
-        await writeSeen(seen)
+      log(`slack: an inbox file could not be written, so its message waits in unrouted: ${errorText(err)}`)
+      try {
+        await locked(async () => {
+          const seen = await readSeen()
+          const ids = await readUnrouted()
+          await writeSeen({ ...seen, [id]: unroute(seen[id] ?? entry) })
+          await writeUnrouted([...new Set([...ids, id])])
+        })
+      } catch (undo) {
+        log(`slack: a failed hand-over could not be put back in unrouted: ${errorText(undo)}`)
       }
-      await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace, stderr: null })
-      return {
-        routed: handOver.length - failed - waiting,
-        unrouted: added + failed,
-        pruned: kept.pruned,
-        statusMoved: !before.connected || before.error !== null,
-        files,
-      }
-    })
+      return 'unrouted'
+    } finally {
+      inFlight.delete(id)
+    }
   }
 
   async function run(): Promise<CheckOutcome> {
@@ -299,19 +354,31 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     if (parsed.kind === 'error') return fail(parsed.cli ? 'cli-error' : 'bad-json', parsed.error, undefined, stderr)
     const names = ownerNames(parsed.owner, settings.names)
     const kept = parsed.messages.filter(m => keeps(m, parsed.owner?.id ?? null, names))
-    let applied: Applied
+    let committed: Committed
     try {
-      applied = await apply(kept, parsed.workspace, start)
+      committed = await commit(kept, parsed.workspace, start)
     } catch (err) {
       return fail('state', errorText(err))
     }
-    for (const [project, count] of applied.files) {
+    const files = new Map<string, number>()
+    let routed = 0
+    let unrouted = committed.added
+    for (const job of committed.jobs) {
+      const done = await handOver(job, start)
+      if (done === 'delivered') {
+        routed += 1
+        files.set(job.project.name, (files.get(job.project.name) ?? 0) + 1)
+      } else if (done === 'unrouted') {
+        unrouted += 1
+      }
+    }
+    for (const [project, count] of files) {
       if (!(await nudge(project))) log(`slack: STAR was not reached: ${count} inbox file(s) wait for its next tick`)
     }
     if (parsed.messages.length > kept.length) log(`slack check: ${parsed.messages.length - kept.length} dropped by the filter`)
-    log(`slack check: ${parsed.messages.length} found, ${applied.routed} routed, ${applied.unrouted} unrouted, ${applied.pruned} pruned`)
-    if (applied.routed + applied.unrouted + applied.pruned > 0 || applied.statusMoved) emitChange()
-    return { ok: true, routed: applied.routed, unrouted: applied.unrouted }
+    log(`slack check: ${parsed.messages.length} found, ${routed} routed, ${unrouted} unrouted, ${committed.pruned} pruned`)
+    if (routed + unrouted + committed.pruned > 0 || committed.statusMoved) emitChange()
+    return { ok: true, routed, unrouted }
   }
 
   async function check(): Promise<CheckOutcome | null> {
@@ -350,6 +417,10 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   const statusOrDefault = (): Promise<Status> =>
     readStatus(config.model).catch((err: unknown) => ({ ...defaultStatus(config.model), error: errorText(err) }))
 
+  /** STAR has not read the hand-over yet: its inbox file is still there. */
+  const inboxHeld = (home: string, name: string | undefined): Promise<boolean> =>
+    name === undefined ? Promise.resolve(false) : stat(join(home, 'inbox', name)).then(() => true, () => false)
+
   /** GET /api/slack: {status, routed, unrouted}; routed follows D5 and S7, both newest first. */
   async function listing(): Promise<{ status: Status; routed: Listed[]; unrouted: Record<string, string>[] }> {
     const status = await statusOrDefault()
@@ -376,7 +447,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         replies.set(project.name, found)
       }
       const reply = replyOf(entry, id, found.drafts, found.loops)
-      if (reply.finished) continue
+      if (reply.finished && entry.delivered !== false && !(await inboxHeld(project.home, entry.inbox))) continue
       routed.push({
         id,
         project: project.name,
@@ -399,10 +470,9 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
 
   /**
    * POST /api/slack/:id/route {project} (S8): seen.json first (the commit, with the inbox name it
-   * reserves), then the inbox file, then the entry marked delivered, the learned channel (D3) and the
-   * unrouted list. A failed inbox write puts seen.json back and is a 500, so the route can be tried
-   * again as it is. A crash after the commit leaves a pending hand-over the next check finishes,
-   * exactly once (S4).
+   * reserves), then the answer: 200 {project, drafting: true}. The draft, the inbox file, the
+   * learned channel (D3) and the nudge follow in the background (`handOver`). A crash after the
+   * commit leaves a pending hand-over the next check finishes (S4).
    */
   async function routeOne(req: Req): Promise<Res> {
     const id = req.params.id ?? ''
@@ -433,26 +503,9 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         const routed: Entry = { ...entry, project: project.name, inbox: inboxName(at), delivered: false }
         // The commit: from here a crash leaves a pending hand-over, which the next check finishes.
         await writeSeen({ ...seen, [id]: routed })
-        let inbox: string
-        try {
-          inbox = await deliver(project.home, routed.inbox as string, id, inboxText(project.repo, routed), at)
-        } catch (err) {
-          await writeSeen(seen).catch((undo: unknown) => log(`slack: seen.json could not be put back after a failed route: ${errorText(undo)}`))
-          throw err
-        }
-        try {
-          await writeSeen({ ...seen, [id]: { ...routed, inbox, delivered: true } })
-        } catch (err) {
-          log(`slack: seen.json could not mark a hand-over delivered; the next check will: ${errorText(err)}`)
-        }
-        // D3: the owner's route teaches the channel. The route stands if this write fails.
-        try {
-          await writeRoutes({ ...(await readRoutes()), [entry.channelId]: project.name })
-        } catch (err) {
-          log(`slack: routes.json could not be written, so the channel was not learned: ${errorText(err)}`)
-        }
+        inFlight.add(id)
         await dropFromUnrouted()
-        return { project: project.name }
+        return { job: { project, id, entry: routed, fresh: true, learn: true }, at }
       })
     } catch (err) {
       log(`slack: a route failed: ${errorText(err)}`)
@@ -460,13 +513,22 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     }
     if ('res' in done) return done.res
     emitChange()
-    if (done.project === DROPPED) {
+    if ('project' in done) {
       log('slack: 1 message dropped by hand')
       return { status: 200, json: { project: DROPPED } }
     }
-    const nudged = await nudge(done.project)
-    log(`slack: 1 message routed by hand${nudged ? '' : '; STAR was not reached'}`)
-    return { status: 200, json: { project: done.project, nudged } }
+    const { job, at } = done
+    inBackground(
+      (async (): Promise<void> => {
+        const result = await handOver(job, at)
+        if (result === 'delivered') {
+          const nudged = await nudge(job.project.name)
+          log(`slack: 1 message routed by hand${nudged ? '' : '; STAR was not reached'}`)
+        }
+        emitChange()
+      })(),
+    )
+    return { status: 200, json: { project: job.project.name, drafting: true } }
   }
 
   api.route('GET', '/api/slack', async () => ({ status: 200, json: await listing() }))
@@ -478,5 +540,5 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   })
   api.route('POST', '/api/slack/:id/route', routeOne)
 
-  return { check, start, stop, everyMs }
+  return { check, start, stop, idle, everyMs }
 }
