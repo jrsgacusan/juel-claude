@@ -2,6 +2,7 @@ import {
   Images,
   Inbox,
   ListChecks,
+  MessageCircle,
   MessageSquare,
   PenLine,
   type LucideIcon,
@@ -34,6 +35,7 @@ import { WorkersCard } from "./workers-card"
 const NAV: Array<{ page: Page; icon: LucideIcon }> = [
   { page: "needs", icon: Inbox },
   { page: "progress", icon: ListChecks },
+  { page: "chat", icon: MessageCircle },
   { page: "slack", icon: MessageSquare },
   { page: "briefing", icon: PenLine },
   { page: "evidence", icon: Images },

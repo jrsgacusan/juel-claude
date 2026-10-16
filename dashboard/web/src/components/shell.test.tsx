@@ -223,4 +223,13 @@ describe("the app shell", () => {
     expect(screen.queryByText("Next tick in 3 min")).not.toBeInTheDocument()
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
   })
+  it("lists Chat between Progress and Slack replies", async () => {
+    renderApp("/sphere-app/chat")
+    const sections = await screen.findByRole("list", { name: "Sections" })
+    expect(within(sections).getAllByRole("link").map((link) => link.textContent))
+      .toEqual(["Needs you", "Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
+    const chat = within(sections).getByRole("link", { name: "Chat" })
+    expect(chat).toHaveAttribute("href", "/sphere-app/chat")
+    expect(chat).toHaveAttribute("aria-current", "page")
+  })
 })
