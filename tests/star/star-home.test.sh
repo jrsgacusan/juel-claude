@@ -274,5 +274,26 @@ PY
 printf '{broken' > "$MH2/star.json"
 [ "$(sh "$SCRIPT" --cwd "$MV2" register)" = "listed $MH2" ] && python3 -c 'import json,sys; assert [e["name"] for e in json.load(open(sys.argv[1])) if e["home"] == sys.argv[2]] == ["mv1"]' "$HOME/.juel/star-homes.json" "$MH2" && pass "an unreadable star.json keeps the entry" || fail "unreadable star.json renamed the entry"
 
+# #125: import copies a spec from outside STAR's folder, with the files it names, and prints the copy
+IM="$TMP/importer"; mkrepo "$IM"; IMR=$(real "$IM"); IH=$(sh "$SCRIPT" --cwd "$IMR" init)
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["project"]["name"]="proj"; json.dump(d,open(p,"w"),indent=2)' "$IH/star.json"
+SRC="$TMP/scratch src"; mkdir -p "$SRC/shared"
+printf 'shared contract\n' > "$SRC/shared/contract.md"; printf 'unnamed\n' > "$SRC/other.md"
+printf -- '---\nstatus: todo\ntitle: Dashboard Briefing\n---\nRead shared/contract.md and %s/shared/contract.md first.\n' "$SRC" > "$SRC/Dashboard Briefing.md"
+D1="$IH/items/proj/dashboard-briefing"
+out=$(sh "$SCRIPT" --cwd "$IMR" import "$SRC/Dashboard Briefing.md"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "$D1/Dashboard Briefing.md" ] && [ -f "$D1/shared/contract.md" ] && [ ! -e "$D1/other.md" ] && pass "#125 an outside spec is copied with the sibling it names, and the copy's path is printed" || fail "#125 import ($rc: $out; $(ls -R "$IH/items" 2>&1 | tr '\n' ' '))"
+grep -qF "$D1/shared/contract.md" "$D1/Dashboard Briefing.md" && ! grep -qF "$SRC/" "$D1/Dashboard Briefing.md" && grep -qF 'Read shared/contract.md' "$D1/Dashboard Briefing.md" && pass "#125 an absolute reference to the source folder is rewritten to the copy's folder" || fail "#125 rewrite ($(cat "$D1/Dashboard Briefing.md" 2>&1))"
+out2=$(sh "$SCRIPT" --cwd "$IMR" import "$SRC/Dashboard Briefing.md")
+[ "$out2" = "$out" ] && [ ! -e "$IH/items/proj/dashboard-briefing-2" ] && pass "#125 a byte-identical earlier import is reused" || fail "#125 reuse ($out2)"
+printf 'changed\n' >> "$SRC/shared/contract.md"
+out3=$(sh "$SCRIPT" --cwd "$IMR" import "$SRC/Dashboard Briefing.md")
+[ "$out3" = "$IH/items/proj/dashboard-briefing-2/Dashboard Briefing.md" ] && grep -q changed "$IH/items/proj/dashboard-briefing-2/shared/contract.md" && ! grep -q changed "$D1/shared/contract.md" && pass "#125 a changed source gets -2 and the first copy stays" || fail "#125 suffix ($out3)"
+IN="$IH/items/proj/inside.md"; printf -- '---\nstatus: todo\n---\nx\n' > "$IN"
+[ "$(sh "$SCRIPT" --cwd "$IMR" import "$IN")" = "$IN" ] && pass "#125 a spec already inside STAR's folder is printed as is" || fail "#125 inside path"
+before=$(ls -R "$IH/items" | wc -l)
+out4=$(sh "$SCRIPT" --cwd "$IMR" import "$SRC/missing.md" 2>"$TMP/imerr"); rc=$?
+[ "$rc" -ne 0 ] && [ -z "$out4" ] && [ "$(wc -l < "$TMP/imerr" | tr -d ' ')" = 1 ] && [ "$(ls -R "$IH/items" | wc -l)" = "$before" ] && pass "#125 a path that is not a readable file exits non-zero with one line and copies nothing" || fail "#125 missing file (rc=$rc: $out4 / $(cat "$TMP/imerr"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -100,5 +100,10 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
   [ "$(printf '%s\n' "$row" | grep -c .)" -eq 1 ] && printf '%s\n' "$row" | grep -qF '`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`' && pass "fix-3 M9 $s: the Preflight row names what <plugin root> is" || fail "fix-3 M9 $s: the Preflight row names what <plugin root> is"
 done
 
+# #141: the executor runs only the commands the plan names
+R141="Run only the commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through \`gate-lock.sh\` when it says so); the caller runs the full gates itself, under its lock."
+tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF -- "$R141" && pass "#141 the executor runs only the commands the plan names" || fail "#141 executor rule"
+grep -qF 'using the tests, checks, inspections or screenshots the plan names' "$EX" && pass "#141 the executor validates with the plan's own checks" || fail "#141 executor validation step"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

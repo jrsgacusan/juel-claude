@@ -15,6 +15,7 @@
 #
 # The lock is a kernel lock (flock) on one file, <lock>: JUEL_GATE_LOCK when set (give an absolute path),
 # else /tmp/juel.gate.<uid>.lock, one file per user for every project on the machine. It is under
+# JUEL_GATE_TEST_DIR is a test-only override: when set, it replaces /tmp in that default path, so the gate-lock tests can hold a default lock of their own (#132). Only a test sets it; never set it anywhere else.
 # /tmp on purpose: every worker and every sandboxed executor can write there, no worker needs to
 # know where STAR's home is, and no "git clean" in a repo can delete it. The file stays on disk;
 # what it contains ("<label> pid=<wrapper> pgid=<command group>") is only there for the busy
@@ -100,7 +101,7 @@ def number(name, text, default):
     return value
 
 
-lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"/tmp/juel.gate.{os.getuid()}.lock")
+lock = os.path.abspath(os.environ.get("JUEL_GATE_LOCK") or f"{os.environ.get('JUEL_GATE_TEST_DIR') or '/tmp'}/juel.gate.{os.getuid()}.lock")
 
 if sys.argv[1:2] == ["--slots"]:  # sh gate-lock.sh --slots <n>: how many gates may run at once
     if len(sys.argv) != 3 or sys.argv[2] not in ("1", "2", "3", "4"):

@@ -649,5 +649,35 @@ unset STUB_FAIL_ROUTE
 check_lines "#116 a commit list GitHub cannot read prints one error line, exit 1" 1 'error gh exited 1: boom'
 
 echo
+# star-issues-remaining #129: a hosted run that reviewed nothing is "skipped", never a pass
+SKIPPED="Greptile skipped this review: it would exceed your organization's monthly flex usage limit."
+hosted_case hp-skip
+python3 - "$TMP/fx/hp-skip/reviews.json" "$PA" "$PB" "$PC" <<'PY2'
+import json, sys
+path, pa, pb, pc = sys.argv[1:]
+rows = [
+ {"id":81,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"3 findings","commit_id":pa,"submitted_at":"2026-10-13T09:00:00Z","html_url":"r81"},
+ {"id":82,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Greptile skipped this review: it would exceed your organization's monthly flex usage limit.","commit_id":pb,"submitted_at":"2026-10-13T10:00:00Z","html_url":"r82"},
+ {"id":83,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"3 files were skipped (generated code)\n1 finding","commit_id":pc,"submitted_at":"2026-10-13T11:00:00Z","html_url":"r83"},
+]
+with open(path, "w") as f:
+ for row in rows: f.write(json.dumps(row)+"\n")
+PY2
+run hp-skip 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#129 a skipped run between two real passes is skipped, and the passes stay 1 and 2" 0 "$(printf '2026-10-13T09:00:00Z pass 1 head=%s\n2026-10-13T10:00:00Z skipped head=%s %s\n2026-10-13T11:00:00Z pass 2 head=%s' "$PA" "$PB" "$SKIPPED" "$PC")"
+hosted_case hp-skip-comment
+python3 - "$TMP/fx/hp-skip-comment/comments.json" "$PA" <<'PY2'
+import json, sys
+path, pa = sys.argv[1:]
+rows = [
+ {"id":84,"user":{"login":"greptile-apps[bot]"},"created_at":"2026-10-13T11:00:00Z","updated_at":"2026-10-13T12:00:00Z","html_url":"c84","body":"**Review skipped**\n\nUsage limit reached for this billing period."},
+ {"id":85,"user":{"login":"greptile-apps[bot]"},"created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T08:00:00Z","html_url":"c85","body":"Confidence Score: 4/5\nReview skipped for vendored files\nLast reviewed commit: "+pa},
+]
+with open(path, "w") as f:
+ for row in rows: f.write(json.dumps(row)+"\n")
+PY2
+run hp-skip-comment 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#129 a summary comment that reviewed nothing is skipped on the PR's head; one with a score is a pass" 0 "$(printf '2026-10-13T08:00:00Z pass 1 head=%s\n2026-10-13T12:00:00Z skipped head=%s Review skipped' "$PA" "$HEADX")"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

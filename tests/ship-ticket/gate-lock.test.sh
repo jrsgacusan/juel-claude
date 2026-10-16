@@ -2,6 +2,9 @@
 # Runs skills/ship-ticket/gate-lock.sh against a scratch lock path.
 # Usage: sh tests/ship-ticket/gate-lock.test.sh   (exit 0 = all cases pass)
 set -u
+# a gate that runs this suite inside gate-lock.sh passes its JUEL_GATE_LOCK* variables down (#132):
+# this suite sets up its own, so every inherited one is dropped first
+for v in $(env | sed -n 's/^\(JUEL_GATE_LOCK[A-Za-z0-9_]*\)=.*/\1/p'); do unset "$v"; done
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPT="$ROOT/skills/ship-ticket/gate-lock.sh"
 TMP=$(mktemp -d)
@@ -143,7 +146,7 @@ sh "$SCRIPT" --holder n1 -- sh -c "sh '$SCRIPT' --holder n2 --wait-max 2 -- sh -
 [ "$rc" -eq 0 ] && [ -f "$TMP/nest.ran" ] && pass "a gate inside a gate on the same lock runs, it does not wait for itself" || fail "nested gate (rc=$rc)"
 # (the default lock is the real machine-wide one: never wait for it here; busy means a real gate runs.
 # The probe may land in any real slot, so it looks for its own token in the default lock's slot files.)
-DL="/tmp/juel.gate.$(id -u).lock"
+DL="${JUEL_GATE_TEST_DIR:-/tmp}/juel.gate.$(id -u).lock"
 d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc-probe --wait-max 0 -- sh -c 'for f in "$@"; do grep -q "^loc-probe .*token=$JUEL_GATE_LOCK_HELD" "$f" 2>/dev/null && { echo "$f"; exit 0; }; done; exit 1' sh "$DL" "$DL.2" "$DL.3" "$DL.4" 2>/dev/null); rc=$?
 case "$rc:$d" in "0:$DL"|"0:$DL.2"|"0:$DL.3"|"0:$DL.4") pass "the default lock is one file per user under /tmp, in or out of a git repo" ;; 75:*) pass "default lock path (skipped: a real gate is running)" ;; *) fail "default lock path (rc=$rc $d)" ;; esac
 now() { python3 -c 'import time; print(time.time())'; }

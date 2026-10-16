@@ -5,6 +5,8 @@ SKILL="$ROOT/skills/star/SKILL.md"
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
+# has <name> <text>: the text is in $SKILL once line breaks and repeated spaces are folded
+has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
 [ -f "$SKILL" ] || { echo "FAIL SKILL.md missing"; exit 1; }
 [ -d "$ROOT/skills/ship-tickets" ] && fail "ship-tickets removed" || pass "ship-tickets removed"
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
@@ -729,6 +731,25 @@ g "LH123e looking after the workers names it (#123)" 'capacity, or a worker left
 g "LH123f the matching nudge, never both (#123)" 'capacity rule: below `capacity=3`, send the nudge that matches the line: for `stalled: model at capacity`'
 g "LH123g a stalled worker becomes a lost worker (#123)" '(`stalled:`): STAR nudges it to retry, three times at most, then treats it as a lost worker (the capacity rule in'
 g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
+
+R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
+S124="PASS self-approved under the owner's grant"
+S129="the hosted reviewer is not reviewing since <since>: <why>. Answer retry once it can review again"
+has "#124 star.json documents ownerApproval" '"ownerApproval": null'
+has "#124 the merge gate reads STAR's folder" '`sh S/pr-verify.sh <pr url> --head <head> --merge-gate --home HOME_DIR`'
+has "#124 --hosted takes only the hosted reviewer's login" '`--hosted` takes only `hostedReviewer.login`'
+has "#124 the self-approved pass is named" "$S124"
+has "#125 the Inbox imports every spec-path ref" 'run `sh S/star-home.sh import <ref>` on every spec-path ref'
+has "#125 the same source makes one row" 'The same source handed over twice prints the same copy, so it still makes one row.'
+has "#126 the one base-merge rule" "$R126"
+has "#126 a base-merge rule STAR sends quotes it whole" 'A rule about merging the base quotes this rule whole:'
+has "#129 STAR handles hosted-unavailable" '`ESCALATION item=… reason=hosted-unavailable …` in a `worker_done`'
+has "#129 one held item for every PR" "$S129"
+has "#129 no babysit starts while the hosted reviewer is down" 'While `hostedDown` is set, start no babysit'
+has "#129 star.json documents hostedDown" '"hostedDown": null'
+has "#137 STAR records its gh login" '`gh api user --jq .login`'
+has "#137 star.json documents ghLogin" '"ghLogin": null'
+has "#137 the hook falls back to ghLogin" '`export GH_TOKEN="$(gh auth token --user <ghLogin>)"`'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -165,5 +165,13 @@ grep -qF 'and sourced decisions, on a branch of its own that no other item, remo
 grep -qF 'One pass per head: a second run on a head already reviewed is a refresh, never a pass' "$PAGE" && grep -qF 'the build never pings Greptile, since marking the PR ready starts its run' "$PAGE" && pass "I122 one hosted pass per head (#122)" || fail "I122 hosted passes on the page"
 grep -qF 'or left at an empty prompt under an <code>API Error:</code> line (a connection lost or a server error mid-response), gets up to three retry nudges in one silent stretch, shared by both' "$PAGE" && grep -qF 'A progress line comes only from the step it names, never from a timer the worker left running' "$PAGE" && pass "I123 an API error at the prompt is nudged (#123)" || fail "I123 API error on the page"
 
+# star-issues-remaining: the page shows #124 #125 #126 #129 #131 #137
+grep -qF 'With <code>ownerApproval</code> set in <code>star.json</code>, your own PR merges self-approved under your grant where no branch rule asks for an approval' "$PAGE" && pass "R124 the page names ownerApproval" || fail "R124 ownerApproval on the page"
+grep -qF 'A spec file outside the STAR folder is copied into it at ingest, with the files it names' "$PAGE" && pass "R125 the page says an outside spec is copied in" || fail "R125 import on the page"
+grep -qF 'a worker merges the base in only when the PR conflicts or a gate round refuses with base-moved' "$PAGE" && pass "R126 the page states the one base-merge rule" || fail "R126 base-merge rule on the page"
+grep -qF 'A hosted review that reviewed nothing (a usage limit) is not a pass: STAR parks every babysit, asks you once' "$PAGE" && pass "R129 the page says a skipped hosted review parks babysits" || fail "R129 hosted down on the page"
+grep -qF 'The codex gate names every site of a finding class in one finding' "$PAGE" && pass "R131 the page names finding classes" || fail "R131 finding classes on the page"
+grep -qF 'With no <code>tokenCmd</code>, every worker acts as the same GitHub account STAR does.' "$PAGE" && pass "R137 the page says workers act as STAR's account" || fail "R137 ghLogin on the page"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
