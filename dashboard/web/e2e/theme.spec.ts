@@ -49,3 +49,16 @@ test("the project's colors only mark state", async ({ page }) => {
   expect(colors.body).toMatch(/^rgb\((\d+), \1, \1\)$/)
   await noHorizontalScroll(page)
 })
+test("the selected theme stands out", async ({ page }) => {
+  await openApp(page)
+  await page.getByLabel("Dark theme").click()
+  // The pointer rests on the item just clicked; move it away so hover does not color it.
+  await page.mouse.move(0, 0)
+  const background = (label: string) =>
+    page
+      .getByLabel(label)
+      .evaluate((element) => getComputedStyle(element).backgroundColor)
+  const light = await background("Light theme")
+  await expect.poll(() => background("Dark theme")).not.toBe(light)
+  await noHorizontalScroll(page)
+})

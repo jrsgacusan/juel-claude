@@ -17,7 +17,7 @@ const THEMES = [
   label: string
 }>
 
-/** System / Light / Dark (star-dashboard-mock.html:349-366), kept in localStorage['star-theme'] by the provider. */
+/** System / Light / Dark (star-dashboard-mock.html:349-366), kept in localStorage['star-theme'] by the provider. The selected item is styled from aria-checked: a single toggle group renders radios, and TooltipTrigger's asChild replaces the item's data-state. */
 export function ThemeSwitch() {
   const { theme, setTheme } = useTheme()
   return (
@@ -25,6 +25,7 @@ export function ThemeSwitch() {
       type="single"
       variant="outline"
       size="sm"
+      spacing={0}
       value={theme}
       onValueChange={(value) => {
         if (value) setTheme(value as Theme)
@@ -34,7 +35,11 @@ export function ThemeSwitch() {
       {THEMES.map(({ value, icon: Icon, label }) => (
         <Tooltip key={value}>
           <TooltipTrigger asChild>
-            <ToggleGroupItem value={value} aria-label={`${label} theme`}>
+            <ToggleGroupItem
+              value={value}
+              aria-label={`${label} theme`}
+              className="text-muted-foreground aria-checked:bg-accent aria-checked:text-foreground aria-checked:shadow-sm"
+            >
               <Icon />
               <span className="hidden lg:inline">{label}</span>
             </ToggleGroupItem>

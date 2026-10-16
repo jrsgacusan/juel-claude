@@ -78,6 +78,19 @@ describe("the app shell", () => {
     expect(document.documentElement).toHaveClass("dark")
   })
 
+  it("marks the selected theme", async () => {
+    mockColorScheme(false)
+    const { user } = renderApp("/sphere-app/needs")
+    const dark = await screen.findByLabelText("Dark theme")
+    await user.click(dark)
+    expect(dark).toHaveAttribute("aria-checked", "true")
+    expect(dark.className).toMatch(/aria-checked:bg-accent/)
+    expect(screen.getByLabelText("Light theme")).toHaveAttribute(
+      "aria-checked",
+      "false"
+    )
+  })
+
   it("opens search with Ctrl+K and ⌘K from any page", async () => {
     const { user, router } = renderApp("/sphere-app/needs")
     await screen.findByRole("list", { name: "Projects" })
