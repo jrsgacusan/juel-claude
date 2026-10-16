@@ -26,9 +26,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
-/** Exactly the screen under the header below md, so the thread scrolls in its own box. */
-export const FILL_HEIGHT =
-  "h-[calc(100dvh_-_3.5rem_-_env(safe-area-inset-top))] md:h-auto md:min-h-0 md:flex-1"
+/** Takes what is left of the screen under the header and banners (the layout is a dvh-tall column below md), so the thread scrolls in its own box. */
+export const FILL_HEIGHT = "min-h-0 flex-1"
 
 /** Enter sends on a fine pointer; on a touch screen it makes a newline and only Send sends. */
 export function enterSends(event: KeyboardEvent<HTMLTextAreaElement>): boolean {

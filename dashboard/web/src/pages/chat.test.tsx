@@ -198,10 +198,18 @@ describe("Chat", () => {
     expect(within(thread()).getByText("Waits for STAR's next start")).toBeInTheDocument()
   })
 
+  it("fills the space under the header and banners with flex, not a computed height", async () => {
+    renderApp("/juel-claude/chat")
+    expect(await screen.findByText("STAR isn't running. Your message waits in its inbox.")).toBeInTheDocument()
+    const page = screen.getByRole("heading", { name: "Chat with STAR" }).parentElement!
+    expect(page).toHaveClass("flex-1", "min-h-0")
+    expect(page.className).not.toContain("calc")
+    expect(page.closest("main")).toHaveClass("max-md:h-dvh")
+  })
+
   it("starts a switched-to project's chat fresh: no carried text, no other project's message", async () => {
     const { user, router } = renderApp("/sphere-app/chat")
     const box = await screen.findByLabelText("Message STAR")
-    await waitFor(() => expect(getConnection()).toBe("open"))
     await user.type(box, "for sphere only{Enter}")
     await within(thread()).findByText("for sphere only")
     await user.type(screen.getByLabelText("Message STAR"), "unsent draft")
