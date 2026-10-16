@@ -9,9 +9,12 @@ export const test = baseTest.extend<{ page: Page }>({
   page: async ({ page }, provide) => {
     const messages: string[] = []
     page.on("console", (message) => {
-      if (message.type() === "error") messages.push(`console: ${message.text()}`)
+      if (message.type() === "error")
+        messages.push(`console: ${message.text()}`)
     })
-    page.on("pageerror", (error) => messages.push(`pageerror: ${error.message}`))
+    page.on("pageerror", (error) =>
+      messages.push(`pageerror: ${error.message}`)
+    )
     await provide(page)
     expect(messages, "console errors").toEqual([])
   },
@@ -47,7 +50,10 @@ export function fakeLog(name: string): string {
   }
 }
 
-export async function openApp(page: Page, path = "/sample/needs"): Promise<void> {
+export async function openApp(
+  page: Page,
+  path = "/sample/needs"
+): Promise<void> {
   // The first load hands ?t= to sessionStorage (src/api/token.ts captureToken); later loads in this tab read it there.
   await page.goto(e2e().url)
   await expect(page).toHaveURL(/\/sample\/needs$/)

@@ -44,7 +44,7 @@ function launchFailure(
   reason: string,
   stdout: string,
   stderr: string,
-  logTail: string,
+  logTail: string
 ): Error {
   removeRoot(root)
   return new Error(
@@ -56,7 +56,7 @@ function launchFailure(
       keepTemp()
         ? `temp folder ${root} (kept)`
         : `temp folder ${root} (removed; STAR_E2E_KEEP=1 keeps it)`,
-    ].join("\n"),
+    ].join("\n")
   )
 }
 
@@ -89,11 +89,11 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         "-qm",
         "init",
       ],
-      { cwd: stack.repo },
+      { cwd: stack.repo }
     )
     writeFileSync(
       join(stack.fakes, "terminals.json"),
-      '{"result":{"terminals":[{"handle":"term_e2e_star"}]}}\n',
+      '{"result":{"terminals":[{"handle":"term_e2e_star"}]}}\n'
     )
 
     const copyFake = (source: string, name: string): void => {
@@ -101,13 +101,16 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       cpSync(source, target)
       chmodSync(target, 0o755)
     }
-    copyFake(join(REPO_ROOT, "dashboard", "server", "test", "fake-orca.sh"), "orca")
+    copyFake(
+      join(REPO_ROOT, "dashboard", "server", "test", "fake-orca.sh"),
+      "orca"
+    )
     for (const name of ["claude", "gh", "open"]) {
       copyFake(join(import.meta.dirname, "bin", name), name)
     }
     writeFileSync(
       join(stack.home, ".juel", "star-homes.json"),
-      `${JSON.stringify([{ name: "sample", repo: stack.repo, home: stack.star }])}\n`,
+      `${JSON.stringify([{ name: "sample", repo: stack.repo, home: stack.star }])}\n`
     )
 
     launcherRan = true
@@ -115,9 +118,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     const stdout = result.stdout ?? ""
     const stderr = result.stderr ?? ""
     writeFileSync(join(root, "launch-1.out"), stdout)
-    const match = /^STAR dashboard: (http:\/\/127\.0\.0\.1:\d+\/\?t=([0-9a-f]{32}))$/m.exec(
-      stdout,
-    )
+    const match =
+      /^STAR dashboard: (http:\/\/127\.0\.0\.1:\d+\/\?t=([0-9a-f]{32}))$/m.exec(
+        stdout
+      )
     let reason: string | undefined
     if (result.error) reason = result.error.message
     else if (result.signal) reason = `killed by ${result.signal}`
@@ -140,7 +144,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     if (reason || !match) {
       const tail = dashboardLog(stack.home).split("\n").slice(-20).join("\n")
       await stopLateServer(stack.home)
-      throw launchFailure(root, reason ?? "no STAR dashboard line", stdout, stderr, tail)
+      throw launchFailure(
+        root,
+        reason ?? "no STAR dashboard line",
+        stdout,
+        stderr,
+        tail
+      )
     }
 
     const url = match[1]
@@ -152,16 +162,18 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       const problems: string[] = []
       const result = await stopServer(config.pid)
       if (result === "gone") {
-        problems.push(`the dashboard server (pid ${config.pid}) exited during the run`)
+        problems.push(
+          `the dashboard server (pid ${config.pid}) exited during the run`
+        )
       } else if (result === "killed") {
         problems.push(
-          `the dashboard server (pid ${config.pid}) did not stop on SIGTERM within 5 s`,
+          `the dashboard server (pid ${config.pid}) did not stop on SIGTERM within 5 s`
         )
       }
       const now = readConfig(stack.home)?.pid
       if (typeof now === "number" && now !== config.pid) {
         problems.push(
-          `dashboard.json names pid ${now}, not the pid ${config.pid} the first launch started`,
+          `dashboard.json names pid ${now}, not the pid ${config.pid} the first launch started`
         )
         await stopServer(now)
       }

@@ -87,7 +87,9 @@ describe("Progress", () => {
     const { user } = renderApp("/sphere-app/progress")
     const sph13 = await screen.findByRole("button", { name: /^SPH-13 SPH-13$/ })
     expect(screen.getByRole("button", { name: /^SPH-14 / })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /^SPH-12 · #41 / })).toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /^SPH-12 · #41 / })
+    ).toBeInTheDocument()
     expect(
       within(screen.getByRole("button", { name: /^SPH-12 · #41 / })).getByText(
         "SPH-12 · #41"
@@ -96,7 +98,9 @@ describe("Progress", () => {
     expect(screen.queryByText(/sph-13\.md/)).not.toBeInTheDocument()
     await user.click(sph13)
     const sheet = await screen.findByRole("dialog")
-    expect(within(sheet).getByRole("heading", { name: "SPH-13" })).toBeInTheDocument()
+    expect(
+      within(sheet).getByRole("heading", { name: "SPH-13" })
+    ).toBeInTheDocument()
     expect(within(sheet).queryByText(/sph-13\.md/)).not.toBeInTheDocument()
   })
 

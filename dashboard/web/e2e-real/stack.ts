@@ -44,7 +44,7 @@ export function launchEnv(root: string): NodeJS.ProcessEnv {
 
 export function runLauncher(
   root: string,
-  timeoutMs: number,
+  timeoutMs: number
 ): SpawnSyncReturns<string> {
   return spawnSync("sh", [join(REPO_ROOT, "skills/star/dashboard.sh")], {
     cwd: REPO_ROOT,
@@ -57,7 +57,7 @@ export function runLauncher(
 export function readConfig(home: string): DashboardConfig | null {
   try {
     return JSON.parse(
-      readFileSync(join(home, ".juel", "dashboard.json"), "utf8"),
+      readFileSync(join(home, ".juel", "dashboard.json"), "utf8")
     ) as DashboardConfig
   } catch (error) {
     if (
@@ -83,11 +83,13 @@ export const LOG_PROBLEM =
   /skipped|ignored|failed|could not|error|uncaught|unhandled|not reached|: 5\d\d /i
 
 export function logProblems(home: string): string[] {
-  return dashboardLog(home).split("\n").filter((line) => LOG_PROBLEM.test(line))
+  return dashboardLog(home)
+    .split("\n")
+    .filter((line) => LOG_PROBLEM.test(line))
 }
 
 export async function stopServer(
-  pid: number,
+  pid: number
 ): Promise<"stopped" | "gone" | "killed"> {
   try {
     process.kill(pid, "SIGTERM")

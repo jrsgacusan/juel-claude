@@ -15,12 +15,18 @@ test("the launcher started one server on 127.0.0.1 and opened its URL with the t
     .trim()
     .split("\n")
   expect(out.at(-1)).toBe(`STAR dashboard: ${url}`)
-  expect(dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)).toHaveLength(1)
+  expect(
+    dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)
+  ).toHaveLength(1)
 })
 
-test("the URL opens the page, and the API refuses a request without the token", async ({ page }) => {
+test("the URL opens the page, and the API refuses a request without the token", async ({
+  page,
+}) => {
   await openApp(page)
-  await expect(page.getByRole("link", { name: /^sample/ }).first()).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: /^sample/ }).first()
+  ).toBeVisible()
   const res = await fetch(`${e2e().origin}/api/projects`)
   expect(res.status).toBe(401)
 })
@@ -45,5 +51,7 @@ test("a second run only opens the URL", () => {
   const after = readConfig(e2e().home)
   expect(after?.pid).toBe(before.pid)
   expect(fakeLog("open.log").trim().split("\n")).toEqual([e2e().url, e2e().url])
-  expect(dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)).toHaveLength(1)
+  expect(
+    dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)
+  ).toHaveLength(1)
 })

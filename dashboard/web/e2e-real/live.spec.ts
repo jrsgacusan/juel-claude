@@ -1,5 +1,5 @@
-import { appendFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
+import { appendFileSync } from "node:fs"
 import { join } from "node:path"
 import type { Page } from "@playwright/test"
 import { e2e, expect, launchEnv, openApp, REPO_ROOT, test } from "./helpers.js"
@@ -18,14 +18,17 @@ const markNoReload = (page: Page) =>
 test("a progress line reaches the open sheet", async ({ page }) => {
   const lost: string[] = []
   page.on("console", (message) => {
-    if (message.text().includes("[events] lost the stream")) lost.push(message.text())
+    if (message.text().includes("[events] lost the stream"))
+      lost.push(message.text())
   })
   await openApp(page, "/sample/progress?item=csv-import")
-  await expect(page.getByRole("dialog")).toContainText("waiting for the hosted review")
+  await expect(page.getByRole("dialog")).toContainText(
+    "waiting for the hosted review"
+  )
   await markNoReload(page)
   appendFileSync(
     join(e2e().star, "progress/csv-import.log"),
-    `${new Date().toISOString().replace(/\.\d+Z$/, "Z")} live-check e2e live step appended\n`,
+    `${new Date().toISOString().replace(/\.\d+Z$/, "Z")} live-check e2e live step appended\n`
   )
   await expect(page.getByRole("dialog")).toContainText("e2e live step appended")
   await expect(page).toHaveURL(/\/sample\/progress\?item=csv-import$/)
@@ -36,7 +39,8 @@ test("a progress line reaches the open sheet", async ({ page }) => {
 test("a loop STAR adds reaches Needs you", async ({ page }) => {
   const lost: string[] = []
   page.on("console", (message) => {
-    if (message.text().includes("[events] lost the stream")) lost.push(message.text())
+    if (message.text().includes("[events] lost the stream"))
+      lost.push(message.text())
   })
   await openApp(page)
   await markNoReload(page)
@@ -56,9 +60,11 @@ test("a loop STAR adds reaches Needs you", async ({ page }) => {
       "--title",
       "Ship the importer behind a flag?",
     ],
-    { env: launchEnv(), cwd: e2e().repo },
+    { env: launchEnv(), cwd: e2e().repo }
   )
-  await expect(page.getByRole("button", { name: /Ship the importer behind a flag\?/ })).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /Ship the importer behind a flag\?/ })
+  ).toBeVisible()
   expect(await page.evaluate(() => window.__e2eNoReload)).toBe(true)
   expect(lost).toEqual([])
 })

@@ -229,7 +229,7 @@ export function ProgressPage() {
                         <TableCell className="px-4 py-3">
                           <button
                             type="button"
-                            aria-label={`${itemLabel(row)} ${row.title ?? row.item}`}
+                            aria-label={`${label} ${title}`}
                             onClick={(e) => {
                               e.stopPropagation()
                               setOpen(row.item)
