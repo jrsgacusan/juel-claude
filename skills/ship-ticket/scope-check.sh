@@ -1,6 +1,7 @@
 #!/bin/sh
 # Lists the files a plan's executor changed that no task of the plan names (#78).
 #   scope-check.sh <plan file> <base sha> [--before <file>] [--repo-dir <dir>]
+#   scope-check.sh --print <plan file> [--repo-dir <dir>]
 #   scope-check.sh --record <file> [--repo-dir <dir>]
 # Prints, sorted, one line per changed file that no task's **Files:** block names, then exits 1:
 #   outside <path>
@@ -34,7 +35,8 @@
 # The caller restores each outside file from <base sha>, or deletes it when it is new, and says so.
 # It never restores an outside-merged file: restoring it from <base sha> would drop the base's change.
 # Paths are relative to the repository's top level, whatever --repo-dir (default: here) points at.
-# Exit: 0 ok, unchecked or recorded; 1 outside or outside-merged lines; 64 bad usage, a plan or
+# --print lists the parsed scope as sorted "scope <path>" lines and needs no base sha or --before.
+# Exit: 0 ok, unchecked, printed or recorded; 1 outside or outside-merged lines; 64 bad usage, a plan or
 # --before file that cannot be read, a --record file that cannot be written, a <base sha> that is
 # not a commit, or a --repo-dir that is not in a git repository.
 exec python3 - "$@" <<'PY'
@@ -43,7 +45,8 @@ import re
 import subprocess
 import sys
 
-ENTRY = re.compile(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:Create|Modify|Test|Delete):(.*)$")
+LABEL = re.compile(r"^(\s*)(?:[-*+]\s+|\d+[.)]\s+)?(?:Create|Modify|Test|Delete)(?:\s*\([^\)\n]*\))?:(.*)$")
+RANGE = re.compile(r"`?([^`\s]+?)-(\d+)((?:\.[A-Za-z0-9]+)*)`?\s+(?:through|to)\s+`?-(\d+)((?:\.[A-Za-z0-9]+)*)`?")
 TICKED = re.compile(r"`([^`\n]+)`")
 LINES = re.compile(r":\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$")
 
@@ -53,10 +56,10 @@ def die(code, msg):
     sys.exit(code)
 
 
-argv, repo_dir, args, record, before_file = sys.argv[1:], ".", [], None, None
+argv, repo_dir, args, record, before_file, print_plan = sys.argv[1:], ".", [], None, None, None
 while argv:
     arg = argv.pop(0)
-    if arg in ("--repo-dir", "--record", "--before"):
+    if arg in ("--repo-dir", "--record", "--before", "--print"):
         if not argv:
             die(64, f"{arg} needs a value")
         value = argv.pop(0)
@@ -64,17 +67,24 @@ while argv:
             repo_dir = value
         elif arg == "--record":
             record = value
-        else:
+        elif arg == "--before":
             before_file = value
+        else:
+            print_plan = value
     elif arg.startswith("-"):
         die(64, f"unknown argument: {arg}")
     else:
         args.append(arg)
 if record is not None:
-    if args or before_file is not None:
+    if args or before_file is not None or print_plan is not None:
         die(64, "--record takes no plan, base sha or --before")
+elif print_plan is not None:
+    if args or before_file is not None:
+        die(64, "--print takes a plan and --repo-dir only")
+    plan, base = print_plan, None
 elif len(args) != 2:
     die(64, "usage: scope-check.sh <plan file> <base sha> [--before <file>] [--repo-dir <dir>]"
+            " | scope-check.sh --print <plan file> [--repo-dir <dir>]"
             " | scope-check.sh --record <file> [--repo-dir <dir>]")
 else:
     plan, base = args
@@ -105,7 +115,7 @@ rc, top = git(repo_dir, "rev-parse", "--show-toplevel")
 if rc != 0 or not top.strip():
     die(64, f"{repo_dir} is not in a git repository")
 top = os.path.realpath(top.strip())
-if record is None and git(top, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")[0] != 0:
+if record is None and base is not None and git(top, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")[0] != 0:
     die(64, f"{base} is not a commit")
 
 
@@ -153,13 +163,27 @@ def plan_path(raw):
     return path + "/" if folder else path
 
 
-files, folders, entries = set(), [], 0
-for line in text.splitlines():
-    entry = ENTRY.match(line)
-    if not entry:
-        continue
-    entries += 1
-    raws = TICKED.findall(entry.group(1)) or entry.group(1).split()[:1]
+def names(raw):
+    """Paths from a label's remainder, including ranges and nested bullet text."""
+    found = []
+    remainder = raw
+    ranges = list(RANGE.finditer(raw))
+    for match in reversed(ranges):
+        stem, first, ext1, last, ext2 = match.groups()
+        a, b = int(first), int(last)
+        width = len(first) if first.startswith("0") else 1
+        ext = ext2 or ext1
+        end = b if b >= a else a
+        found.extend(f"{stem}-{n:0{width}d}{ext}" for n in range(a, end + 1))
+        remainder = remainder[:match.start()] + " " + remainder[match.end():]
+    found.extend(TICKED.findall(remainder))
+    if not found:
+        token = remainder.split()[:1]
+        found.extend(token)
+    return found
+
+
+def add_paths(raws):
     for raw in raws:
         path = plan_path(raw)
         if path is None:
@@ -168,8 +192,50 @@ for line in text.splitlines():
             folders.append(path)
         else:
             files.add(path)
+
+
+files, folders, entries = set(), [], 0
+lines = text.splitlines()
+i = 0
+while i < len(lines):
+    line = lines[i]
+    label = LABEL.match(line)
+    if not label:
+        i += 1
+        continue
+    indent, rest = label.groups()
+    entries += 1
+    parsed = names(rest)
+    # A label with no path opens an indented Files block. A prose line at its indent closes it.
+    if parsed and not (not rest.strip()):
+        add_paths(parsed)
+        i += 1
+        continue
+    add_paths(parsed)
+    base_indent = len(indent.expandtabs(8))
+    j = i + 1
+    while j < len(lines):
+        nested = lines[j]
+        if not nested.strip():
+            j += 1
+            continue
+        nested_indent = len(nested) - len(nested.lstrip(" \t"))
+        if nested_indent <= base_indent:
+            break
+        body = nested.lstrip(" \t")
+        body = re.sub(r"^(?:[-*+]\s+|\d+[.)]\s+)", "", body)
+        add_paths(names(body))
+        j += 1
+    i = j
+
+
 if not entries:
     print("unchecked the plan names no files")
+    sys.exit(0)
+
+if print_plan is not None:
+    for path in sorted(files | set(folders)):
+        print(f"scope {path}")
     sys.exit(0)
 
 skip_files, skip_folders = set(before), [".superpowers/"]
