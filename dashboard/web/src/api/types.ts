@@ -195,10 +195,9 @@ export type Briefing = {
 export type NewBriefingResponse = { id: string }
 export type MessageRequest = { text: string }
 export type Tracker = "synapse" | "linear" | "jira" | "github" | "none"
-export type TrackerInfo = {
-  tracker: Tracker | null
-  connected?: Partial<Record<Tracker, boolean>>
-}
+/** GET /api/projects/:p/tracker. The server cannot tell whether a tracker's connector is
+ * connected until a create runs (briefing brief D5). */
+export type TrackerInfo = { tracker: Tracker | null }
 export type CreateRequest = { tracker: Tracker }
 export type CreateResponse =
   { ref: string; url: string | null } | { specPath: string; url: string | null }

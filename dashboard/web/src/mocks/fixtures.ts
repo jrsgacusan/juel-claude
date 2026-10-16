@@ -13,6 +13,7 @@ import type {
   Project,
   SearchResult,
   SlackState,
+  Tracker,
   TrackerInfo,
 } from "@/api/types"
 
@@ -40,6 +41,7 @@ export type MockDb = {
   slack: SlackState
   briefings: Record<string, MockBriefing[]>
   trackers: Record<string, TrackerInfo>
+  trackerConnected: Record<string, Partial<Record<Tracker, boolean>>>
   search: SearchResult[]
 }
 
@@ -718,22 +720,24 @@ export function createDb(): MockDb {
     trackers: {
       "sphere-app": {
         tracker: null,
-        connected: {
-          synapse: false,
-          linear: true,
-          jira: false,
-          github: true,
-          none: true,
-        },
       },
       "sphere-api": {
         tracker: "github",
-        connected: { github: true, none: true },
       },
       "juel-claude": {
         tracker: "github",
-        connected: { github: true, none: true },
       },
+    },
+    trackerConnected: {
+      "sphere-app": {
+        synapse: false,
+        linear: true,
+        jira: false,
+        github: true,
+        none: true,
+      },
+      "sphere-api": { github: true, none: true },
+      "juel-claude": { github: true, none: true },
     },
     search: [],
   }

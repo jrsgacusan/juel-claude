@@ -47,11 +47,10 @@ export function DraftPanel({
   const [createError, setCreateError] = useState<string | null>(null)
   const [createConflict, setCreateConflict] = useState(false)
   const chosen = tracker.data?.tracker ?? null
-  // Spec D18: Synapse always warns (it has no connector); linear, jira and github warn when the server reports connected[tracker] === false; none never warns.
-  const notConnected =
-    chosen !== null &&
-    chosen !== "none" &&
-    (chosen === "synapse" || tracker.data?.connected?.[chosen] === false)
+  // Synapse has no connector, so it always becomes a spec. Linear and Jira are found out only
+  // when the create runs (briefing brief D5): say they may become a spec. GitHub and none never warn.
+  const notConnected = chosen === "synapse"
+  const mayBeSpec = chosen === "linear" || chosen === "jira"
   const where =
     chosen !== null && chosen !== "none" && !notConnected
       ? TRACKER_LABEL[chosen]
@@ -69,7 +68,9 @@ export function DraftPanel({
       toast.success(
         "ref" in res
           ? `${res.ref} created in ${TRACKER_LABEL[target]}. STAR is briefing it now.`
-          : "Saved as a spec file. STAR is briefing it now."
+          : target === "linear" || target === "jira"
+            ? `${TRACKER_LABEL[target]} isn't connected in Claude Code, so it was saved as a spec file. STAR is briefing it now.`
+            : "Saved as a spec file. STAR is briefing it now."
       )
     } catch (error) {
       setCreateError(errorMessage(error))
@@ -155,6 +156,15 @@ export function DraftPanel({
           >
             <CircleAlert className="mt-0.5 size-4 shrink-0" />
             <span>{`${TRACKER_LABEL[chosen]} isn't connected yet. Connect it in Claude Code to create the ticket there. Until then, this becomes a spec file STAR keeps.`}</span>
+          </div>
+        )}
+        {mayBeSpec && chosen && (
+          <div
+            role="note"
+            className="flex gap-2 rounded-lg border border-wait-line bg-wait-bg p-3 text-sm text-wait-fg"
+          >
+            <CircleAlert className="mt-0.5 size-4 shrink-0" />
+            <span>{`${TRACKER_LABEL[chosen]} is used when its connector is connected in Claude Code. If it isn't, this becomes a spec file STAR keeps.`}</span>
           </div>
         )}
         {briefing.isPending && id ? (

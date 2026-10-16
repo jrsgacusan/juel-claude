@@ -1,7 +1,7 @@
 import { http, HttpResponse } from "msw/http"
 import { bypass } from "msw/utils/bypass"
 import { delay } from "msw/utils/delay"
-import type { BriefingEvent, Project, TrackerInfo } from "@/api/types"
+import type { BriefingEvent, Project, Tracker } from "@/api/types"
 import {
   consumeFailedBriefingTurn,
   getDb,
@@ -388,9 +388,7 @@ export const handlers = [
       const body = await bodyJson(request)
       const tracker = typeof body.tracker === "string" ? body.tracker : "none"
       const connected =
-        getDb().trackers[p]?.connected?.[
-          tracker as keyof TrackerInfo["connected"] & string
-        ] !== false
+        getDb().trackerConnected[p]?.[tracker as Tracker] !== false
       let result:
         | { ref: string; url: string | null }
         | { specPath: string; url: string | null }
@@ -436,7 +434,7 @@ export const handlers = [
     )
       return fail(400, `Unknown tracker ${tracker}`)
     const current = getDb().trackers[p] ?? { tracker: null }
-    current.tracker = tracker as TrackerInfo["tracker"]
+    current.tracker = tracker as Tracker
     getDb().trackers[p] = current
     return json({ tracker })
   }),

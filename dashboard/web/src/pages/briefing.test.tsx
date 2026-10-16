@@ -139,6 +139,38 @@ describe("Briefing", () => {
     expect(b1()?.summary.ref).toBe("#88")
   })
 
+  it("says Linear or Jira may become a spec, and says so when it did", async () => {
+    const { user } = renderApp("/sphere-app/briefing")
+    const draft = await screen.findByRole("region", { name: "Ticket draft" })
+    await within(draft).findByText("Let admins pause a member's seat")
+    await pickTracker(user, "Jira")
+    expect(
+      await within(draft).findByText(
+        "Jira is used when its connector is connected in Claude Code. If it isn't, this becomes a spec file STAR keeps."
+      )
+    ).toBeInTheDocument()
+    await user.click(
+      within(draft).getByRole("button", {
+        name: "Create in Jira and hand to STAR",
+      })
+    )
+    expect(
+      await screen.findByText(
+        "Jira isn't connected in Claude Code, so it was saved as a spec file. STAR is briefing it now."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("shows no connector note for GitHub Issues", async () => {
+    const { user } = renderApp("/sphere-app/briefing")
+    const draft = await screen.findByRole("region", { name: "Ticket draft" })
+    await within(draft).findByText("Let admins pause a member's seat")
+    await pickTracker(user, "GitHub Issues")
+    expect(
+      within(draft).queryByText(/connected in Claude Code/)
+    ).not.toBeInTheDocument()
+  })
+
   it("offers to save as a spec when the tracker fails", async () => {
     server.use(
       http.post(
