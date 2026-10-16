@@ -187,5 +187,6 @@ grep -qF '>Slack: drafted before STAR</text>' "$PAGE" && pass "LB4 the drawing s
 grep -qF 'and a Slack message the dashboard routes arrives with a reply its drafter already wrote' "$PAGE" && pass "LB4 the drawing's label names the drafter" || fail "LB4 drafter in the aria-label"
 grep -qF '<td>Slack drafter, run by the dashboard</td>' "$PAGE" && pass "LB4 the Models table names the drafter" || fail "LB4 drafter in Models"
 grep -qF 'from a phone you reach it over your tailnet with <code>tailscale serve --bg &lt;port&gt;</code>, never <code>tailscale funnel</code>: the server itself stays on 127.0.0.1.' "$PAGE" && pass "LB5 the page says how to reach the dashboard from a phone" || fail "LB5 tailscale serve on the page"
+grep -qF 'and a gate that prints nothing for 15 minutes is stopped and reported as stalled, so it never holds every build.' "$PAGE" && pass "LB6 a stalled gate is stopped and reported (#143)" || fail "LB6 stalled gate on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
