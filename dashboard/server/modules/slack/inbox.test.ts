@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { channelLabel, inboxText, stamp, writeInbox } from './inbox.ts'
+import { channelLabel, deliver, inboxName, inboxText, stamp } from './inbox.ts'
 import { cleanup, msg, world } from './test-helpers.ts'
 
 test('a thread reply in a channel: the exact block of D1 and D9', () => {
@@ -79,17 +79,26 @@ test('stamp is the UTC time as YYYYMMDDTHHMMSSZ', () => {
   assert.equal(stamp(new Date('2026-10-16T05:06:07.123Z')), '20261016T050607Z')
 })
 
-test('writeInbox names the file <UTC>-slack-<4 hex>.md, never overwrites, and leaves no temp file', async () => {
+test('deliver writes the reserved name once, takes a fresh name on a clash, and skips a reply STAR drafted', async () => {
   const w = await world()
   const home = join(w.root, 'star')
   const at = new Date('2026-10-16T05:06:07.123Z')
-  const a = await writeInbox(home, 'one\n', at)
-  const b = await writeInbox(home, 'two\n', at)
-  assert.match(basename(a), /^20261016T050607Z-slack-[0-9a-f]{4}\.md$/)
-  assert.match(basename(b), /^20261016T050607Z-slack-[0-9a-f]{4}\.md$/)
-  assert.notEqual(a, b)
-  assert.equal(await readFile(a, 'utf8'), 'one\n')
-  assert.equal(await readFile(b, 'utf8'), 'two\n')
-  assert.deepEqual((await readdir(join(home, 'inbox'))).sort(), [basename(a), basename(b)].sort())
+  assert.match(inboxName(at), /^20261016T050607Z-slack-[0-9a-f]{4}\.md$/)
+  const name = '20261016T050607Z-slack-abcd.md'
+  assert.equal(await deliver(home, name, 'C1-1.2', 'one\n', at), name)
+  assert.equal(await readFile(join(home, 'inbox', name), 'utf8'), 'one\n')
+  // Again with the same text, as after a crash before the entry was marked: no second file.
+  assert.equal(await deliver(home, name, 'C1-1.2', 'one\n', at), name)
+  // Another message's file holds the name: a fresh name.
+  const other = await deliver(home, name, 'C1-3.4', 'two\n', at)
+  assert.notEqual(other, name)
+  assert.match(other, /^20261016T050607Z-slack-[0-9a-f]{4}\.md$/)
+  assert.equal(await readFile(join(home, 'inbox', other), 'utf8'), 'two\n')
+  assert.deepEqual((await readdir(join(home, 'inbox'))).sort(), [name, other].sort())
+  // STAR already drafted the reply (it drafts before it deletes the inbox file): nothing is written.
+  await mkdir(join(home, 'drafts'), { recursive: true })
+  await writeFile(join(home, 'drafts', '2026-10-16-app-slack-C1-5.6.md'), 'to: slack C1 5.6\nYes.\n')
+  assert.equal(await deliver(home, '20261016T050607Z-slack-ffff.md', 'C1-5.6', 'three\n', at), '20261016T050607Z-slack-ffff.md')
+  assert.equal((await readdir(join(home, 'inbox'))).length, 2)
   await cleanup(w)
 })

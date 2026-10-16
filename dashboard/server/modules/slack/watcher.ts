@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { errorText, runCli } from './claude.ts'
-import { channelLabel, inboxText, writeInbox } from './inbox.ts'
+import { channelLabel, deliver, inboxName, inboxText } from './inbox.ts'
 import { parseEnvelope } from './parse.ts'
 import { readDrafts, readOpenReplies, replyOf } from './replies.ts'
 import type { Draft, OpenReply } from './replies.ts'
@@ -219,7 +219,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       let failed = 0
       for (const { project, id, entry } of toInbox) {
         try {
-          await writeInbox(project.home, inboxText(project.repo, entry))
+          await deliver(project.home, inboxName(start), idOf(entry), inboxText(project.repo, entry), start)
           files.set(project.name, (files.get(project.name) ?? 0) + 1)
         } catch (err) {
           log(`slack: an inbox file could not be written, so its message waits in unrouted: ${errorText(err)}`)
@@ -391,7 +391,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         if (!project) return { res: { status: 400, json: { error: `unknown project ${want}` } } }
         await writeSeen({ ...seen, [id]: { ...entry, project: project.name } })
         try {
-          await writeInbox(project.home, inboxText(project.repo, entry))
+          await deliver(project.home, inboxName(now()), id, inboxText(project.repo, entry))
         } catch (err) {
           await writeSeen(seen).catch((undo: unknown) => log(`slack: seen.json could not be put back after a failed route: ${errorText(undo)}`))
           throw err
