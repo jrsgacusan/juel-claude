@@ -2,7 +2,7 @@ import { CircleCheck, PenLine } from "lucide-react"
 import { type KeyboardEvent, useRef, useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
-import { ApiError } from "@/api/client"
+import { isConflictMarkers } from "@/api/client"
 import { useAnswer, useItems, useSlack } from "@/api/queries"
 import type { Loop } from "@/api/types"
 import { StarMark, StateBadge } from "@/components/status"
@@ -62,8 +62,8 @@ export function LoopDetail({
     try {
       res = await answer.mutateAsync({ id: loop.id, text })
     } catch (error) {
-      // A 409 raises the conflict banner (useAnswer); anything else is said here.
-      if (error instanceof ApiError && error.status === 409) return
+      // Conflict markers raise the conflict banner (useAnswer); anything else is said here.
+      if (isConflictMarkers(error)) return
       toast.error(`Couldn't send the answer: ${errorMessage(error)}`)
       return
     } finally {

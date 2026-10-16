@@ -109,6 +109,8 @@ export const handlers = [
         (candidate) => candidate.id === String(params.id)
       )
       if (!loop) return fail(404, `No loop ${String(params.id)}`)
+      if (loop.answer?.trim())
+        return fail(409, `${loop.id} already has an answer: STAR acts on that one`)
       const body = await bodyJson(request)
       const text = typeof body.text === "string" ? body.text.trim() : ""
       if (!text) return fail(400, "An answer needs text")

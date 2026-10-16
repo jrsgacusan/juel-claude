@@ -9,6 +9,15 @@ export class ApiError extends Error {
     this.status = status
   }
 }
+/** A 409 from the answer route that names conflict markers in open-loops.md. The same route
+ * also answers 409 for a loop that already has an answer, which is not a conflict. */
+export function isConflictMarkers(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    /conflict markers/i.test(error.message)
+  )
+}
 /** fetch itself failed: the server is down, unreachable or refused the connection. */
 export class NetworkError extends Error {
   constructor(message: string) {

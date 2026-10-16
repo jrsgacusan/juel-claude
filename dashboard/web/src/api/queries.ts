@@ -6,7 +6,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query"
 import { setConflict } from "@/lib/conflict"
-import { ApiError, apiFetch, apiJson, sendJson } from "./client"
+import {
+  ApiError,
+  apiFetch,
+  apiJson,
+  isConflictMarkers,
+  sendJson,
+} from "./client"
 import { paths } from "./paths"
 import type {
   AnswerResponse,
@@ -148,7 +154,9 @@ export function useAnswer(p: string) {
       void qc.invalidateQueries({ queryKey: keys.projects })
     },
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 409) setConflict(p)
+      if (isConflictMarkers(error)) setConflict(p)
+      else if (error instanceof ApiError && error.status === 409)
+        void qc.invalidateQueries({ queryKey: keys.loops(p) })
     },
   })
 }

@@ -139,6 +139,37 @@ describe("Needs you", () => {
     expect(within(detail).queryByText(/^Sent "/)).not.toBeInTheDocument()
   })
 
+  it("says when another answer got there first, without the conflict banner", async () => {
+    server.use(
+      http.post("*/api/projects/:p/loops/:id/answer", ({ params }) =>
+        HttpResponse.json(
+          {
+            error: `${String(params.id)} already has an answer: STAR acts on that one`,
+          },
+          { status: 409 }
+        )
+      )
+    )
+    const { user } = renderApp("/sphere-app/needs?loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    await user.click(
+      (await within(detail).findAllByRole("radio"))[0] as HTMLElement
+    )
+    await user.click(
+      within(detail).getByRole("button", { name: /Send to STAR/ })
+    )
+    expect(
+      await screen.findByText(
+        "Couldn't send the answer: N-41 already has an answer: STAR acts on that one"
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        "open-loops.md has conflict markers. Resolve them, then answer here."
+      )
+    ).not.toBeInTheDocument()
+  })
+
   it("a failed send keeps the answer and says what failed", async () => {
     server.use(
       http.post("*/api/projects/:p/loops/:id/answer", () =>
