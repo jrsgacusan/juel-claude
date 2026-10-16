@@ -9,6 +9,11 @@ import {
   mockEvents,
 } from "./state"
 import { HOME } from "./fixtures"
+import { chatHandlers } from "./chat"
+import { accountsHandlers } from "./accounts"
+import { controlHandlers } from "./control"
+import { briefingsExtraHandlers } from "./briefings-extra"
+import { slackExtraHandlers } from "./slack-extra"
 import clipUrl from "./assets/clip.webm?url"
 
 const API = "*/api"
@@ -64,6 +69,12 @@ export const handlers = [
       ? undefined
       : fail(401, "This dashboard needs its token")
   ),
+  // Each lane's own handlers come right after the token check, so they win over the base ones below.
+  ...chatHandlers,
+  ...accountsHandlers,
+  ...controlHandlers,
+  ...briefingsExtraHandlers,
+  ...slackExtraHandlers,
   http.get(`${API}/projects`, () => {
     const db = getDb()
     const stopped = getScenario() === "stopped"
