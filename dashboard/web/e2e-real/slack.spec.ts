@@ -25,11 +25,21 @@ test("the watcher's status shows, a message routes, and a draft edit saves", asy
         .filter((n) => /-slack-[0-9a-f]{4}\.md$/.test(n))
         .map((n) => starFile(`inbox/${n}`))
     })
-    .toEqual([
+    // Ria's hand-over comes with Sam's: a hand-over is not skipped because a draft exists (I-11). It names her existing draft, which stays as it is.
+    .toHaveLength(2)
+  const handOvers = readdirSync(join(e2e().star, "inbox"))
+    .filter((n) => /-slack-[0-9a-f]{4}\.md$/.test(n))
+    .map((n) => starFile(`inbox/${n}`))
+  expect(handOvers).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(
+        /permalink: https:\/\/acme\.slack\.com\/archives\/C0E2E\/[^\n]*[\s\S]*draft: [^\n]*\/drafts\/2026-10-16-sample-slack-C0E2E-1760000000\.000100\.md/
+      ),
       expect.stringContaining(
         "permalink: https://acme.slack.com/archives/C0E2F/p1760000100000200"
       ),
     ])
+  )
   await page
     // A routed message that STAR has drafted a reply to shows "Draft ready" (src/pages/slack.tsx); "Routed" marks one routed by hand.
     .getByRole("button", {
