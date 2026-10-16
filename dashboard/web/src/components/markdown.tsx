@@ -44,7 +44,20 @@ const COMPONENTS: Components = {
   blockquote: ({ children }) => (
     <blockquote className="border-l-2 pl-3 text-muted-foreground">{children}</blockquote>
   ),
-  img: ({ src, alt }) => <img src={src} alt={alt ?? ""} className="h-auto max-w-full rounded-md" />,
+  // Never an <img>: text that echoes Slack or ticket content must not make the phone fetch from another host.
+  img: ({ src, alt }) =>
+    src && /^https?:\/\//i.test(src) ? (
+      <a
+        href={src}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium underline underline-offset-4 wrap-anywhere"
+      >
+        {alt || src}
+      </a>
+    ) : (
+      <span>{alt}</span>
+    ),
 }
 
 export function Markdown({ text, className }: { text: string; className?: string }) {

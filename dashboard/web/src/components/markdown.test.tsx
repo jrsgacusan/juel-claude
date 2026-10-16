@@ -24,6 +24,19 @@ describe("Markdown", () => {
     expect(pre).toHaveClass("overflow-x-auto")
   })
 
+  it("never loads an image: it is a link with the alt text, or the alt text alone", () => {
+    const { container } = render(
+      <Markdown text={"![the chart](https://evil.example/p.png)\n\n![inline note](data:image/png;base64,AAAA)"} />
+    )
+    expect(container.querySelector("img")).toBeNull()
+    const link = screen.getByRole("link", { name: "the chart" })
+    expect(link).toHaveAttribute("href", "https://evil.example/p.png")
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    expect(screen.getByText("inline note")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "inline note" })).toBeNull()
+  })
+
   it("opens links in a new tab without handing over the page", () => {
     render(<Markdown text="[the PR](https://github.com/o/r/pull/1)" />)
     const link = screen.getByRole("link", { name: "the PR" })
