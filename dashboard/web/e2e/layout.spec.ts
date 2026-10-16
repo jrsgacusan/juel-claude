@@ -12,7 +12,14 @@ test("every page fits the width", async ({ page }) => {
     "/juel-claude/needs",
   ]) {
     await goInApp(page, path)
-    await expect(page.locator("h1, h2").first()).toBeVisible()
+    if (isPhone(page) && path.endsWith("/briefing")) {
+      // On a phone Briefing swaps its Chat and Draft panes behind tabs and shows no heading, to keep the height.
+      await expect(page.getByRole("tab", { name: "Chat", exact: true })).toBeVisible()
+      await expect(page.getByRole("tab", { name: "Draft", exact: true })).toBeVisible()
+    } else {
+      // A detail on a phone hides the list's heading, so the check wants a heading that is shown.
+      await expect(page.locator("h1:visible, h2:visible").first()).toBeVisible()
+    }
     await noHorizontalScroll(page)
   }
 })
