@@ -819,8 +819,8 @@ has "LB4c new: no draft file at all" '`new`: no draft file for this message at a
 g "LB4d the no-reply queue row" '--body "draft: <draft path>\nmessage: <permalink>\nSuggest: no draft: <why>\nOptions: rewrite: <how> / skip"'
 has "LB4e the block listing names drafterError" 'drafterError: <one line why, only when the drafter failed>'
 has "LB4f the drafter's answers are command words" '`rewrite: <how>` and `redraft failed: <why>` match as prefixes, and `redrafted` is a command word too'
-has "LB4g rewrite asks the drafter through slack-redraft.sh" '`sh S/slack-redraft.sh --home HOME_DIR --draft <the item'"'"'s draft: path> --loop <the item'"'"'s id> --how "<how>"`'
-has "LB4h the item stays open while it is redrafted" 'keep the item open (do not close it); until its answer changes, the status line says `redrafting <draft name>`'
+has "LB4g rewrite asks the drafter through slack-redraft.sh" '`sh S/slack-redraft.sh --home HOME_DIR --draft <the item'"'"'s draft: path> --loop <the NEW item'"'"'s id> --how "<how>"`'
+has "LB4h the status line says redrafting" 'the status line says `redrafting <draft name>`'
 has "LB4i a waiting request is not made twice" 'When a request for this item is already waiting'
 g "LB4j the redrafted row" '| `slack-reply` | `redrafted` |'
 has "LB4k redrafted takes the draft's new first reply line" 'its Suggest line the draft'"'"'s new second line (`sed -n 2p <draft path>`)'
@@ -844,5 +844,10 @@ has "LB5b the Chat page" 'The page also has a Chat page per project, where the o
 has "LB5c the away switch" 'an away switch that writes the same control files as `away` and `back` from another session'
 has "LB5d the Accounts page" 'an Accounts page with the machine'"'"'s cswap accounts, read-only'
 has "LB5e tailscale serve, never funnel" '`tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`), which they run once themselves, never `tailscale funnel`: the server stays on 127.0.0.1.'
+# fix-1: a rewrite answer closes the answered item and re-adds it unanswered with (redrafting)
+has "F1a rewrite re-adds the item with a (redrafting) title" 'close the answered item and add it again unanswered, with the same kind, project, item and body lines (`draft:`, `message:`, Suggest and Options) and ` (redrafting)` at the end of its title'
+has "F1b the redraft runs on the new item's id" '--loop <the NEW item'"'"'s id>'
+has "F1c redrafted drops the (redrafting) suffix" 'without its ` (redrafting)` ending'
+has "F1d a second rewrite while one runs" 'the newest request wins'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
