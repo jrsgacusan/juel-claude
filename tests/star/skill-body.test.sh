@@ -809,5 +809,11 @@ g "LB2s common mistake: a bare go in chat" '| Taking a bare "go" or "yes" in the
 g "LB2t common mistake: a reply only in the terminal" '| Answering a chat message only in this terminal |'
 g "LB2u edge case: chat while STAR is stopped" '| A chat message sent while STAR is stopped |'
 g "LB2v edge case: a bare go in chat" '| A bare "go" in the dashboard'"'"'s chat while a batch'"'"'s go is open |'
+# away from the dashboard (spec 3.3)
+has "LB3a the away switch writes the same control file" 'The dashboard'"'"'s away switch writes the same file (`control: away` or `control: back`) and nudges the same way'
+has "LB3b an away from the dashboard asks nothing in the terminal" 'finds nobody at STAR'"'"'s terminal: ask nothing there.'
+has "LB3c part A goes into the chat thread" 'After step 2, post part A into the dashboard'"'"'s chat thread instead'
+has "LB3d it is posted with chat.sh post" '`sh S/chat.sh --home HOME_DIR post --body-file <that file>`'
+has "LB3e not again when already away" 'not when `handoff.sh start` said STAR was already away.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -181,5 +181,6 @@ grep -qF 'STAR waits for worker messages in the background, one wait at a time, 
 grep -qF 'or chat with STAR from the dashboard, which answers in the thread' "$PAGE" && pass "LB2 the drawing's label names chat" || fail "LB2 chat in the aria-label"
 grep -qF '>From the dashboard</text>' "$PAGE" && grep -qF '>chat: STAR replies in the thread</text>' "$PAGE" && pass "LB2 the drawing shows chat" || fail "LB2 chat in the drawing"
 grep -qF "The dashboard's Chat page talks to the running STAR: your message reaches STAR's inbox, and it answers in the thread within seconds, acting only through its own rules, so a bare go there is never a go." "$PAGE" && pass "LB2 the page explains chat" || fail "LB2 chat on the page"
+grep -qF 'Its away switch does what <code>/juel:star away</code> and <code>back</code> do, and STAR posts what still needs you into the chat.' "$PAGE" && pass "LB3 the page names the away switch" || fail "LB3 away switch on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

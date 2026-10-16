@@ -280,6 +280,8 @@ In STAR's own session these run directly (see "Handoff" and "Stop"). From any ot
 the project: write `HOME_DIR/inbox/<UTC timestamp>-control-<4 random hex>.md` containing the single
 line `control: away` (or `control: back`, `control: stop`), then nudge STAR as in hand-over. STAR
 not running → say so; the control file waits in the inbox.
+The dashboard's away switch writes the same file (`control: away` or `control: back`) and nudges the
+same way; "Handoff" says where STAR then puts what is still open.
 
 ## STAR's home
 
@@ -1986,7 +1988,12 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 
 1. Finish the current tick. When a batch summary still has open questions, ask them once more
    ("The batch summary and go"); a person-only step left unanswered holds only its own item, which
-   stays `brief-ready`.
+   stays `brief-ready`. An away that came as a control file the Inbox step runs (the dashboard's
+   away switch writes one, and so does another session) or as a chat message finds nobody at STAR's
+   terminal: ask nothing there. After step 2, post part A into the dashboard's chat thread instead:
+   write it to a file from `mktemp` with `sed -n '/^### A\./,/^$/p' HOME_DIR/handoff.md`, then run
+   `sh S/chat.sh --home HOME_DIR post --body-file <that file>`; not when `handoff.sh start` said
+   STAR was already away.
 2. `sh S/handoff.sh --home HOME_DIR start` writes `handoff.md` and marks `away` in `star.json`. Its
    three parts come straight from the files: **A. Needs you now** (queue items that block work: a
    batch's go, person-only steps, merge questions, worker questions, escalations, restarts),
