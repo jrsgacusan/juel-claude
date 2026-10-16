@@ -115,7 +115,7 @@ grep -q 'STAR answered' "$SKILL" && pass "what STAR decided for a worker is on r
 grep -q 'Answer on' "$T/open-loops.md" && pass "the queue file says how to answer" || fail "template answer hint"
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
-g "V1 away, back and stop are not a start" '`status`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start'
+g "V1 away, back and stop are not a start" '`status`, `dashboard`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start'
 g "V3 every tick checks it still owns the home" "is not this session's handle"
 g "V4 the heartbeat is renewed before it expires" 'heartbeatAt'
 g "V5 a lost build leaves its pool" 'and set the row to `failed`'
@@ -294,7 +294,7 @@ g "H3 it reads each PR's review logins from the REST API" "gh api \"repos/{owner
 g "H4 and each PR's comment logins" "gh api \"repos/{owner}/{repo}/issues/<n>/comments\" --jq '.[].user.login'"
 g "H5 it stops at the exact REST login" 'stopping at the first line that is exactly `greptile-apps[bot]`'
 grep -qF 'gh pr view <n> --json comments,reviews' "$SKILL" && fail "H6 the GraphQL lookup is gone" || pass "H6 the GraphQL lookup is gone"
-g "CW1 status, away, back and stop are commands only as the whole text" '`status`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "CW1 status, dashboard, away, back and stop are commands only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
 g "CW2 a free-text brief may start with a command word" '`/juel:star stop the digest from sending twice` is a free-text brief'
 g "CW3 draft-brief and post-report match as the first word" 'A first word of `draft-brief` or `post-report` is'
 g "CW4 filler is dropped, a remark about the refs goes to the note" '(`and`, `add`, `please`), which is dropped, or only say something about the refs'
@@ -470,7 +470,7 @@ g "GD1 a gate-down escalation parks the row" '| `ESCALATION item=… reason=revi
 g "GD2 no build or babysit starts while the gate is down" 'While `gateDown` is set, start no build and no babysit'
 g "GD3 the gate is checked every 30 minutes" '`gateDown` set, and its `checked` 30 minutes or more ago: `sh S/codex-gate.sh check`'
 g "GD4 retry checks the gate now" '| `held` "the review gate is down…" | `retry` |'
-g "GD5 retry is a command word" '`accept`, `retry` or `not merging`'
+g "GD5 retry is a command word" '`accept`, `retry`, `skip` or `not merging`'
 g "GD6 STAR stays active while the gate is down" 'or while `gateDown` is set'
 g "GD7 the status line says so" '`gate down since <since>`'
 g "GD8 the Gate down rule" '**Gate down.**'
@@ -658,6 +658,43 @@ g "LHmod-e the hard rule names the mod" '- On Claude Code 2.1.287 and later, jue
 # fix-2: prompt bounded in Reconcile and the escalation-answer rule (#114)
 g "FIX2a Reconcile keeps a prompt bounded worker, Housekeeping answers it (#114)" '`prompt bounded …` → keep it; Housekeeping answers it.'
 g "FIX2b an escalation answer counts a prompt bounded worker as still running (#114)" 'says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running'
+# the STAR dashboard (star-dashboard-server)
+g "DASH1 the dashboard command row" '| `/juel:star dashboard` |'
+g "DASH2 dashboard is a command word only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "DASH3 the dashboard section runs dashboard.sh" '`sh S/dashboard.sh`'
+g "DASH4 the dashboard needs no STAR running" 'It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder.'
+g "DASH5 init lists the folder in the registry" '`~/.juel/star-homes.json`'
+g "DASH6 every start registers the home" 'Then `sh S/star-home.sh register`'
+g "DASH7 a pick is marked recommended" 'it marks that option in the `Options:` line with a ` (recommended)` suffix'
+g "DASH8 a pick says why on a Suggest line" '`Suggest: <one line, why>`'
+g "DASH9 never a pick on a secret step" 'A `secret` step never gets either'
+g "DASH10 the Answers step drops the suffix" 'drops a trailing ` (recommended)` from an answer before it compares command words'
+g "DASH11 a slack: inbox file is not a work item" 'A file with a `slack:` block is a Slack message the dashboard'"'"'s watcher routed to this project'
+g "DASH12 the Slack draft path" '`HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`'
+g "DASH13 the draft first line" '`to: slack <channelId> <threadTs>`'
+g "DASH14 the slack-reply queue item" '--kind slack-reply --project <p> --item slack'
+g "DASH15 the slack-reply options" 'Options: send (recommended) / rewrite: <how> / skip'
+g "DASH16 send posts through the Slack connector" '| `slack-reply` | send |'
+g "DASH17 quiet hours do not hold a send" 'Quiet hours do not hold it: the owner pressed send.'
+g "DASH18 no Slack connector holds the send" 'connect Slack in Claude Code to send <draft name>'
+g "DASH19 rewrite redrafts" '| `slack-reply` | `rewrite: <how>` |'
+g "DASH20 skip closes it" '| `slack-reply` | skip | close it |'
+g "DASH21 the home lists the Slack drafts" 'drafts/<YYYY-MM-DD>-<project>-slack-<id>.md'
+g "DASH22 dashboard skips the preflight like status" '`status`, `dashboard`, `away`, `back`, `stop`, `draft-brief` and `post-report` are not a start'
+g "DASH23 the slack block's thread field" 'threadTs: <ts, or ->'
+g "DASH24 the slack block's channel id" 'channelId: <id>'
+g "DASH25 the slack block's permalink" 'permalink: <url>'
+g "DASH26 a draft for a top-level message names its own ts" '(the block'"'"'s `ts` when `threadTs` is `-`)'
+g "DASH27 the reply's rules" 'at most two sentences, no greeting'
+g "DASH28 a reply STAR cannot answer says the owner will check" 'reply says the owner will check'
+g "DASH29 a slack: file adds no row" 'not a work item: it adds no row'
+g "DASH30 the sent.log line for a Slack reply" '`<iso>\tSTAR\tslack\tslack reply <draft name>`'
+g "DASH31 the reply goes in the message's thread" '(`thread_ts`)'
+g "DASH32 no Slack tool writes nothing to sent.log" 'and write nothing to `sent.log`'
+g "DASH33 a reply is marked sent only once it posted" 'once the post succeeds, append that line to `sent.log`'
+g "DASH34 anything else asks again" '(answer send, rewrite: <how> or skip)'
+g "DASH35 a failed post writes nothing to sent.log" 'A post that fails: write nothing to `sent.log`'
+
 # #121: a draft brief's branch never collides with another item's or a remote branch
 g "LH121a draft-brief checks the branch for a collision (#121)" 'old PR. Then check the branch for a collision (#121): compare the branch you would name against'
 g "LH121b against the brief of every other ledger row (#121)" 'the `branch:` line of the brief of every other row in `<HOME_DIR>/ledger.md` (each row has its'

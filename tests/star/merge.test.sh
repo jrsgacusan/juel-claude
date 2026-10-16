@@ -85,7 +85,7 @@ PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head abc1234 --grant "$TMP/grant.md" 
 PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" >/dev/null 2>&1; [ $? -eq 64 ] && pass "no grant is 64" || fail "usage grant"
 # with --home and --item, a head a worker may still push to is never merged (#80)
 APP="$TMP/app"; mkdir -p "$APP"; (cd "$APP" && git init -q -b main . && git commit -q --allow-empty -m init)
-SH=$(sh "$ROOT/skills/star/star-home.sh" --cwd "$APP" init)
+SH=$(HOME="$TMP/home" sh "$ROOT/skills/star/star-home.sh" --cwd "$APP" init)
 LD() { sh "$ROOT/skills/star/ledger.sh" --home "$SH" "$@"; }
 LD add ITEM-1 ref=ITEM-1 project=app state=verifying >/dev/null
 MW() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item ITEM-1 "$@"; }
