@@ -1,0 +1,8 @@
+#!/bin/sh
+# The real-stack suite's tailscale: stands in for dashboard.sh's `tailscale serve status --json` (nothing is served); anything else exits 64.
+[ -z "${STAR_E2E_FAKES:-}" ] || printf '%s\n' "$*" >> "$STAR_E2E_FAKES/tailscale.log"
+if [ "${1:-}" = "serve" ] && [ "${2:-}" = "status" ] && [ "${3:-}" = "--json" ]; then
+  printf '%s\n' '{}'
+  exit 0
+fi
+exit 64

@@ -1,0 +1,8 @@
+#!/bin/sh
+# The real-stack suite's crontab: stands in for the accounts module's `crontab -l` with an empty crontab; anything else exits 64.
+[ -z "${STAR_E2E_FAKES:-}" ] || printf '%s\n' "$*" >> "$STAR_E2E_FAKES/crontab.log"
+if [ "${1:-}" = "-l" ]; then
+  echo 'crontab: no crontab for e2e' >&2
+  exit 1
+fi
+exit 64

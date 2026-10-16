@@ -1,0 +1,7 @@
+#!/bin/sh
+# The real-stack suite's ps: the accounts module's process list (-Ao pid=,command=) is empty, so no cswap process is seen; every other call is the real ps (dashboard.sh needs ps -p <pid> -o command=).
+if [ "${1:-}" = "-Ao" ] && [ "${2:-}" = "pid=,command=" ]; then
+  [ -z "${STAR_E2E_FAKES:-}" ] || printf '%s\n' "$*" >> "$STAR_E2E_FAKES/ps.log"
+  exit 0
+fi
+exec /bin/ps "$@"

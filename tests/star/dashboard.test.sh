@@ -2,10 +2,11 @@
 # skills/star/dashboard.sh on a copy of the repo with a temp HOME and fakes on PATH (open, orca,
 # claude, npm): no real browser opens, no real STAR is woken, no real web build runs.
 set -u
+unset JUEL_DIR  # an inherited one would point the runs below at someone's real dashboard
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 TMP=$(mktemp -d)
 cleanup() {
-  for f in "$TMP"/home/.juel/dashboard.json; do
+  for f in "$TMP"/home/.juel/dashboard.json "$TMP"/juel-*/dashboard.json; do
     [ -f "$f" ] && kill "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pid"])' "$f")" 2>/dev/null
   done
   rm -rf "$TMP"
@@ -31,13 +32,20 @@ cat > "$TMP/bin/orca" <<'EOF'
 echo '{"result":{"terminals":[]}}'
 EOF
 printf '#!/bin/sh\nexit 1\n' > "$TMP/bin/claude"
+printf '#!/bin/sh\nexit 127\n' > "$TMP/bin/cswap"  # the accounts module must never read the real cswap
 cat > "$TMP/bin/npm" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >> "$TMP/npm.log"
 if [ "\$1 \$2" = "run build" ]; then mkdir -p dist && echo '<!doctype html><title>built</title>' > dist/index.html; fi
 exit 0
 EOF
-chmod +x "$TMP/bin/open" "$TMP/bin/orca" "$TMP/bin/claude" "$TMP/bin/npm"
+cat > "$TMP/bin/tailscale" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TMP/tailscale.log"
+if [ -f "$TMP/ts.fail" ]; then echo 'failed to connect to local Tailscale daemon' >&2; exit 1; fi
+cat "$TMP/ts.json" 2>/dev/null || echo '{}'
+EOF
+chmod +x "$TMP/bin/open" "$TMP/bin/orca" "$TMP/bin/claude" "$TMP/bin/cswap" "$TMP/bin/tailscale" "$TMP/bin/npm"
 D() { HOME="$TMP/home" PATH="$TMP/bin:$PATH" sh "$R/skills/star/dashboard.sh" "$@"; }
 conf() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d[sys.argv[2]])' "$TMP/home/.juel/dashboard.json" "$1"; }
 
@@ -134,6 +142,66 @@ relpid=$(conf pid)
 out=$(HOME="$TMP/home" PATH="$TMP/bin:$PATH" STAR_FREE_GB=8 sh "$R2/skills/star/dashboard.sh" 2>&1)
 [ "$(conf pid)" = "$relpid" ] && kill -0 "$relpid" 2>/dev/null && ! printf '%s\n' "$out" | grep -q 'stopping the dashboard' \
   && pass "a server started with the relative path is opened, not replaced" || fail "relative start (pid $relpid → $(conf pid)): $out"
+
+# lane f: JUEL_DIR, the fixed port and the tailnet URL
+D2() { HOME="$TMP/home" PATH="$TMP/bin:$PATH" STAR_FREE_GB=8 sh "$R2/skills/star/dashboard.sh" "$@"; }
+confin() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d[sys.argv[2]])' "$1/dashboard.json" "$2"; }
+livepid=$(conf pid); liveport=$(conf port); livetoken=$(conf token)
+
+J="$TMP/juel-alt"
+out=$(JUEL_DIR="$J" D2 2>&1); rc=$?
+altpid=$(confin "$J" pid 2>/dev/null); altport=$(confin "$J" port 2>/dev/null)
+[ "$rc" = 0 ] && kill -0 "$altpid" 2>/dev/null && [ -s "$J/dashboard.log" ] && printf '%s\n' "$out" | grep -qF "STAR dashboard: http://127.0.0.1:$altport/?t=" \
+  && pass "JUEL_DIR holds a second dashboard's config and log" || fail "JUEL_DIR start (rc=$rc): $out"
+[ "$(conf pid) $(conf port) $(conf token)" = "$livepid $liveport $livetoken" ] && kill -0 "$livepid" 2>/dev/null && [ "$altport" != "$liveport" ] \
+  && pass "the dashboard under HOME/.juel keeps its pid, port and token" || fail "the HOME dashboard changed: $(cat "$TMP/home/.juel/dashboard.json")"
+out=$(JUEL_DIR= D2 2>&1)
+printf '%s\n' "$out" | grep -qxF "STAR dashboard: http://127.0.0.1:$liveport/?t=$livetoken" && [ "$(conf pid)" = "$livepid" ] \
+  && pass "an empty JUEL_DIR is ~/.juel" || fail "empty JUEL_DIR: $out"
+
+python3 -c 'import socket, time
+s = socket.socket(); s.bind(("127.0.0.1", 0)); s.listen(1)
+print(s.getsockname()[1], flush=True); time.sleep(60)' > "$TMP/blocker.port" &
+BLOCKER=$!
+n=0; until [ -s "$TMP/blocker.port" ] || [ "$n" -gt 40 ]; do sleep 0.25; n=$((n + 1)); done
+P=$(cat "$TMP/blocker.port"); mkdir -p "$TMP/juel-busy"
+printf '{"port": %s, "token": "abcdefabcdefabcdefabcdefabcdef12", "pid": 999999}\n' "$P" > "$TMP/juel-busy/dashboard.json"
+out=$(JUEL_DIR="$TMP/juel-busy" D2 2>&1); rc=$?
+[ "$rc" = 1 ] && printf '%s\n' "$out" | grep -qF "dashboard.sh: the server did not start: port $P is busy: the dashboard keeps its port so tailscale serve keeps reaching it." \
+  && [ "$(confin "$TMP/juel-busy" port)" = "$P" ] \
+  && pass "a busy recorded port stops the start, says so, and stays recorded" || fail "busy port (rc=$rc): $out"
+kill "$BLOCKER" 2>/dev/null
+
+serve_json() {  # <host:port> <proxy>: one HTTPS mapping of / in tailscale serve status --json
+  python3 -c 'import json, sys
+host, proxy = sys.argv[1], sys.argv[2]
+print(json.dumps({"TCP": {host.rsplit(":", 1)[1]: {"HTTPS": True}}, "Web": {host: {"Handlers": {"/": {"Proxy": proxy}}}}}))' "$1" "$2" > "$TMP/ts.json"
+}
+serve_json "mac.tail1234.ts.net:443" "http://127.0.0.1:$liveport"
+out=$(D2 2>&1)
+[ "$(printf '%s\n' "$out" | grep -A1 '^STAR dashboard: ' | sed -n 2p)" = "STAR dashboard on your tailnet: https://mac.tail1234.ts.net/?t=$livetoken" ] \
+  && pass "tailscale serve on the port prints the tailnet URL after the local one" || fail "tailnet line: $out"
+serve_json "mac.tail1234.ts.net:8443" "http://localhost:$liveport/"
+out=$(D2 2>&1)
+printf '%s\n' "$out" | grep -qxF "STAR dashboard on your tailnet: https://mac.tail1234.ts.net:8443/?t=$livetoken" \
+  && pass "a localhost proxy on 8443 names the port" || fail "8443: $out"
+serve_json "mac.tail1234.ts.net:443" "http://127.0.0.1:$((liveport + 1))"
+out=$(D2 2>&1)
+! printf '%s\n' "$out" | grep -q 'on your tailnet' && pass "tailscale serve for another port prints no tailnet line" || fail "other port: $out"
+touch "$TMP/ts.fail"; out=$(D2 2>&1); rm -f "$TMP/ts.fail"
+! printf '%s\n' "$out" | grep -q -e 'on your tailnet' -e 'Tailscale daemon' && pass "a tailscale that fails adds nothing" || fail "failing tailscale: $out"
+mkdir -p "$TMP/bin-nots"
+for f in "$TMP"/bin/*; do [ "$(basename "$f")" = tailscale ] || cp "$f" "$TMP/bin-nots/"; done
+ln -s "$(command -v node)" "$(command -v python3)" "$TMP/bin-nots/"
+NOTS="$TMP/bin-nots:/usr/bin:/bin:/usr/sbin:/sbin"
+if [ -n "$(PATH="$NOTS"; command -v tailscale)" ]; then
+  fail "a tailscale outside the test's bin is on $NOTS"
+else
+  out=$(HOME="$TMP/home" PATH="$NOTS" STAR_FREE_GB=8 sh "$R2/skills/star/dashboard.sh" 2>&1); rc=$?
+  [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qxF "STAR dashboard: http://127.0.0.1:$liveport/?t=$livetoken" && ! printf '%s\n' "$out" | grep -q 'tailnet' \
+    && pass "without tailscale nothing more is printed" || fail "no tailscale (rc=$rc): $out"
+fi
+[ "$(sort -u "$TMP/tailscale.log")" = "serve status --json" ] && pass "tailscale is only asked serve status --json" || fail "tailscale calls: $(sort -u "$TMP/tailscale.log")"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

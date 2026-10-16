@@ -41,9 +41,12 @@ export const BUILD_FIRST = [
   '</body></html>',
 ].join('\n')
 
-function sendFile(res: ServerResponse, file: string, head: boolean): void {
+/** Vite writes only content-hashed names under assets/, so those files never change under their name. */
+export const IMMUTABLE = 'public, max-age=31536000, immutable'
+
+function sendFile(res: ServerResponse, file: string, head: boolean, cacheControl: string): void {
   const size = fs.statSync(file).size
-  res.writeHead(200, { 'content-type': typeOf(file), 'content-length': size, 'cache-control': 'no-cache' })
+  res.writeHead(200, { 'content-type': typeOf(file), 'content-length': size, 'cache-control': cacheControl })
   if (head) {
     res.end()
     return
@@ -84,5 +87,7 @@ export function serveStatic(req: IncomingMessage, res: ServerResponse, dist: str
   let pathname: string
   try { pathname = decodeURIComponent(new URL(req.url ?? '/', 'http://127.0.0.1').pathname) } catch { pathname = '/' }
   const requested = inside(root, path.resolve(root, `.${pathname}`))
-  sendFile(res, requested ?? index, head)
+  // immutable only for a file served as itself from <real dist>/assets/, never for the index.html fallback
+  const hashed = requested !== undefined && requested.startsWith(path.join(root, 'assets') + path.sep)
+  sendFile(res, requested ?? index, head, hashed ? IMMUTABLE : 'no-cache')
 }
