@@ -51,6 +51,8 @@ token '"echo x"'; envrun "$TMP/other" "$TMP/env7" >/dev/null; [ ! -s "$TMP/env7"
 login() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["ghLogin"]=json.loads(sys.argv[2]); json.dump(d,open(p,"w"),indent=2)' "$H/star.json" "$1"; }
 token null; login '"jrs-gacusan2"'; envrun "$TMP/app" "$TMP/env8" >/dev/null
 [ "$(cat "$TMP/env8" 2>/dev/null)" = 'export GH_TOKEN="$(gh auth token --user jrs-gacusan2)"' ] && pass "#137 tokenCmd null and a ghLogin: the token line for that login" || fail "#137 ghLogin line ($(cat "$TMP/env8" 2>/dev/null))"
+token '"printf a\nprintf b"'; login '"jrs-gacusan2"'; envrun "$TMP/app" "$TMP/env12" >/dev/null
+[ ! -s "$TMP/env12" ] && pass "#137 a set but malformed tokenCmd is not replaced by ghLogin" || fail "#137 malformed tokenCmd ($(cat "$TMP/env12"))"
 token '"echo tok"'; envrun "$TMP/app" "$TMP/env9" >/dev/null
 [ "$(cat "$TMP/env9" 2>/dev/null)" = 'export GH_TOKEN="$(echo tok)"' ] && pass "#137 a set tokenCmd wins over ghLogin" || fail "#137 tokenCmd wins ($(cat "$TMP/env9" 2>/dev/null))"
 token null; login '"bad;login"'; envrun "$TMP/app" "$TMP/env10" >/dev/null

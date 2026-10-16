@@ -304,5 +304,13 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" JUEL_STAR_HOME="$OW
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --home "$OWN" 2>/dev/null; echo "exit=$?")
 [ "$out" = "exit=64" ] && echo "ok   #124 --home without --merge-gate exits 64" || { echo "FAIL #124 --home alone ($out)"; fails=$((fails + 1)); }
 
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --merge-gate --home '' 2>/dev/null; echo "exit=$?")
+[ "$out" = "exit=64" ] && echo "ok   #124 an empty --home exits 64" || { echo "FAIL #124 empty --home ($out)"; fails=$((fails + 1)); }
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["ownerApproval"]["login"]="ME"; json.dump(d,open(p,"w"))' "$OWN/star.json"
+oa "#124 logins compare without case" "$SELF" "$OWN" "$NOREV"
+printf '{%s}\n' "$OK,$BASE,\"author\":null,$NOAPP,$GREEN,\"comments\":[{\"author\":null,\"body\":\"Codex gate: PASS (head abc1234def, round 2, m e)\"}]" > "$TMP/pr.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --merge-gate --home "$OWN")
+[ "$out" = "FAIL no codex PASS for abc1234" ] && echo "ok   #137 an empty login is never the author's receipt" || { echo "FAIL #137 empty receipt ($out)"; fails=$((fails + 1)); }
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

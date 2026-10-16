@@ -128,5 +128,10 @@ for c in null other hosted rule approved; do
 done
 [ -z "$bad" ] && pass "#124 null, another login, a hosted reviewer, a rule of one, or a member's approval: the plain go comment" || fail "#124 off cases:$bad"
 
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set '{"login":"ME","since":"2026-10-15T21:05:13Z","words":"merge it"}'; prv
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 logins compare without case" || fail "#124 case ($out / $(cat "$TMP/posted" 2>/dev/null))"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set "$GRANTED"; prv "{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}},{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"DISMISSED\",\"submittedAt\":\"2026-10-03T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}}"
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 only a reviewer's latest review counts" || fail "#124 latest review ($out / $(cat "$TMP/posted" 2>/dev/null))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

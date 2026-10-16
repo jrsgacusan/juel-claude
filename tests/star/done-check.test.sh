@@ -107,5 +107,9 @@ pr "$HEAD" "{\"author\":{\"login\":\"a1\"},\"body\":\"Codex gate: PASS (head fff
 t "#137 a receipt by another login for another head is no receipt at all" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 pr "$HEAD" "$PASSC"
 
+printf '{"author":null,"headRefOid":"%s","comments":[{"author":null,"body":"Codex gate: PASS (head %s, round 2, m e)"}]}\n' "$HEAD" "$HEAD" > "$TMP/pr.json"
+t "#137 an empty login is never the author's receipt" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
+pr "$HEAD" "$PASSC"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

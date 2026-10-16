@@ -1,6 +1,5 @@
 #!/bin/sh
 # Checks a build worker's DONE report against STAR's files and GitHub, so STAR never opens a review.
-# A head receipt by another login is named when no receipt by the PR author exists (#137).
 #   done-check.sh [--home H] <item> --pr <url> --head <sha>
 # Prints one line and exits 0:
 #   OK                 the PR's head starts with <sha>, the item's newest review is SAFE for that
@@ -9,7 +8,8 @@
 #                      SAFE for an earlier head that carry-check.sh carries to the PR's head (#110),
 #                      and the PR carries "Codex gate: PASS (head <PR head>" in a comment by the
 #                      PR's author
-#   MISMATCH <what>    review: <why>, head: <why> or pass: <why>
+#   MISMATCH <what>    review: <why>, head: <why>, pass: <why>, or
+#                      "MISMATCH pass: PASS posted by <logins>, not the PR's author"
 #   PENDING <why>      gh could not be read: ask again later
 # The carry (#110): when the newest <item>-r<k>.md is SAFE but for another head, and star.json names
 # the project's repository ("project": {"repo": ...}), it runs
@@ -140,9 +140,9 @@ prefix = f"Codex gate: PASS (head {pr_head}"
 receipts = []
 for comment in comments:
     login = (comment.get("author") or {}).get("login") or ""
-    if str(comment.get("body") or "").startswith(prefix) and login not in receipts:
+    if login and str(comment.get("body") or "").startswith(prefix) and login not in receipts:
         receipts.append(login)
-if not any(login == author for login in receipts):
+if not author or author not in receipts:
     if receipts:
         out(f"MISMATCH pass: PASS posted by {', '.join(receipts)}, not the PR's author")
     out(f"MISMATCH pass: no codex PASS on the PR for {pr_head[:7]}")

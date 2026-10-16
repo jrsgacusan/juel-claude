@@ -17,6 +17,9 @@
 # "Merging head <sha> under your go of <date>: "<words>"" (the words on one line, cut at 500
 # characters, sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
 # so GitHub itself refuses when the head moved.
+# The optional ownerApproval sentence is added only when no hosted reviewer exists, the owner grant
+# matches the author's login without case, the rule is none or required 0, and no latest head approval
+# by another writer remains. Anything unreadable leaves the sentence off and the merge goes ahead.
 # After the merge call, whatever it said, it reads the PR's state once. MERGED when GitHub says
 # merged, even if the call errored (gh can fail after the merge went through). A call that errored
 # on a PR that is not merged is the FAIL it names. A call that worked, followed by a state that
@@ -157,20 +160,30 @@ def owner_self_approval(data):
     try:
         star = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
         grant = star.get("ownerApproval") if isinstance(star, dict) else None
-        if not isinstance(grant, dict) or bare(grant.get("login")) != bare(author) or not bare(author):
+        if not isinstance(grant, dict) or bare(grant.get("login")).lower() != bare(author).lower() or not bare(author):
             return False
         if star.get("hostedReviewer") not in (None,):
             return False
         repo = url.group(1)
         base = data.get("baseRefName") if isinstance(data.get("baseRefName"), str) else ""
         script = os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh")
-        rr = run(["sh", script, repo, base], 30)
+        rr = run(["sh", script, repo, base], 125)
         rule = (rr.stdout or "").splitlines()[0].strip() if rr.returncode == 0 and (rr.stdout or "").splitlines() else ""
         if rule not in ("none", "required 0"):
             return False
-        for review in data.get("reviews") or []:
+        latest = {}
+        for index, review in enumerate(data.get("reviews") or []):
+            login = bare((review.get("author") or {}).get("login"))
+            if not login or review.get("state") not in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                continue
+            key = login.lower()
+            prior = latest.get(key)
+            stamp = str(review.get("submittedAt") or "")
+            if prior is None or (stamp, index) >= prior[0]:
+                latest[key] = ((stamp, index), review)
+        for login, (_, review) in latest.items():
             if (review.get("state") == "APPROVED" and str((review.get("commit") or {}).get("oid") or "").lower() == head
-                    and bare((review.get("author") or {}).get("login")) != bare(author)
+                    and login != bare(author).lower()
                     and str(review.get("authorAssociation") or "").upper() in {"OWNER", "MEMBER", "COLLABORATOR"}):
                 return False
         return True

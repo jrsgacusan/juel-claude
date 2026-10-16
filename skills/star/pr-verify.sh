@@ -1,7 +1,8 @@
 #!/bin/sh
 # Checks a PR on the exact head a worker reported: for the human's merge, or, with --merge-gate,
 # for STAR's own merge.
-#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]] [--home <dir>] ]
+#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]]
+#                [--home <dir>]]
 # Prints exactly one line and exits 0 (64, with nothing on stdout, only for bad usage):
 #   PASS [<note>] | PENDING <what> | MOVED <head> | MERGED <merge sha> | FAIL <what>
 # "PASS approval is on an earlier commit" is still a pass: the repo's review rule is satisfied,
@@ -22,13 +23,18 @@
 # Where the repo has a review rule, GitHub's own reviewDecision is trusted as it stands (it
 # follows the repo's "dismiss stale approvals" setting). gh signed in to an account that cannot
 # see the repository prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
-# --home selects the STAR folder whose star.json supplies ownerApproval; it is valid only with --merge-gate.
+# --home <dir> selects the STAR folder whose star.json supplies ownerApproval; it is valid only with
+# --merge-gate (otherwise 64; an empty value is 64), defaults to $JUEL_STAR_HOME, then star-home.sh path.
 # --merge-gate is STAR's merge gate. A receipt by another login is named when the author has no
 # receipt (#137). It also needs: a comment by the PR's author that starts
 # "Codex gate: PASS (head <the PR's head>"; a reply from the PR's author on every unresolved
 # review thread someone else opened (a hosted reviewer's included); and, without --hosted, an
 # APPROVED review on the head by someone other than the PR's author whose authorAssociation is
-# OWNER, MEMBER or COLLABORATOR (write access), which an explicit zero rule does not waive.
+# OWNER, MEMBER or COLLABORATOR (write access), which an explicit zero rule alone does not waive.
+# With no hosted reviewer and no such approval, an ownerApproval.login equal to the author (without
+# [bot] and without case) plus a none or required 0 rule gives "PASS self-approved under the owner's
+# grant". An unreadable rule is "PENDING review rule: <why>" or "PENDING gh cannot see …"; any
+# other rule or no matching grant is "PENDING approval: …".
 # The review threads are never guessed: a gh call that exits non-zero, or an answer whose threads
 # are not a list, is "PENDING gh: review threads unreadable", not "no findings".
 # --hosted says the project has a hosted reviewer (Greptile): it stands in for that
@@ -97,7 +103,10 @@ except SystemExit as e:
 if a.hosted and not a.merge_gate:
     print("pr-verify.sh: --hosted needs --merge-gate", file=sys.stderr)
     sys.exit(64)
-if a.home and not a.merge_gate:
+if a.home is not None and not str(a.home).strip():
+    print("pr-verify.sh: --home needs a folder", file=sys.stderr)
+    sys.exit(64)
+if a.home is not None and not a.merge_gate:
     print("pr-verify.sh: --home needs --merge-gate", file=sys.stderr)
     sys.exit(64)
 
@@ -142,10 +151,10 @@ def review_rule(d):
 
 
 def owner_approval(author):
-    """Whether STAR's ownerApproval grants this author's no-second-review merge (#124)."""
+    """Whether STAR's ownerApproval only matches this author's login (#124)."""
     if not author:
         return False
-    home = a.home or os.environ.get("JUEL_STAR_HOME")
+    home = a.home if a.home is not None else os.environ.get("JUEL_STAR_HOME")
     if not home:
         script = os.path.join(os.environ.get("JUEL_SKILLS_DIR") or "", "star", "star-home.sh")
         try:
@@ -159,7 +168,7 @@ def owner_approval(author):
         data = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
         grant = data.get("ownerApproval") if isinstance(data, dict) else None
         login = grant.get("login") if isinstance(grant, dict) else None
-        return isinstance(login, str) and bool(login) and bare(login) == author
+        return isinstance(login, str) and bool(login) and bare(login).lower() == author.lower()
     except (OSError, ValueError, TypeError, AttributeError):
         return False
 
@@ -293,9 +302,9 @@ def main():
         receipts = []
         for comment in comments:
             login = (comment.get("author") or {}).get("login") or ""
-            if str(comment.get("body") or "").startswith(prefix) and bare(login) not in receipts:
+            if login and str(comment.get("body") or "").startswith(prefix) and bare(login) not in receipts:
                 receipts.append(bare(login))
-        if author not in receipts:
+        if not author or author.lower() not in {login.lower() for login in receipts}:
             if receipts:
                 out(f"FAIL no codex PASS for {head[:7]} (posted by {', '.join(receipts)}, not the PR's author)")
             out(f"FAIL no codex PASS for {head[:7]}")
