@@ -16,6 +16,8 @@ test("Light and Dark persist across a reload", async ({ page }) => {
 })
 test("System follows the OS", async ({ page }) => {
   await openApp(page)
+  // System is the default; pick Dark first so choosing System is a change that gets stored.
+  await page.getByLabel("Dark theme").click()
   await page.getByLabel("System theme").click()
   await page.reload()
   await expect
@@ -46,7 +48,10 @@ test("the project's colors only mark state", async ({ page }) => {
   expect(colors.stopped).not.toBe(colors.done)
   expect(colors.stopped).not.toBe(colors.body)
   expect(colors.done).not.toBe(colors.body)
-  expect(colors.body).toMatch(/^rgb\((\d+), \1, \1\)$/)
+  // A neutral color has no chroma: rgb(n, n, n), or oklch(L 0 H) as Chromium reports it.
+  expect(colors.body).toMatch(
+    /^rgb\((\d+), \1, \1\)$|^oklch\([\d.]+ 0(?: [\d.]+| none)?\)$/
+  )
   await noHorizontalScroll(page)
 })
 test("the selected theme stands out", async ({ page }) => {

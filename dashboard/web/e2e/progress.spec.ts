@@ -4,7 +4,7 @@ test("opens a row's step log and goes to Needs you", async ({ page }) => {
   await openApp(page, "/sphere-app/progress")
   await page.getByText("Remove the old export modal").click()
   const dialog = page.getByRole("dialog")
-  await expect(dialog).toContainText("feat/sph-9-remove-export-modal")
+  await expect(dialog).toContainText(".worktrees/sphere-app/sph-9")
   await expect(dialog).toContainText("#213")
   await expect(dialog).toContainText(
     "Asked: widen the scope to the public API?"

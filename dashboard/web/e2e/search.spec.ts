@@ -4,6 +4,8 @@ test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
   page,
 }) => {
   await openApp(page)
+  // The shortcut listener lives in the app shell: wait until the shell is on screen.
+  await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeVisible()
   await page.keyboard.press(`${MOD}+k`)
   const input = page.getByPlaceholder(
     "Search items, decisions, Slack, briefings and evidence"
@@ -33,6 +35,8 @@ test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
 })
 test("Ctrl+K from Progress with Every project on", async ({ page }) => {
   await openApp(page, "/sphere-app/progress")
+  // The shortcut listener lives in the app shell: wait until the shell is on screen.
+  await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeVisible()
   await page.keyboard.press("Control+k")
   await page
     .getByPlaceholder("Search items, decisions, Slack, briefings and evidence")
