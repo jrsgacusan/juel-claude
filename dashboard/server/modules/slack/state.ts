@@ -21,8 +21,12 @@ export type Message = {
   permalink: string
   thread: string[]
 }
-/** A seen.json entry (D5): the message, when it was first seen, and its project (null while unrouted, "none" once dropped). */
-export type Entry = Message & { seenAt: string; project: string | null }
+/**
+ * A seen.json entry (D5): the message, when it was first seen, and its project (null while unrouted,
+ * "none" once dropped). A routed entry also holds the inbox file name it reserved (`inbox`) and
+ * whether that hand-over finished (`delivered`); an entry without them counts as delivered.
+ */
+export type Entry = Message & { seenAt: string; project: string | null; inbox?: string; delivered?: boolean }
 export type Seen = Record<string, Entry>
 /** routes.json: channel id to project name, learned only from the owner's routes (D3). */
 export type Routes = Record<string, string>
@@ -42,6 +46,16 @@ export const isObject = (v: unknown): v is Record<string, unknown> => typeof v =
 export const oneLine = (text: string, max = 200): string => text.replace(/\s+/g, ' ').trim().slice(0, max)
 /** The message is still waiting for a project: neither routed nor dropped. */
 export const isUnrouted = (seen: Seen, id: string): boolean => Object.hasOwn(seen, id) && seen[id]?.project === null
+/** An inbox file name the watcher writes: <UTC YYYYMMDDTHHMMSSZ>-slack-<4 hex>.md. */
+export const INBOX_NAME = /^\d{8}T\d{6}Z-slack-[0-9a-f]{4}\.md$/
+/** A routed entry whose inbox file is reserved but not yet known to be written. */
+export const isPending = (entry: Entry): boolean =>
+  typeof entry.project === 'string' && entry.project !== 'none' && typeof entry.inbox === 'string' && entry.delivered === false
+/** The entry back to waiting for a project, without a reservation. */
+export function unroute(entry: Entry): Entry {
+  const { inbox: _inbox, delivered: _delivered, ...rest } = entry
+  return { ...rest, project: null }
+}
 
 const CHANNEL_ID = /^[A-Z0-9]+$/i
 const TS = /^\d+\.\d+$/
@@ -101,7 +115,12 @@ async function writeJson(name: string, value: unknown): Promise<void> {
 }
 
 const isEntry = (v: unknown): boolean =>
-  isObject(v) && messageProblem(v) === null && typeof v.seenAt === 'string' && (v.project === null || typeof v.project === 'string')
+  isObject(v) &&
+  messageProblem(v) === null &&
+  typeof v.seenAt === 'string' &&
+  (v.project === null || typeof v.project === 'string') &&
+  (v.inbox === undefined || (typeof v.inbox === 'string' && INBOX_NAME.test(v.inbox))) &&
+  (v.delivered === undefined || typeof v.delivered === 'boolean')
 
 export const readSeen = (): Promise<Seen> => readValid<Seen>('seen.json', {}, data => isObject(data) && Object.values(data).every(isEntry))
 export const writeSeen = (seen: Seen): Promise<void> => writeJson('seen.json', seen)

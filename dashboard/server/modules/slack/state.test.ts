@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import {
   KEEP_MS,
   StateError,
+  isPending,
   prune,
   readEveryMin,
   readRoutes,
@@ -13,6 +14,7 @@ import {
   readStatus,
   readUnrouted,
   slackDir,
+  unroute,
   writeRoutes,
   writeSeen,
   writeStatus,
@@ -44,6 +46,18 @@ test('a damaged state file is a StateError, never read as empty', async () => {
       readSeen,
       /seen\.json does not hold/,
     ],
+    [
+      'seen.json',
+      JSON.stringify({ 'C1-1700000000.000100': { ...msg(), seenAt: '2026-10-16T00:00:00.000Z', project: 'app', inbox: '../x.md', delivered: false } }),
+      readSeen,
+      /seen\.json does not hold/,
+    ],
+    [
+      'seen.json',
+      JSON.stringify({ 'C1-1700000000.000100': { ...msg(), seenAt: '2026-10-16T00:00:00.000Z', project: 'app', delivered: 'yes' } }),
+      readSeen,
+      /seen\.json does not hold/,
+    ],
     ['routes.json', '{"C1": 3}', readRoutes, /routes\.json does not hold/],
     ['unrouted.json', '{}', readUnrouted, /unrouted\.json does not hold/],
     ['status.json', '[]', () => readStatus('haiku'), /status\.json does not hold/],
@@ -53,6 +67,17 @@ test('a damaged state file is a StateError, never read as empty', async () => {
     await assert.rejects(read(), (err: unknown) => err instanceof StateError && why.test(err.message))
   }
   await cleanup(w)
+})
+
+test('a routed entry is pending until delivered; unroute drops its reservation', () => {
+  const base: Entry = { ...msg(), seenAt: NOW.toISOString(), project: 'app' }
+  const reserved: Entry = { ...base, inbox: '20261016T120000Z-slack-0a1b.md', delivered: false }
+  assert.equal(isPending(reserved), true)
+  assert.equal(isPending({ ...reserved, delivered: true }), false)
+  assert.equal(isPending(base), false, 'an entry from before the reservation counts as delivered')
+  assert.equal(isPending({ ...reserved, project: null }), false)
+  assert.equal(isPending({ ...reserved, project: 'none' }), false)
+  assert.deepEqual(unroute(reserved), { ...msg(), seenAt: NOW.toISOString(), project: null })
 })
 
 test('writes are atomic: each file is whole and no temp file is left', async () => {
