@@ -13,6 +13,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { isPage, PAGE_LABELS, projectPath } from "@/lib/routes"
+import { AccountsChip } from "./accounts-chip"
 import { ThemeSwitch } from "./theme-switch"
 
 export function SiteHeader({
@@ -58,6 +59,7 @@ export function SiteHeader({
           <span className="flex-1 truncate text-left">Search</span>
           <Kbd className="hidden sm:inline-flex">⌘K</Kbd>
         </Button>
+        <AccountsChip project={project} />
         <ThemeSwitch />
       </div>
     </header>
