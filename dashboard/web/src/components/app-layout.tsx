@@ -4,6 +4,7 @@ import { Link, Outlet, useLocation, useParams } from "react-router"
 import { startEvents } from "@/api/events"
 import { useProjects } from "@/api/queries"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { cn } from "@/lib/utils"
 import { isPage, projectPath } from "@/lib/routes"
 import { AppSidebar } from "./app-sidebar"
 import { ConflictBanner, ConnectionBanner, StoppedBanner } from "./banners"
@@ -38,13 +39,21 @@ export function AppLayout() {
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
+  // Chat and Briefing scroll in their own box, so below md their column is exactly the screen tall.
+  const fills = segment === "chat" || segment === "briefing"
+
   const unknown =
     projects.isSuccess && !projects.data.some((p) => p.name === project)
 
   return (
     <SidebarProvider>
       <AppSidebar project={project} page={page} />
-      <SidebarInset className="min-w-0 overflow-x-clip md:h-[calc(100svh-1rem)] md:overflow-hidden">
+      <SidebarInset
+        className={cn(
+          "min-w-0 overflow-x-clip md:h-[calc(100svh-1rem)] md:overflow-hidden",
+          fills && "max-md:h-dvh"
+        )}
+      >
         <SiteHeader
           project={project}
           page={segment}
@@ -87,7 +96,7 @@ export function AppLayout() {
               }
             />
           ) : (
-            <Outlet />
+            <Outlet key={project} />
           )}
         </div>
       </SidebarInset>

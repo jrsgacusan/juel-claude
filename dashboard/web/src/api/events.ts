@@ -138,21 +138,38 @@ export function startEvents(
   let attempt = new AbortController()
   let watchdog: ReturnType<typeof setTimeout> | undefined
   let lastByteAt = Date.now()
+  // Restarts in a row that no response ended: the first shows connecting, the second lost.
+  let unanswered = 0
   const restart = () => attempt.abort()
-  const fed = () => {
-    lastByteAt = Date.now()
+  const arm = () => {
     clearTimeout(watchdog)
     watchdog = setTimeout(restart, pingTimeoutMs)
   }
+  const fed = () => {
+    lastByteAt = Date.now()
+    arm()
+  }
+  // A fetch that never answers (a hung phone connection) rejects when the attempt is aborted.
+  const abortable = <T,>(work: Promise<T>, signal: AbortSignal) =>
+    new Promise<T>((resolve, reject) => {
+      signal.addEventListener("abort", () => reject(new Error("restarted")), { once: true })
+      work.then(resolve, reject)
+    })
   const run = async () => {
     while (!stopped) {
       attempt = new AbortController()
       const { signal } = attempt
       try {
-        const res = await fetchImpl(apiUrl(paths.events()), {
-          headers: apiHeaders({ Accept: "text/event-stream" }),
-          signal,
-        })
+        arm()
+        const res = await abortable(
+          fetchImpl(apiUrl(paths.events()), {
+            headers: apiHeaders({ Accept: "text/event-stream" }),
+            signal,
+          }),
+          signal
+        )
+        unanswered = 0
+        clearTimeout(watchdog)
         if (res.status === 401) {
           setConnection("refused")
           await parked(signal)
@@ -189,7 +206,11 @@ export function startEvents(
       } catch (error) {
         if (stopped) return
         lostOnce = true
-        if (signal.aborted) continue
+        if (signal.aborted) {
+          unanswered += 1
+          setConnection(unanswered >= 2 ? "lost" : "connecting")
+          continue
+        }
         console.warn("[events] lost the stream:", error)
         setConnection("lost")
         await sleep(retryMs, signal)

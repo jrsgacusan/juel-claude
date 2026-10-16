@@ -4,7 +4,11 @@ import { useParams } from "react-router"
 import { useSlack } from "@/api/queries"
 import type { RoutedMessage, UnroutedMessage } from "@/api/types"
 import { Banner } from "@/components/banners"
-import { ListDetail, useListSelection } from "@/components/list-detail"
+import {
+  ListDetail,
+  useListSelection,
+  useNarrow,
+} from "@/components/list-detail"
 import {
   EmptyState,
   ErrorState,
@@ -97,6 +101,7 @@ export function SlackPage() {
   // Search results name a draft file (the server's /<p>/slack?draft=<name>).
   const [draftParam] = useSearchParam("draft")
   const [, setMessage] = useSearchParam("message")
+  const narrow = useNarrow()
   const [done, setDone] = useState<Record<string, string>>({})
   // Rewrites asked from this page, by message id. They live here so they survive the gap where
   // the server drops the finished message until STAR adds it again.
@@ -134,6 +139,12 @@ export function SlackPage() {
     ? slack.data!.status.model[0]?.toUpperCase() +
       slack.data!.status.model.slice(1)
     : null
+  const noneWaiting = (
+    <EmptyState
+      title="No Slack replies waiting."
+      body="When someone asks you something on Slack, the watcher brings it here with a drafted reply."
+    />
+  )
   return (
     <>
       {refreshFailed(slack) && (
@@ -153,7 +164,7 @@ export function SlackPage() {
         </Banner>
       )}
       <ListDetail
-        showDetail={named !== undefined || all.length === 0}
+        showDetail={named !== undefined}
         onBack={all.length === 0 ? undefined : back}
         backLabel="Slack replies"
         listLabel="Messages"
@@ -187,34 +198,38 @@ export function SlackPage() {
                 </p>
               )}
             </div>
-            <ScrollArea className="min-h-0 flex-1">
-              <div className="flex flex-col gap-3 px-2 pb-3">
-                <p className="px-2 text-xs font-medium text-muted-foreground">
-                  For {project}
-                </p>
-                {routed.map((m) => (
-                  <Entry
-                    key={m.id}
-                    message={m}
-                    mark={done[m.id]}
-                    selected={selected?.id === m.id}
-                    onClick={() => select(m.id)}
-                  />
-                ))}
-                <p className="px-2 pt-2 text-xs font-medium text-muted-foreground">
-                  Unrouted
-                </p>
-                {unrouted.map((m) => (
-                  <Entry
-                    key={m.id}
-                    message={m}
-                    mark={done[m.id]}
-                    selected={selected?.id === m.id}
-                    onClick={() => select(m.id)}
-                  />
-                ))}
-              </div>
-            </ScrollArea>
+            {all.length === 0 && narrow ? (
+              noneWaiting
+            ) : (
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="flex flex-col gap-3 px-2 pb-3">
+                  <p className="px-2 text-xs font-medium text-muted-foreground">
+                    For {project}
+                  </p>
+                  {routed.map((m) => (
+                    <Entry
+                      key={m.id}
+                      message={m}
+                      mark={done[m.id]}
+                      selected={selected?.id === m.id}
+                      onClick={() => select(m.id)}
+                    />
+                  ))}
+                  <p className="px-2 pt-2 text-xs font-medium text-muted-foreground">
+                    Unrouted
+                  </p>
+                  {unrouted.map((m) => (
+                    <Entry
+                      key={m.id}
+                      message={m}
+                      mark={done[m.id]}
+                      selected={selected?.id === m.id}
+                      onClick={() => select(m.id)}
+                    />
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
           </>
         }
         detail={
@@ -242,10 +257,7 @@ export function SlackPage() {
               />
             )
           ) : (
-            <EmptyState
-              title="No Slack replies waiting."
-              body="When someone asks you something on Slack, the watcher brings it here with a drafted reply."
-            />
+            noneWaiting
           )
         }
       />
