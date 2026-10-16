@@ -216,4 +216,11 @@ describe("the app shell", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("list", { name: "Projects" })).toBeInTheDocument()
   })
+  it("shows the Workers card's squares in the sidebar, without STAR's next note", async () => {
+    renderApp("/sphere-app/needs")
+    expect(await screen.findByRole("meter", { name: "Building" })).toHaveAttribute("aria-valuetext", "3 of 3 busy")
+    expect(screen.getByText("5 busy")).toBeInTheDocument()
+    expect(screen.queryByText("Next tick in 3 min")).not.toBeInTheDocument()
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
+  })
 })

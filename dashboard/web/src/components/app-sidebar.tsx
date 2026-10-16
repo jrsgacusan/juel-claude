@@ -8,7 +8,6 @@ import {
 } from "lucide-react"
 import { Link, NavLink } from "react-router"
 import { useOverview, useProjects, useSlack } from "@/api/queries"
-import { Progress } from "@/components/ui/progress"
 import {
   Sidebar,
   SidebarContent,
@@ -28,6 +27,7 @@ import {
 import { PAGE_LABELS, type Page, projectPath } from "@/lib/routes"
 import { projectStateOf } from "@/lib/status"
 import { Dot, StarMark } from "./status"
+import { WorkersCard } from "./workers-card"
 
 const NAV: Array<{ page: Page; icon: LucideIcon }> = [
   { page: "needs", icon: Inbox },
@@ -47,14 +47,6 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
   const state = current ? projectStateOf(current.state) : null
   const slackCount =
     slack.data?.routed.filter((m) => m.project === project).length ?? 0
-  const workers = overview.data?.workers
-  const pools = workers
-    ? ([
-        ["Briefing", workers.brief],
-        ["Building", workers.build],
-        ["Review", workers.babysit],
-      ] as const)
-    : []
 
   return (
     <Sidebar variant="inset">
@@ -150,33 +142,9 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
           </p>
         </SidebarFooter>
       ) : (
-        pools.length > 0 && (
+        overview.data && (
           <SidebarFooter>
-            <div className="flex flex-col gap-3 rounded-lg border bg-background p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium">Workers</span>
-                {overview.data?.resume.next && (
-                  <span className="text-xs text-muted-foreground">
-                    {overview.data.resume.next}
-                  </span>
-                )}
-              </div>
-              {pools.map(([label, [n, max]]) => (
-                <div key={label} className="flex flex-col gap-1.5">
-                  <div className="flex justify-between text-xs">
-                    <span>{label}</span>
-                    <span className="text-muted-foreground tabular-nums">
-                      {n} of {max}
-                    </span>
-                  </div>
-                  <Progress
-                    value={max > 0 ? (n / max) * 100 : 0}
-                    aria-label={`${label}: ${n} of ${max}`}
-                    className="h-1.5"
-                  />
-                </div>
-              ))}
-            </div>
+            <WorkersCard workers={overview.data.workers} />
           </SidebarFooter>
         )
       )}
