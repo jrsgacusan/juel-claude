@@ -207,7 +207,7 @@ export type Stub = {
   events: Record<string, unknown>[]
   nudges: string[]
   logs: string[]
-  call: (method: 'GET' | 'POST' | 'PUT', url: string, body?: unknown) => Promise<Res>
+  call: (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, body?: unknown) => Promise<Res>
 }
 
 function match(pattern: string, path: string): Record<string, string> | null {
@@ -264,3 +264,8 @@ export function stub(projects: Project[], options: StubOptions = {}): Stub {
   }
   return s
 }
+
+/** An open-loops.md with one open slack-reply item whose `draft:` line is `draftLine` (I-11). */
+export const replyQueue = (id: string, draftLine: string, permalink = 'https://acme.slack.com/archives/C1/p1700000000000100'): string =>
+  `# Open loops\n\n## Needs you\n\n### ${id} · app · slack · Ria in #eng: is APP-77 landing today?\nkind: slack-reply\ndraft: ${draftLine}\n` +
+  `message: ${permalink}\nSuggest: Yes, it lands today.\nOptions: send (recommended) / rewrite: <how> / skip\nAnswer:\n\n## Waiting on others\n`

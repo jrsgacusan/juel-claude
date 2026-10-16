@@ -10,11 +10,11 @@ import { createSlack } from './watcher.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-test('register starts the watcher: three routes, and a first check at once', async () => {
+test('register starts the watcher: four routes, and a first check at once', async () => {
   const w = await world()
   const s = stub([])
   register(s.api)
-  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route'])
+  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route', 'POST /api/projects/:p/slack/redraft'])
   await until(async () => (await calls(w)).length === 1)
   await until(async () => {
     try {
@@ -59,7 +59,7 @@ test('everyMin 0 turns the watcher off: no check at start, and POST /api/slack/c
 
 test('the module runs on Node alone: node: builtins, its own files and hooks/star.ts, nothing that reaches the network', async () => {
   const files = (await readdir(HERE)).filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts') && name !== 'test-helpers.ts')
-  assert.deepEqual(files.sort(), ['claude.ts', 'drafter.ts', 'filter.ts', 'inbox.ts', 'index.ts', 'parse.ts', 'replies.ts', 'route.ts', 'settings.ts', 'state.ts', 'types.ts', 'watcher.ts'])
+  assert.deepEqual(files.sort(), ['claude.ts', 'drafter.ts', 'filter.ts', 'inbox.ts', 'index.ts', 'parse.ts', 'redraft.ts', 'replies.ts', 'route.ts', 'settings.ts', 'state.ts', 'types.ts', 'watcher.ts'])
   const network = ['node:http', 'node:https', 'node:net', 'node:dgram', 'node:tls']
   for (const file of files) {
     const code = await readFile(join(HERE, file), 'utf8')

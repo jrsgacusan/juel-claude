@@ -32,12 +32,12 @@ const HOUR = 3_600_000
 const DEFAULT_STATUS = { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null, stderr: null }
 type Listing = { status: unknown; routed: Record<string, unknown>[]; unrouted: Record<string, unknown>[] }
 
-test('the module registers three routes; GET before any check has the default status and empty lists', async () => {
+test('the module registers four routes; GET before any check has the default status and empty lists', async () => {
   const w = await world()
   const s = stub([])
   const d = drafter()
   createSlack(s.api, { now: () => NOW, everyMs: HOUR, draft: d.draft })
-  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route'])
+  assert.deepEqual(s.routes, ['GET /api/slack', 'POST /api/slack/check', 'POST /api/slack/:id/route', 'POST /api/projects/:p/slack/redraft'])
   assert.deepEqual(await s.call('GET', '/api/slack'), { status: 200, json: { status: DEFAULT_STATUS, routed: [], unrouted: [] } })
   await cleanup(w)
 })

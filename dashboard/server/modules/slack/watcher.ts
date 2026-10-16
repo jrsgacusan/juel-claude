@@ -5,12 +5,13 @@
 // Slack: the run can use the pinned read tools only.
 import { readFileSync } from 'node:fs'
 import { mkdir, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { errorText, runCli } from './claude.ts'
 import { MIN_FREE_BYTES, draftName, draftReply, findDraft, freeMemory, serial, toLine, writeDraft } from './drafter.ts'
 import type { Drafter } from './drafter.ts'
+import { createRedrafter, draftIdOf, isSlackDraft, writeRedraft } from './redraft.ts'
 import { channelLabel, deliver, inboxName, inboxText } from './inbox.ts'
 import { parseEnvelope } from './parse.ts'
 import { readDrafts, readOpenReplies, replyOf } from './replies.ts'
@@ -44,6 +45,7 @@ import type { Entry, Message, Seen, Status } from './state.ts'
 import type { ModuleApi, Project, Req, Res } from './types.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const LOOPS_SH = join(HERE, '..', '..', '..', '..', 'skills', 'star', 'loops.sh')
 /** setInterval's longest delay: a longer one fires at once. */
 const MAX_DELAY_MS = 2 ** 31 - 1
 /** D5's mark for a message the owner dropped. A project by this name is never routed to. */
@@ -109,7 +111,7 @@ function byTsDesc(a: { ts: string }, b: { ts: string }): number {
   return Number(bi) - Number(ai) || bf.padEnd(6, '0').localeCompare(af.padEnd(6, '0'))
 }
 
-export type SlackOptions = { bin?: string; everyMs?: number; timeoutMs?: number; now?: () => Date; draft?: Drafter }
+export type SlackOptions = { bin?: string; everyMs?: number; timeoutMs?: number; now?: () => Date; draft?: Drafter; loopsSh?: string; redraftEveryMs?: number }
 export type CheckOutcome = { ok: boolean; routed: number; unrouted: number }
 export type Slack = {
   /** Runs a check now and answers when it ends; null when one is already running. */
@@ -397,7 +399,20 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     void check().catch(err => log(`slack check failed: ${errorText(err)}`))
   }
 
+  // I-10: the redraft requests in each project's slack/redraft/ folder, found every redraftEveryMs.
+  const redrafter = createRedrafter({
+    projects: routable,
+    draft: req => oneDraft(() => draft(req)),
+    loopsSh: opts.loopsSh ?? LOOPS_SH,
+    nudge,
+    changed: emitChange,
+    log,
+  })
+  const redraftNow = (): void => inBackground(redrafter.pass())
+
   function start(): void {
+    // The owner asked for a redraft: it runs even when the Slack watcher is off.
+    redrafter.start(opts.redraftEveryMs ?? 5000)
     if (timer !== null) return
     if (everyMs === 0) {
       if (!offLogged) log('slack: the watcher is off (slack.everyMin is 0)')
@@ -410,6 +425,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   }
 
   function stop(): void {
+    redrafter.stop()
     if (timer !== null) clearInterval(timer)
     timer = null
   }
@@ -539,6 +555,56 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
     return { status: 200, json: { ...outcome, status: await statusOrDefault() } }
   })
   api.route('POST', '/api/slack/:id/route', routeOne)
+
+  /**
+   * POST /api/projects/:p/slack/redraft {loop, how} (I-10): checks the open slack-reply item and its
+   * draft, writes a request file, and runs a pass at once. The new reply follows in the background.
+   */
+  api.route('POST', '/api/projects/:p/slack/redraft', async req => {
+    const name = req.params.p ?? ''
+    const project = routable().find(p => p.name === name)
+    if (!project) return { status: 404, json: { error: `no project ${name}` } }
+    const body = isObject(req.body) ? req.body : {}
+    const loop = body.loop
+    const how = body.how
+    if (typeof loop !== 'string' || !/^N-\d+$/.test(loop) || typeof how !== 'string' || !/[\p{L}\p{N}]/u.test(how.replace(/\s+/g, ' ').trim())) {
+      return { status: 400, json: { error: 'the body is {"loop": "N-<n>", "how": "<what to change>"}' } }
+    }
+    const item = (await readOpenReplies(project.home))?.find(open => open.id === loop)
+    if (item === undefined) return { status: 404, json: { error: `no open slack-reply item ${loop}` } }
+    const valueOf = (key: string): string | undefined => {
+      const line = item.body.map(l => l.trim()).find(l => l.startsWith(`${key}:`))
+      return line === undefined ? undefined : line.slice(key.length + 1).trim()
+    }
+    const named = valueOf('draft')
+    let draftPath: string
+    if (named !== undefined && named !== '' && named !== '-') {
+      draftPath = resolve(project.home, named)
+    } else {
+      // A legacy item (STAR's old `new` case) has no draft: its Slack message gives the name of one.
+      const permalink = valueOf('message')
+      let found: [string, Entry] | undefined
+      try {
+        found = Object.entries(await readSeen()).find(([, entry]) => entry.project === project.name && entry.permalink === permalink)
+      } catch (err) {
+        return { status: 500, json: { error: errorText(err) } }
+      }
+      if (found === undefined) return { status: 409, json: { error: `${loop} has no draft, and its Slack message is not known` } }
+      draftPath = join(project.home, 'drafts', draftName(project.name, found[0], now()))
+    }
+    if (!isSlackDraft(project.home, draftPath) || draftIdOf(draftPath) === null) {
+      return { status: 400, json: { error: `not a Slack draft: ${draftPath}` } }
+    }
+    try {
+      await writeRedraft(project.home, { draft: draftPath, loop, how }, now())
+    } catch (err) {
+      log(`slack: a redraft request could not be written: ${errorText(err)}`)
+      return { status: 500, json: { error: errorText(err) } }
+    }
+    emitChange()
+    redraftNow()
+    return { status: 200, json: { queued: true } }
+  })
 
   return { check, start, stop, idle, everyMs }
 }
