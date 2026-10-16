@@ -650,7 +650,8 @@ runs in <handle>", and end the turn.
    counted, and leave its `counters` as they are. Its `live=` tells the next `stage-start.sh`
    that this is the same start, so it sends the same `--retry-request` ids and Orca hands back
    the task or dispatch it already made instead of a second one.
-6. `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · babysit <n>/<max>" --next "<one line>"`.
+6. Look for a background wait left by a session that died or was stopped: run `sh S/messages.sh --home HOME_DIR --waiting`; when it prints `waiting <pid> <since>`, `kill <pid>` (its TERM handler ends the orca wait and removes `messages-wait`). One STAR runs per home, so a wait found at start belongs to a session that is no longer STAR, or to this session before a restart. Killing it is always safe: the next tick starts a fresh one.
+   Then `loops.sh resume --state running --run <id> --pools "brief <n>/<max> · build <n>/<max> · babysit <n>/<max>" --next "<one line>"`.
    Then `sh S/chat.sh --home HOME_DIR pending`: it prints the id of each chat message from the
    dashboard that has no reply yet, oldest first. One whose inbox file is still there
    (`grep -lx 'chat: <id>' HOME_DIR/inbox/*.md` prints it) is the first tick's, in the Inbox step.
@@ -665,7 +666,7 @@ end of the tick or the Inbox step later, deletes the file in the same step. And 
 its first tick) deletes every `control: stop` file it finds: a stop older than this start has
 already happened, and must not stop STAR again.
 
-**Stop** (`/juel:star stop`, the user says stop, or a `control: stop` file): finish the current tick, kill the recorded
+**Stop** (`/juel:star stop`, the user says stop, or a `control: stop` file): finish the current tick, run `sh S/messages.sh --home HOME_DIR --waiting` and `kill <pid>` when it prints `waiting <pid> <since>`, kill the recorded
 caffeinate (only when `ps -p <pid> -o comm=` still prints `caffeinate`), delete the heartbeat, `loops.sh resume --state stopped --next "run /juel:star to resume"`, set
 `"terminal": null` in `star.json` (the claim is released, so the session hook goes quiet and the
 next `/juel:star` in this project becomes the coordinator), and print the queue. Workers still running are left alone.
@@ -2059,7 +2060,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - **The background message wait:** a wait belongs to the session that started it, and only that
   session hears its notification. After a compaction, `sh S/messages.sh --waiting` says whether
   it is still alive (`waiting <pid> <since>`): no second wait starts, and its notification still
-  comes. After a restart the old session's wait ends by itself (its parent is gone), and a wait
+  comes. After a restart the old session's wait does not end by itself (the Bash tool's shell wrapper outlives a killed Claude, so `messages.sh` does not see its parent go): the start sequence and Stop kill it with `--waiting` and `kill <pid>`. A wait
   that died without a notification reads as `none` (`--waiting` removes its stale file): the next
   tick starts a new one. `waiter-exists` still ends a wait Orca holds for a dead one (#38).
 - **Chat:** a chat message is answered once. The Inbox step checks `chat.sh pending` before it

@@ -851,5 +851,9 @@ has "F1c redrafted drops the (redrafting) suffix" 'without its ` (redrafting)` e
 has "F1d a second rewrite while one runs" 'the newest request wins'
 # fix-1: a refused send closes the item and re-adds it unanswered
 has "F2a a refused send re-adds the item" 'close the item and add it again unanswered, with ` (no reply to send: answer rewrite: <how> or skip)` at the end of its title'
+# fix-1: a wait left by a dead session is killed at start and at stop
+has "F3a start kills a wait left behind" 'run `sh S/messages.sh --home HOME_DIR --waiting`; when it prints `waiting <pid> <since>`, `kill <pid>`'
+has "F3b stop kills the wait" 'finish the current tick, run `sh S/messages.sh --home HOME_DIR --waiting` and `kill <pid>` when it prints `waiting <pid> <since>`'
+grep -qF 'ends by itself (its parent is gone)' "$SKILL" && fail "F3c the false self-ending claim is gone" || pass "F3c the false self-ending claim is gone"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
