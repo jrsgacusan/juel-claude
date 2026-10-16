@@ -1,7 +1,7 @@
 #!/bin/sh
 # Checks a PR on the exact head a worker reported: for the human's merge, or, with --merge-gate,
 # for STAR's own merge.
-#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]]]
+#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]] [--home <dir>] ]
 # Prints exactly one line and exits 0 (64, with nothing on stdout, only for bad usage):
 #   PASS [<note>] | PENDING <what> | MOVED <head> | MERGED <merge sha> | FAIL <what>
 # "PASS approval is on an earlier commit" is still a pass: the repo's review rule is satisfied,
@@ -22,6 +22,7 @@
 # Where the repo has a review rule, GitHub's own reviewDecision is trusted as it stands (it
 # follows the repo's "dismiss stale approvals" setting). gh signed in to an account that cannot
 # see the repository prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
+# --home selects the STAR folder whose star.json supplies ownerApproval; it is valid only with --merge-gate.
 # --merge-gate is STAR's merge gate. It also needs: a comment by the PR's author that starts
 # "Codex gate: PASS (head <the PR's head>"; a reply from the PR's author on every unresolved
 # review thread someone else opened (a hosted reviewer's included); and, without --hosted, an
@@ -86,6 +87,7 @@ p.add_argument("pr")
 p.add_argument("--head", required=True)
 p.add_argument("--repo")
 p.add_argument("--merge-gate", action="store_true")
+p.add_argument("--home")
 p.add_argument("--hosted", nargs="?", const=True, default=False)
 try:
     a = p.parse_args()
@@ -93,6 +95,9 @@ except SystemExit as e:
     sys.exit(64 if e.code not in (0, None) else 0)
 if a.hosted and not a.merge_gate:
     print("pr-verify.sh: --hosted needs --merge-gate", file=sys.stderr)
+    sys.exit(64)
+if a.home and not a.merge_gate:
+    print("pr-verify.sh: --home needs --merge-gate", file=sys.stderr)
     sys.exit(64)
 
 try:
@@ -133,6 +138,29 @@ def rule_lines(d):
 def review_rule(d):
     """The first line review-rule.sh prints for this PR's base branch; "unknown" when it cannot run."""
     return rule_lines(d)[0]
+
+
+def owner_approval(author):
+    """Whether STAR's ownerApproval grants this author's no-second-review merge (#124)."""
+    if not author:
+        return False
+    home = a.home or os.environ.get("JUEL_STAR_HOME")
+    if not home:
+        script = os.path.join(os.environ.get("JUEL_SKILLS_DIR") or "", "star", "star-home.sh")
+        try:
+            proc = subprocess.run(["sh", script, "path"], capture_output=True, text=True, timeout=LIMIT)
+            home = (proc.stdout or "").splitlines()[0].strip() if proc.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired, IndexError):
+            home = ""
+    if not home:
+        return False
+    try:
+        data = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
+        grant = data.get("ownerApproval") if isinstance(data, dict) else None
+        login = grant.get("login") if isinstance(grant, dict) else None
+        return isinstance(login, str) and bool(login) and bare(login) == author
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
 
 
 def hosted_missing(d, checks):
@@ -277,14 +305,24 @@ def main():
     if a.merge_gate:
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))
+        approved = any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
+                       and bare((r.get("author") or {}).get("login")) != author
+                       and str(r.get("authorAssociation") or "").upper() in WRITERS for r in latest.values())
         if a.hosted:
             note = "hosted"
-        else:
-            if not any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
-                       and bare((r.get("author") or {}).get("login")) != author
-                       and str(r.get("authorAssociation") or "").upper() in WRITERS for r in latest.values()):
-                out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
+        elif approved:
             note = "approved"
+        elif owner_approval(author):
+            rule = review_rule(d)
+            if rule == "unknown" or rule.startswith("unknown "):
+                why = rule[len("unknown"):].strip() or "unreadable"
+                out("PENDING " + why if why.startswith("gh cannot see ") else "PENDING review rule: " + why)
+            if rule in ("none", "required 0"):
+                note = "self-approved under the owner's grant"
+            else:
+                out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
+        else:
+            out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
     elif decision is None:
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))

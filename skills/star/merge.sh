@@ -143,16 +143,48 @@ if not method:
     out("FAIL merge methods: the repository allows no merge method")
 if dry:
     out(f"DRY-RUN {method} {head}")
-v = run(["gh", "pr", "view", pr, "--json", "author,comments"], 60)
+v = run(["gh", "pr", "view", pr, "--json", "author,comments,reviews,baseRefName"], 60)
 d = as_json(v)
 if d is None:
     out("FAIL comment: " + (first(v) if v.returncode else "unreadable output"))
+def bare(login):
+    return login[:-5] if isinstance(login, str) and login.endswith("[bot]") else (login if isinstance(login, str) else "")
+
+
+def owner_self_approval(data):
+    if not home or not isinstance(data, dict):
+        return False
+    try:
+        star = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
+        grant = star.get("ownerApproval") if isinstance(star, dict) else None
+        if not isinstance(grant, dict) or bare(grant.get("login")) != bare(author) or not bare(author):
+            return False
+        if star.get("hostedReviewer") not in (None,):
+            return False
+        repo = url.group(1)
+        base = data.get("baseRefName") if isinstance(data.get("baseRefName"), str) else ""
+        script = os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh")
+        rr = run(["sh", script, repo, base], 30)
+        rule = (rr.stdout or "").splitlines()[0].strip() if rr.returncode == 0 and (rr.stdout or "").splitlines() else ""
+        if rule not in ("none", "required 0"):
+            return False
+        for review in data.get("reviews") or []:
+            if (review.get("state") == "APPROVED" and str((review.get("commit") or {}).get("oid") or "").lower() == head
+                    and bare((review.get("author") or {}).get("login")) != bare(author)
+                    and str(review.get("authorAssociation") or "").upper() in {"OWNER", "MEMBER", "COLLABORATOR"}):
+                return False
+        return True
+    except (OSError, ValueError, TypeError, AttributeError, IndexError):
+        return False
+
+
 author = (d.get("author") or {}).get("login") or ""
 prefix = f"Merging head {head} under your go"
 if not any(isinstance(c, dict) and (c.get("author") or {}).get("login") == author
            and str(c.get("body") or "").startswith(prefix) for c in d.get("comments") or []):
+    suffix = " Self-approved under the owner's grant: this repository has no second reviewer." if owner_self_approval(d) else ""
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
-        f.write(f'{prefix} of {date.group(1)}: "{words}"\n')
+        f.write(f'{prefix} of {date.group(1)}: "{words}"{suffix}\n')
         body = f.name
     try:
         c = run(["gh", "pr", "comment", pr, "--body-file", body], 60)

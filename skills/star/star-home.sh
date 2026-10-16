@@ -60,6 +60,7 @@ V2_DEFAULTS = {
     "gate": {"model": "latest-sol", "effort": "xhigh",
              "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 3},
     "hostedReviewer": None,
+    "ownerApproval": None,
     "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
     "progressDeadlineMin": 30,
     "tokenCmd": None,
