@@ -1,0 +1,2 @@
+#!/bin/sh
+[ -z "${STAR_E2E_FAKES:-}" ] || printf '%s\n' "$*" >> "$STAR_E2E_FAKES/open.log"

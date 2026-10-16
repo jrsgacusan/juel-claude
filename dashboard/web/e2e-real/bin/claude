@@ -1,0 +1,66 @@
+#!/usr/bin/env node
+// One fake for both dashboard modules (brief D3), chosen by the value after --output-format.
+// Each call records its format and argument count in STAR_E2E_FAKES when configured.
+const fs = process.getBuiltinModule("node:fs")
+
+const args = process.argv.slice(2)
+const formatIndex = args.indexOf("--output-format")
+const format = formatIndex >= 0 ? args[formatIndex + 1] : undefined
+const fakeDir = process.env.STAR_E2E_FAKES
+if (fakeDir) {
+  fs.appendFileSync(
+    `${fakeDir}/claude.log`,
+    `${JSON.stringify({ format, argc: process.argv.length })}\n`,
+  )
+}
+
+const MESSAGE = {
+  channelId: "C0E2E",
+  channel: "#eng",
+  ts: "1760000000.000100",
+  threadTs: null,
+  from: "Ria",
+  text: "Is the CSV export landing today?",
+  permalink: "https://acme.slack.com/archives/C0E2E/p1760000000000100",
+  thread: [],
+}
+
+const TICKET = {
+  title: "Remind owners about unpaid invoices",
+  description: "Owners get an email when an invoice is 7 days overdue.",
+  criteria: ["An email goes out 7 days after the due date."],
+  outOfScope: ["SMS reminders"],
+}
+const FIRST = "I read the invoices module: reminders would go out from the billing job."
+const SECOND = `Here is the ticket.\n\n\`\`\`ticket\n${JSON.stringify(TICKET)}\n\`\`\``
+
+const readStdin = () =>
+  new Promise((resolve) => {
+    let input = ""
+    process.stdin.setEncoding("utf8")
+    process.stdin.on("data", (chunk) => { input += chunk })
+    process.stdin.on("end", () => resolve(input))
+  })
+
+;(async () => {
+  await readStdin()
+  if (format === "json") {
+    process.stdout.write(`${JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: JSON.stringify({ workspace: "Acme", messages: [MESSAGE] }),
+    })}\n`)
+  } else if (format === "stream-json") {
+    const write = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
+    write({ type: "system", subtype: "hook_response", hook_name: "SessionStart" })
+    write({ type: "system", subtype: "init", session_id: "e2e-session-1" })
+    write({ type: "assistant", message: { content: [{ type: "text", text: FIRST }] }, session_id: "e2e-session-1" })
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    write({ type: "assistant", message: { content: [{ type: "text", text: SECOND }] }, session_id: "e2e-session-1" })
+    write({ type: "result", subtype: "success", is_error: false, result: SECOND, session_id: "e2e-session-1" })
+  } else {
+    process.stderr.write("fake claude: no --output-format json or stream-json\n")
+    process.exitCode = 1
+  }
+})()
