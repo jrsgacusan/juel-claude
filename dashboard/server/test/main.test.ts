@@ -7,6 +7,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isFree } from "../config.ts";
+import { juelDir } from "../paths.ts";
 
 const MAIN = path.join(import.meta.dirname, "..", "main.ts");
 
@@ -24,20 +25,22 @@ function sandbox(): { tmp: string; home: string; env: NodeJS.ProcessEnv } {
   // a feature module that wakes a model must never reach a real one from a test
   fs.writeFileSync(path.join(bin, "claude"), "#!/bin/sh\nexit 1\n");
   fs.chmodSync(path.join(bin, "claude"), 0o755);
-  return {
-    tmp,
-    home,
-    env: {
-      ...process.env,
-      HOME: home,
-      PATH: `${bin}:${process.env["PATH"] ?? ""}`,
-      FAKE_ORCA_DIR: tmp,
-    },
+  // the accounts module (lane F, Task 7) must never read the owner's real cswap
+  fs.writeFileSync(path.join(bin, "cswap"), "#!/bin/sh\nexit 127\n");
+  fs.chmodSync(path.join(bin, "cswap"), 0o755);
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    HOME: home,
+    PATH: `${bin}:${process.env["PATH"] ?? ""}`,
+    FAKE_ORCA_DIR: tmp,
   };
+  // a test never follows an inherited JUEL_DIR into someone's real dashboard folder
+  delete env["JUEL_DIR"];
+  return { tmp, home, env };
 }
 
 async function config(
-  home: string,
+  juel: string,
   pid: number | undefined,
   ms = 10_000,
 ): Promise<{ port: number; token: string; pid: number }> {
@@ -45,7 +48,7 @@ async function config(
   while (Date.now() < end) {
     try {
       const c = JSON.parse(
-        fs.readFileSync(path.join(home, ".juel", "dashboard.json"), "utf8"),
+        fs.readFileSync(path.join(juel, "dashboard.json"), "utf8"),
       ) as { port: number; token: string; pid: number };
       if (c.pid === pid) return c;
     } catch {
@@ -69,7 +72,7 @@ test("main.ts starts one server on 127.0.0.1 with a token, and a second start st
     stdio: ["ignore", "pipe", "pipe"],
   });
   try {
-    const c = await config(home, first.pid);
+    const c = await config(path.join(home, ".juel"), first.pid);
     assert.match(c.token, /^[0-9a-f]{32}$/);
     assert.ok(c.port >= 4767 && c.port < 4867, String(c.port));
     assert.equal(
@@ -99,7 +102,7 @@ test("main.ts starts one server on 127.0.0.1 with a token, and a second start st
         `already runs \\(pid ${first.pid}\\): http://127\\.0\\.0\\.1:${c.port}/\\?t=${c.token}`,
       ),
     );
-    assert.equal((await config(home, first.pid)).pid, first.pid);
+    assert.equal((await config(path.join(home, ".juel"), first.pid)).pid, first.pid);
     assert.match(
       fs.readFileSync(path.join(home, ".juel", "dashboard.log"), "utf8"),
       /started on 127\.0\.0\.1:\d+/,
@@ -132,7 +135,7 @@ test("a start after a dead one reuses its token and port", async () => {
   );
   const child = spawn(process.execPath, [MAIN], { env, stdio: "ignore" });
   try {
-    const c = await config(home, child.pid);
+    const c = await config(path.join(home, ".juel"), child.pid);
     assert.equal(c.token, token);
     assert.equal(c.port, port);
   } finally {
@@ -169,10 +172,45 @@ test("two starts at the same moment leave one server, and the other says it alre
     assert.equal(first.exitCode, 0);
     assert.match(out.get(first) ?? "", /already runs/);
     const survivor = first === a ? b : a;
-    assert.equal((await config(home, survivor.pid)).pid, survivor.pid);
+    assert.equal((await config(path.join(home, ".juel"), survivor.pid)).pid, survivor.pid);
   } finally {
     await stop(a);
     await stop(b);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("juelDir is JUEL_DIR when it is set and not empty, else ~/.juel", () => {
+  const saved = { home: process.env["HOME"], juel: process.env["JUEL_DIR"] };
+  try {
+    process.env["HOME"] = "/Users/me";
+    process.env["JUEL_DIR"] = "/tmp/star-live/juel";
+    assert.equal(juelDir(), "/tmp/star-live/juel");
+    process.env["JUEL_DIR"] = "rel/juel";
+    assert.equal(juelDir(), path.resolve("rel/juel"));
+    process.env["JUEL_DIR"] = "";
+    assert.equal(juelDir(), "/Users/me/.juel");
+    delete process.env["JUEL_DIR"];
+    assert.equal(juelDir(), "/Users/me/.juel");
+  } finally {
+    for (const [k, v] of [["HOME", saved.home], ["JUEL_DIR", saved.juel]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
+test("main.ts keeps dashboard.json and its log under JUEL_DIR when it is set", async () => {
+  const { tmp, home, env } = sandbox();
+  const juel = path.join(tmp, "juel-alt");
+  const child = spawn(process.execPath, [MAIN], { env: { ...env, JUEL_DIR: juel }, stdio: "ignore" });
+  try {
+    const c = await config(juel, child.pid);
+    assert.match(c.token, /^[0-9a-f]{32}$/);
+    assert.match(fs.readFileSync(path.join(juel, "dashboard.log"), "utf8"), /started on 127\.0\.0\.1:\d+/);
+    assert.equal(fs.existsSync(path.join(home, ".juel", "dashboard.json")), false);
+  } finally {
+    await stop(child);
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
