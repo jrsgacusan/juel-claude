@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { Message, Owner } from './state.ts'
+import type { DraftRequest, DraftResult, Drafter } from './drafter.ts'
 import type { ModuleApi, Project, Req, Res } from './types.ts'
 
 /** What one fake run prints and how it ends. `wait` holds it, printing nothing, until release(). */
@@ -58,6 +59,28 @@ export const OWNER: Owner = { id: 'U0OWNER', displayName: 'Juel', realName: 'Jue
 
 export const answer = (messages: Message[], workspace = 'Acme', owner: Owner | null = OWNER): Scenario => ({ stdout: envelope({ workspace, owner, messages }) })
 
+/** What a drafter run prints: the envelope around {"reply"}. */
+export const draftAnswer = (reply: string): Scenario => ({ stdout: envelope({ reply }) })
+
+export type DraftStub = { draft: Drafter; asked: DraftRequest[] }
+/** A Drafter that records each request and plays results in order; the last one repeats. */
+export function drafter(results: DraftResult[] = [{ ok: true, text: 'Yes, it lands today.' }]): DraftStub {
+  const asked: DraftRequest[] = []
+  const draft: Drafter = async req => {
+    asked.push(req)
+    return results[Math.min(asked.length - 1, results.length - 1)] as DraftResult
+  }
+  return { draft, asked }
+}
+
+/** Free memory as the fake vm_stat reports it. */
+export async function freeGb(w: World, gb: number): Promise<void> {
+  await writeFile(
+    join(w.fakes, 'vm_stat.txt'),
+    `Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free: ${gb * 65536}.\nPages active: 1000.\nPages inactive: 0.\n`,
+  )
+}
+
 export const msg = (over: Partial<Message> = {}): Message => ({
   channelId: 'C1',
   channel: '#eng',
@@ -78,6 +101,9 @@ export async function world(): Promise<World> {
   for (const dir of [w.home, w.bin, w.fakes]) await mkdir(dir)
   await writeFile(join(w.bin, 'claude'), `#!${process.execPath}\n${FAKE}`)
   await chmod(join(w.bin, 'claude'), 0o755)
+  // The real vm_stat is in /usr/bin, also on PATH: every test gets the fake first.
+  await writeFile(join(w.bin, 'vm_stat'), '#!/bin/sh\ncat "$FAKE_DIR/vm_stat.txt"\n')
+  await chmod(join(w.bin, 'vm_stat'), 0o755)
   process.env.HOME = w.home
   delete process.env.JUEL_DIR
   process.env.CLAUDE_CONFIG_DIR = join(root, 'claude-config')
@@ -86,6 +112,7 @@ export async function world(): Promise<World> {
   // git never looks above the temp root, so a project folder there is never read as a parent repo's.
   process.env.GIT_CEILING_DIRECTORIES = root
   await play(w, [answer([])])
+  await freeGb(w, 4)
   return w
 }
 

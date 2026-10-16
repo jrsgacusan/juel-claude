@@ -10,7 +10,7 @@ import { isObject, juelDir } from './state.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-export type Config = { plugin: string; linearPlugin: string; model: string; timeoutMin: number; allowedTools: string[]; disallowedTools: string[] }
+export type Config = { plugin: string; linearPlugin: string; model: string; timeoutMin: number; allowedTools: string[]; disallowedTools: string[]; drafter: { allowedTools: string[]; linearTools: string[]; disallowedTools: string[] } }
 export const loadConfig = (): Config => JSON.parse(readFileSync(join(HERE, 'config.json'), 'utf8')) as Config
 
 export type SlackSettings = {

@@ -13,6 +13,9 @@ export type Parsed =
 
 const FENCE = /^\s*```(?:json)?[ \t]*\n([\s\S]*?)\n?[ \t]*```\s*$/
 
+/** The text with one json code fence around it removed. */
+export const unfence = (text: string): string => FENCE.exec(text)?.[1] ?? text
+
 const bad = (why: string): Parsed => ({ kind: 'error', error: `the answer is not the expected JSON: ${why}`, cli: false })
 
 export function parseEnvelope(stdout: string): Parsed {
@@ -32,10 +35,9 @@ export function parseEnvelope(stdout: string): Parsed {
 }
 
 export function parseResult(text: string): Parsed {
-  const fenced = FENCE.exec(text)
   let data: unknown
   try {
-    data = JSON.parse(fenced ? (fenced[1] ?? '') : text)
+    data = JSON.parse(unfence(text))
   } catch {
     return bad('the result is not JSON')
   }
