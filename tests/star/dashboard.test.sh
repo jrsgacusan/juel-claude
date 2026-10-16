@@ -39,7 +39,13 @@ printf '%s\n' "\$*" >> "$TMP/npm.log"
 if [ "\$1 \$2" = "run build" ]; then mkdir -p dist && echo '<!doctype html><title>built</title>' > dist/index.html; fi
 exit 0
 EOF
-chmod +x "$TMP/bin/open" "$TMP/bin/orca" "$TMP/bin/claude" "$TMP/bin/cswap" "$TMP/bin/npm"
+cat > "$TMP/bin/tailscale" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TMP/tailscale.log"
+if [ -f "$TMP/ts.fail" ]; then echo 'failed to connect to local Tailscale daemon' >&2; exit 1; fi
+cat "$TMP/ts.json" 2>/dev/null || echo '{}'
+EOF
+chmod +x "$TMP/bin/open" "$TMP/bin/orca" "$TMP/bin/claude" "$TMP/bin/cswap" "$TMP/bin/tailscale" "$TMP/bin/npm"
 D() { HOME="$TMP/home" PATH="$TMP/bin:$PATH" sh "$R/skills/star/dashboard.sh" "$@"; }
 conf() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d[sys.argv[2]])' "$TMP/home/.juel/dashboard.json" "$1"; }
 
@@ -165,6 +171,37 @@ out=$(JUEL_DIR="$TMP/juel-busy" D2 2>&1); rc=$?
   && [ "$(confin "$TMP/juel-busy" port)" = "$P" ] \
   && pass "a busy recorded port stops the start, says so, and stays recorded" || fail "busy port (rc=$rc): $out"
 kill "$BLOCKER" 2>/dev/null
+
+serve_json() {  # <host:port> <proxy>: one HTTPS mapping of / in tailscale serve status --json
+  python3 -c 'import json, sys
+host, proxy = sys.argv[1], sys.argv[2]
+print(json.dumps({"TCP": {host.rsplit(":", 1)[1]: {"HTTPS": True}}, "Web": {host: {"Handlers": {"/": {"Proxy": proxy}}}}}))' "$1" "$2" > "$TMP/ts.json"
+}
+serve_json "mac.tail1234.ts.net:443" "http://127.0.0.1:$liveport"
+out=$(D2 2>&1)
+[ "$(printf '%s\n' "$out" | grep -A1 '^STAR dashboard: ' | sed -n 2p)" = "STAR dashboard on your tailnet: https://mac.tail1234.ts.net/?t=$livetoken" ] \
+  && pass "tailscale serve on the port prints the tailnet URL after the local one" || fail "tailnet line: $out"
+serve_json "mac.tail1234.ts.net:8443" "http://localhost:$liveport/"
+out=$(D2 2>&1)
+printf '%s\n' "$out" | grep -qxF "STAR dashboard on your tailnet: https://mac.tail1234.ts.net:8443/?t=$livetoken" \
+  && pass "a localhost proxy on 8443 names the port" || fail "8443: $out"
+serve_json "mac.tail1234.ts.net:443" "http://127.0.0.1:$((liveport + 1))"
+out=$(D2 2>&1)
+! printf '%s\n' "$out" | grep -q 'on your tailnet' && pass "tailscale serve for another port prints no tailnet line" || fail "other port: $out"
+touch "$TMP/ts.fail"; out=$(D2 2>&1); rm -f "$TMP/ts.fail"
+! printf '%s\n' "$out" | grep -q -e 'on your tailnet' -e 'Tailscale daemon' && pass "a tailscale that fails adds nothing" || fail "failing tailscale: $out"
+mkdir -p "$TMP/bin-nots"
+for f in "$TMP"/bin/*; do [ "$(basename "$f")" = tailscale ] || cp "$f" "$TMP/bin-nots/"; done
+ln -s "$(command -v node)" "$(command -v python3)" "$TMP/bin-nots/"
+NOTS="$TMP/bin-nots:/usr/bin:/bin:/usr/sbin:/sbin"
+if [ -n "$(PATH="$NOTS"; command -v tailscale)" ]; then
+  fail "a tailscale outside the test's bin is on $NOTS"
+else
+  out=$(HOME="$TMP/home" PATH="$NOTS" STAR_FREE_GB=8 sh "$R2/skills/star/dashboard.sh" 2>&1); rc=$?
+  [ "$rc" = 0 ] && printf '%s\n' "$out" | grep -qxF "STAR dashboard: http://127.0.0.1:$liveport/?t=$livetoken" && ! printf '%s\n' "$out" | grep -q 'tailnet' \
+    && pass "without tailscale nothing more is printed" || fail "no tailscale (rc=$rc): $out"
+fi
+[ "$(sort -u "$TMP/tailscale.log")" = "serve status --json" ] && pass "tailscale is only asked serve status --json" || fail "tailscale calls: $(sort -u "$TMP/tailscale.log")"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

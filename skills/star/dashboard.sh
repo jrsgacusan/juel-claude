@@ -9,7 +9,10 @@
 # ~/.juel/dashboard.json is this checkout's live server;
 # a server another checkout or plugin version started is stopped first and replaced on the same
 # port and token. The port recorded in dashboard.json never moves: when something else holds it the
-# server does not start, and the line says so. Then prints "STAR dashboard: <url>" and runs `open <url>`. Other lines start
+# server does not start, and the line says so. Then prints "STAR dashboard: <url>", and "STAR dashboard
+# on your tailnet: <url>" when tailscale serve maps / to this port over HTTPS (tailscale serve status
+# --json, the only tailscale command it runs), and runs `open <url>`. To open it from a phone, run once:
+# tailscale serve --bg <port> (HTTPS inside your tailnet; never tailscale funnel). Other lines start
 # "dashboard.sh: ".
 # Exit: 0 ok (also when `open` fails); 1 no node 24 or later, too little memory and no earlier
 # build, the build failed, or the server did not start (with its error).
@@ -142,6 +145,46 @@ startup_error() {
   say "the server did not start: $detail"
 }
 
+# The https URL tailscale serve gives this port, or nothing: not installed, failed, slow (5 s), or serving something else.
+tailnet_url() {  # <port> <token>
+  command -v tailscale >/dev/null 2>&1 || return 0
+  python3 -c '
+import json, subprocess, sys
+port, token = sys.argv[1], sys.argv[2]
+try:
+    r = subprocess.run(["tailscale", "serve", "status", "--json"], capture_output=True, text=True, timeout=5)
+    if r.returncode != 0:
+        sys.exit(0)
+    d = json.loads(r.stdout)
+except Exception:
+    sys.exit(0)
+if not isinstance(d, dict):
+    sys.exit(0)
+targets = ("http://127.0.0.1:" + port, "http://localhost:" + port)
+configs = [d]
+fg = d.get("Foreground")
+if isinstance(fg, dict):
+    configs += [c for c in fg.values() if isinstance(c, dict)]
+for c in configs:
+    web, tcp = c.get("Web"), c.get("TCP")
+    if not isinstance(web, dict) or not isinstance(tcp, dict):
+        continue
+    for hostport, entry in web.items():
+        host, _, p = hostport.rpartition(":")
+        try:
+            proxy = entry["Handlers"]["/"]["Proxy"]
+        except Exception:
+            continue
+        if not isinstance(proxy, str) or proxy.rstrip("/") not in targets:
+            continue
+        t = tcp.get(p)
+        if not (isinstance(t, dict) and t.get("HTTPS") is True):
+            continue
+        print("https://" + host + ("" if p == "443" else ":" + p) + "/?t=" + token)
+        sys.exit(0)
+' "$1" "$2" 2>/dev/null || true
+}
+
 if ! running; then
   if [ -n "$OTHER" ]; then
     say "stopping the dashboard another checkout started (pid $OTHER)"
@@ -187,4 +230,6 @@ PY
 fi
 URL="http://127.0.0.1:$PORT/?t=$TOKEN"
 echo "STAR dashboard: $URL"
+TAILNET=$(tailnet_url "$PORT" "$TOKEN")
+[ -z "$TAILNET" ] || echo "STAR dashboard on your tailnet: $TAILNET"
 open "$URL" >/dev/null 2>&1 || say "could not open a browser: open the URL above"
