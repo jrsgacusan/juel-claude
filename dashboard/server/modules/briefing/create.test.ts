@@ -131,13 +131,17 @@ test('linear: a headless haiku run allowed only the create tools, when one is co
   assert.ok(prompt.includes('Retry the sync'))
   assert.ok(prompt.includes(BODY.trim()))
   assert.ok(prompt.includes('"ENG"'))
+  assert.ok(prompt.includes('{"ref": "<the issue identifier, like ENG-123>", "url": "<the issue URL>"}'))
+  assert.ok(prompt.includes('{"error": "<what went wrong, in one sentence>"}'))
   assert.equal(call.cwd, w.repo)
   assert.deepEqual(await onlyInbox(), { repo: w.repo, refs: ['ENG-7'] })
 })
 
 test('linear with no create tool connected stops the run and writes the spec item', async () => {
   await play(w, 'claude', [{ lines: [init('C1', ['Read', 'mcp__slack__post'])], wait: true }])
+  const started = Date.now()
   const outcome = await createTicket(ctx('linear'))
+  assert.ok(Date.now() - started < 5000, 'the run was stopped at init, not left until the fake gives up after 10 s')
   if (!outcome.ok) assert.fail(outcome.error)
   assert.equal(outcome.created.ref, null)
   assert.equal(outcome.created.tracker, 'linear')

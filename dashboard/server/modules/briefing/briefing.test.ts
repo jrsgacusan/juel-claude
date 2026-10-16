@@ -405,3 +405,15 @@ test('a spec create that did not finish points at the spec folder, not at a trac
   assert.equal(res.status, 409)
   assert.ok(String(json(res).error).includes(`did not finish: check ${join(w.home, 'items', 'proj')} for its spec item`), String(json(res).error))
 })
+
+
+test('STAR is nudged only once its inbox file is written', async () => {
+  const counts: number[] = []
+  const watching = stub([w.project], { nudge: async () => { counts.push((await readdir(join(w.home, 'inbox'))).length); return true } })
+  register(watching.api)
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = String(json(await watching.call('POST', '/api/projects/proj/briefings')).id)
+  await withDraft(id)
+  assert.equal((await watching.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })).status, 201)
+  assert.deepEqual(counts, [1])
+})

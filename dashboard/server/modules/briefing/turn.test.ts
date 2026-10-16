@@ -6,6 +6,7 @@ import { afterEach, beforeEach, test } from 'node:test'
 import { briefingDir, createBriefing, readDraft, readTurns } from './store.ts'
 import { block, calls, cleanup, done, hook, init, play, reads, say, world } from './test-helpers.ts'
 import type { World } from './test-helpers.ts'
+import { parseTicket } from './ticket.ts'
 import { PROMPT_URL, repoPath, runTurn, turnArgs } from './turn.ts'
 import type { TurnContext } from './turn.ts'
 
@@ -161,12 +162,13 @@ test('turnArgs adds --resume only with a session', () => {
 
 test('prompt.md asks one question at a time, grounds it in the code and ends with the ticket block', async () => {
   const prompt = await readFile(PROMPT_URL, 'utf8')
-  for (const phrase of ['one question at a time', 'purpose', 'scope', 'acceptance criteria', 'Read, Grep and Glob', 'files you read', 'propose the ticket', '```ticket', '"outOfScope"', 'short, plain sentences']) {
+  for (const phrase of ['one question at a time', 'purpose', 'scope', 'acceptance criteria', 'Read, Grep and Glob', 'files you read', 'propose the ticket', 'End every reply with a ticket block', '```ticket', '"outOfScope"', 'short, plain sentences']) {
     assert.ok(prompt.includes(phrase), phrase)
   }
   const example = /```ticket\n([\s\S]*?)\n```/.exec(prompt)
   assert.ok(example)
   assert.deepEqual(Object.keys(JSON.parse(example[1])), ['title', 'description', 'criteria', 'outOfScope'])
+  assert.ok(parseTicket(example[1]), 'the example is a valid ticket block')
 })
 
 test('a saved session the CLI no longer has is forgotten, so the next message starts fresh', async () => {
