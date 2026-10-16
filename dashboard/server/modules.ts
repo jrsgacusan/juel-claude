@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import type { Handler, Method, Router } from "./router.ts";
 import type { ModuleApi } from "./types.ts";
 
-const METHODS = new Set(["GET", "POST", "PUT"]);
+const METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
 
 /**
  * Import every <dir>/<name>/index.ts, in name order, and call its register(api). A module's routes
@@ -48,7 +48,7 @@ export async function loadModules(
       route(method, routePath, handler) {
         if (!METHODS.has(method) || !routePath.startsWith("/api/")) {
           log(
-            `[${name}] route ${method} ${routePath} ignored: a module route is GET, POST or PUT under /api/`,
+            `[${name}] route ${method} ${routePath} ignored: a module route is GET, POST, PUT or DELETE under /api/`,
           );
           return;
         }

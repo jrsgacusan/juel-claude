@@ -150,7 +150,7 @@ export type Stub = {
   events: Record<string, unknown>[]
   nudges: string[]
   logs: string[]
-  call: (method: 'GET' | 'POST' | 'PUT', url: string, body?: unknown) => Promise<Res>
+  call: (method: 'GET' | 'POST' | 'PUT' | 'DELETE', url: string, body?: unknown) => Promise<Res>
 }
 
 function match(pattern: string, path: string): Record<string, string> | null {

@@ -26,7 +26,7 @@ export type Created = {
    */
   state?: 'creating' | 'made'
 }
-export type Summary = { id: string; title: string; updatedAt: string; ref: string | null }
+export type Summary = { id: string; title: string; updatedAt: string; ref: string | null; deletable: boolean }
 
 const errCode = (err: unknown): string | undefined => (err as { code?: string } | null)?.code
 
@@ -224,6 +224,14 @@ export function unqueued(created: Created): boolean {
   return created.state === 'made' && Boolean(created.ref ?? created.specPath) && (created.inbox === null || (typeof created.inbox === 'string' && created.queued === false))
 }
 
+/** Why created.json keeps the briefing, or null when its record allows deleting it (spec 3.7). */
+export function deletableWhy(created: Created | null): string | null {
+  if (created === null) return null
+  if (created.state === 'creating') return 'its ticket create did not finish'
+  if (created.state !== 'made') return 'its created.json is not a finished ticket record'
+  return unqueued(created) ? 'STAR does not have its ticket yet' : null
+}
+
 /** The list title (D8): the draft's title, else the owner's first turn cut to 60 characters. */
 export function titleOf(draft: Ticket | null, turns: Turn[]): string {
   if (draft) return draft.title
@@ -248,7 +256,7 @@ async function newestChange(dir: string): Promise<string | null> {
 }
 
 /** Every briefing of a STAR folder, the most recently changed first. */
-export async function listBriefings(home: string): Promise<Summary[]> {
+export async function listBriefings(home: string, running: (id: string) => boolean = () => false): Promise<Summary[]> {
   let names: string[]
   try {
     names = await readdir(briefingsDir(home))
@@ -262,7 +270,7 @@ export async function listBriefings(home: string): Promise<Summary[]> {
     if (!(await isDir(dir))) continue
     const [draft, created, turns, updatedAt] = await Promise.all([readDraft(dir), readCreated(dir), readTurns(dir), newestChange(dir)])
     if (updatedAt === null) continue
-    summaries.push({ id, title: titleOf(draft, turns), updatedAt, ref: created ? (created.ref ?? created.specPath) : null })
+    summaries.push({ id, title: titleOf(draft, turns), updatedAt, ref: created ? (created.ref ?? created.specPath) : null, deletable: !running(id) && deletableWhy(created) === null })
   }
   return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id))
 }

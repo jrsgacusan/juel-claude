@@ -1,12 +1,13 @@
 // The briefing module (STAR dashboard, part 3): a read-only Claude agent that helps the owner shape
 // one piece of work, and the create that turns its draft into a ticket STAR picks up. The server
 // imports dashboard/server/modules/*/index.ts and calls register(api).
+import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { message } from './claude.ts'
 import { createTicket, queueCreated } from './create.ts'
 import type { CreateOutcome } from './create.ts'
-import { briefingDir, createBriefing, isDir, listBriefings, readCreated, readDraft, readTurns, unqueued } from './store.ts'
+import { briefingDir, createBriefing, deletableWhy, isDir, listBriefings, readCreated, readDraft, readTurns, unqueued } from './store.ts'
 import { TRACKERS, asTracker, isTracker, resolveTracker, saveTracker } from './tracker.ts'
 import { runTurn } from './turn.ts'
 import type { ModuleApi, Project, Req, Res } from './types.ts'
@@ -49,7 +50,7 @@ export function register(api: ModuleApi): void {
   api.route('GET', '/api/projects/:p/briefings', async req => {
     const project = projectOf(req)
     if (!project) return refuse(404, 'unknown project')
-    return answer(await listBriefings(project.home))
+    return answer(await listBriefings(project.home, id => busy.has(`${project.name}/${id}`)))
   })
 
   api.route('POST', '/api/projects/:p/briefings', async req => {
@@ -142,6 +143,26 @@ export function register(api: ModuleApi): void {
         log,
       })
       return await finish(at, tracker, outcome)
+    } finally {
+      busy.delete(key)
+    }
+  })
+
+  api.route('DELETE', '/api/projects/:p/briefings/:id', async req => {
+    const project = projectOf(req)
+    if (!project) return refuse(404, 'unknown project')
+    const id = req.params.id ?? ''
+    const dir = briefingDir(project.home, id)
+    if (dir === null || !(await isDir(dir))) return refuse(404, `no briefing ${id}`)
+    const key = `${project.name}/${id}`
+    if (busy.has(key)) return refuse(409, 'a reply or a ticket create is running for this briefing')
+    busy.add(key)
+    try {
+      const why = deletableWhy(await readCreated(dir))
+      if (why !== null) return refuse(409, why)
+      await rm(dir, { recursive: true })
+      log(`briefing ${key}: deleted`)
+      return answer({ deleted: true })
     } finally {
       busy.delete(key)
     }
