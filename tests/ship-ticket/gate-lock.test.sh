@@ -144,7 +144,7 @@ bash "$SCRIPT" --holder z -- true && pass "runs under bash" || fail "bash"
 #     must not run on it, and the default lock lives where git clean and a sandbox cannot break it.
 sh "$SCRIPT" --holder n1 -- sh -c "sh '$SCRIPT' --holder n2 --wait-max 2 -- sh -c 'echo inner > $TMP/nest.ran'"; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$TMP/nest.ran" ] && pass "a gate inside a gate on the same lock runs, it does not wait for itself" || fail "nested gate (rc=$rc)"
-# (the default lock is the real machine-wide one: never wait for it here; busy means a real gate runs.
+# (without JUEL_GATE_TEST_DIR the default lock is the real machine-wide one: never wait for it here; busy means a real gate runs.
 # The probe may land in any real slot, so it looks for its own token in the default lock's slot files.)
 DL="${JUEL_GATE_TEST_DIR:-/tmp}/juel.gate.$(id -u).lock"
 d=$(cd "$TMP" && mkdir -p nogit2 && cd nogit2 && env -u JUEL_GATE_LOCK sh "$SCRIPT" --holder loc-probe --wait-max 0 -- sh -c 'for f in "$@"; do grep -q "^loc-probe .*token=$JUEL_GATE_LOCK_HELD" "$f" 2>/dev/null && { echo "$f"; exit 0; }; done; exit 1' sh "$DL" "$DL.2" "$DL.3" "$DL.4" 2>/dev/null); rc=$?

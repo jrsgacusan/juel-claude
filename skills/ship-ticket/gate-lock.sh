@@ -14,10 +14,12 @@
 # 600 s foreground cap. The command's stdin is /dev/null.
 #
 # The lock is a kernel lock (flock) on one file, <lock>: JUEL_GATE_LOCK when set (give an absolute path),
-# else /tmp/juel.gate.<uid>.lock, one file per user for every project on the machine. It is under
-# JUEL_GATE_TEST_DIR is a test-only override: when set, it replaces /tmp in that default path, so the gate-lock tests can hold a default lock of their own (#132). Only a test sets it; never set it anywhere else.
-# /tmp on purpose: every worker and every sandboxed executor can write there, no worker needs to
-# know where STAR's home is, and no "git clean" in a repo can delete it. The file stays on disk;
+# else /tmp/juel.gate.<uid>.lock, one file per user for every project on the machine.
+# JUEL_GATE_TEST_DIR, test-only, replaces /tmp in that default path (#132); never set it outside a
+# test.
+# The default is under /tmp on purpose: every worker and every sandboxed executor can write there,
+# no worker needs to know where STAR's home is, and no "git clean" in a repo can delete it. The file
+# stays on disk;
 # what it contains ("<label> pid=<wrapper> pgid=<command group>") is only there for the busy
 # message and decides nothing. After taking the lock the wrapper checks that the path still names
 # the file it locked, and starts over when the file was replaced meanwhile. Never delete the file

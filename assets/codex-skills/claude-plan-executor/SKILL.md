@@ -154,7 +154,7 @@ of the two; that is normal and not a problem to report.
 - Convert narrative instructions into explicit tasks with owners, artifacts, and checks.
 - Expand vague verbs like "wire up", "finish", or "support" into concrete changes inside the files, functions and line ranges the task's `**Files:**` block names, never into files it does not name.
 - Separate discovery tasks from write tasks.
-- Convert validation lines into actual commands, tests, screenshots, or inspections.
+- Convert validation lines into the commands, tests, screenshots or inspections they name, never into a full-suite run or a build the plan does not write out.
 - Preserve non-functional requirements such as performance, accessibility, migration safety, or multi-tenant isolation.
 
 ## Failure Handling

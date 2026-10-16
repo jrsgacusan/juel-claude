@@ -104,6 +104,7 @@ done
 R141="Run only the commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through \`gate-lock.sh\` when it says so); the caller runs the full gates itself, under its lock."
 tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF -- "$R141" && pass "#141 the executor runs only the commands the plan names" || fail "#141 executor rule"
 grep -qF 'using the tests, checks, inspections or screenshots the plan names' "$EX" && pass "#141 the executor validates with the plan's own checks" || fail "#141 executor validation step"
+grep -qF 'never into a full-suite run or a build the plan does not write out' "$EX" && pass "#141 validation lines never become a full-suite run" || fail "#141 validation wording"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
