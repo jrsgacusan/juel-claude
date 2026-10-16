@@ -286,7 +286,7 @@ function EmptyRows({
     return (
       <>
         <span>Nothing is running right now.</span>{" "}
-        <Button variant="link" onClick={onShowAll}>
+        <Button variant="link" className="pointer-coarse:h-11" onClick={onShowAll}>
           Show all items
         </Button>
       </>

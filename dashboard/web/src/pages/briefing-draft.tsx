@@ -119,6 +119,7 @@ export function DraftPanel({
               <Button
                 variant="outline"
                 size="sm"
+                className="pointer-coarse:h-11"
                 onClick={() => void tracker.refetch()}
               >
                 Try again
@@ -220,7 +221,7 @@ export function DraftPanel({
               <Button
                 variant="outline"
                 size="sm"
-                className="self-start"
+                className="self-start pointer-coarse:h-11"
                 onClick={() => void createIn("none")}
               >
                 Save as a spec instead

@@ -53,7 +53,7 @@ export function SiteHeader({
           size="sm"
           onClick={onSearch}
           aria-label="Search (⌘K)"
-          className="h-8 w-8 justify-center gap-2 px-0 font-normal text-muted-foreground sm:w-64 sm:justify-start sm:px-2.5"
+          className="h-8 w-8 pointer-coarse:size-11 sm:pointer-coarse:w-64 justify-center gap-2 px-0 font-normal text-muted-foreground sm:w-64 sm:justify-start sm:px-2.5"
         >
           <Search />
           <span className="hidden flex-1 truncate text-left sm:inline">Search</span>

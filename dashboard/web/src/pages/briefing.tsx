@@ -39,6 +39,7 @@ export function BriefingPage() {
     <Button
       variant="outline"
       size="sm"
+      className="pointer-coarse:h-11"
       onClick={() => void create()}
       disabled={newBriefing.isPending}
     >

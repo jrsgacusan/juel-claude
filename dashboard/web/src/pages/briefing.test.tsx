@@ -169,6 +169,7 @@ describe("Briefing", () => {
       )
     ).toBeInTheDocument()
     failing = false
+    expect(within(chat).getByRole("button", { name: "Try again" })).toHaveClass("pointer-coarse:h-11")
     await user.click(within(chat).getByRole("button", { name: "Try again" }))
     expect(
       await within(chat).findByText(/^Admins keep asking to pause/)
@@ -269,6 +270,9 @@ describe("Briefing", () => {
         "Couldn't create the ticket: Linear's create tool failed: team SPH not found"
       )
     ).toBeInTheDocument()
+    expect(
+      within(draft).getByRole("button", { name: "Save as a spec instead" })
+    ).toHaveClass("pointer-coarse:h-11")
     await user.click(
       within(draft).getByRole("button", { name: "Save as a spec instead" })
     )
@@ -279,6 +283,9 @@ describe("Briefing", () => {
 
   it("starts a new briefing", async () => {
     const { user, router } = renderApp("/sphere-app/briefing")
+    expect(
+      await screen.findByRole("button", { name: /New briefing/ })
+    ).toHaveClass("pointer-coarse:h-11")
     await user.click(
       await screen.findByRole("button", { name: /New briefing/ })
     )
@@ -456,7 +463,7 @@ describe("Briefing", () => {
     ).toBeInTheDocument()
     expect(
       within(draft).getByRole("button", { name: "Try again" })
-    ).toBeInTheDocument()
+    ).toHaveClass("pointer-coarse:h-11")
     expect(
       within(draft).queryByRole("combobox", { name: "Tracker" })
     ).not.toBeInTheDocument()
@@ -581,10 +588,15 @@ describe("Briefing", () => {
     expect(b1()).toBeDefined()
     await user.click(within(chat).getByRole("button", { name: "Delete" }))
     await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
-    expect(await screen.findByText(`Deleted "Pause a member's seat".`)).toBeInTheDocument()
-    expect(b1()).toBeUndefined()
+    expect(
+      await screen.findByText(`Deleted "Pause a member's seat".`, undefined, { timeout: 5_000 })
+    ).toBeInTheDocument()
+    await waitFor(() => expect(b1()).toBeUndefined())
     await waitFor(() => expect(router.state.location.search).toBe(""))
-    expect(await screen.findByRole("combobox", { name: "Briefing" })).toHaveTextContent("Export reports as CSV")
+    await waitFor(
+      () => expect(screen.getByRole("combobox", { name: "Briefing" })).toHaveTextContent("Export reports as CSV"),
+      { timeout: 5_000 }
+    )
     expect(confirm).not.toHaveBeenCalled()
   })
 

@@ -425,6 +425,7 @@ describe("Progress pages", () => {
     expect(
       await screen.findByText("Nothing is running right now.")
     ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Show all items" })).toHaveClass("pointer-coarse:h-11")
     await user.click(screen.getByRole("button", { name: "Show all items" }))
     expect(screen.getByRole("tab", { name: /^All\s*25$/ })).toHaveAttribute(
       "aria-selected",
