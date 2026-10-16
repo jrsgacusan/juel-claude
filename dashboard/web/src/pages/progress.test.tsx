@@ -73,6 +73,23 @@ describe("Progress", () => {
     )
   })
 
+  it("links an item waiting in a go-batch to that batch", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-14"
+    )?.row
+    if (row) row.status = "needs-you"
+    const { user, router } = renderApp("/sphere-app/progress?item=SPH-14")
+    const sheet = await screen.findByRole("dialog")
+    await user.click(
+      await within(sheet).findByRole("link", { name: "Answer in Needs you" })
+    )
+    await waitFor(() =>
+      expect(
+        router.state.location.pathname + router.state.location.search
+      ).toBe("/sphere-app/needs?loop=N-41")
+    )
+  })
+
   it("links a merged item to its evidence, and opens from the URL", async () => {
     const { user, router } = renderApp("/sphere-app/progress?item=SPH-8")
     const sheet = await screen.findByRole("dialog")
