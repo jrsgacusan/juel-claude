@@ -87,7 +87,7 @@ export function AppLayout() {
               }
             />
           ) : (
-            <Outlet />
+            <Outlet key={project} />
           )}
         </div>
       </SidebarInset>

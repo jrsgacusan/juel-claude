@@ -173,4 +173,19 @@ describe("Chat", () => {
     expect(box).toHaveValue("hello")
     expect(within(thread()).queryByText("hello")).not.toBeInTheDocument()
   })
+
+  it("starts a switched-to project's chat fresh: no carried text, no other project's message", async () => {
+    const { user, router } = renderApp("/sphere-app/chat")
+    const box = await screen.findByLabelText("Message STAR")
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(box, "for sphere only{Enter}")
+    await within(thread()).findByText("for sphere only")
+    await user.type(screen.getByLabelText("Message STAR"), "unsent draft")
+    await act(async () => {
+      await router.navigate("/sphere-api/chat")
+    })
+    await waitFor(() => expect(screen.getByLabelText("Message STAR")).toHaveValue(""))
+    expect(screen.queryByText("for sphere only")).not.toBeInTheDocument()
+    expect(screen.queryByText("unsent draft")).not.toBeInTheDocument()
+  })
 })
