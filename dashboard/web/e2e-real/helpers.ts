@@ -1,81 +1,55 @@
-import { expect as baseExpect, test as baseTest, type Page } from "@playwright/test"
+import { expect, test as baseTest, type Page } from "@playwright/test"
 import { readFileSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { join } from "node:path"
+import * as stack from "./stack.js"
+import type { StackPaths } from "./stack.js"
 
-const errors = new WeakMap<Page, string[]>()
-
+// Fails a test on any console error or page error (spec S5); warnings such as "[events] lost the stream" are not errors.
 export const test = baseTest.extend<{ page: Page }>({
   page: async ({ page }, provide) => {
     const messages: string[] = []
-    errors.set(page, messages)
     page.on("console", (message) => {
       if (message.type() === "error") messages.push(`console: ${message.text()}`)
     })
     page.on("pageerror", (error) => messages.push(`pageerror: ${error.message}`))
     await provide(page)
-    baseExpect(messages, "console errors").toEqual([])
+    expect(messages, "console errors").toEqual([])
   },
 })
-export const expect = baseExpect
+export { expect }
+export { REPO_ROOT } from "./stack.js"
 
-export const REPO_ROOT = resolve(import.meta.dirname, "../../..")
-
-export function e2e(): {
-  root: string
-  url: string
-  origin: string
-  token: string
-  home: string
-  star: string
-  fakes: string
-  bin: string
-  repo: string
-} {
+export function e2e(): StackPaths & { url: string; origin: string } {
   const required = (name: string): string => {
     const value = process.env[name]
     if (!value) throw new Error(`missing ${name}`)
     return value
   }
   const root = required("STAR_E2E_ROOT")
-  return {
-    root,
-    url: required("STAR_E2E_URL"),
-    origin: required("STAR_E2E_ORIGIN"),
-    token: required("STAR_E2E_TOKEN"),
-    home: join(root, "home"),
-    star: join(root, "star"),
-    fakes: join(root, "fakes"),
-    bin: join(root, "bin"),
-    repo: join(root, "repo"),
-  }
+  const url = required("STAR_E2E_URL")
+  return { ...stack.paths(root), url, origin: new URL(url).origin }
 }
 
 export function launchEnv(): NodeJS.ProcessEnv {
-  const { home, bin, fakes } = e2e()
-  return {
-    ...process.env,
-    HOME: home,
-    PATH: `${bin}:${process.env.PATH ?? ""}`,
-    FAKE_ORCA_DIR: fakes,
-    STAR_E2E_FAKES: fakes,
-  }
+  return stack.launchEnv(e2e().root)
 }
 
 export const starFile = (rel: string): string =>
   readFileSync(join(e2e().star, rel), "utf8")
 
 export function fakeLog(name: string): string {
+  const { fakes } = e2e()
   try {
-    return readFileSync(join(e2e().fakes, name), "utf8")
-  } catch {
-    return ""
+    return readFileSync(join(fakes, name), "utf8")
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return ""
+    throw error
   }
 }
 
 export async function openApp(page: Page, path = "/sample/needs"): Promise<void> {
+  // The first load hands ?t= to sessionStorage (src/api/token.ts captureToken); later loads in this tab read it there.
   await page.goto(e2e().url)
   await expect(page).toHaveURL(/\/sample\/needs$/)
   if (path !== "/sample/needs") await page.goto(e2e().origin + path)
 }
-
-export const SEARCH_KEY = "Control+k"

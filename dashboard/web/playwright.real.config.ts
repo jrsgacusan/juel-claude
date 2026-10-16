@@ -1,10 +1,10 @@
 import { defineConfig, devices } from "@playwright/test"
 
-// The real stack, with no mock layer (brief D1); one worker against one server (spec S4).
+// The STAR dashboard's real stack with no mock layer (integration brief D1): global-setup.ts runs skills/star/dashboard.sh under a temp HOME and every spec drives the built web app. One worker: the specs share one server and one STAR folder, and some write to it. The 15 s expect timeout outlasts the server's 5 s file-poll fallback, which the live specs may wait on.
 export default defineConfig({
   testDir: "./e2e-real",
   globalSetup: "./e2e-real/global-setup.ts",
-  fullyParallel: false,
+  forbidOnly: true,
   workers: 1,
   retries: 0,
   timeout: 60_000,

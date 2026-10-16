@@ -1,8 +1,9 @@
-import { expect, openApp, SEARCH_KEY, test } from "./helpers.js"
+import { expect, openApp, test } from "./helpers.js"
 
 test("⌘K returns grouped results and opens an item", async ({ page }) => {
   await openApp(page)
-  await page.keyboard.press(SEARCH_KEY)
+  // The app opens search on Meta+K or Control+K (src/components/app-layout.tsx).
+  await page.keyboard.press("Control+k")
   await page.getByRole("dialog").getByRole("combobox").fill("invoice")
   const suggestions = page.getByRole("listbox", { name: "Suggestions" })
   await expect(suggestions.getByRole("group", { name: "Items" })).toBeVisible()

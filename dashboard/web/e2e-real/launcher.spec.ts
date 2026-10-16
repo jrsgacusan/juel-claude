@@ -1,22 +1,21 @@
-import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
-import { join } from "node:path"
-import { e2e, expect, fakeLog, launchEnv, openApp, REPO_ROOT, test } from "./helpers.js"
-
-const conf = () => JSON.parse(readFileSync(join(e2e().home, ".juel", "dashboard.json"), "utf8")) as { pid: number; port: number; token: string }
-const log = () => readFileSync(join(e2e().home, ".juel", "dashboard.log"), "utf8")
+import { dashboardLog, logProblems, readConfig, runLauncher } from "./stack.js"
+import { e2e, expect, fakeLog, openApp, test } from "./helpers.js"
 
 test("the launcher started one server on 127.0.0.1 and opened its URL with the token", () => {
-  const { url, origin } = e2e()
-  const c = conf()
-  expect(url).toBe(`http://127.0.0.1:${c.port}/?t=${c.token}`)
-  expect(origin).toBe(`http://127.0.0.1:${c.port}`)
-  expect(() => process.kill(c.pid, 0)).not.toThrow()
+  const config = readConfig(e2e().home)
+  expect(config).not.toBeNull()
+  if (!config) throw new Error("dashboard.json missing")
+  const url = `http://127.0.0.1:${config.port}/?t=${config.token}`
+  expect(e2e().url).toBe(url)
+  expect(() => process.kill(config.pid, 0)).not.toThrow()
   expect(fakeLog("open.log").trim().split("\n")[0]).toBe(url)
   // A first run that builds also prints npm's own output, so only the last line is pinned.
-  const out = readFileSync(join(e2e().root, "launch-1.out"), "utf8").trim().split("\n")
+  const out = readFileSync(`${e2e().root}/launch-1.out`, "utf8")
+    .trim()
+    .split("\n")
   expect(out.at(-1)).toBe(`STAR dashboard: ${url}`)
-  expect(log().match(/started on 127\.0\.0\.1:\d+/g)).toHaveLength(1)
+  expect(dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)).toHaveLength(1)
 })
 
 test("the URL opens the page, and the API refuses a request without the token", async ({ page }) => {
@@ -27,20 +26,24 @@ test("the URL opens the page, and the API refuses a request without the token", 
 })
 
 test("the server loads both modules and logs no module error", async () => {
-  await expect.poll(log).toMatch(/\[slack\] slack check: 1 found/)
-  const text = log()
+  await expect
+    .poll(() => dashboardLog(e2e().home))
+    .toMatch(/\[slack\] slack check: 2 found, 1 routed, 1 unrouted/)
+  const text = dashboardLog(e2e().home)
   expect(text).toContain("module briefing loaded")
   expect(text).toContain("module slack loaded")
-  expect(text).not.toMatch(/module \S+ skipped|uncaught|unhandled rejection|could not start|slack check failed/i)
+  expect(logProblems(e2e().home)).toEqual([])
 })
 
 test("a second run only opens the URL", () => {
-  const before = conf()
-  const r = spawnSync("sh", [join(REPO_ROOT, "skills/star/dashboard.sh")], { cwd: REPO_ROOT, env: launchEnv(), encoding: "utf8", timeout: 120_000 })
-  expect(r.status).toBe(0)
+  const before = readConfig(e2e().home)
+  if (!before) throw new Error("dashboard.json missing")
+  const r = runLauncher(e2e().root, 120_000)
+  expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0)
   expect(r.stdout).toContain(`STAR dashboard: ${e2e().url}`)
   expect(r.stdout).not.toMatch(/building dashboard\/web/)
-  expect(conf().pid).toBe(before.pid)
+  const after = readConfig(e2e().home)
+  expect(after?.pid).toBe(before.pid)
   expect(fakeLog("open.log").trim().split("\n")).toEqual([e2e().url, e2e().url])
-  expect(log().match(/started on 127\.0\.0\.1:\d+/g)).toHaveLength(1)
+  expect(dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)).toHaveLength(1)
 })

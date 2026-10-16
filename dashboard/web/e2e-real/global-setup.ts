@@ -1,115 +1,103 @@
-import { execFileSync, spawnSync } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import {
   chmodSync,
   cpSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
+import {
+  dashboardLog,
+  logProblems,
+  paths,
+  readConfig,
+  REPO_ROOT,
+  runLauncher,
+  stopServer,
+  type DashboardConfig,
+} from "./stack.js"
 
-type DashboardConfig = { pid: number; port: number; token: string }
+const keepTemp = (): boolean => process.env.STAR_E2E_KEEP === "1"
 
-const REPO_ROOT = resolve(import.meta.dirname, "../../..")
-
-function readConfig(home: string): DashboardConfig | null {
-  try {
-    return JSON.parse(
-      readFileSync(join(home, ".juel", "dashboard.json"), "utf8"),
-    ) as DashboardConfig
-  } catch {
-    return null
-  }
+function removeRoot(root: string): void {
+  if (!keepTemp()) rmSync(root, { recursive: true, force: true })
 }
 
-function stop(pid: number | undefined): void {
-  if (pid === undefined) return
-  try {
-    process.kill(pid, "SIGTERM")
-  } catch {
-    return
-  }
-  const end = Date.now() + 5_000
-  while (Date.now() < end) {
-    try {
-      process.kill(pid, 0)
-    } catch {
+async function stopLateServer(home: string): Promise<void> {
+  for (let i = 0; i < 100; i += 1) {
+    const config = readConfig(home)
+    if (typeof config?.pid === "number") {
+      await stopServer(config.pid)
       return
     }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
-  }
-  try {
-    process.kill(pid, "SIGKILL")
-  } catch {
-    // The process exited between the last poll and SIGKILL.
+    await sleep(250)
   }
 }
 
-function logTail(home: string): string {
-  try {
-    return readFileSync(join(home, ".juel", "dashboard.log"), "utf8")
-      .trim()
-      .split("\n")
-      .slice(-20)
-      .join("\n")
-  } catch {
-    return "(dashboard.log unavailable)"
-  }
-}
-
-function launchError(
+function launchFailure(
   root: string,
-  home: string,
-  status: number | null,
+  reason: string,
   stdout: string,
   stderr: string,
+  logTail: string,
 ): Error {
-  const tail = logTail(home)
-  stop(readConfig(home)?.pid)
-  if (process.env.STAR_E2E_KEEP !== "1") rmSync(root, { recursive: true, force: true })
+  removeRoot(root)
   return new Error(
     [
-      `dashboard launcher failed (status ${status ?? "null"})`,
+      `dashboard launcher failed: ${reason}`,
       `stdout:\n${stdout}`,
       `stderr:\n${stderr}`,
-      `dashboard.log tail:\n${tail}`,
+      `dashboard.log tail:\n${logTail}`,
+      keepTemp()
+        ? `temp folder ${root} (kept)`
+        : `temp folder ${root} (removed; STAR_E2E_KEEP=1 keeps it)`,
     ].join("\n"),
   )
 }
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
+  // realpath: the macOS tmpdir is a symlink, and the server reports real paths.
   const root = realpathSync(mkdtempSync(join(tmpdir(), "star-e2e-")))
-  const home = join(root, "home")
-  const star = join(root, "star")
-  const fakes = join(root, "fakes")
-  const bin = join(root, "bin")
-  const repo = join(root, "repo")
-  mkdirSync(join(home, ".juel"), { recursive: true })
-  mkdirSync(fakes)
-  mkdirSync(bin)
-  mkdirSync(repo)
+  let launcherRan = false
 
   try {
-    cpSync(join(import.meta.dirname, "fixture", "star"), star, { recursive: true })
-    execFileSync("git", ["init", "-q"], { cwd: repo })
-    writeFileSync(join(repo, "README.md"), "# sample\n")
-    execFileSync("git", ["add", "README.md"], { cwd: repo })
+    const stack = paths(root)
+    mkdirSync(join(stack.home, ".juel"), { recursive: true })
+    mkdirSync(stack.fakes)
+    mkdirSync(stack.bin)
+    mkdirSync(stack.repo)
+    cpSync(join(import.meta.dirname, "fixture", "star"), stack.star, {
+      recursive: true,
+    })
+
+    execFileSync("git", ["init", "-q"], { cwd: stack.repo })
+    writeFileSync(join(stack.repo, "README.md"), "# sample\n")
+    execFileSync("git", ["add", "README.md"], { cwd: stack.repo })
     execFileSync(
       "git",
-      ["-c", "user.name=e2e", "-c", "user.email=e2e@example.com", "commit", "-qm", "init"],
-      { cwd: repo },
+      [
+        "-c",
+        "user.name=e2e",
+        "-c",
+        "user.email=e2e@example.com",
+        "commit",
+        "-qm",
+        "init",
+      ],
+      { cwd: stack.repo },
     )
     writeFileSync(
-      join(fakes, "terminals.json"),
+      join(stack.fakes, "terminals.json"),
       '{"result":{"terminals":[{"handle":"term_e2e_star"}]}}\n',
     )
 
     const copyFake = (source: string, name: string): void => {
-      const target = join(bin, name)
+      const target = join(stack.bin, name)
       cpSync(source, target)
       chmodSync(target, 0o755)
     }
@@ -118,56 +106,76 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
       copyFake(join(import.meta.dirname, "bin", name), name)
     }
     writeFileSync(
-      join(home, ".juel", "star-homes.json"),
-      `${JSON.stringify([{ name: "sample", repo, home: star }])}\n`,
+      join(stack.home, ".juel", "star-homes.json"),
+      `${JSON.stringify([{ name: "sample", repo: stack.repo, home: stack.star }])}\n`,
     )
 
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      HOME: home,
-      PATH: `${bin}:${process.env.PATH ?? ""}`,
-      FAKE_ORCA_DIR: fakes,
-      STAR_E2E_FAKES: fakes,
-    }
-    let result: ReturnType<typeof spawnSync>
-    try {
-      result = spawnSync(
-        "sh",
-        [join(REPO_ROOT, "skills/star/dashboard.sh")],
-        { cwd: REPO_ROOT, env, encoding: "utf8", timeout: 600_000 },
-      )
-    } catch (error) {
-      throw launchError(root, home, null, "", String(error))
-    }
-    const stdout = typeof result.stdout === "string" ? result.stdout : ""
-    const stderr = typeof result.stderr === "string" ? result.stderr : ""
+    launcherRan = true
+    const result = runLauncher(root, 600_000)
+    const stdout = result.stdout ?? ""
+    const stderr = result.stderr ?? ""
     writeFileSync(join(root, "launch-1.out"), stdout)
-    const match = /^STAR dashboard: (http:\/\/127\.0\.0\.1:(\d+)\/\?t=([0-9a-f]{32}))$/m.exec(stdout)
-    if (result.status !== 0 || !match) {
-      throw launchError(root, home, result.status, stdout, stderr)
+    const match = /^STAR dashboard: (http:\/\/127\.0\.0\.1:\d+\/\?t=([0-9a-f]{32}))$/m.exec(
+      stdout,
+    )
+    let reason: string | undefined
+    if (result.error) reason = result.error.message
+    else if (result.signal) reason = `killed by ${result.signal}`
+    else if (result.status !== 0) reason = `exit ${result.status}`
+    else if (!match) reason = "no STAR dashboard line"
+    else if (stdout.includes("serving the web app built before")) {
+      reason =
+        "dashboard.sh served the previous build of dashboard/web: too little free memory to rebuild it, so the suite would test old code"
+    } else {
+      const printed = new URL(match[1])
+      const config = readConfig(stack.home)
+      if (
+        !config ||
+        String(config.port) !== printed.port ||
+        config.token !== printed.searchParams.get("t")
+      ) {
+        reason = "dashboard.json does not match the printed URL"
+      }
     }
-    const [, url, portText, token] = match
-    const config = readConfig(home)
-    if (!config || String(config.port) !== portText || config.token !== token) {
-      throw launchError(root, home, result.status, stdout, stderr)
+    if (reason || !match) {
+      const tail = dashboardLog(stack.home).split("\n").slice(-20).join("\n")
+      await stopLateServer(stack.home)
+      throw launchFailure(root, reason ?? "no STAR dashboard line", stdout, stderr, tail)
     }
-    const origin = `http://127.0.0.1:${portText}`
+
+    const url = match[1]
+    const config = readConfig(stack.home) as DashboardConfig
     process.env.STAR_E2E_ROOT = root
     process.env.STAR_E2E_URL = url
-    process.env.STAR_E2E_ORIGIN = origin
-    process.env.STAR_E2E_TOKEN = token
 
     return async () => {
-      stop(config.pid)
-      if (process.env.STAR_E2E_KEEP === "1") console.log(`STAR_E2E_KEEP=1 kept ${root}`)
+      const problems: string[] = []
+      const result = await stopServer(config.pid)
+      if (result === "gone") {
+        problems.push(`the dashboard server (pid ${config.pid}) exited during the run`)
+      } else if (result === "killed") {
+        problems.push(
+          `the dashboard server (pid ${config.pid}) did not stop on SIGTERM within 5 s`,
+        )
+      }
+      const now = readConfig(stack.home)?.pid
+      if (typeof now === "number" && now !== config.pid) {
+        problems.push(
+          `dashboard.json names pid ${now}, not the pid ${config.pid} the first launch started`,
+        )
+        await stopServer(now)
+      }
+      for (const line of logProblems(stack.home)) {
+        problems.push(`dashboard.log: ${line}`)
+      }
+      if (keepTemp()) console.log(`STAR_E2E_KEEP=1 kept ${root}`)
       else rmSync(root, { recursive: true, force: true })
+      if (problems.length > 0) throw new Error(problems.join("\n"))
     }
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("dashboard launcher failed")) throw error
-    const config = readConfig(home)
-    stop(config?.pid)
-    if (process.env.STAR_E2E_KEEP !== "1") rmSync(root, { recursive: true, force: true })
-    if (error instanceof Error) throw error
-    throw new Error(String(error), { cause: error })
+    if (!launcherRan) {
+      removeRoot(root)
+    }
+    throw error
   }
 }
