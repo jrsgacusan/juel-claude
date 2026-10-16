@@ -23,7 +23,8 @@
 # follows the repo's "dismiss stale approvals" setting). gh signed in to an account that cannot
 # see the repository prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
 # --home selects the STAR folder whose star.json supplies ownerApproval; it is valid only with --merge-gate.
-# --merge-gate is STAR's merge gate. It also needs: a comment by the PR's author that starts
+# --merge-gate is STAR's merge gate. A receipt by another login is named when the author has no
+# receipt (#137). It also needs: a comment by the PR's author that starts
 # "Codex gate: PASS (head <the PR's head>"; a reply from the PR's author on every unresolved
 # review thread someone else opened (a hosted reviewer's included); and, without --hosted, an
 # APPROVED review on the head by someone other than the PR's author whose authorAssociation is
@@ -287,10 +288,17 @@ def main():
     if d.get("isDraft"):
         out("FAIL draft")
     author = bare((d.get("author") or {}).get("login")) if a.merge_gate else ""
-    if a.merge_gate and not any(bare((c.get("author") or {}).get("login")) == author
-                                and str(c.get("body") or "").startswith(f"Codex gate: PASS (head {head}")
-                                for c in comments):
-        out(f"FAIL no codex PASS for {head[:7]}")
+    if a.merge_gate:
+        prefix = f"Codex gate: PASS (head {head}"
+        receipts = []
+        for comment in comments:
+            login = (comment.get("author") or {}).get("login") or ""
+            if str(comment.get("body") or "").startswith(prefix) and bare(login) not in receipts:
+                receipts.append(bare(login))
+        if author not in receipts:
+            if receipts:
+                out(f"FAIL no codex PASS for {head[:7]} (posted by {', '.join(receipts)}, not the PR's author)")
+            out(f"FAIL no codex PASS for {head[:7]}")
 
     latest = {}
     for n, r in enumerate(sorted(reviews, key=lambda r: r.get("submittedAt") or "")):

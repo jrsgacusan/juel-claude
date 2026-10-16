@@ -1,5 +1,6 @@
 #!/bin/sh
 # Checks a build worker's DONE report against STAR's files and GitHub, so STAR never opens a review.
+# A head receipt by another login is named when no receipt by the PR author exists (#137).
 #   done-check.sh [--home H] <item> --pr <url> --head <sha>
 # Prints one line and exits 0:
 #   OK                 the PR's head starts with <sha>, the item's newest review is SAFE for that
@@ -136,8 +137,14 @@ if not line.startswith("OK "):
     if why:
         out("MISMATCH review: not carried: " + why)
 prefix = f"Codex gate: PASS (head {pr_head}"
-if not any((c.get("author") or {}).get("login") == author and str(c.get("body") or "").startswith(prefix)
-           for c in comments):
+receipts = []
+for comment in comments:
+    login = (comment.get("author") or {}).get("login") or ""
+    if str(comment.get("body") or "").startswith(prefix) and login not in receipts:
+        receipts.append(login)
+if not any(login == author for login in receipts):
+    if receipts:
+        out(f"MISMATCH pass: PASS posted by {', '.join(receipts)}, not the PR's author")
     out(f"MISMATCH pass: no codex PASS on the PR for {pr_head[:7]}")
 out("OK")
 PY
