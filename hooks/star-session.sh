@@ -1,12 +1,13 @@
 #!/bin/sh
 # SessionStart hook, for every session whose folder belongs to a project with a STAR folder (found
 # by star-home.sh from the session's cwd; a linked worktree and a subfolder give the same folder).
-# The GitHub token (#91, #92): when star.json's "tokenCmd" is a one-line command, GH_TOKEN is unset
-# or empty, and Claude Code gave this session a CLAUDE_ENV_FILE, it appends
+# The GitHub token (#91, #92, #137): when star.json's "tokenCmd" is a one-line command, GH_TOKEN is
+# unset or empty, and Claude Code gave this session a CLAUDE_ENV_FILE, it appends
 # export GH_TOKEN="$(<tokenCmd>)" to that file, once. Claude Code runs that file before every Bash
 # command, so every command, and every gh a script starts as a subprocess, has the token: Orca
 # workers inherit no shell of the owner's. The command is written, never run here, so no token is
-# ever written to disk.
+# ever written to disk. With tokenCmd null or absent, a valid "ghLogin" uses gh auth token --user
+# <ghLogin>; a set but malformed tokenCmd is left alone.
 # The coordinator: it tells the one session that owns STAR for this project that it is the
 # coordinator, and how to pick up. It speaks only when star.json's "terminal" is this session's
 # ORCA_TERMINAL_HANDLE. Every other session, in this repo or anywhere, hears nothing.
@@ -17,6 +18,7 @@ STAR_HOOK_INPUT=$(cat) STAR_HOME_SH="$(cd "$(dirname "$0")" && pwd)/../skills/st
 import json
 import os
 import subprocess
+import re
 
 handle = os.environ.get("ORCA_TERMINAL_HANDLE") or ""
 try:
@@ -29,6 +31,9 @@ except Exception:
 if not isinstance(star, dict):
     raise SystemExit(0)
 command, env_file = star.get("tokenCmd"), os.environ.get("CLAUDE_ENV_FILE") or ""
+if command is None:
+    login = star.get("ghLogin")
+    command = f"gh auth token --user {login}" if isinstance(login, str) and re.fullmatch(r"[A-Za-z0-9-]+", login) else None
 if (isinstance(command, str) and command.strip() and "\n" not in command and "\r" not in command
         and env_file and not os.environ.get("GH_TOKEN")):
     line = 'export GH_TOKEN="$(' + command.strip() + ')"'

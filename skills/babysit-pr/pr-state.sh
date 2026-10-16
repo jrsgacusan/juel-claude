@@ -28,15 +28,19 @@
 # in place on every re-review, is the item {"kind": "hosted-pass", "head": <the full head>, ...}
 # while its "Last reviewed commit" names the PR's head: the item's id is <comment id>@<updated_at>
 # and its time is updated_at, so each edit that names the head is new feedback once. An edit that
-# names an older head stays a plain comment, timed by its creation: not new.
+# names an older head stays a plain comment, timed by its creation: not new. A hosted-skip item is
+# a review or summary edit by the hosted login that reviewed nothing, by skip_reason's rule; it has
+# head and reason, and a summary edit is new once per edit.
 # --hosted <login> --hosted-passes prints, in place of the snapshot, the hosted reviewer's past
 # passes in the <item>-hosted.log form (#96), one line per distinct head, oldest first:
 #   <time> pass <n> head=<full sha>
+#   <time> skipped head=<sha> <reason>
 # A pass is a review by <login> (compared without case, as --hosted matches it) that is not
 # PENDING, read from pulls/<n>/reviews and timed by submitted_at, or a conversation comment by
 # <login> whose "Last reviewed commit" footer names a commit (#116), read from issues/<n>/comments
 # and timed by updated_at (the summary is edited in place, so it holds only its newest pass). A
-# footer sha shorter than 40 is expanded by prefix from the review heads and the PR's head, else
+# hosted review with a skip reason and no confidence score is a skipped run, not a pass; the
+# reason is the first matching line, with Markdown marks removed and whitespace folded. A footer sha shorter than 40 is expanded by prefix from the review heads and the PR's head, else
 # from pulls/<n>/commits (read only then); one nothing expands is printed as given. A head named
 # more than once keeps its earliest time. Every list is read paginated. No pass prints nothing
 # (exit 0). GitHub that cannot be read prints one line, "error <why>" (exit 1). No --hosted, or
@@ -198,6 +202,13 @@ def merge_state(view):
 
 
 LAST_REVIEWED = re.compile(r"/commit/([0-9a-fA-F]{7,40})|last reviewed commit\W*([0-9a-fA-F]{7,40})\b", re.I)
+SCORE = re.compile(r"confidence[^\n]{0,40}?\b[0-5](?:\.\d+)?\s*(?:/|out of)\s*5\b", re.I)
+SKIP = re.compile(
+    r"\breviews?\s+(?:was|were|has been|have been|is)?\s*skipped\b|"
+    r"\bskipp(?:ed|ing)\s+(?:this\s+|the\s+)?review\b|"
+    r"\b(?:exceed\w*|reach\w*|hit)\b[^\n]{0,60}?\busage limit\b|"
+    r"\busage limit\b[^\n]{0,30}?\b(?:reached|exceeded|hit)\b", re.I
+)
 
 
 def last_reviewed(body):
@@ -208,6 +219,19 @@ def last_reviewed(body):
             m = LAST_REVIEWED.search(line[lower.index("last reviewed commit"):])
             if m:
                 return (m.group(1) or m.group(2)).lower()
+    return None
+
+
+def skip_reason(body):
+    """The first hosted-review skip notice, with Markdown marks removed, or None."""
+    searchable = re.sub(r"[*_`]", "", body)
+    if SCORE.search(searchable):
+        return None
+    for line in body.splitlines():
+        cleaned = re.sub(r"[*_>#]", "", line)
+        cleaned = " ".join(cleaned.split())
+        if cleaned and SKIP.search(cleaned):
+            return cleaned[:160]
     return None
 
 
@@ -246,9 +270,7 @@ def pr_number(pr, view):
 
 
 def hosted_passes(pr, repo, login):
-    """The hosted reviewer's past passes as <item>-hosted.log lines: one per distinct head it reviewed,
-    oldest first. A pass is a review that is not PENDING, or a summary comment whose "Last reviewed
-    commit" footer names a commit (#116). A head named more than once keeps its earliest time."""
+    """The hosted reviewer's past passes and skipped runs as <item>-hosted.log lines."""
     view_args = ["pr", "view", pr, "--json", "url,number,headRefOid"]
     if repo:
         view_args += ["-R", repo]
@@ -259,30 +281,62 @@ def hosted_passes(pr, repo, login):
     def by_login(item):
         return ((item.get("user") or {}).get("login") or "").lower() == login.lower()
 
-    found = [(r["submitted_at"], r["commit_id"].lower())
-             for r in gh_list(f"repos/{repo}/pulls/{number}/reviews")
-             if by_login(r) and r.get("state") != "PENDING" and r.get("submitted_at") and r.get("commit_id")]
-    known, commits = [sha for _, sha in found] + [str(view.get("headRefOid") or "").lower()], None
-    for c in gh_list(f"repos/{repo}/issues/{number}/comments"):
-        sha = last_reviewed(str(c.get("body") or "")) if by_login(c) else None
-        when = c.get("updated_at") or c.get("created_at")
-        if not sha or not when:
+    reviews = gh_list(f"repos/{repo}/pulls/{number}/reviews")
+    comments = gh_list(f"repos/{repo}/issues/{number}/comments")
+    known = [str(r.get("commit_id") or "").lower() for r in reviews if r.get("commit_id")]
+    known.append(str(view.get("headRefOid") or "").lower())
+    commits = None
+
+    def full(sha):
+        nonlocal commits
+        sha = (sha or "").lower()
+        if len(sha) >= 40:
+            return sha
+        matches = {k for k in known if k and k.startswith(sha)}
+        if not matches:
+            if commits is None:
+                commits = [str(x.get("sha") or "").lower()
+                           for x in gh_list(f"repos/{repo}/pulls/{number}/commits")]
+            matches = {k for k in commits if k.startswith(sha)}
+        return matches.pop() if len(matches) == 1 else sha
+
+    passes = []
+    skipped = []
+    for review in reviews:
+        if not by_login(review) or review.get("state") == "PENDING":
             continue
-        if len(sha) < 40:
-            full = {k for k in known if k and k.startswith(sha)}
-            if not full:
-                if commits is None:  # read once, and only when a short sha needs it
-                    commits = [str(x.get("sha") or "").lower()
-                               for x in gh_list(f"repos/{repo}/pulls/{number}/commits")]
-                full = {k for k in commits if k.startswith(sha)}
-            sha = full.pop() if len(full) == 1 else sha
-        found.append((when, sha))
+        when = review.get("submitted_at")
+        sha = str(review.get("commit_id") or "").lower()
+        if not when or not sha:
+            continue
+        reason = skip_reason(str(review.get("body") or ""))
+        if reason:
+            skipped.append((when, sha, reason))
+        else:
+            passes.append((when, sha))
+    for comment in comments:
+        if not by_login(comment):
+            continue
+        body = str(comment.get("body") or "")
+        reason = skip_reason(body)
+        sha = last_reviewed(body)
+        when = comment.get("updated_at") or comment.get("created_at")
+        if not when or (not reason and not sha):
+            continue
+        sha = full(sha) if sha else str(view.get("headRefOid") or "").lower()
+        if reason:
+            skipped.append((when, sha, reason))
+        else:
+            passes.append((when, sha))
+
     earliest = {}
-    for when, sha in found:
+    for when, sha in passes:
         if sha not in earliest or ts(when) < ts(earliest[sha]):
             earliest[sha] = when
-    ordered = sorted(earliest.items(), key=lambda kv: ts(kv[1]))
-    return [f"{when} pass {n} head={sha}" for n, (sha, when) in enumerate(ordered, 1)]
+    numbered = [(when, f"{when} pass {n} head={sha}")
+                for n, (sha, when) in enumerate(sorted(earliest.items(), key=lambda kv: ts(kv[1])), 1)]
+    lines = numbered + [(when, f"{when} skipped head={sha} {reason}") for when, sha, reason in skipped]
+    return [line for _, line in sorted(lines, key=lambda pair: (ts(pair[0]), 0 if " pass " in pair[1] else 1))]
 
 
 def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
@@ -348,9 +402,16 @@ def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
         body = (r.get("body") or "").strip()
         if not body and r.get("state") in ("APPROVED", "COMMENTED"):
             continue
-        items.append({"kind": "review", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
-                      "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
-                      "path": None, "line": None, "in_reply_to": None})
+        reason = skip_reason(body) if hosted and (user.get("login") or "").lower() == hosted.lower() else None
+        if reason:
+            items.append({"kind": "hosted-skip", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
+                          "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
+                          "path": None, "line": None, "in_reply_to": None,
+                          "head": str(r.get("commit_id") or "").lower(), "reason": reason})
+        else:
+            items.append({"kind": "review", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
+                          "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
+                          "path": None, "line": None, "in_reply_to": None})
     for c in gh_list(f"{base}/pulls/{number}/comments"):
         user = c.get("user")
         if not wanted(user):
@@ -369,6 +430,15 @@ def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
         body = c.get("body") or ""
         mine = bool(hosted) and (user.get("login") or "").lower() == hosted.lower()
         reviewed = last_reviewed(body) if mine else None
+        reason = skip_reason(body) if mine else None
+        if reason:
+            at = c.get("updated_at") or c["created_at"]
+            skip_head = head if not reviewed or (head and head.lower().startswith(reviewed)) else reviewed
+            items.append({"kind": "hosted-skip", "id": f"{c['id']}@{at}", "author": user["login"], "at": at,
+                          "url": c.get("html_url"), "body": body, "review_state": None,
+                          "path": None, "line": None, "in_reply_to": None,
+                          "head": skip_head, "reason": reason})
+            continue
         if reviewed and head and head.lower().startswith(reviewed):
             # the hosted reviewer's summary, edited in place: each edit that names the head is new once
             at = c.get("updated_at") or c["created_at"]

@@ -3,12 +3,15 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPT="$ROOT/skills/star/pr-verify.sh"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); export TMP; trap 'rm -rf "$TMP"' EXIT
 fails=0
+# the merge gate reads ownerApproval from STAR's folder (#124): never the owner's real one from a test
+mkdir -p "$TMP/nohome"; export JUEL_STAR_HOME="$TMP/nohome"
 [ -f "$SCRIPT" ] || { echo "FAIL pr-verify.sh missing"; exit 1; }
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
+printf '%s %s %s\n' "${GH_TOKEN:-none}" "$1" "$2" >> "$TMP/tokens"
 [ "${STUB_FAIL:-}" = 1 ] && { echo "${STUB_ERR:-HTTP 502}" >&2; exit 1; }
 if [ "$1" = api ]; then
   case "$2" in
@@ -145,7 +148,7 @@ mg() { # mg <name> <expected> <json body> [extra args]
 # with a hosted reviewer: the babysit worker judged its review; the script asks for no approval
 mg "hosted, PASS posted, green: PASS" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
 mg "no codex PASS: FAIL" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[]" "--hosted"
-mg "a PASS by someone else does not count" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[{\"author\":{\"login\":\"x\"},\"body\":\"Codex gate: PASS (head abc1234def, round 1, m e)\"}]" "--hosted"
+mg "a PASS by someone else does not count" "FAIL no codex PASS for abc1234 (posted by x, not the PR's author)" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[{\"author\":{\"login\":\"x\"},\"body\":\"Codex gate: PASS (head abc1234def, round 1, m e)\"}]" "--hosted"
 printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"author":{"login":"greptile-apps"},"body":"The export ignores the filter."}]}}]}}}}}\n' > "$TMP/t1.json"
 THREADS="$TMP/t1.json"
 mg "a hosted reviewer's comment with no reply: FAIL" "FAIL 1 finding without a reply from the author" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
@@ -165,6 +168,7 @@ MEMBER_OK='"reviewDecision":"","reviews":[{"author":{"login":"ezra"},"authorAsso
 mg "no hosted reviewer, approved on the head: PASS" "PASS approved" "$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]"
 mg "an approval from someone without write access does not count" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"drive-by\"},\"authorAssociation\":\"CONTRIBUTOR\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"abc1234def\"}}],$GREEN,\"comments\":[$PASSC]"
 mg "no hosted reviewer, no approval: PENDING" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]"
+printf '{%s}\n' "$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
 printf '{%s}\n' "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="$ZERO" sh "$SCRIPT" 5 --head abc1234 --merge-gate)
 [ "$out" = "PENDING approval: none on the current head from someone other than me" ] && echo "ok   an explicit zero rule does not waive STAR's approval" || { echo "FAIL zero rule in merge-gate mode ($out)"; fails=$((fails + 1)); }
@@ -225,6 +229,18 @@ printf '{%s}\n' "$OK,$BASE,$APPROVED,$GREEN" > "$TMP/pr.json"
 out=$(logged 5 --head abc1234)
 [ "$out" = "PASS" ] && ! grep -q -E 'author|comments|^api graphql ' "$TMP/gh.log" && echo "ok   without --merge-gate it asks gh for no author, no comments and no threads" || { echo "FAIL a plain run asks for more than v1 (got: $out)"; fails=$((fails + 1)); }
 
+# #137: both an explicit --home and the default JUEL_STAR_HOME use star.json's tokenCmd
+TOKEN_HOME="$TMP/token-home"; mkdir -p "$TOKEN_HOME"
+printf '{"tokenCmd":"echo tok_star"}\n' > "$TOKEN_HOME/star.json"
+TOKEN_APPROVAL='"reviewDecision":"","reviews":[{"author":{"login":"ezra"},"authorAssociation":"MEMBER","state":"APPROVED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"}}]'
+printf '{%s}\n' "$OK,$BASE,$AUTHOR,$TOKEN_APPROVAL,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
+rm -f "$TMP/tokens"
+out=$(env -u GH_TOKEN PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --merge-gate --home "$TOKEN_HOME")
+case "$out" in PASS*) [ -s "$TMP/tokens" ] && ! grep -v '^tok_star ' "$TMP/tokens" >/dev/null && echo "ok   #137 --merge-gate uses the configured token" || { echo "FAIL #137 --merge-gate token (out=$out tokens=$(cat "$TMP/tokens" 2>/dev/null))"; fails=$((fails + 1)); } ;; *) echo "FAIL #137 --merge-gate token (out=$out tokens=$(cat "$TMP/tokens" 2>/dev/null))"; fails=$((fails + 1));; esac
+rm -f "$TMP/tokens"
+out=$(env -u GH_TOKEN PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" JUEL_STAR_HOME="$TOKEN_HOME" sh "$SCRIPT" 5 --head abc1234)
+[ "$out" = "PASS" ] && [ -s "$TMP/tokens" ] && ! grep -v '^tok_star ' "$TMP/tokens" >/dev/null && echo "ok   #137 plain PR checks use the configured token" || { echo "FAIL #137 plain token (out=$out tokens=$(cat "$TMP/tokens" 2>/dev/null))"; fails=$((fails + 1)); }
+
 # #62: GitHub's head lag right after a push is waited out, not read as MOVED
 SEQ="$TMP/seq"; LAGGED='"state":"OPEN","isDraft":false,"headRefOid":"ffff999000000000000000000000000000000000","headRefName":"feat/x","url":"https://github.com/o/r/pull/5","mergeable":"MERGEABLE","mergeCommit":null'
 lag() { # lag <name> <expected> <branch tip> <lagging views, or all>
@@ -261,6 +277,54 @@ printf '[{"type":"required_status_checks","parameters":{"required_status_checks"
 mh "a missing required check that is not the hosted reviewer's stays a blocked merge state (Review Focus)" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
 printf '{"x":1}\n' > "$HRULES"
 mh "rules that cannot be read never name a hosted status" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+
+# #124: ownerApproval in STAR's star.json lets the owner's own PR merge where no rule asks for an approval
+OWN="$TMP/own"; OTHER="$TMP/other"; OFF="$TMP/off"; ABSENT="$TMP/absent"; mkdir -p "$OWN" "$OTHER" "$OFF" "$ABSENT"
+printf '{"ownerApproval": {"login": "me", "since": "2026-10-15T21:05:13Z", "words": "feel free to merge"}}\n' > "$OWN/star.json"
+printf '{"ownerApproval": {"login": "someone-else", "since": "2026-10-15T21:05:13Z", "words": "merge"}}\n' > "$OTHER/star.json"
+printf '{"ownerApproval": null}\n' > "$OFF/star.json"
+printf '{"project": {"name": "app"}}\n' > "$ABSENT/star.json"
+ONE="$TMP/one-approval.json"; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":1}}]\n' > "$ONE"
+SELF="PASS self-approved under the owner's grant"
+WAIT="PENDING approval: none on the current head from someone other than me"
+# oa <name> <expected> <home> <json body> [rules file] [rules error] [extra args]
+oa() {
+  printf '{%s}\n' "$4" > "$TMP/pr.json"
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="${5:-}" STUB_RULES_ERR="${6:-}" STUB_THREADS="${THREADS:-}" sh "$SCRIPT" 5 --head abc1234 --merge-gate --home "$3" ${7:-})
+  if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
+}
+NOREV="$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]"
+oa "#124 ownerApproval for the author, no review rule: self-approved" "$SELF" "$OWN" "$NOREV"
+oa "#124 ownerApproval for the author, an explicit zero rule: self-approved" "$SELF" "$OWN" "$NOREV" "$ZERO"
+oa "#124 a rule that requires one approval keeps waiting" "$WAIT" "$OWN" "$NOREV" "$ONE"
+oa "#124 a rule that cannot be read stays pending" "PENDING review rule: unreadable rules" "$OWN" "$NOREV" "$BAD"
+oa "#124 a rule gh errors on stays pending" "PENDING review rule: gh: Server Error (HTTP 502)" "$OWN" "$NOREV" "" "gh: Server Error (HTTP 502)"
+oa "#124 ownerApproval for another login keeps waiting" "$WAIT" "$OTHER" "$NOREV"
+oa "#124 ownerApproval null keeps waiting" "$WAIT" "$OFF" "$NOREV"
+oa "#124 no ownerApproval key keeps waiting" "$WAIT" "$ABSENT" "$NOREV"
+oa "#124 a home with no star.json keeps waiting" "$WAIT" "$TMP/nohome" "$NOREV"
+oa "#124 an approval by a member still reads approved" "PASS approved" "$OWN" "$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]"
+oa "#124 a hosted reviewer still reads hosted" "PASS hosted" "$OWN" "$NOREV" "" "" "--hosted"
+oa "#124 self-approval still needs the codex PASS" "FAIL no codex PASS for abc1234" "$OWN" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[]"
+oa "#124 self-approval still needs green checks" "FAIL checks: ci" "$OWN" "$OK,$BASE,$AUTHOR,$NOAPP,\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"COMPLETED\",\"conclusion\":\"FAILURE\"}],\"comments\":[$PASSC]"
+oa "#124 self-approval still waits for a branch that is behind" "PENDING merge state: behind the base branch" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\""
+oa "#124 self-approval never hides changes requested" "FAIL approval: changes requested by ezra" "$OWN" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN,\"comments\":[$PASSC]"
+THREADS="$TMP/t2.json"
+oa "#124 self-approval still needs a reply on every thread" "FAIL 1 finding without a reply from the author" "$OWN" "$NOREV"
+unset THREADS
+printf '{%s}\n' "$NOREV" > "$TMP/pr.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" JUEL_STAR_HOME="$OWN" sh "$SCRIPT" 5 --head abc1234 --merge-gate)
+[ "$out" = "$SELF" ] && echo "ok   #124 without --home the gate reads JUEL_STAR_HOME's star.json" || { echo "FAIL #124 default home (got: $out)"; fails=$((fails + 1)); }
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --home "$OWN" 2>/dev/null; echo "exit=$?")
+[ "$out" = "exit=64" ] && echo "ok   #124 --home without --merge-gate exits 64" || { echo "FAIL #124 --home alone ($out)"; fails=$((fails + 1)); }
+
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --merge-gate --home '' 2>/dev/null; echo "exit=$?")
+[ "$out" = "exit=64" ] && echo "ok   #124 an empty --home exits 64" || { echo "FAIL #124 empty --home ($out)"; fails=$((fails + 1)); }
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["ownerApproval"]["login"]="ME"; json.dump(d,open(p,"w"))' "$OWN/star.json"
+oa "#124 logins compare without case" "$SELF" "$OWN" "$NOREV"
+printf '{%s}\n' "$OK,$BASE,\"author\":null,$NOAPP,$GREEN,\"comments\":[{\"author\":null,\"body\":\"Codex gate: PASS (head abc1234def, round 2, m e)\"}]" > "$TMP/pr.json"
+out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --merge-gate --home "$OWN")
+[ "$out" = "FAIL no codex PASS for abc1234" ] && echo "ok   #137 an empty login is never the author's receipt" || { echo "FAIL #137 empty receipt ($out)"; fails=$((fails + 1)); }
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

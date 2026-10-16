@@ -47,12 +47,34 @@ out=$(printf '{"cwd":"%s"}' "$TMP/app" | env -u GH_TOKEN -u CLAUDE_ENV_FILE sh "
 token '"printf a\nprintf b"'; envrun "$TMP/app" "$TMP/env6" >/dev/null; [ ! -s "$TMP/env6" ] && pass "a tokenCmd of two lines writes nothing" || fail "two-line tokenCmd"
 token null; envrun "$TMP/app" "$TMP/env5" >/dev/null; [ ! -s "$TMP/env5" ] && pass "tokenCmd null writes nothing" || fail "null tokenCmd"
 token '"echo x"'; envrun "$TMP/other" "$TMP/env7" >/dev/null; [ ! -s "$TMP/env7" ] && pass "outside a project nothing is written" || fail "outside project"
+# #137: with tokenCmd null, the hook keys the token to STAR's own gh login
+login() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["ghLogin"]=json.loads(sys.argv[2]); json.dump(d,open(p,"w"),indent=2)' "$H/star.json" "$1"; }
+token null; login '"jrs-gacusan2"'; envrun "$TMP/app" "$TMP/env8" >/dev/null
+[ "$(cat "$TMP/env8" 2>/dev/null)" = 'export GH_TOKEN="$(gh auth token --user jrs-gacusan2)"' ] && pass "#137 tokenCmd null and a ghLogin: the token line for that login" || fail "#137 ghLogin line ($(cat "$TMP/env8" 2>/dev/null))"
+token '"printf a\nprintf b"'; login '"jrs-gacusan2"'; envrun "$TMP/app" "$TMP/env12" >/dev/null
+[ ! -s "$TMP/env12" ] && pass "#137 a set but malformed tokenCmd is not replaced by ghLogin" || fail "#137 malformed tokenCmd ($(cat "$TMP/env12"))"
+token '"echo tok"'; envrun "$TMP/app" "$TMP/env9" >/dev/null
+[ "$(cat "$TMP/env9" 2>/dev/null)" = 'export GH_TOKEN="$(echo tok)"' ] && pass "#137 a set tokenCmd wins over ghLogin" || fail "#137 tokenCmd wins ($(cat "$TMP/env9" 2>/dev/null))"
+token null; login '"bad;login"'; envrun "$TMP/app" "$TMP/env10" >/dev/null
+[ ! -s "$TMP/env10" ] && pass "#137 a ghLogin with a character outside A-Za-z0-9- writes nothing" || fail "#137 bad ghLogin ($(cat "$TMP/env10"))"
+login '"jrs-gacusan2"'
+printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$TMP/app" | GH_TOKEN=already CLAUDE_ENV_FILE="$TMP/env11" sh "$HOOK" >/dev/null
+[ ! -s "$TMP/env11" ] && pass "#137 a session that already has GH_TOKEN gets no ghLogin line" || fail "#137 GH_TOKEN set ($(cat "$TMP/env11"))"
+login null
 owner term_A; printf 'not json' > "$H/star.json"
 out=$(run "$TMP/app" term_A); rc=$?; [ "$rc" -eq 0 ] && [ -z "$out" ] && pass "a broken star.json is silent" || fail "broken star.json ($out)"
 out=$(printf 'not json' | ORCA_TERMINAL_HANDLE=term_A sh "$HOOK"); rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] && pass "bad input is silent and exits 0" || fail "bad input"
 python3 -c 'import json,sys; h=json.load(open(sys.argv[1]))["hooks"]["SessionStart"][0]; assert h["matcher"]=="startup|resume|compact|clear"; assert "star-session.sh" in h["hooks"][0]["command"] and "CLAUDE_PLUGIN_ROOT" in h["hooks"][0]["command"]' "$ROOT/hooks/hooks.json" && pass "hooks.json registers it" || fail "hooks.json"
 T="$ROOT/skills/star/template"
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["maxParallel"]==3 and d["maxInReview"]==3 and d["quietHours"] is None and d["notified"]==[] and d["away"] is None and d["terminal"] is None; assert d["tokenCmd"] is None and list(d).index("tokenCmd") == list(d).index("quietHours") + 1' "$T/star.json" && pass "template star.json defaults" || fail "template star.json"
+python3 - "$T/star.json" <<'PY' && pass "template star.json defaults" || fail "template star.json"
+import json, sys
+d = json.load(open(sys.argv[1])); keys = list(d)
+assert d["maxParallel"] == 3 and d["maxInReview"] == 3 and d["quietHours"] is None and d["notified"] == [] and d["away"] is None and d["terminal"] is None
+assert d["tokenCmd"] is None and keys.index("tokenCmd") == keys.index("quietHours") + 1
+assert d["ownerApproval"] is None and keys.index("ownerApproval") == keys.index("hostedReviewer") + 1
+assert d["hostedDown"] is None and keys.index("hostedDown") == keys.index("gateDown") + 1
+assert d["ghLogin"] is None and keys.index("ghLogin") == keys.index("tokenCmd") + 1
+PY
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

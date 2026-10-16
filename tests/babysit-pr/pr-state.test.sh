@@ -649,5 +649,54 @@ unset STUB_FAIL_ROUTE
 check_lines "#116 a commit list GitHub cannot read prints one error line, exit 1" 1 'error gh exited 1: boom'
 
 echo
+# star-issues-remaining #129: a hosted run that reviewed nothing is "skipped", never a pass
+SKIPPED="Greptile skipped this review: it would exceed your organization's monthly flex usage limit."
+hosted_case hp-skip
+python3 - "$TMP/fx/hp-skip/reviews.json" "$PA" "$PB" "$PC" <<'PY2'
+import json, sys
+path, pa, pb, pc = sys.argv[1:]
+rows = [
+ {"id":81,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"3 findings","commit_id":pa,"submitted_at":"2026-10-13T09:00:00Z","html_url":"r81"},
+ {"id":82,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Greptile skipped this review: it would exceed your organization's monthly flex usage limit.","commit_id":pb,"submitted_at":"2026-10-13T10:00:00Z","html_url":"r82"},
+ {"id":83,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"3 files were skipped (generated code)\n1 finding","commit_id":pc,"submitted_at":"2026-10-13T11:00:00Z","html_url":"r83"},
+]
+with open(path, "w") as f:
+ for row in rows: f.write(json.dumps(row)+"\n")
+PY2
+run hp-skip 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#129 a skipped run between two real passes is skipped, and the passes stay 1 and 2" 0 "$(printf '2026-10-13T09:00:00Z pass 1 head=%s\n2026-10-13T10:00:00Z skipped head=%s %s\n2026-10-13T11:00:00Z pass 2 head=%s' "$PA" "$PB" "$SKIPPED" "$PC")"
+hosted_case hp-skip-comment
+python3 - "$TMP/fx/hp-skip-comment/comments.json" "$PA" <<'PY2'
+import json, sys
+path, pa = sys.argv[1:]
+rows = [
+ {"id":84,"user":{"login":"greptile-apps[bot]"},"created_at":"2026-10-13T11:00:00Z","updated_at":"2026-10-13T12:00:00Z","html_url":"c84","body":"**Review skipped**\n\nUsage limit reached for this billing period."},
+ {"id":85,"user":{"login":"greptile-apps[bot]"},"created_at":"2026-10-13T00:00:00Z","updated_at":"2026-10-13T08:00:00Z","html_url":"c85","body":"Confidence Score: 4/5\nReview skipped for vendored files\nLast reviewed commit: "+pa},
+]
+with open(path, "w") as f:
+ for row in rows: f.write(json.dumps(row)+"\n")
+PY2
+run hp-skip-comment 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#129 a summary comment that reviewed nothing is skipped on the PR's head; one with a score is a pass" 0 "$(printf '2026-10-13T08:00:00Z pass 1 head=%s\n2026-10-13T12:00:00Z skipped head=%s Review skipped' "$PA" "$HEADX")"
+
+# review fixes for #129: a real review that mentions a usage limit, or carries a bold score, is a pass
+hosted_case hp-noskip
+fixture hp-noskip reviews.json '{"id":86,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"This PR adds a per-key usage limit to the API.\n2 findings","commit_id":"'"$PA"'","submitted_at":"2026-10-13T09:00:00Z","html_url":"r86"}
+{"id":87,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Confidence Score: **4**/5\nReview skipped for generated files","commit_id":"'"$PB"'","submitted_at":"2026-10-13T10:00:00Z","html_url":"r87"}
+{"id":88,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Usage limit reached for this billing period.","commit_id":"'"$PC"'","submitted_at":"2026-10-13T11:00:00Z","html_url":"r88"}'
+run hp-noskip 30 --hosted 'greptile-apps[bot]' --hosted-passes
+check_lines "#129 a usage limit named in a real review or a bold score is a pass; a limit reached is skipped" 0 "$(printf '2026-10-13T09:00:00Z pass 1 head=%s\n2026-10-13T10:00:00Z pass 2 head=%s\n2026-10-13T11:00:00Z skipped head=%s Usage limit reached for this billing period.' "$PA" "$PB" "$PC")"
+
+# gate r1 (#129): a skip the hosted reviewer posts while babysit waits is a hosted-skip item
+GSKIP='{"id":51,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T11:00:00Z","html_url":"i51","body":"**Review skipped**\n\nUsage limit reached for this billing period."}'
+hosted_case h-skip
+fixture h-skip comments.json "$GSKIP"
+run h-skip 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#51'
+check "#129 a summary edited in place into a skip notice is a hosted-skip item on the PR head" '[i["kind"] for i in d["new_feedback"]] == ["hosted-skip"] and d["new_feedback"][0]["head"] == "'"$HEADX"'" and d["new_feedback"][0]["reason"] == "Review skipped" and ids == ["51@2026-10-01T11:00:00Z"]'
+hosted_case h-skip-review
+fixture h-skip-review reviews.json '{"id":52,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Greptile skipped this review: it would exceed your organization\u0027s monthly flex usage limit.","commit_id":"'"$PA"'","submitted_at":"2026-10-01T11:00:00Z","html_url":"r52"}'
+run h-skip-review 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z'
+check "#129 a skipped hosted review is a hosted-skip item on its commit" '[i["kind"] for i in d["new_feedback"]] == ["hosted-skip"] and d["new_feedback"][0]["head"] == "'"$PA"'"'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

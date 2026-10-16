@@ -145,6 +145,10 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | Mobbin MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
 | Context7 MCP | mcp | SOFT | **none — render as `?`** | a web search, named in the decision record's Source |
 
+## Superpowers skill names
+
+Call each `superpowers:` skill by that name; when the Skill tool answers "Unknown skill", call the same name without the `superpowers:` prefix, and use whichever answered for the rest of the run.
+
 ## Phases
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
@@ -472,7 +476,7 @@ A run without a `star:` brief has no `star.home` and keeps no progress log.
 fixes a defect), the plan's first task writes the regression test and commits it alone. Run that
 test on the base commit and record it failing in the evidence `report.md` as
 `red-first: <test> failed on <base sha>` before the fix lands. A test that passes on the base commit
-does not prove the bug: rewrite it until it fails there.
+does not prove the bug: rewrite it until it fails there. A base snapshot kept for a base run lives only at `<scratchpad>/ship-base-<full sha>/` and is made read-only (`chmod -R a-w`) once written; before trusting a base run on it, confirm that a token only the fix adds is absent from it (`grep -rF "<token>" <snapshot>` prints nothing).
 
 **Report deliverable.** A brief with `deliverable: report` asks for evidence or a write-up, not a
 code change. Phases 2 to 5 are SKIPPED with "report deliverable: the acceptance criteria are the
@@ -924,13 +928,13 @@ resolved model on: `args: "<resolved-base-branch> --executor-model <model> --exe
 After `default`, pass no model; after a fallback, pass the model that ran,
 or `--executor session` when this session ran the plan.) Under `--brief`, also give it the brief's
 acceptance criteria in the invocation text, so its fresh reviewers check each one: Codex executes and
-Codex gates, so this Claude review is the independent one.
+Codex gates, so this Claude review is the independent one. Each review agent writes its scratch files only under `<scratchpad>/review-<agent>/` (`<agent>` the agent's name), never in the build's scratchpad root: tell every agent so in its prompt.
 
 Under `--unattended`, say so in the invocation: "Unattended run: the approved brief is the
 approval. Ask nothing and confirm nothing; take the default at every gate; a finding that needs a
 person is reported back, not asked about." The same sentence goes to `juel:verify` and `run` in
 Phase 6, and into the Codex prompt in Phase 4 after the plan path ("… Unattended: do not ask;
-when the plan is ambiguous, stop and say what is ambiguous.").
+when the plan is ambiguous, stop and say what is ambiguous. Run only the commands the plan names, never the full suite or a build.").
 
 That skill internally runs:
 1. `pr-review-toolkit:review-pr` against the base branch
@@ -1181,7 +1185,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    `[P0]` and `[P1]` finding with `superpowers:receiving-code-review` against the brief; one outside
    the brief's scope is the `brief-violation` escalation. The round's `-fix.md` is
    `<star.reviews>/<item>-r<k>-fix.md`: one line per finding, `Fixed in <sha>.` or
-   `Disposition: <the technical reason>`.
+   `Disposition: <the technical reason>`. For each accepted `[P0]` or `[P1]` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its `-fix.md` line names the sites (`Fixed in <sha>. Sites: <path:line>, <path:line>.`).
    No finding accepted: skip the plan, the executor, the tests, Phase 6, the commit and the push;
    write the `-fix.md` and run the next round on the same head (its prompt carries the dispositions).
    Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries
@@ -1211,6 +1215,8 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`, the line
    quoted whole: an `ERROR gate-down …` line tells STAR that the gate itself is down (Sol and its
    Claude fallback both failed), and STAR parks the item instead of handing it to the owner.
+
+Outside babysit's Phase 4 sync before `READY` and STAR's "Sync after the base moved", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with `ERROR base-moved`, never otherwise. An `existingPr` brief's first merge ("An existing PR") is the build's start, not a later sync.
 
 ### Phase 8 — Babysit PR
 

@@ -54,6 +54,7 @@ EOF
 cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUB_DIR/gh-calls"
+printf '%s %s %s\n' "${GH_TOKEN:-none}" "$1" "$2" >> "$STUB_DIR/tokens"
 [ -f "$STUB_DIR/gh-fail" ] && { echo "HTTP 502" >&2; exit 1; }
 case "$1 $2" in
   "pr view") n=$(($(cat "$STUB_DIR/pr-n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$STUB_DIR/pr-n"
@@ -88,7 +89,7 @@ esac
 exit "$rc"
 EOF
 chmod +x "$TMP/bin/claude"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/claude-n" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/tokens" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/claude-n" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
 cplan() { printf '%s\n' "$@" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -306,6 +307,13 @@ printf '{"author":{"login":"me"},"headRefOid":"%s","url":"https://github.com/o/r
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD")
 [ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && grep -q "pr comment https://github.com/o/r/pull/5 --body Codex gate: PASS (head $NEWHEAD, round 2, gpt-6.1-sol xhigh)" "$TMP/gh-calls" && pass "post-pass posts the PASS" || fail "post-pass ($out / $(cat "$TMP/gh-calls"))"
 [ "$(cat "$TMP/body" 2>/dev/null)" = "$(printf 'Codex gate: PASS (head %s, round 2, gpt-6.1-sol xhigh)\nVERDICT: PASS' "$NEWHEAD")" ] && pass "the receipt's second line is VERDICT: PASS, the line a project's review rule reads (#84)" || fail "receipt lines ($(cat "$TMP/body" 2>/dev/null))"
+# #137: post-pass uses the token configured for STAR's account when GH_TOKEN is unset
+TOKEN_HOME="$TMP/token-home"; mkdir -p "$TOKEN_HOME"
+printf '{"tokenCmd":"echo tok_star", "gate":{"model":"latest-sol","effort":"xhigh","fallback":{"agent":"claude","model":"opus","effort":"xhigh"}}}\n' > "$TOKEN_HOME/star.json"
+reset
+printf '{"author":{"login":"me"},"headRefOid":"%s","url":"https://github.com/o/r/pull/5","comments":[]}\n' "$NEWHEAD" > "$TMP/pr.json"
+out=$(cd "$APP" && env -u GH_TOKEN PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_MODELS="$MODELS" JUEL_STAR_HOME="$TOKEN_HOME" CODEX_GATE_SLEEP=0 sh "$SCRIPT" post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD")
+[ "$out" = "posted https://github.com/o/r/pull/5#issuecomment-1" ] && [ -s "$TMP/tokens" ] && ! grep -v '^tok_star ' "$TMP/tokens" >/dev/null && pass "#137 codex-gate post-pass uses the configured token" || fail "#137 codex-gate token ($out / $(cat "$TMP/tokens" 2>/dev/null))"
 reset
 printf '{"author":{"login":"me"},"headRefOid":"%s","url":"u","comments":[{"author":{"login":"me"},"body":"Codex gate: PASS (head %s, round 1, gpt-6.1-sol xhigh)","url":"https://github.com/o/r/pull/5#issuecomment-9"}]}\n' "$NEWHEAD" "$NEWHEAD" > "$TMP/pr.json"
 out=$(G post-pass --pr https://github.com/o/r/pull/5 --round 2 --head "$NEWHEAD")
@@ -495,6 +503,7 @@ G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --evidence "$APP/no-such"
 rmdir "$APP/ev"
 # #61: an accepted residual in Decisions is not a missed criterion
 grep -q 'accepts with a documented residual and a named follow-up is met, not missed' "$P1" && pass "the prompt says an accepted residual is met (#61)" || fail "accepted residual line"
+grep -qF 'A finding class (the same invariant broken at several places) is one finding that names every site, never one site per round' "$P1" && pass "#131 the prompt asks for every site of a finding class in one finding" || fail "#131 finding-class line ($(grep -i 'finding class' "$P1"))"
 # #67: a round with no -fix.md behind it takes the brief's later decisions as dispositions
 reset; mkdir -p "$H/reviews/app"; printf 'VERDICT item=ITEM-1 round=1 NOT-SAFE findings=1 head=%s\n' "$HEAD" > "$H/reviews/app/ITEM-1-r1.md"
 TZ=UTC touch -t 202610101200 "$H/reviews/app/ITEM-1-r1.md"; plan "0 safe"

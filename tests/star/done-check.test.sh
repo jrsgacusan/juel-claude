@@ -3,7 +3,7 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPT="$ROOT/skills/star/done-check.sh"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); export TMP; trap 'rm -rf "$TMP"' EXIT
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
@@ -16,6 +16,7 @@ printf 'VERDICT item=ITEM-1 round=2 SAFE findings=0 head=%s\n' "$HEAD" > "$H/rev
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
+printf '%s %s %s\n' "${GH_TOKEN:-none}" "$1" "$2" >> "$TMP/tokens"
 [ -f "$STUB_DIR/gh-fail" ] && { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
 cat "$STUB_DIR/pr.json"
 EOF
@@ -23,17 +24,31 @@ chmod +x "$TMP/bin/gh"
 pr() { printf '{"author":{"login":"me"},"headRefOid":"%s","comments":[%s]}\n' "$1" "$2" > "$TMP/pr.json"; }
 PASSC="{\"author\":{\"login\":\"me\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, gpt-6.1-sol xhigh)\"}"
 D() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" --home "$H" "$@"; }
+D0() { env -u GH_TOKEN PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" --home "$H" "$@"; }
 t() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1 (got: $3)"; fi; }
 
 pr "$HEAD" "$PASSC"
 t "a SAFE newest review, the PR's head and its PASS is OK" "OK" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 t "a short head is enough when it is the start of the real one" "OK" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head abc1234)"
+python3 - "$H/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p)); d["tokenCmd"] = "echo tok_star"; json.dump(d, open(p, "w"), indent=2)
+PY
+rm -f "$TMP/tokens"
+out=$(D0 ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")
+[ "$out" = "OK" ] && [ -s "$TMP/tokens" ] && ! grep -v '^tok_star ' "$TMP/tokens" >/dev/null && pass "#137 done-check.sh uses the configured token" || fail "#137 done-check token ($(cat "$TMP/tokens" 2>/dev/null))"
+python3 - "$H/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p)); d["tokenCmd"] = None; json.dump(d, open(p, "w"), indent=2)
+PY
 pr "ffff1234def5678901234567890123456789abcde" "$PASSC"
 t "another PR head is a mismatch" "MISMATCH head: the PR's head is ffff123, the report says abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 pr "$HEAD" ""
 t "no PASS comment is a mismatch" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 pr "$HEAD" "{\"author\":{\"login\":\"someone\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, gpt-6.1-sol xhigh)\"}"
-t "a PASS from someone else does not count" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
+t "a PASS from someone else does not count" "MISMATCH pass: PASS posted by someone, not the PR's author" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
 pr "$HEAD" "$PASSC"
 mv "$H/reviews/app/ITEM-1-r2.md" "$TMP/r2.keep"
 printf 'VERDICT item=ITEM-1 round=2 SAFE findings=0 head=%s\n' fff1234def5678901234567890123456789abcde > "$H/reviews/app/ITEM-1-r2.md"
@@ -99,6 +114,17 @@ printf 'VERDICT item=ITEM-3 round=1 NOT-SAFE findings=1 head=%s\n' "$GATED" > "$
 prb "$M1"
 out=$(D2 ITEM-3 --pr https://github.com/o/r/pull/7 --head "$M1")
 case "$out" in "MISMATCH review: verdict: "*) pass "#110 a NOT-SAFE review is never carried" ;; *) fail "#110 NOT-SAFE carried ($out)" ;; esac
+
+# #137: a receipt by another login is named
+pr "$HEAD" "{\"author\":{\"login\":\"a1\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, m e)\"},{\"author\":{\"login\":\"a2\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, m e)\"},{\"author\":{\"login\":\"a1\"},\"body\":\"Codex gate: PASS (head $HEAD, round 2, m e)\"}"
+t "#137 receipts by two other logins name both, once each" "MISMATCH pass: PASS posted by a1, a2, not the PR's author" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
+pr "$HEAD" "{\"author\":{\"login\":\"a1\"},\"body\":\"Codex gate: PASS (head fff1234def5678901234567890123456789abcde, round 1, m e)\"}"
+t "#137 a receipt by another login for another head is no receipt at all" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
+pr "$HEAD" "$PASSC"
+
+printf '{"author":null,"headRefOid":"%s","comments":[{"author":null,"body":"Codex gate: PASS (head %s, round 2, m e)"}]}\n' "$HEAD" "$HEAD" > "$TMP/pr.json"
+t "#137 an empty login is never the author's receipt" "MISMATCH pass: no codex PASS on the PR for abc1234" "$(D ITEM-1 --pr https://github.com/o/r/pull/5 --head "$HEAD")"
+pr "$HEAD" "$PASSC"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

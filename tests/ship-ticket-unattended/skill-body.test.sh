@@ -5,6 +5,8 @@ SKILL="$ROOT/skills/ship-ticket/SKILL.md"
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
+# has <name> <text>: the text is in $SKILL once line breaks and repeated spaces are folded
+has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
 for f in '--unattended' '--brief <path>' '--quiet-hours <HH:MM-HH:MM@tz>' '--executor-model <id|latest-<family>>' '--executor-effort <level>'; do
   grep -q -- "$f" "$SKILL" && pass "flag $f" || fail "flag $f"
@@ -293,6 +295,18 @@ g "L123a a progress line comes only from its own step (#123)" 'A progress line i
 g "L123b never from a detached timer loop (#123)" 'detached timer loop the worker starts: such a timer keeps writing after the turn it belongs to'
 g "L123c gate-lock.sh --progress stays the one timer writer (#123)" 'moving (#123). `gate-lock.sh --progress` stays the one writer on a timer, since it lives only as'
 g "L122c a ping would start a second run (#122)" 'and a ping on top of it would start a second run on the same head (#122). A PR that is'
+
+R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
+R128a="Each review agent writes its scratch files only under \`<scratchpad>/review-<agent>/\` (\`<agent>\` the agent's name), never in the build's scratchpad root: tell every agent so in its prompt."
+R128b="A base snapshot kept for a base run lives only at \`<scratchpad>/ship-base-<full sha>/\` and is made read-only (\`chmod -R a-w\`) once written; before trusting a base run on it, confirm that a token only the fix adds is absent from it (\`grep -rF \"<token>\" <snapshot>\` prints nothing)."
+R131b="For each accepted \`[P0]\` or \`[P1]\` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its \`-fix.md\` line names the sites (\`Fixed in <sha>. Sites: <path:line>, <path:line>.\`)."
+S126="An \`existingPr\` brief's first merge (\"An existing PR\") is the build's start, not a later sync."
+has "#126 the one base-merge rule" "$R126"
+has "#126 an existingPr's first merge is the build's start" "$S126"
+has "#128 each review agent writes under its own scratch folder" "$R128a"
+has "#128 a base snapshot is named by its sha and read-only" "$R128b"
+has "#131 the fix covers every site of the pattern" "$R131b"
+has "#141 the Codex prompt runs only the plan's commands" 'Run only the commands the plan names, never the full suite or a build.'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

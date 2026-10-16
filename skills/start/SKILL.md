@@ -61,6 +61,10 @@ metadata:
 | Linear MCP (`get_issue`) | mcp | SOFT | **none — render as `?`** | resolve the work item from a spec file or inline conversation |
 | superpowers:brainstorming | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
 
+## Superpowers skill names
+
+Call each `superpowers:` skill by that name; when the Skill tool answers "Unknown skill", call the same name without the `superpowers:` prefix, and use whichever answered for the rest of the run.
+
 ## Phases
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.

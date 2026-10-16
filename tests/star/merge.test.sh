@@ -11,15 +11,18 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 HEAD=abc1234def5678901234567890123456789abcde
 PR=https://github.com/o/r/pull/5
 mkdir -p "$TMP/bin"
+mkdir -p "$TMP/nohome"; export JUEL_STAR_HOME="$TMP/nohome"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUB_DIR/calls"
+printf '%s %s %s\n' "${GH_TOKEN:-none}" "$1" "$2" >> "$STUB_DIR/tokens"
 case "$1 $2" in
   "repo view") [ -f "$STUB_DIR/repo-fail" ] && { echo "HTTP 403: Resource not accessible" >&2; exit 1; }; cat "$STUB_DIR/repo.json" ;;
   "pr view")
     case "$*" in *state*) [ -f "$STUB_DIR/state-fail" ] && { echo "HTTP 502" >&2; exit 1; }; cat "$STUB_DIR/state.json" ;; *) cat "$STUB_DIR/pr.json" ;; esac ;;
   "pr comment") cp "$5" "$STUB_DIR/posted" ;;
   "pr merge") [ -f "$STUB_DIR/merge-err" ] && { cat "$STUB_DIR/merge-err" >&2; exit 1; }; exit 0 ;;
+  "api "*) case "$2" in *rules/branches*) if [ -f "$STUB_DIR/rules.json" ]; then cat "$STUB_DIR/rules.json"; else echo '[]'; fi ;; *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;; esac ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 EOF
@@ -28,7 +31,7 @@ grant() { printf -- '---\ndate: 2026-10-09T08:00:00Z\nitems: [ITEM-1]\n---\n%s\n
 state() { # state <GitHub's word for the PR after the merge call>
   printf '{"state":"%s","mergeCommit":{"oid":"9e8d7c6b5a49382716051423324150617e8f9a0b"}}\n' "$1" > "$TMP/state.json"
 }
-reset() { rm -f "$TMP/calls" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail"; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[]}\n' > "$TMP/pr.json"; state MERGED; grant "go"; }
+reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json"; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[]}\n' > "$TMP/pr.json"; state MERGED; grant "go"; }
 M() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" "$@"; }
 
 reset; out=$(M --quiet-hours "22:00-07:00@UTC")
@@ -89,6 +92,7 @@ SH=$(HOME="$TMP/home" sh "$ROOT/skills/star/star-home.sh" --cwd "$APP" init)
 LD() { sh "$ROOT/skills/star/ledger.sh" --home "$SH" "$@"; }
 LD add ITEM-1 ref=ITEM-1 project=app state=verifying >/dev/null
 MW() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item ITEM-1 "$@"; }
+MW0() { env -u GH_TOKEN PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item ITEM-1 "$@"; }
 reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
 out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "a verifying row with no dispatch merges" || fail "no dispatch ($out)"
 reset; LD set ITEM-1 state=verifying dispatch=ctx_babysit9 >/dev/null
@@ -99,11 +103,55 @@ for st in briefing building babysitting posting; do
   out=$(MW); { [ "$out" = "FAIL live worker ctx_w1" ] && [ ! -f "$TMP/calls" ]; } || bad="$bad $st($out)"
 done
 [ -z "$bad" ] && pass "a row in any worker stage is refused before anything is posted" || fail "worker stages:$bad"
+# #137: with no GH_TOKEN, merge.sh uses the account configured in star.json; an existing token wins
+python3 - "$SH/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p)); d["tokenCmd"] = "echo tok_star"; json.dump(d, open(p, "w"), indent=2)
+PY
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(MW0)
+[ "$out" = "$MERGED_LINE" ] && [ -s "$TMP/tokens" ] && ! grep -v '^tok_star ' "$TMP/tokens" >/dev/null && pass "#137 merge.sh runs gh as star.json's tokenCmd account" || fail "#137 merge token ($(cat "$TMP/tokens" 2>/dev/null))"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(GH_TOKEN=already MW)
+[ "$out" = "$MERGED_LINE" ] && [ -s "$TMP/tokens" ] && ! grep -v '^already ' "$TMP/tokens" >/dev/null && pass "#137 a GH_TOKEN already set is kept" || fail "#137 existing merge token ($(cat "$TMP/tokens" 2>/dev/null))"
+python3 - "$SH/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p)); d["tokenCmd"] = None; json.dump(d, open(p, "w"), indent=2)
+PY
 reset; LD set ITEM-1 state=babysitting dispatch=ctx_w5 >/dev/null
 out=$(NOW=2026-10-09T23:00:00Z MW --quiet-hours "22:00-07:00@UTC"); [ "$out" = "FAIL live worker ctx_w5" ] && pass "the live-worker check comes before quiet hours" || fail "before quiet hours ($out)"
 reset; out=$(PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item NOPE-9)
 case "$out" in "FAIL ledger: "*) [ ! -f "$TMP/calls" ] && pass "an item with no row is a FAIL, never a merge" || fail "no row called gh" ;; *) fail "no row ($out)" ;; esac
 PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--home without --item is 64" || fail "usage home"
 PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --item ITEM-1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--item without --home is 64" || fail "usage item"
+# #124: the go comment says so when the merge went through under ownerApproval
+oa_set() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["ownerApproval"]=json.loads(sys.argv[2]); d["hostedReviewer"]=json.loads(sys.argv[3]); json.dump(d,open(p,"w"),indent=2)' "$SH/star.json" "$1" "${2:-null}"; }
+prv() { printf '{"author":{"login":"me"},"comments":[],"reviews":[%s],"baseRefName":"main"}\n' "${1:-}" > "$TMP/pr.json"; }
+GOLINE="Merging head $HEAD under your go of 2026-10-09T08:00:00Z: \"go\""
+SELFLINE="$GOLINE Self-approved under the owner's grant: this repository has no second reviewer."
+GRANTED='{"login":"me","since":"2026-10-15T21:05:13Z","words":"merge it"}'
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set "$GRANTED"; prv
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 a merge under ownerApproval says so in the go comment" || fail "#124 self-approved comment ($out / $(cat "$TMP/posted" 2>/dev/null))"
+bad=""
+for c in null other hosted rule approved; do
+  reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; prv
+  case $c in
+    null) oa_set null ;;
+    other) oa_set '{"login":"someone-else","since":"2026-10-15T21:05:13Z","words":"x"}' ;;
+    hosted) oa_set "$GRANTED" '{"login":"greptile-apps[bot]"}' ;;
+    rule) oa_set "$GRANTED"; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":1}}]\n' > "$TMP/rules.json" ;;
+    approved) oa_set "$GRANTED"; prv "{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}}" ;;
+  esac
+  out=$(MW); { [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$GOLINE" ]; } || bad="$bad $c($(cat "$TMP/posted" 2>/dev/null))"
+done
+[ -z "$bad" ] && pass "#124 null, another login, a hosted reviewer, a rule of one, or a member's approval: the plain go comment" || fail "#124 off cases:$bad"
+
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set '{"login":"ME","since":"2026-10-15T21:05:13Z","words":"merge it"}'; prv
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 logins compare without case" || fail "#124 case ($out / $(cat "$TMP/posted" 2>/dev/null))"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set "$GRANTED"; prv "{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}},{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"DISMISSED\",\"submittedAt\":\"2026-10-03T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}}"
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 only a reviewer's latest review counts" || fail "#124 latest review ($out / $(cat "$TMP/posted" 2>/dev/null))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

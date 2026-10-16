@@ -110,6 +110,7 @@
 # --carried-from or the reverse, are bad usage.
 # Test seams: CODEX_GATE_SLEEP multiplies the waits (default 1); CODEX_GATE_TIMEOUT, seconds per
 # codex run (default 3600).
+# When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 # Exit: 0 with a verdict, a post-pass result or up; 69 with ERROR or down; 64 on bad usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd)
 export STAR_SKILL_DIR
@@ -297,6 +298,23 @@ def project_gate():
     return gate if isinstance(gate, dict) else {}
 
 
+def use_star_token(home):
+    """GH_TOKEN for the account star.json configures (#137), when this process has none."""
+    if os.environ.get("GH_TOKEN"):
+        return
+    cmd = ["sh", os.path.join(S, "gh-token.sh")]
+    if home:
+        cmd += ["--home", home]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+        if proc.returncode == 0:
+            token = proc.stdout.strip()
+            if token and "\n" not in token and "\r" not in token:
+                os.environ["GH_TOKEN"] = token
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def check_review(text, path, k, head):
     """ERROR unless the review is the SAFE verdict of round k on head, with no newer round beside it."""
     first = (text.splitlines() or [""])[0]
@@ -375,6 +393,7 @@ def carry(gated, head, base):
 
 
 def post_pass(o):
+    use_star_token(None)
     head = o["head"].lower()
     if not re.fullmatch(r"[0-9a-f]{40}", head):
         die("--head takes the full 40-character commit")

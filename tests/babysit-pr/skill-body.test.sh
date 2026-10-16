@@ -5,6 +5,8 @@ SKILL="$ROOT/skills/babysit-pr/SKILL.md"
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
+# has <name> <text>: the text is in $SKILL once line breaks and repeated spaces are folded
+has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
 [ -f "$SKILL" ] || { echo "FAIL SKILL.md missing"; exit 1; }
 
 # The skill loader substitutes $0..$9 in a skill body with words from the user's request.
@@ -343,6 +345,24 @@ g "B122f a refresh also logs a second run on a passed head (#122)" 'when you com
 g "B122g an older log's second pass line for one head becomes a refresh (#122)" 'When the log exists and holds a second `pass` line for a head that already has one (a log'
 g "B122h the first pass line of each head is kept (#122)" '`<its iso> refresh head=<that sha>`, keeping the first `pass` line of each head and every other'
 g "B120a the base sync names the edit next to an insertion (#120)" 'to one list), or one side inserted lines right after a line the other side edited (#120), or'
+
+R124="Under a \`star:\` brief, \`star.json\`'s \`ownerApproval\` (null when absent) is the owner's grant in a repository with no second reviewer: when it is set, its \`login\` is the PR's author, and the snapshot says \`approval: none\`, or \`approval: required\` with \`required: 0\`, wait for no approval and request no reviewer (no \`gh pr edit --add-reviewer\`); STAR's merge gate checks the same three conditions itself."
+R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
+R131b="For each accepted \`[P0]\` or \`[P1]\` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its \`-fix.md\` line names the sites (\`Fixed in <sha>. Sites: <path:line>, <path:line>.\`)."
+B126="The last hosted pass's base merge runs Phase 4 step 1, so it is part of that sync."
+has "#124 ownerApproval: no approval waited for, no reviewer requested" "$R124"
+has "#124 the settings row reads ownerApproval" '`ownerApproval` (`login`, `since`, `words`, or null)'
+has "#126 the one base-merge rule" "$R126"
+has "#126 the last hosted pass's base merge is Phase 4's sync" "$B126"
+has "#129 a skipped run is logged, not a pass" 'log `<iso> skipped head=<sha> <reason>` in `<item>-hosted.log`, spend no pass on it (the passes stay the `pass` lines)'
+has "#129 a skipped run escalates hosted-unavailable" '`ESCALATION item=<item> phase=8 reason=hosted-unavailable cursor=<cursor> needs=<the skip reason>`'
+has "#129 a rebuilt log keeps skipped lines, never as passes" 'A `skipped` line it prints stays in the log as it is and is never a pass.'
+R129c=$(cat <<'EOF'
+An item with `kind: hosted-skip` is a hosted run that reviewed nothing
+EOF
+)
+has "#129 babysit acts on a hosted-skip item" "$R129c"
+has "#131 the fix covers every site of the pattern" "$R131b"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

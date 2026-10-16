@@ -17,6 +17,9 @@
 # "Merging head <sha> under your go of <date>: "<words>"" (the words on one line, cut at 500
 # characters, sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
 # so GitHub itself refuses when the head moved.
+# The optional ownerApproval sentence is added only when no hosted reviewer exists, the owner grant
+# matches the author's login without case, the rule is none or required 0, and no latest head approval
+# by another writer remains. Anything unreadable leaves the sentence off and the merge goes ahead.
 # After the merge call, whatever it said, it reads the PR's state once. MERGED when GitHub says
 # merged, even if the call errored (gh can fail after the merge went through). A call that errored
 # on a PR that is not merged is the FAIL it names. A call that worked, followed by a state that
@@ -24,6 +27,7 @@
 # next run of the merge gate says which.
 # Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, or missing
 # arguments.
+# When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
@@ -59,6 +63,23 @@ def run(cmd, timeout=120):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as e:
         return subprocess.CompletedProcess(cmd, 1, "", f"{cmd[0]}: {e}")
+
+
+def use_star_token(home):
+    """GH_TOKEN for the account star.json configures (#137), when this process has none."""
+    if os.environ.get("GH_TOKEN"):
+        return
+    cmd = ["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "gh-token.sh")]
+    if home:
+        cmd += ["--home", home]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+        if proc.returncode == 0:
+            token = proc.stdout.strip()
+            if token and "\n" not in token and "\r" not in token:
+                os.environ["GH_TOKEN"] = token
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def first(proc):
@@ -134,6 +155,7 @@ words = " ".join((fm.group(2) if fm else "").split())
 if not date or not words:
     out(f"FAIL grant: no date or no words in {grant}")
 words = words if len(words) <= 500 else words[:497] + "..."
+use_star_token(home)
 r = run(["gh", "repo", "view", url.group(1), "--json", ",".join(k for k, _ in METHODS)], 60)
 allowed = as_json(r)
 if allowed is None:
@@ -143,16 +165,58 @@ if not method:
     out("FAIL merge methods: the repository allows no merge method")
 if dry:
     out(f"DRY-RUN {method} {head}")
-v = run(["gh", "pr", "view", pr, "--json", "author,comments"], 60)
+v = run(["gh", "pr", "view", pr, "--json", "author,comments,reviews,baseRefName"], 60)
 d = as_json(v)
 if d is None:
     out("FAIL comment: " + (first(v) if v.returncode else "unreadable output"))
+def bare(login):
+    return login[:-5] if isinstance(login, str) and login.endswith("[bot]") else (login if isinstance(login, str) else "")
+
+
+def owner_self_approval(data):
+    if not home or not isinstance(data, dict):
+        return False
+    try:
+        star = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
+        grant = star.get("ownerApproval") if isinstance(star, dict) else None
+        if not isinstance(grant, dict) or bare(grant.get("login")).lower() != bare(author).lower() or not bare(author):
+            return False
+        if star.get("hostedReviewer") not in (None,):
+            return False
+        repo = url.group(1)
+        base = data.get("baseRefName") if isinstance(data.get("baseRefName"), str) else ""
+        script = os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh")
+        rr = run(["sh", script, repo, base], 125)
+        rule = (rr.stdout or "").splitlines()[0].strip() if rr.returncode == 0 and (rr.stdout or "").splitlines() else ""
+        if rule not in ("none", "required 0"):
+            return False
+        latest = {}
+        for index, review in enumerate(data.get("reviews") or []):
+            login = bare((review.get("author") or {}).get("login"))
+            if not login or review.get("state") not in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                continue
+            key = login.lower()
+            prior = latest.get(key)
+            stamp = str(review.get("submittedAt") or "")
+            if prior is None or (stamp, index) >= prior[0]:
+                latest[key] = ((stamp, index), review)
+        for login, (_, review) in latest.items():
+            if (review.get("state") == "APPROVED" and str((review.get("commit") or {}).get("oid") or "").lower() == head
+                    and login != bare(author).lower()
+                    and str(review.get("authorAssociation") or "").upper() in {"OWNER", "MEMBER", "COLLABORATOR"}):
+                return False
+        return True
+    except (OSError, ValueError, TypeError, AttributeError, IndexError):
+        return False
+
+
 author = (d.get("author") or {}).get("login") or ""
 prefix = f"Merging head {head} under your go"
 if not any(isinstance(c, dict) and (c.get("author") or {}).get("login") == author
            and str(c.get("body") or "").startswith(prefix) for c in d.get("comments") or []):
+    suffix = " Self-approved under the owner's grant: this repository has no second reviewer." if owner_self_approval(d) else ""
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
-        f.write(f'{prefix} of {date.group(1)}: "{words}"\n')
+        f.write(f'{prefix} of {date.group(1)}: "{words}"{suffix}\n')
         body = f.name
     try:
         c = run(["gh", "pr", "comment", pr, "--body-file", body], 60)

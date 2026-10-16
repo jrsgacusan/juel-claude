@@ -53,7 +53,7 @@ of the two; that is normal and not a problem to report.
    - Delegate independent, well-bounded tasks in parallel only when suitable subagent tools are available.
    - Execute directly when delegation would add coordination overhead or no subagent tools are available.
 7. Execute the work directly. Do not stop at summarizing the plan unless the user asked only for analysis.
-8. Validate the result against every explicit acceptance criterion using relevant tests, checks, inspections, or screenshots.
+8. Validate the result against every explicit acceptance criterion using the tests, checks, inspections or screenshots the plan names.
 9. Report:
    - what was completed
    - any deviations from the plan
@@ -62,6 +62,7 @@ of the two; that is normal and not a problem to report.
 
 ## Execution Rules
 
+- Run only the commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through `gate-lock.sh` when it says so); the caller runs the full gates itself, under its lock.
 - Treat the Claude plan as authoritative for sequencing and scope, not as infallible on implementation details.
 - Always read and apply any relevant `CLAUDE.md` files before executing the plan. If multiple files apply, prefer the most specific file for the affected subtree while still honoring higher-level guidance that does not conflict.
 - Preserve stated constraints unless they are impossible or harmful.
@@ -153,7 +154,7 @@ of the two; that is normal and not a problem to report.
 - Convert narrative instructions into explicit tasks with owners, artifacts, and checks.
 - Expand vague verbs like "wire up", "finish", or "support" into concrete changes inside the files, functions and line ranges the task's `**Files:**` block names, never into files it does not name.
 - Separate discovery tasks from write tasks.
-- Convert validation lines into actual commands, tests, screenshots, or inspections.
+- Convert validation lines into the commands, tests, screenshots or inspections they name, never into a full-suite run or a build the plan does not write out.
 - Preserve non-functional requirements such as performance, accessibility, migration safety, or multi-tenant isolation.
 
 ## Failure Handling

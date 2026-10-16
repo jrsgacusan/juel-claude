@@ -249,5 +249,84 @@ out=$(cd "$TMP" && sh "$SCRIPT" "$R3/docs/plans/m2.md" "$BASE3" --repo-dir "$R3"
 want=$(printf 'outside-merged src/b.sh\noutside-merged src/d.sh')
 [ "$rc" -eq 1 ] && [ "$out" = "$want" ] && pass "#106 outside-merged lines alone exit 1" || fail "#106 outside-merged alone (rc=$rc: $out)"
 
+# #134: nested bullets, a parenthetical label, a range, and --print
+R4="$TMP/repo4"; mkdir -p "$R4/src" "$R4/docs/decisions" "$R4/docs/plans"
+h() { git -C "$R4" "$@"; }
+git -c init.defaultBranch=main init -q "$R4"; h config user.email t@example.com; h config user.name t; h config commit.gpgsign false
+for f in a b c x; do printf '%s\n' "$f" > "$R4/src/$f.sh"; done
+for n in 1 2 3 4 5 6 7; do printf 'd%s\n' "$n" > "$R4/docs/decisions/D-$n.md"; done
+h add -A; h commit -qm base; BASE4=$(h rev-parse HEAD)
+cat > "$R4/docs/plans/n.md" <<'EOF'
+### Task 1: nested
+
+**Files:**
+- Modify:
+  - `src/a.sh`
+  - `src/b.sh`, `src/c.sh`
+- Modify (restore whole file to abc1234): `src/x.sh`
+- Create: `docs/decisions/D-1.md` through `-6.md`
+
+Prose naming `docs/decisions/D-7.md` names nothing.
+EOF
+for f in a b c x; do printf '%s2\n' "$f" > "$R4/src/$f.sh"; done
+for n in 1 2 3 4 5 6; do printf 'e%s\n' "$n" > "$R4/docs/decisions/D-$n.md"; done
+out=$(cd "$TMP" && sh "$SCRIPT" "$R4/docs/plans/n.md" "$BASE4" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "ok" ] && pass "#134 nested bullets, several paths on a line, a parenthetical label and a range are all in scope" || fail "#134 nested scope (rc=$rc: $out)"
+printf 'e7\n' > "$R4/docs/decisions/D-7.md"
+out=$(cd "$TMP" && sh "$SCRIPT" "$R4/docs/plans/n.md" "$BASE4" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "outside docs/decisions/D-7.md" ] && pass "#134 a member past the range's end is still outside" || fail "#134 range end (rc=$rc: $out)"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/n.md" --repo-dir "$R4"); rc=$?
+want=$(printf 'scope docs/decisions/D-1.md\nscope docs/decisions/D-2.md\nscope docs/decisions/D-3.md\nscope docs/decisions/D-4.md\nscope docs/decisions/D-5.md\nscope docs/decisions/D-6.md\nscope src/a.sh\nscope src/b.sh\nscope src/c.sh\nscope src/x.sh')
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 --print lists the parsed scope, one scope line each, exit 0" || fail "#134 --print (rc=$rc: $out)"
+cat > "$R4/docs/plans/m.md" <<'EOF'
+**Files:**
+- Modify:
+  - `src/a.sh`
+A prose line ends the block: `src/c.sh` is not in scope.
+- Create: `docs/decisions/D-1.md` to `-3.md`
+  - `src/b.sh` sits under a label that names its own path, so it is not read.
+- Test:
+
+  - `tests/`
+EOF
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/m.md" --repo-dir "$R4"); rc=$?
+want=$(printf 'scope docs/decisions/D-1.md\nscope docs/decisions/D-2.md\nscope docs/decisions/D-3.md\nscope src/a.sh\nscope tests/')
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 a line at the label's indent ends a nested block, a to range, a blank line inside a block" || fail "#134 block end (rc=$rc: $out)"
+
+# review fixes for #134
+cat > "$R4/docs/plans/r.md" <<'EOF'
+**Files:**
+- Modify: each of these
+  - `src/a.sh`
+- Modify (rename `run()` to `start()`): `src/c.sh`
+- Create: `docs/decisions/D-08.md` through `-11.md`
+- Create: `docs/decisions/E-3.md` through `-1.md`
+- Create: `docs/decisions/F-1.md` through `docs/decisions/F-3.md`
+  Explains why, and names nothing.
+EOF
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/r.md" --repo-dir "$R4"); rc=$?
+want=$(printf 'scope docs/decisions/D-08.md\nscope docs/decisions/D-09.md\nscope docs/decisions/D-10.md\nscope docs/decisions/D-11.md\nscope docs/decisions/E-1.md\nscope docs/decisions/E-2.md\nscope docs/decisions/E-3.md\nscope docs/decisions/F-1.md\nscope docs/decisions/F-2.md\nscope docs/decisions/F-3.md\nscope src/a.sh\nscope src/c.sh')
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 prose labels read their nested bullets, nested parentheses, zero-padded, reversed and full-name ranges" || fail "#134 review forms (rc=$rc: $out)"
+printf '**Files:**\n\t- Modify:\n\t\t- `src/b.sh`\n' > "$R4/docs/plans/t.md"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/t.md" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "scope src/b.sh" ] && pass "#134 a tab-indented label reads its tab-indented bullets" || fail "#134 tabs (rc=$rc: $out)"
+printf '**Files:**\n- Modify:\n' > "$R4/docs/plans/e.md"
+out=$(cd "$TMP" && sh "$SCRIPT" "$R4/docs/plans/e.md" "$BASE4" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "unchecked the plan names no files" ] && pass "#134 a label that names nothing is no entry, so nothing is reverted" || fail "#134 empty label (rc=$rc: $out)"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/e.md" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && pass "#134 --print on a plan that names nothing prints nothing" || fail "#134 empty --print (rc=$rc: $out)"
+
+# gate r1 (#134): a label more indented than the block's label stays inside the block
+cat > "$R4/docs/plans/g.md" <<'EOF'
+**Files:**
+- Modify: these files
+  - Create: `src/a.sh`
+  - `src/b.sh`
+- Test: `tests/`
+EOF
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/g.md" --repo-dir "$R4"); rc=$?
+want=$(printf 'scope src/a.sh\nscope src/b.sh\nscope tests/')
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 a deeper label inside a nested block keeps the block open" || fail "#134 deeper label (rc=$rc: $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

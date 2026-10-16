@@ -1,7 +1,8 @@
 #!/bin/sh
 # Checks a PR on the exact head a worker reported: for the human's merge, or, with --merge-gate,
 # for STAR's own merge.
-#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]]]
+#   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]]
+#                [--home <dir>]]
 # Prints exactly one line and exits 0 (64, with nothing on stdout, only for bad usage):
 #   PASS [<note>] | PENDING <what> | MOVED <head> | MERGED <merge sha> | FAIL <what>
 # "PASS approval is on an earlier commit" is still a pass: the repo's review rule is satisfied,
@@ -22,11 +23,18 @@
 # Where the repo has a review rule, GitHub's own reviewDecision is trusted as it stands (it
 # follows the repo's "dismiss stale approvals" setting). gh signed in to an account that cannot
 # see the repository prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
-# --merge-gate is STAR's merge gate. It also needs: a comment by the PR's author that starts
+# --home <dir> selects the STAR folder whose star.json supplies ownerApproval; it is valid only with
+# --merge-gate (otherwise 64; an empty value is 64), defaults to $JUEL_STAR_HOME, then star-home.sh path.
+# --merge-gate is STAR's merge gate. A receipt by another login is named when the author has no
+# receipt (#137). It also needs: a comment by the PR's author that starts
 # "Codex gate: PASS (head <the PR's head>"; a reply from the PR's author on every unresolved
 # review thread someone else opened (a hosted reviewer's included); and, without --hosted, an
 # APPROVED review on the head by someone other than the PR's author whose authorAssociation is
-# OWNER, MEMBER or COLLABORATOR (write access), which an explicit zero rule does not waive.
+# OWNER, MEMBER or COLLABORATOR (write access), which an explicit zero rule alone does not waive.
+# With no hosted reviewer and no such approval, an ownerApproval.login equal to the author (without
+# [bot] and without case) plus a none or required 0 rule gives "PASS self-approved under the owner's
+# grant". An unreadable rule is "PENDING review rule: <why>" or "PENDING gh cannot see …"; any
+# other rule or no matching grant is "PENDING approval: …".
 # The review threads are never guessed: a gh call that exits non-zero, or an answer whose threads
 # are not a list, is "PENDING gh: review threads unreadable", not "no findings".
 # --hosted says the project has a hosted reviewer (Greptile): it stands in for that
@@ -39,6 +47,7 @@
 # the line is "PENDING hosted-status <check> missing on <head7>" (#59): the hosted reviewer does
 # not run by itself on a new head, so STAR sends the row back to babysit to refresh it. Rules
 # that cannot be read, and a bare --hosted, never print it.
+# When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
@@ -86,6 +95,7 @@ p.add_argument("pr")
 p.add_argument("--head", required=True)
 p.add_argument("--repo")
 p.add_argument("--merge-gate", action="store_true")
+p.add_argument("--home")
 p.add_argument("--hosted", nargs="?", const=True, default=False)
 try:
     a = p.parse_args()
@@ -93,6 +103,12 @@ except SystemExit as e:
     sys.exit(64 if e.code not in (0, None) else 0)
 if a.hosted and not a.merge_gate:
     print("pr-verify.sh: --hosted needs --merge-gate", file=sys.stderr)
+    sys.exit(64)
+if a.home is not None and not str(a.home).strip():
+    print("pr-verify.sh: --home needs a folder", file=sys.stderr)
+    sys.exit(64)
+if a.home is not None and not a.merge_gate:
+    print("pr-verify.sh: --home needs --merge-gate", file=sys.stderr)
     sys.exit(64)
 
 try:
@@ -103,6 +119,23 @@ try:
     PAUSE = float(os.environ.get("PR_VERIFY_SLEEP", "1"))
 except ValueError:
     PAUSE = 1.0
+
+
+def use_star_token(home):
+    """GH_TOKEN for the account star.json configures (#137), when this process has none."""
+    if os.environ.get("GH_TOKEN"):
+        return
+    cmd = ["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "gh-token.sh")]
+    if home:
+        cmd += ["--home", home]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+        if proc.returncode == 0:
+            token = proc.stdout.strip()
+            if token and "\n" not in token and "\r" not in token:
+                os.environ["GH_TOKEN"] = token
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def repo_of(url):
@@ -133,6 +166,29 @@ def rule_lines(d):
 def review_rule(d):
     """The first line review-rule.sh prints for this PR's base branch; "unknown" when it cannot run."""
     return rule_lines(d)[0]
+
+
+def owner_approval(author):
+    """Whether STAR's ownerApproval only matches this author's login (#124)."""
+    if not author:
+        return False
+    home = a.home if a.home is not None else os.environ.get("JUEL_STAR_HOME")
+    if not home:
+        script = os.path.join(os.environ.get("JUEL_SKILLS_DIR") or "", "star", "star-home.sh")
+        try:
+            proc = subprocess.run(["sh", script, "path"], capture_output=True, text=True, timeout=LIMIT)
+            home = (proc.stdout or "").splitlines()[0].strip() if proc.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired, IndexError):
+            home = ""
+    if not home:
+        return False
+    try:
+        data = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
+        grant = data.get("ownerApproval") if isinstance(data, dict) else None
+        login = grant.get("login") if isinstance(grant, dict) else None
+        return isinstance(login, str) and bool(login) and bare(login).lower() == author.lower()
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
 
 
 def hosted_missing(d, checks):
@@ -231,6 +287,7 @@ def branch_tip(d):
 
 def main():
     a.head = a.head.strip().lower()
+    use_star_token(a.home)
     d, reviews, checks, comments, state = fetch()
     head = (d.get("headRefOid") or "").lower()
     if state == "OPEN" and len(a.head) >= 7 and head and not head.startswith(a.head):
@@ -259,10 +316,17 @@ def main():
     if d.get("isDraft"):
         out("FAIL draft")
     author = bare((d.get("author") or {}).get("login")) if a.merge_gate else ""
-    if a.merge_gate and not any(bare((c.get("author") or {}).get("login")) == author
-                                and str(c.get("body") or "").startswith(f"Codex gate: PASS (head {head}")
-                                for c in comments):
-        out(f"FAIL no codex PASS for {head[:7]}")
+    if a.merge_gate:
+        prefix = f"Codex gate: PASS (head {head}"
+        receipts = []
+        for comment in comments:
+            login = (comment.get("author") or {}).get("login") or ""
+            if login and str(comment.get("body") or "").startswith(prefix) and bare(login) not in receipts:
+                receipts.append(bare(login))
+        if not author or author.lower() not in {login.lower() for login in receipts}:
+            if receipts:
+                out(f"FAIL no codex PASS for {head[:7]} (posted by {', '.join(receipts)}, not the PR's author)")
+            out(f"FAIL no codex PASS for {head[:7]}")
 
     latest = {}
     for n, r in enumerate(sorted(reviews, key=lambda r: r.get("submittedAt") or "")):
@@ -277,14 +341,24 @@ def main():
     if a.merge_gate:
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))
+        approved = any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
+                       and bare((r.get("author") or {}).get("login")) != author
+                       and str(r.get("authorAssociation") or "").upper() in WRITERS for r in latest.values())
         if a.hosted:
             note = "hosted"
-        else:
-            if not any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
-                       and bare((r.get("author") or {}).get("login")) != author
-                       and str(r.get("authorAssociation") or "").upper() in WRITERS for r in latest.values()):
-                out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
+        elif approved:
             note = "approved"
+        elif owner_approval(author):
+            rule = review_rule(d)
+            if rule == "unknown" or rule.startswith("unknown "):
+                why = rule[len("unknown"):].strip() or "unreadable"
+                out("PENDING " + why if why.startswith("gh cannot see ") else "PENDING review rule: " + why)
+            if rule in ("none", "required 0"):
+                note = "self-approved under the owner's grant"
+            else:
+                out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
+        else:
+            out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
     elif decision is None:
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))
