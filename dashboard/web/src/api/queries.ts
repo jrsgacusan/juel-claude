@@ -59,6 +59,7 @@ export function createQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         staleTime: 15_000,
+        // The event stream refetches when the page becomes visible (api/events.ts). Turning this on would fetch twice on every wake.
         refetchOnWindowFocus: false,
         retry: retryQuery,
       },
