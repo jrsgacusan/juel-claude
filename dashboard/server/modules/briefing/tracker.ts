@@ -1,8 +1,8 @@
-// Where a repo's tickets live (brief D4, B5): read from .claude/workflow.local.json, then
+// Where a repo's tickets live (brief D4, D14, B5): read from .claude/workflow.local.json, then
 // .claude/workflow.json, then a `## Work Source` block in CLAUDE.md or AGENTS.md, the order
-// references/resolution.md gives. The first of them that names a tracker wins: the two JSON files are
-// not merged key by key. Saved as tracker.type in .claude/workflow.local.json, the form every juel
-// skill reads.
+// references/resolution.md gives. Unlike resolution.md's key-by-key merge of the two JSON files, the
+// first of them that names a tracker wins. Saved as tracker.type in .claude/workflow.local.json, the
+// form every juel skill reads.
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -69,10 +69,13 @@ async function readOrWarn(path: string, warn: (line: string) => void): Promise<s
   }
 }
 
-/** A workflow file's JSON, or undefined; a malformed file is warned about and ignored (resolution.md:84, B5). */
+/**
+ * A workflow file's JSON, or undefined; an empty or whitespace-only file holds nothing, like a missing
+ * one (D14), and a malformed one is warned about and ignored (resolution.md:84, B5).
+ */
 async function readConfig(path: string, warn: (line: string) => void): Promise<unknown> {
   const raw = await readOrWarn(path, warn)
-  if (raw === null) return undefined
+  if (raw === null || raw.trim() === '') return undefined
   try {
     return JSON.parse(raw)
   } catch {
@@ -94,12 +97,27 @@ export async function resolveTracker(repo: string, warn: (line: string) => void 
   return null
 }
 
+// The save running for each repo. Saves to one repo run one after another, since each reads the
+// file and then replaces it through the same temp name.
+const saving = new Map<string, Promise<unknown>>()
+
 /**
  * Sets tracker.type in .claude/workflow.local.json, keeping every other key. A file that does not
- * parse to a JSON object is refused and left as it is; an empty one counts as {}. The new text
- * replaces the old in one rename, so a failed write never truncates the owner's config.
+ * parse to a JSON object is refused and left as it is; an empty or whitespace-only one counts as {}
+ * (D14). The new text replaces the old in one rename, so a failed write never truncates the owner's
+ * config, and two saves to one repo never overlap.
  */
-export async function saveTracker(repo: string, value: Tracker): Promise<SaveResult> {
+export function saveTracker(repo: string, value: Tracker): Promise<SaveResult> {
+  const next = (saving.get(repo) ?? Promise.resolve()).then(() => saveNow(repo, value))
+  const settled = next.catch(() => {})
+  saving.set(repo, settled)
+  void settled.then(() => {
+    if (saving.get(repo) === settled) saving.delete(repo)
+  })
+  return next
+}
+
+async function saveNow(repo: string, value: Tracker): Promise<SaveResult> {
   const dir = join(repo, '.claude')
   const path = join(dir, 'workflow.local.json')
   const raw = await readText(path)

@@ -136,3 +136,19 @@ test('saving leaves no temp file behind', async () => {
   await saveTracker(w.repo, 'github')
   assert.deepEqual(await readdir(join(w.repo, '.claude')), ['workflow.local.json'])
 })
+
+test('two saves at once both land, one after the other, and the file holds the second', async () => {
+  const [first, second] = await Promise.all([saveTracker(w.repo, 'github'), saveTracker(w.repo, 'linear')])
+  assert.deepEqual(first, { ok: true })
+  assert.deepEqual(second, { ok: true })
+  assert.deepEqual(await local(), { tracker: { type: 'linear' } })
+  assert.deepEqual(await readdir(join(w.repo, '.claude')), ['workflow.local.json'])
+})
+
+test('an empty local file is skipped without a warning (D14)', async () => {
+  await put('.claude/workflow.local.json', '  \n')
+  await put('.claude/workflow.json', { tracker: 'linear' })
+  const warnings: string[] = []
+  assert.deepEqual(await resolveTracker(w.repo, line => { warnings.push(line) }), { type: 'linear', project: null })
+  assert.deepEqual(warnings, [])
+})
