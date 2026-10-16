@@ -687,5 +687,16 @@ fixture hp-noskip reviews.json '{"id":86,"user":{"login":"greptile-apps[bot]","t
 run hp-noskip 30 --hosted 'greptile-apps[bot]' --hosted-passes
 check_lines "#129 a usage limit named in a real review or a bold score is a pass; a limit reached is skipped" 0 "$(printf '2026-10-13T09:00:00Z pass 1 head=%s\n2026-10-13T10:00:00Z pass 2 head=%s\n2026-10-13T11:00:00Z skipped head=%s Usage limit reached for this billing period.' "$PA" "$PB" "$PC")"
 
+# gate r1 (#129): a skip the hosted reviewer posts while babysit waits is a hosted-skip item
+GSKIP='{"id":51,"user":{"login":"greptile-apps[bot]","type":"Bot"},"created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-01T11:00:00Z","html_url":"i51","body":"**Review skipped**\n\nUsage limit reached for this billing period."}'
+hosted_case h-skip
+fixture h-skip comments.json "$GSKIP"
+run h-skip 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z#51'
+check "#129 a summary edited in place into a skip notice is a hosted-skip item on the PR head" '[i["kind"] for i in d["new_feedback"]] == ["hosted-skip"] and d["new_feedback"][0]["head"] == "'"$HEADX"'" and d["new_feedback"][0]["reason"] == "Review skipped" and ids == ["51@2026-10-01T11:00:00Z"]'
+hosted_case h-skip-review
+fixture h-skip-review reviews.json '{"id":52,"user":{"login":"greptile-apps[bot]","type":"Bot"},"state":"COMMENTED","body":"Greptile skipped this review: it would exceed your organization\u0027s monthly flex usage limit.","commit_id":"'"$PA"'","submitted_at":"2026-10-01T11:00:00Z","html_url":"r52"}'
+run h-skip-review 30 --hosted 'greptile-apps[bot]' --since '2026-10-01T10:00:00Z'
+check "#129 a skipped hosted review is a hosted-skip item on its commit" '[i["kind"] for i in d["new_feedback"]] == ["hosted-skip"] and d["new_feedback"][0]["head"] == "'"$PA"'"'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

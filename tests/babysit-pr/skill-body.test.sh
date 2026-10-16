@@ -357,6 +357,11 @@ has "#126 the last hosted pass's base merge is Phase 4's sync" "$B126"
 has "#129 a skipped run is logged, not a pass" 'log `<iso> skipped head=<sha> <reason>` in `<item>-hosted.log`, spend no pass on it (the passes stay the `pass` lines)'
 has "#129 a skipped run escalates hosted-unavailable" '`ESCALATION item=<item> phase=8 reason=hosted-unavailable cursor=<cursor> needs=<the skip reason>`'
 has "#129 a rebuilt log keeps skipped lines, never as passes" 'A `skipped` line it prints stays in the log as it is and is never a pass.'
+R129c=$(cat <<'EOF'
+An item with `kind: hosted-skip` is a hosted run that reviewed nothing
+EOF
+)
+has "#129 babysit acts on a hosted-skip item" "$R129c"
 has "#131 the fix covers every site of the pattern" "$R131b"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

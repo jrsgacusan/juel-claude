@@ -28,7 +28,9 @@
 # in place on every re-review, is the item {"kind": "hosted-pass", "head": <the full head>, ...}
 # while its "Last reviewed commit" names the PR's head: the item's id is <comment id>@<updated_at>
 # and its time is updated_at, so each edit that names the head is new feedback once. An edit that
-# names an older head stays a plain comment, timed by its creation: not new.
+# names an older head stays a plain comment, timed by its creation: not new. A hosted-skip item is
+# a review or summary edit by the hosted login that reviewed nothing, by skip_reason's rule; it has
+# head and reason, and a summary edit is new once per edit.
 # --hosted <login> --hosted-passes prints, in place of the snapshot, the hosted reviewer's past
 # passes in the <item>-hosted.log form (#96), one line per distinct head, oldest first:
 #   <time> pass <n> head=<full sha>
@@ -200,6 +202,13 @@ def merge_state(view):
 
 
 LAST_REVIEWED = re.compile(r"/commit/([0-9a-fA-F]{7,40})|last reviewed commit\W*([0-9a-fA-F]{7,40})\b", re.I)
+SCORE = re.compile(r"confidence[^\n]{0,40}?\b[0-5](?:\.\d+)?\s*(?:/|out of)\s*5\b", re.I)
+SKIP = re.compile(
+    r"\breviews?\s+(?:was|were|has been|have been|is)?\s*skipped\b|"
+    r"\bskipp(?:ed|ing)\s+(?:this\s+|the\s+)?review\b|"
+    r"\b(?:exceed\w*|reach\w*|hit)\b[^\n]{0,60}?\busage limit\b|"
+    r"\busage limit\b[^\n]{0,30}?\b(?:reached|exceeded|hit)\b", re.I
+)
 
 
 def last_reviewed(body):
@@ -210,6 +219,19 @@ def last_reviewed(body):
             m = LAST_REVIEWED.search(line[lower.index("last reviewed commit"):])
             if m:
                 return (m.group(1) or m.group(2)).lower()
+    return None
+
+
+def skip_reason(body):
+    """The first hosted-review skip notice, with Markdown marks removed, or None."""
+    searchable = re.sub(r"[*_`]", "", body)
+    if SCORE.search(searchable):
+        return None
+    for line in body.splitlines():
+        cleaned = re.sub(r"[*_>#]", "", line)
+        cleaned = " ".join(cleaned.split())
+        if cleaned and SKIP.search(cleaned):
+            return cleaned[:160]
     return None
 
 
@@ -258,25 +280,6 @@ def hosted_passes(pr, repo, login):
 
     def by_login(item):
         return ((item.get("user") or {}).get("login") or "").lower() == login.lower()
-
-    SCORE = re.compile(r"confidence[^\n]{0,40}?\b[0-5](?:\.\d+)?\s*(?:/|out of)\s*5\b", re.I)
-    SKIP = re.compile(
-        r"\breviews?\s+(?:was|were|has been|have been|is)?\s*skipped\b|"
-        r"\bskipp(?:ed|ing)\s+(?:this\s+|the\s+)?review\b|"
-        r"\b(?:exceed\w*|reach\w*|hit)\b[^\n]{0,60}?\busage limit\b|"
-        r"\busage limit\b[^\n]{0,30}?\b(?:reached|exceeded|hit)\b", re.I
-    )
-
-    def skip_reason(body):
-        searchable = re.sub(r"[*_`]", "", body)
-        if SCORE.search(searchable):
-            return None
-        for line in body.splitlines():
-            cleaned = re.sub(r"[*_`>#]", "", line)
-            cleaned = " ".join(cleaned.split())
-            if cleaned and SKIP.search(cleaned):
-                return cleaned[:160]
-        return None
 
     reviews = gh_list(f"repos/{repo}/pulls/{number}/reviews")
     comments = gh_list(f"repos/{repo}/issues/{number}/comments")
@@ -399,9 +402,16 @@ def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
         body = (r.get("body") or "").strip()
         if not body and r.get("state") in ("APPROVED", "COMMENTED"):
             continue
-        items.append({"kind": "review", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
-                      "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
-                      "path": None, "line": None, "in_reply_to": None})
+        reason = skip_reason(body) if hosted and (user.get("login") or "").lower() == hosted.lower() else None
+        if reason:
+            items.append({"kind": "hosted-skip", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
+                          "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
+                          "path": None, "line": None, "in_reply_to": None,
+                          "head": str(r.get("commit_id") or "").lower(), "reason": reason})
+        else:
+            items.append({"kind": "review", "id": r["id"], "author": user["login"], "at": r["submitted_at"],
+                          "url": r.get("html_url"), "body": body, "review_state": r.get("state"),
+                          "path": None, "line": None, "in_reply_to": None})
     for c in gh_list(f"{base}/pulls/{number}/comments"):
         user = c.get("user")
         if not wanted(user):
@@ -420,6 +430,15 @@ def snapshot(pr, since, repo, bots=(), hosted="", reviewer=None):
         body = c.get("body") or ""
         mine = bool(hosted) and (user.get("login") or "").lower() == hosted.lower()
         reviewed = last_reviewed(body) if mine else None
+        reason = skip_reason(body) if mine else None
+        if reason:
+            at = c.get("updated_at") or c["created_at"]
+            skip_head = head if not reviewed or (head and head.lower().startswith(reviewed)) else reviewed
+            items.append({"kind": "hosted-skip", "id": f"{c['id']}@{at}", "author": user["login"], "at": at,
+                          "url": c.get("html_url"), "body": body, "review_state": None,
+                          "path": None, "line": None, "in_reply_to": None,
+                          "head": skip_head, "reason": reason})
+            continue
         if reviewed and head and head.lower().startswith(reviewed):
             # the hosted reviewer's summary, edited in place: each edit that names the head is new once
             at = c.get("updated_at") or c["created_at"]
