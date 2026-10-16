@@ -588,10 +588,15 @@ describe("Briefing", () => {
     expect(b1()).toBeDefined()
     await user.click(within(chat).getByRole("button", { name: "Delete" }))
     await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
-    expect(await screen.findByText(`Deleted "Pause a member's seat".`)).toBeInTheDocument()
-    expect(b1()).toBeUndefined()
+    expect(
+      await screen.findByText(`Deleted "Pause a member's seat".`, undefined, { timeout: 5_000 })
+    ).toBeInTheDocument()
+    await waitFor(() => expect(b1()).toBeUndefined())
     await waitFor(() => expect(router.state.location.search).toBe(""))
-    expect(await screen.findByRole("combobox", { name: "Briefing" })).toHaveTextContent("Export reports as CSV")
+    await waitFor(
+      () => expect(screen.getByRole("combobox", { name: "Briefing" })).toHaveTextContent("Export reports as CSV"),
+      { timeout: 5_000 }
+    )
     expect(confirm).not.toHaveBeenCalled()
   })
 

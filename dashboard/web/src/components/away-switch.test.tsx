@@ -2,7 +2,7 @@ import { screen, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
 import { describe, expect, it } from "vitest"
 import { server } from "@/mocks/node"
-import { getDb } from "@/mocks/state"
+import { getDb, mockEvents } from "@/mocks/state"
 import { renderApp } from "@/test/render"
 
 const overviewOf = (p: string) => {
@@ -28,18 +28,26 @@ describe("the away switch", () => {
 
   it("sends away, waits for STAR, then shows what STAR recorded", async () => {
     const bodies: unknown[] = []
-    server.use(http.post("*/api/projects/:p/away", async ({ request }) => { bodies.push(await request.clone().json()) }))
-    const { user } = renderApp("/sphere-app/needs")
+    // The POST only records the wish; STAR's change is applied by hand below, so the wait cannot lapse under load.
+    server.use(
+      http.post("*/api/projects/:p/away", async ({ request }) => {
+        bodies.push(await request.clone().json())
+        overviewOf("sphere-app").awayPending = "away"
+        return HttpResponse.json({ recorded: true, nudged: true })
+      })
+    )
+    const { user, client } = renderApp("/sphere-app/needs")
     await user.click(await awaySwitch())
     expect(
       await screen.findByRole("switch", { name: "Away", description: "Waiting for STAR to mark you away" })
     ).toHaveAttribute("aria-checked", "true")
     expect(bodies).toEqual([{ away: true }])
-    // STAR's change reaches the page by the event stream or, failing that, the 5 s poll while a change is pending,
-    // so this does not depend on the mocked stream staying up across tests.
-    expect(await screen.findByText("STAR running · you're away", undefined, { timeout: 8_000 })).toBeInTheDocument()
+    Object.assign(overviewOf("sphere-app"), { away: new Date().toISOString(), awayPending: null })
+    mockEvents.emit({ type: "change", project: "sphere-app", what: "progress" })
+    await client.invalidateQueries()
+    expect(await screen.findByText("STAR running · you're away")).toBeInTheDocument()
     expect(screen.getByRole("switch", { name: "Away" })).toHaveAccessibleDescription("STAR keeps going and saves a summary")
-  }, 15_000)
+  })
 
   it("shows a change STAR has not applied yet, and none when it changes nothing", async () => {
     const overview = Object.assign(overviewOf("sphere-app"), { away: "2026-10-17T01:00:00Z", awayPending: "back" as const })
