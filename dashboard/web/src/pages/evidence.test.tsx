@@ -1,10 +1,20 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { server } from "@/mocks/node"
 import { getDb, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
 import { dayLabel } from "@/lib/format"
+
+const setWidth = (value: number) =>
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value })
+const phone = () => {
+  setWidth(390)
+  return vi.spyOn(window, "scrollTo").mockImplementation(() => {})
+}
+afterEach(() => setWidth(1024))
+const rows = (list: HTMLElement) =>
+  within(list).getAllByRole("button", { name: /^API-\d+\b/ })
 
 describe("Evidence", () => {
   it("lists merged items by day and shows the selected one's checks and criteria", async () => {
@@ -180,5 +190,65 @@ describe("Evidence", () => {
         "After STAR merges an item, its screenshots, recordings and test output show here.",
       ),
     ).toBeInTheDocument()
+  })
+
+  it("pages the merged items ten at a time", async () => {
+    const { user } = renderApp("/sphere-api/evidence")
+    const list = await screen.findByRole("region", { name: "Merged items" })
+    await waitFor(() => expect(rows(list)).toHaveLength(10))
+    expect(rows(list)[0]).toHaveAccessibleName(/^API-25\b/)
+    expect(rows(list)[9]).toHaveAccessibleName(/^API-16\b/)
+    const nav = within(list).getByRole("navigation", { name: "Evidence pages" })
+    expect(nav).toHaveTextContent("Page 1 of 3")
+    const firstPage = rows(list)[0]!.closest(".motion-fade-in")
+    await user.click(within(nav).getByRole("button", { name: "Next page" }))
+    expect(rows(list)[0]).toHaveAccessibleName(/^API-15\b/)
+    const secondPage = rows(list)[0]!.closest(".motion-fade-in")
+    expect(secondPage).not.toBeNull()
+    expect(secondPage).not.toBe(firstPage)
+    await user.click(within(nav).getByRole("button", { name: "Next page" }))
+    expect(rows(list)).toHaveLength(5)
+    expect(rows(list)[4]).toHaveAccessibleName(/^API-1\b/)
+  })
+
+  it("opens an item the URL names on the page that holds it", async () => {
+    renderApp("/sphere-api/evidence?item=API-3")
+    const list = await screen.findByRole("region", { name: "Merged items" })
+    expect(await within(list).findByText("Page 3 of 3")).toBeInTheDocument()
+    expect(within(list).getByRole("button", { name: /^API-3\b/ })).toHaveAttribute("aria-current", "true")
+    const detail = screen.getByRole("region", { name: "Evidence detail" })
+    expect(await within(detail).findByRole("heading", { name: "Rate limit change 3" })).toBeInTheDocument()
+  })
+
+  it("truncates a long item name in its row and wraps it in the detail", async () => {
+    const long = "api-rate-limit-the-public-reports-endpoint-per-api-key-and-per-ip-address"
+    getDb().evidence["sphere-api"]![24]!.item = long
+    renderApp(`/sphere-api/evidence?item=${long}`)
+    const list = await screen.findByRole("region", { name: "Merged items" })
+    const name = await within(list).findByText(long)
+    expect(name).toHaveClass("min-w-0", "truncate")
+    expect(name).toHaveAttribute("title", long)
+    expect(name.parentElement).toHaveClass("min-w-0")
+    const detail = screen.getByRole("region", { name: "Evidence detail" })
+    expect(await within(detail).findByText(long)).toHaveClass("break-all")
+  })
+
+  it("on a phone, the list keeps its page while an item is open", async () => {
+    phone()
+    const { user, router } = renderApp("/sphere-api/evidence")
+    const list = await screen.findByRole("region", { name: "Merged items" })
+    expect(screen.queryByRole("region", { name: "Evidence detail" })).not.toBeInTheDocument()
+    const nav = await within(list).findByRole("navigation", { name: "Evidence pages" })
+    await user.click(within(nav).getByRole("button", { name: "Next page" }))
+    await user.click(within(nav).getByRole("button", { name: "Next page" }))
+    await user.click(within(list).getByRole("button", { name: /^API-2\b/ }))
+    const detail = await screen.findByRole("region", { name: "Evidence detail" })
+    expect(await within(detail).findByRole("heading", { name: "Rate limit change 2" })).toBeInTheDocument()
+    expect(router.state.location.search).toBe("?item=API-2")
+    expect(screen.queryByRole("region", { name: "Merged items" })).not.toBeInTheDocument()
+    await user.click(within(detail).getByRole("button", { name: "Back to Evidence" }))
+    const again = await screen.findByRole("region", { name: "Merged items" })
+    expect(within(again).getByText("Page 3 of 3")).toBeInTheDocument()
+    expect(rows(again)[0]).toHaveAccessibleName(/^API-5\b/)
   })
 })

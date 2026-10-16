@@ -216,11 +216,11 @@ export function EvidenceDetailView({
             <GitMerge className="size-3" />
             Merged
           </Badge>
-          <span className="font-mono text-xs text-muted-foreground">
+          <span className="font-mono text-xs break-all text-muted-foreground">
             {d.item}
           </span>
           {d.sha && (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span className="font-mono text-xs break-all text-muted-foreground">
               {d.sha}
             </span>
           )}
