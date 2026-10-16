@@ -27,7 +27,7 @@ test("types.ts holds the module contract exactly", () => {
 });
 
 test("each module's copy holds the same contract", () => {
-  for (const name of ["briefing"]) {
+  for (const name of ["briefing", "chat"]) {
     const text = fs.readFileSync(
       path.join(import.meta.dirname, "..", "modules", name, "types.ts"),
       "utf8",
