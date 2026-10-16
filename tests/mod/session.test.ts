@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On, RenderElement } from 'claude-code'
 
-import { CSWAP_LIST, HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
+import { CSWAP_LIST, CSWAP_LIST_FULL, HOME, LEDGER, QUEUE, ROOT, STAR, ledger } from './fixtures'
 
 const SHA = 'b'.repeat(40)
 const BAND_PROPS = {
@@ -248,6 +248,22 @@ test("the band shows cswap's accounts and its auto-switch, read once a minute", 
   await clock.advance(60_000)
   expect(w.listed).toBe(2)
   expect(await ui.find({ type: 'Text', text: ' auto off' })).toBeDefined()
+  await ui.unmount()
+})
+
+test("the band draws cswap's full payload exactly as the short one", { options: { star_cswap_auto: false } }, async ($, on) => {
+  const { clock, w } = world(on, 'term_A')
+  w.cswap = CSWAP_LIST_FULL
+  w.ps = '/Users/me/.local/bin/cswap auto --threshold 80\n'
+  await start($)
+  await clock.settle()
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  for (const alias of ['personal', 'sphere', 'carol', 'old']) expect(await ui.find({ type: 'Text', text: alias })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '98%' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' ↺ 1d 23h' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' token expired' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' auto on (cswap auto)' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Fable|5d 23h|2026-11-13/ })).toBeUndefined()
   await ui.unmount()
 })
 

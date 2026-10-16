@@ -103,6 +103,39 @@ export type StarAccounts = StarAuto & {
   problem: string
 }
 
+/** One cswap usage window in full, for the dashboard's Accounts page (the band keeps StarAccount). */
+export type AccountWindowDetail = {
+  /** share used, 0 to 100, rounded as the band rounds it */
+  usedPct: number
+  resetsAt: string | null
+  /** cswap's own "1d 23h" */
+  countdown: string | null
+  /** where an even pace would be now, 0 to 100: the pace tick */
+  expectedPct: number | null
+  aheadOfPace: boolean
+  projectedExhaustionAt: string | null
+  willLastToReset: boolean | null
+}
+
+/** One cswap account in full: field for field the dashboard's Account (master plan I-16). */
+export type AccountDetail = {
+  number: number
+  alias: string
+  email: string
+  isActive: boolean
+  isDisabled: boolean
+  /** '' when cswap reads the usage fine; else its usageStatus in words */
+  status: string
+  fiveHour: AccountWindowDetail | null
+  sevenDay: AccountWindowDetail | null
+  /** the limits cswap reports per model (Fable today) */
+  scoped: Array<AccountWindowDetail & { name: string }>
+  loginExpiresAt: string | null
+  usageAgeSeconds: number | null
+  /** the numbers are cswap's last-known ones (lastGoodUsage) */
+  isStale: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     juel: {

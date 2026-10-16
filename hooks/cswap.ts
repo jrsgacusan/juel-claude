@@ -2,12 +2,14 @@
 // (schemaVersion 1, the contract its README documents for scripts) and whether its auto-switch
 // is running for this session's Claude login, from the processes, the menu bar's own settings and
 // the crontab. No `$` here: register.tsx runs the commands and hands their text in.
+// parseAccountDetails reads every account in full for the STAR dashboard's Accounts page; parseAccounts
+// stays what the band draws.
 
-import type { StarAccount, StarAuto } from '../types'
+import type { AccountDetail, AccountWindowDetail, StarAccount, StarAuto } from '../types'
 import type { Parsed } from './star'
 
-type Window = { pct?: unknown; countdown?: unknown } | null | undefined
-type Usage = { fiveHour?: Window; sevenDay?: Window } | null | undefined
+type Window = ({ pct?: unknown; countdown?: unknown } & Record<string, unknown>) | null | undefined
+type Usage = ({ fiveHour?: Window; sevenDay?: Window; scoped?: unknown } & Record<string, unknown>) | null | undefined
 type Row = {
   number?: unknown
   email?: unknown
@@ -17,6 +19,8 @@ type Row = {
   usageStatus?: unknown
   usage?: Usage
   lastGoodUsage?: Usage
+  loginExpiresAt?: unknown
+  usageAgeSeconds?: unknown
 }
 
 /** At or past this share of a window, an account shows when that window resets. */
@@ -25,32 +29,81 @@ export const NEAR_LIMIT = 90
 const pctOf = (w: Window): number | null =>
   w && typeof w.pct === 'number' && Number.isFinite(w.pct) ? Math.round(w.pct) : null
 
+const numberOf = (row: Row): number => (typeof row.number === 'number' ? row.number : 0)
+const emailOf = (row: Row): string => (typeof row.email === 'string' ? row.email : '')
+const aliasOf = (row: Row): string => {
+  const email = emailOf(row)
+  return typeof row.alias === 'string' && row.alias ? row.alias : email.split('@')[0] || `#${numberOf(row)}`
+}
+// Last-known numbers stand in while a fresh reading is unavailable (cswap's own stale-on-error).
+const usageOf = (row: Row): Usage => row.usage ?? row.lastGoodUsage ?? null
+const isStaleRow = (row: Row): boolean => !row.usage && Boolean(row.lastGoodUsage)
+const statusOf = (row: Row): string => {
+  const status = typeof row.usageStatus === 'string' ? row.usageStatus : 'unavailable'
+  return status === 'ok' ? '' : status.replace(/_/g, ' ')
+}
+
 function accountOf(row: Row): StarAccount {
-  const number = typeof row.number === 'number' ? row.number : 0
-  const email = typeof row.email === 'string' ? row.email : ''
-  const alias = typeof row.alias === 'string' && row.alias ? row.alias : email.split('@')[0] || `#${number}`
-  // Last-known numbers stand in while a fresh reading is unavailable (cswap's own stale-on-error).
-  const usage = row.usage ?? row.lastGoodUsage ?? null
-  const fiveHour = pctOf(usage?.fiveHour)
-  const sevenDay = pctOf(usage?.sevenDay)
+  const usage = usageOf(row)
   // The window that keeps the account out is the weekly one when both are spent.
   const spent = [usage?.sevenDay, usage?.fiveHour].find(w => (pctOf(w) ?? 0) >= NEAR_LIMIT)
-  const status = typeof row.usageStatus === 'string' ? row.usageStatus : 'unavailable'
   return {
-    number,
-    alias,
+    number: numberOf(row),
+    alias: aliasOf(row),
     isActive: row.active === true,
     isDisabled: row.disabled === true,
-    fiveHour,
-    sevenDay,
+    fiveHour: pctOf(usage?.fiveHour),
+    sevenDay: pctOf(usage?.sevenDay),
     resets: spent && typeof spent.countdown === 'string' ? spent.countdown : null,
-    isStale: !row.usage && Boolean(row.lastGoodUsage),
-    status: status === 'ok' ? '' : status.replace(/_/g, ' '),
+    isStale: isStaleRow(row),
+    status: statusOf(row),
   }
 }
 
-/** `cswap list --json`, the active account first, then by slot number. */
-export function parseAccounts(text: string): Parsed<StarAccount[]> {
+const strOrNull = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+
+/** A window in full; null unless it is an object with a finite share. */
+function detailOf(w: unknown): AccountWindowDetail | null {
+  const used = pctOf(w as Window)
+  if (used === null) return null
+  const x = w as Record<string, unknown>
+  return {
+    usedPct: used,
+    resetsAt: strOrNull(x.resetsAt),
+    countdown: strOrNull(x.countdown),
+    expectedPct: typeof x.expectedPct === 'number' && Number.isFinite(x.expectedPct) ? x.expectedPct : null,
+    aheadOfPace: x.aheadOfPace === true,
+    projectedExhaustionAt: strOrNull(x.projectedExhaustionAt),
+    willLastToReset: typeof x.willLastToReset === 'boolean' ? x.willLastToReset : null,
+  }
+}
+
+function accountDetailOf(row: Row): AccountDetail {
+  const usage = usageOf(row)
+  const scoped: AccountDetail['scoped'] = []
+  for (const entry of Array.isArray(usage?.scoped) ? (usage.scoped as unknown[]) : []) {
+    const name = (entry as { name?: unknown } | null)?.name
+    const window = detailOf(entry)
+    if (typeof name === 'string' && name && window) scoped.push({ ...window, name })
+  }
+  return {
+    number: numberOf(row),
+    alias: aliasOf(row),
+    email: emailOf(row),
+    isActive: row.active === true,
+    isDisabled: row.disabled === true,
+    status: statusOf(row),
+    fiveHour: detailOf(usage?.fiveHour),
+    sevenDay: detailOf(usage?.sevenDay),
+    scoped,
+    loginExpiresAt: strOrNull(row.loginExpiresAt),
+    usageAgeSeconds: typeof row.usageAgeSeconds === 'number' && Number.isFinite(row.usageAgeSeconds) ? row.usageAgeSeconds : null,
+    isStale: isStaleRow(row),
+  }
+}
+
+/** The accounts of a `cswap list --json` payload, or why it cannot be read. */
+function rowsOf(text: string): Parsed<Row[]> {
   let data: unknown
   try {
     data = JSON.parse(text)
@@ -61,7 +114,23 @@ export function parseAccounts(text: string): Parsed<StarAccount[]> {
   const d = data as { schemaVersion?: unknown; accounts?: unknown; error?: { message?: unknown } | null }
   if (d.error) return { ok: false, why: `cswap: ${typeof d.error.message === 'string' ? d.error.message : 'error'}` }
   if (d.schemaVersion !== 1 || !Array.isArray(d.accounts)) return { ok: false, why: 'cswap list --json: an unknown schema' }
-  const accounts = (d.accounts as Row[]).map(accountOf)
+  return { ok: true, value: d.accounts as Row[] }
+}
+
+/** `cswap list --json`, the active account first, then by slot number. */
+export function parseAccounts(text: string): Parsed<StarAccount[]> {
+  const rows = rowsOf(text)
+  if (!rows.ok) return rows
+  const accounts = rows.value.map(accountOf)
+  accounts.sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.number - b.number)
+  return { ok: true, value: accounts }
+}
+
+/** Every account of `cswap list --json` in full, in the same order, for the dashboard's Accounts page. */
+export function parseAccountDetails(text: string): Parsed<AccountDetail[]> {
+  const rows = rowsOf(text)
+  if (!rows.ok) return rows
+  const accounts = rows.value.map(accountDetailOf)
   accounts.sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.number - b.number)
   return { ok: true, value: accounts }
 }
