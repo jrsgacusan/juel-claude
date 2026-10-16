@@ -471,6 +471,12 @@ out=$(ST brief SPH-40)
 reset; L set SPH-40 state=inbox dispatch=ctx_i119i >/dev/null; show ctx_i119i term_i119i user_owned user_takeover false 1 "$APP" retained
 screen_of term_i119i "※ recap: Fixed the login redirect, opened PR #12 and answered both review threads; the" "  gate is green and the PR waits for the hosted reviewer." "$PROMPT_RULE" "❯" "$PROMPT_RULE" "$PROMPT_FOOT" "  ? for shortcuts"
 out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "kept previous session term_i119i (user_takeover)" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "#119 a recap wrapped onto two rows is still quiet" || fail "#119 wrapped recap ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_i119p >/dev/null; show ctx_i119p term_i119p user_owned user_takeover false 1 "$APP" retained
+screen_of term_i119p "⏺ Opened PR #12." "※ recap: Fixed the login" "  redirect," "  opened PR" "  #12 and" "  answered" "  both review" "  threads; the" "  gate is green," "  waiting." "$PROMPT_RULE" "❯" "$PROMPT_RULE" "$PROMPT_FOOT"
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "kept previous session term_i119p (user_takeover)" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "#119 a recap wrapped onto nine rows is still quiet" || fail "#119 long wrapped recap ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_i119q >/dev/null; show ctx_i119q term_i119q user_owned user_takeover false 1 "$APP" retained
+screen_of term_i119q "※ recap: Opened PR #12." "  waiting for review." "⏺ Now fixing the review comments." "  editing src/login.ts" "$PROMPT_RULE" "❯" "$PROMPT_RULE" "$PROMPT_FOOT"
+out=$(ST brief SPH-40); [ "$out" = "hold session term_i119q (user_takeover)" ] && pass "#119 an old recap with a later turn under it still holds" || fail "#119 old recap with later turn ($out)"
 # a person typing, a turn still running, work output after the recap, or no prompt: the hold stays
 recap_hold() { # recap_hold <name> <row>...
   rh_name=$1; shift
