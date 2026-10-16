@@ -55,4 +55,18 @@ test("a message gets a streamed reply, and create writes the spec and the inbox 
         )
     )
     .toBe(true)
+  const id = new URL(page.url()).searchParams.get("briefing")
+  expect(id).toBeTruthy()
+  await conversation.getByRole("button", { name: "Delete" }).click()
+  await conversation.getByRole("button", { name: "Delete briefing" }).click()
+  await expect(page.getByText('Deleted "Remind owners about unpaid invoices".')).toBeVisible()
+  await expect.poll(() => existsSync(join(e2e().star, "briefings", id!))).toBe(false)
+  expect(starFile("items/sample/remind-owners-about-unpaid-invoices.md")).toContain(
+    "Remind owners about unpaid invoices"
+  )
+  expect(
+    readdirSync(join(e2e().star, "inbox")).some((n) =>
+      starFile(`inbox/${n}`).includes("items/sample/remind-owners-about-unpaid-invoices.md")
+    )
+  ).toBe(true)
 })
