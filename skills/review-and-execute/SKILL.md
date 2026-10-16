@@ -76,6 +76,10 @@ Orchestrates a full review-to-fix cycle: PR review → validate findings → wri
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
 | git repo with a diffable base | context | HARD | `git rev-parse --show-toplevel` | STOP |
 
+## Superpowers skill names
+
+Call each `superpowers:` skill by that name; when the Skill tool answers "Unknown skill", call the same name without the `superpowers:` prefix, and use whichever answered for the rest of the run.
+
 ## Phases
 
 This list is the source for `TaskCreate`: one task per phase, `subject` is the phase name, `activeForm` is its present-continuous form, all created before any other work.
@@ -130,6 +134,8 @@ Skill("pr-review-toolkit:review-pr", args: "all parallel", run_in_background: fa
 ```
 
 > Require `all parallel` mode so the review agents dispatch together instead of one at a time. Read the entire review output and state the finding count before proceeding to phase 2.
+
+Each review agent writes its scratch files only under `<scratchpad>/review-<agent>/` (`<agent>` the agent's name), never in the build's scratchpad root: tell every agent so in its prompt.
 
 **Base branch detection.** If the caller passed an explicit argument, use it. Otherwise, in order:
 `config.baseBranch` → `git config --get claude.baseBranch` →
