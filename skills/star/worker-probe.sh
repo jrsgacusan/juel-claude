@@ -263,9 +263,10 @@ if lines is None:
     newest = newest_message(read)
     if len(newest) <= 400:  # a blocking notice is short; a long message is the worker talking
         lines += newest.splitlines()
+    screen = []
 else:
+    screen = lines  # the whole rendered screen, frames and rules kept, for the API error rule only (#123)
     lines = lines[-25:]
-screen = lines if on_screen else []  # the newest 25 rendered rows, frames and rules kept (#123)
 rows = [l.strip(BOX) for l in lines]
 lines = [l for l in rows if len(l) <= 200]
 
@@ -286,14 +287,15 @@ for label, pattern in PATTERNS:
 def api_error_stall(screen):
     """#123: True when the newest rows above the rendered screen's empty prompt are one Claude Code
     "API Error:" block (its row, then only wrapped rows) that is not retrying, with no turn running.
-    A recap Claude Code printed under the error while the worker sat idle is passed over first."""
+    A recap Claude Code printed under the error while the worker sat idle is passed over however many
+    rows it wraps onto."""
     prompt = next((i for i in range(len(screen) - 2, 0, -1)
                    if re.match(PROMPT_ROW, screen[i]) and re.match(RULE, screen[i - 1]) and re.match(RULE, screen[i + 1])), None)
     if prompt is None or not re.match(EMPTY_PROMPT, screen[prompt]) \
             or any("esc to interrupt" in r for r in screen[prompt + 2:]):
         return False
     above = [r for r in screen[:prompt - 1] if r.strip()]
-    recap = next((j for j in range(len(above) - 1, max(len(above) - 9, -1), -1) if re.match(RECAP, above[j])), None)
+    recap = next((j for j in range(len(above) - 1, -1, -1) if re.match(RECAP, above[j])), None)
     if recap is not None and all(re.match(CONTINUED, r) for r in above[recap + 1:]):
         above = above[:recap]  # the idle terminal's recap, under the error
     head = next((j for j in range(len(above) - 1, -1, -1) if re.match(API_ERROR_ROW, above[j])), None)
