@@ -22,6 +22,8 @@
 #                                        is gone (a moved project) is dropped. init does the same write
 #                                        but prints only the folder; when the registry cannot be read or
 #                                        written it says so on stderr and still succeeds.
+#                                        JUEL_DIR, when set and not empty, is the folder in place of
+#                                        ~/.juel, for the registry and its lock alike.
 # The folder is <main checkout>/<docsRoot>/context/star. The main checkout is the first worktree
 # git lists, so a linked worktree and a subfolder give the same answer. docsRoot follows the
 # plugin's rule: "docsRoot" in .claude/workflow.local.json, else .claude/workflow.json; else
@@ -340,10 +342,21 @@ class RegistryError(Exception):
     pass
 
 
+def juel_dir():
+    return os.environ.get("JUEL_DIR") or os.path.join(os.path.expanduser("~"), ".juel")
+
+
+def registry_label():
+    if os.environ.get("JUEL_DIR"):
+        return os.path.join(os.environ["JUEL_DIR"], "star-homes.json")
+    return "~/.juel/star-homes.json"
+
+
 def register():
-    """List this STAR folder in ~/.juel/star-homes.json, once per home, under a lock beside it.
+    """List this STAR folder in star-homes.json in juel_dir() ($JUEL_DIR, else ~/.juel), once per home,
+    under a lock beside it.
     Returns "registered" (added, or its name or repo changed) or "listed" (already there as it is)."""
-    juel = os.path.join(os.path.expanduser("~"), ".juel")
+    juel = juel_dir()
     os.makedirs(juel, exist_ok=True)
     path = os.path.join(juel, "star-homes.json")
     with open(path + ".lock", "w") as lk:
@@ -408,7 +421,7 @@ if cmd == "register":
     try:
         print(f"{register()} {home}")
     except (OSError, RegistryError) as e:
-        die(1, f"could not register {home} in ~/.juel/star-homes.json ({register_why(e)})")
+        die(1, f"could not register {home} in {registry_label()} ({register_why(e)})")
     sys.exit(0)
 
 
@@ -610,6 +623,6 @@ if inside and git(main, "check-ignore", "-q", os.path.join(home, "star.json")).r
 try:
     register()
 except (OSError, RegistryError) as e:
-    print(f"star-home.sh: could not register {home} in ~/.juel/star-homes.json ({register_why(e)})", file=sys.stderr)
+    print(f"star-home.sh: could not register {home} in {registry_label()} ({register_why(e)})", file=sys.stderr)
 print(home)
 PY
