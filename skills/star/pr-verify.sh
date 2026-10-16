@@ -47,6 +47,7 @@
 # the line is "PENDING hosted-status <check> missing on <head7>" (#59): the hosted reviewer does
 # not run by itself on a new head, so STAR sends the row back to babysit to refresh it. Rules
 # that cannot be read, and a bare --hosted, never print it.
+# When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
@@ -118,6 +119,23 @@ try:
     PAUSE = float(os.environ.get("PR_VERIFY_SLEEP", "1"))
 except ValueError:
     PAUSE = 1.0
+
+
+def use_star_token(home):
+    """GH_TOKEN for the account star.json configures (#137), when this process has none."""
+    if os.environ.get("GH_TOKEN"):
+        return
+    cmd = ["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "gh-token.sh")]
+    if home:
+        cmd += ["--home", home]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+        if proc.returncode == 0:
+            token = proc.stdout.strip()
+            if token and "\n" not in token and "\r" not in token:
+                os.environ["GH_TOKEN"] = token
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def repo_of(url):
@@ -269,6 +287,7 @@ def branch_tip(d):
 
 def main():
     a.head = a.head.strip().lower()
+    use_star_token(a.home)
     d, reviews, checks, comments, state = fetch()
     head = (d.get("headRefOid") or "").lower()
     if state == "OPEN" and len(a.head) >= 7 and head and not head.startswith(a.head):

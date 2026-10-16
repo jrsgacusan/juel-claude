@@ -27,6 +27,7 @@
 # next run of the merge gate says which.
 # Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, or missing
 # arguments.
+# When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
@@ -62,6 +63,23 @@ def run(cmd, timeout=120):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as e:
         return subprocess.CompletedProcess(cmd, 1, "", f"{cmd[0]}: {e}")
+
+
+def use_star_token(home):
+    """GH_TOKEN for the account star.json configures (#137), when this process has none."""
+    if os.environ.get("GH_TOKEN"):
+        return
+    cmd = ["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "gh-token.sh")]
+    if home:
+        cmd += ["--home", home]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+        if proc.returncode == 0:
+            token = proc.stdout.strip()
+            if token and "\n" not in token and "\r" not in token:
+                os.environ["GH_TOKEN"] = token
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 def first(proc):
@@ -137,6 +155,7 @@ words = " ".join((fm.group(2) if fm else "").split())
 if not date or not words:
     out(f"FAIL grant: no date or no words in {grant}")
 words = words if len(words) <= 500 else words[:497] + "..."
+use_star_token(home)
 r = run(["gh", "repo", "view", url.group(1), "--json", ",".join(k for k, _ in METHODS)], 60)
 allowed = as_json(r)
 if allowed is None:

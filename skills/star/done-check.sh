@@ -17,6 +17,7 @@
 # with <remote> origin when <repo> has origin/<PR base>, else the one remote that has it, the way
 # codex-gate.sh post-pass picks it. Anything but "OK carried from ..." prints
 # "MISMATCH review: not carried: <why>". With no repo in star.json, review-proof.sh's line stands.
+# When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 # Exit 64 on bad usage.
 STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
@@ -37,6 +38,23 @@ def out(line):
 def die(msg):
     print(f"done-check.sh: {msg}", file=sys.stderr)
     sys.exit(64)
+
+
+def use_star_token(home):
+    """GH_TOKEN for the account star.json configures (#137), when this process has none."""
+    if os.environ.get("GH_TOKEN"):
+        return
+    cmd = ["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "gh-token.sh")]
+    if home:
+        cmd += ["--home", home]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+        if proc.returncode == 0:
+            token = proc.stdout.strip()
+            if token and "\n" not in token and "\r" not in token:
+                os.environ["GH_TOKEN"] = token
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
 
 home, args, item, pr, head = os.environ.get("STAR_HOME_DEFAULT") or "", sys.argv[1:], None, None, None
@@ -76,6 +94,7 @@ newest = os.path.join(reviews, f"{item}-r{max(rounds)}.md")
 carried = os.path.join(reviews, f"{item}-r{max(rounds)}-carried.md")
 if os.path.isfile(carried):  # the owner shipped the newest round's head with its findings deferred (#82)
     newest = carried
+use_star_token(home)
 try:
     view = subprocess.run(["gh", "pr", "view", pr, "--json", "author,baseRefName,comments,headRefOid"],
                           capture_output=True, text=True, timeout=60)

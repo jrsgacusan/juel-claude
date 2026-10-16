@@ -3,7 +3,7 @@
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPT="$ROOT/skills/star/pr-verify.sh"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); export TMP; trap 'rm -rf "$TMP"' EXIT
 fails=0
 # the merge gate reads ownerApproval from STAR's folder (#124): never the owner's real one from a test
 mkdir -p "$TMP/nohome"; export JUEL_STAR_HOME="$TMP/nohome"
@@ -11,6 +11,7 @@ mkdir -p "$TMP/nohome"; export JUEL_STAR_HOME="$TMP/nohome"
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/gh" <<'EOF'
 #!/bin/sh
+printf '%s %s %s\n' "${GH_TOKEN:-none}" "$1" "$2" >> "$TMP/tokens"
 [ "${STUB_FAIL:-}" = 1 ] && { echo "${STUB_ERR:-HTTP 502}" >&2; exit 1; }
 if [ "$1" = api ]; then
   case "$2" in
@@ -167,6 +168,7 @@ MEMBER_OK='"reviewDecision":"","reviews":[{"author":{"login":"ezra"},"authorAsso
 mg "no hosted reviewer, approved on the head: PASS" "PASS approved" "$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]"
 mg "an approval from someone without write access does not count" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"drive-by\"},\"authorAssociation\":\"CONTRIBUTOR\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"abc1234def\"}}],$GREEN,\"comments\":[$PASSC]"
 mg "no hosted reviewer, no approval: PENDING" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]"
+printf '{%s}\n' "$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
 printf '{%s}\n' "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="$ZERO" sh "$SCRIPT" 5 --head abc1234 --merge-gate)
 [ "$out" = "PENDING approval: none on the current head from someone other than me" ] && echo "ok   an explicit zero rule does not waive STAR's approval" || { echo "FAIL zero rule in merge-gate mode ($out)"; fails=$((fails + 1)); }
@@ -226,6 +228,18 @@ grep '^api graphql ' "$TMP/gh.log" | grep -q -- ' -f owner=o -f name=r -F number
 printf '{%s}\n' "$OK,$BASE,$APPROVED,$GREEN" > "$TMP/pr.json"
 out=$(logged 5 --head abc1234)
 [ "$out" = "PASS" ] && ! grep -q -E 'author|comments|^api graphql ' "$TMP/gh.log" && echo "ok   without --merge-gate it asks gh for no author, no comments and no threads" || { echo "FAIL a plain run asks for more than v1 (got: $out)"; fails=$((fails + 1)); }
+
+# #137: both an explicit --home and the default JUEL_STAR_HOME use star.json's tokenCmd
+TOKEN_HOME="$TMP/token-home"; mkdir -p "$TOKEN_HOME"
+printf '{"tokenCmd":"echo tok_star"}\n' > "$TOKEN_HOME/star.json"
+TOKEN_APPROVAL='"reviewDecision":"","reviews":[{"author":{"login":"ezra"},"authorAssociation":"MEMBER","state":"APPROVED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"}}]'
+printf '{%s}\n' "$OK,$BASE,$AUTHOR,$TOKEN_APPROVAL,$GREEN,\"comments\":[$PASSC]" > "$TMP/pr.json"
+rm -f "$TMP/tokens"
+out=$(env -u GH_TOKEN PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --head abc1234 --merge-gate --home "$TOKEN_HOME")
+case "$out" in PASS*) [ -s "$TMP/tokens" ] && ! grep -v '^tok_star ' "$TMP/tokens" >/dev/null && echo "ok   #137 --merge-gate uses the configured token" || { echo "FAIL #137 --merge-gate token (out=$out tokens=$(cat "$TMP/tokens" 2>/dev/null))"; fails=$((fails + 1)); } ;; *) echo "FAIL #137 --merge-gate token (out=$out tokens=$(cat "$TMP/tokens" 2>/dev/null))"; fails=$((fails + 1));; esac
+rm -f "$TMP/tokens"
+out=$(env -u GH_TOKEN PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" JUEL_STAR_HOME="$TOKEN_HOME" sh "$SCRIPT" 5 --head abc1234)
+[ "$out" = "PASS" ] && [ -s "$TMP/tokens" ] && ! grep -v '^tok_star ' "$TMP/tokens" >/dev/null && echo "ok   #137 plain PR checks use the configured token" || { echo "FAIL #137 plain token (out=$out tokens=$(cat "$TMP/tokens" 2>/dev/null))"; fails=$((fails + 1)); }
 
 # #62: GitHub's head lag right after a push is waited out, not read as MOVED
 SEQ="$TMP/seq"; LAGGED='"state":"OPEN","isDraft":false,"headRefOid":"ffff999000000000000000000000000000000000","headRefName":"feat/x","url":"https://github.com/o/r/pull/5","mergeable":"MERGEABLE","mergeCommit":null'
