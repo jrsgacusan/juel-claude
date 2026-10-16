@@ -1,7 +1,7 @@
 // D1 and D9: the slack: inbox file STAR reads, <UTC YYYYMMDDTHHMMSSZ>-slack-<4 hex>.md in
 // <home>/inbox/. The text goes to a temp file (not *.md, so STAR never reads it) and is hard-linked
 // in under its name: STAR never reads half a file, and the link fails rather than overwrite one.
-// deliver() hands one message over exactly once under the name seen.json reserved for it (S4).
+// deliver() hands one message over, at least once, under the name seen.json reserved for it (S4): STAR's slack-handled.sh drops a repeat.
 import { randomBytes } from 'node:crypto'
 import { link, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -102,13 +102,13 @@ export async function place(dir: string, text: string, first: string, at: Date, 
 }
 
 /**
- * Hands message `id` to the STAR folder `home` as the inbox file `name`, exactly once: a reply STAR
- * already drafted for it (STAR writes the draft before it deletes the inbox file) means it was
- * handed over and nothing is written. A state it cannot read rejects, never guesses. `afterCheck` is
- * a test seam, never passed in production, that runs between the draft check and the link: the
- * window where STAR can ingest a pending hand-over's file and draft it, so the link writes the
- * message again; STAR's `skills/star/slack-handled.sh` drops that copy. Returns the inbox file's
- * name.
+ * Hands message `id` to the STAR folder `home` as the inbox file `name`: a reply STAR already
+ * drafted for it (STAR writes the draft before it deletes the inbox file) means it was handed over
+ * and nothing is written. A state it cannot read rejects, never guesses. This is at least once,
+ * not exactly once: between the draft check and the link, STAR can ingest a pending hand-over's
+ * file and draft it, the name is free again, and the link writes the message a second time;
+ * STAR's `skills/star/slack-handled.sh` drops that copy. `afterCheck` is a test seam into that
+ * window, never passed in production. Returns the inbox file's name.
  */
 export async function deliver(home: string, name: string, id: string, text: string, at: Date = new Date(), afterCheck?: () => Promise<void>): Promise<string> {
   const done = (): Promise<boolean> => drafted(home, id)
