@@ -1,10 +1,10 @@
 // A briefing on disk: <STAR folder>/briefings/<id>/ holding transcript.jsonl and draft.json (brief D7),
 // session (D3, D15) and, once a create starts, created.json (D8).
-import { appendFile, mkdir, readFile, readdir, rename, rm, stat, truncate, writeFile } from 'node:fs/promises'
+import { appendFile, link, mkdir, readFile, readdir, rename, rm, stat, truncate, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
 import { message } from './claude.ts'
-import { isId, newId } from './ids.ts'
+import { hex4, isId, newId } from './ids.ts'
 import { parseTicket } from './ticket.ts'
 import type { Ticket } from './ticket.ts'
 
@@ -15,9 +15,9 @@ export type Created = {
   specPath: string | null
   url: string | null
   at: string
-  /** STAR's inbox file path, recorded before the file is written; null until a path is drawn. */
+  /** The inbox path drawn for the ticket, recorded before its file is written; it may name a file never written when STAR's ledger already had the ticket; null until a path is drawn; absent on a record this module could not read (never resumed). */
   inbox?: string | null
-  /** False while `inbox` is the write-ahead path; true once STAR has the file. Absent on parent records. */
+  /** False on a made record not yet known to be queued (`inbox` null, or the write-ahead path); true once settled (the file written or found, or STAR's ledger names the ticket); absent with a string `inbox` is the parent's queued form, so test it with `=== false`. */
   queued?: boolean
   /**
    * 'creating' is written before anything is made. It stays when a ticket was or may have been made
@@ -55,6 +55,24 @@ export async function writeNew(path: string, content: string): Promise<boolean> 
   } catch (err) {
     if (errCode(err) === 'EEXIST') return false
     throw err
+  }
+}
+
+/** Writes an inbox file through a temp file and hard link, so STAR never reads half a file and the link never overwrites (follow-up M4, as slack/inbox.ts does). */
+export async function linkNew(path: string, content: string): Promise<boolean> {
+  await mkdir(dirname(path), { recursive: true })
+  const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${hex4()}.tmp`)
+  try {
+    await writeFile(tmp, content, { flag: 'wx' })
+    try {
+      await link(tmp, path)
+      return true
+    } catch (err) {
+      if (errCode(err) === 'EEXIST') return false
+      throw err
+    }
+  } finally {
+    await rm(tmp, { force: true })
   }
 }
 
@@ -201,9 +219,9 @@ export async function rewriteCreated(dir: string, created: Created): Promise<voi
   await replaceFile(join(dir, 'created.json'), `${JSON.stringify(created, null, 2)}\n`)
 }
 
-/** Whether a made record is not known to be in STAR's queue yet. */
+/** A made record with a ticket name that STAR is not known to have yet. */
 export function unqueued(created: Created): boolean {
-  return created.inbox === null || (typeof created.inbox === 'string' && created.queued === false)
+  return created.state === 'made' && Boolean(created.ref ?? created.specPath) && (created.inbox === null || (typeof created.inbox === 'string' && created.queued === false))
 }
 
 /** The list title (D8): the draft's title, else the owner's first turn cut to 60 characters. */
