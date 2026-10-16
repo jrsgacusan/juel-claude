@@ -28,6 +28,7 @@ export type Overview = {
   }
   gateDown: null | { since: string | null; why: string | null }
   away: string | null
+  awayPending: "away" | "back" | null
   quietHours: QuietHours | null
 }
 export type LoopOption = { label: string; answer: string; recommended: boolean }
@@ -128,6 +129,8 @@ export type ChangeWhat =
   | "drafts"
   | "slack"
   | "briefings"
+  | "chat"
+  | "accounts"
 export type ChangeEvent = { type: "change"; project?: string; what: ChangeWhat }
 export type BriefingTurn = {
   who: "me" | "agent"
@@ -180,6 +183,7 @@ export type BriefingSummary = {
   title: string
   updatedAt: string
   ref: string | null
+  deletable: boolean
 }
 export type TicketDraft = {
   title: string
@@ -202,3 +206,51 @@ export type CreateRequest = { tracker: Tracker }
 export type CreateResponse =
   { ref: string; url: string | null } | { specPath: string; url: string | null }
 export type ApiErrorBody = { error?: string; message?: string }
+export type ChatMessage = {
+  id: string
+  who: "me" | "star"
+  at: string
+  replyTo: string | null
+  text: string
+}
+export type ChatState = {
+  messages: ChatMessage[]
+  hasMore: boolean
+  starRunning: boolean
+}
+export type ChatSendRequest = { text: string }
+export type ChatSendResponse = { id: string; nudged: boolean }
+export type AwayRequest = { away: boolean }
+export type AwayResponse = { recorded: true; nudged: boolean }
+export type RedraftRequest = { loop: string; how: string }
+export type RedraftResponse = { queued: true }
+export type AccountWindow = {
+  usedPct: number
+  resetsAt: string | null
+  countdown: string | null
+  expectedPct: number | null
+  aheadOfPace: boolean
+  projectedExhaustionAt: string | null
+  willLastToReset: boolean | null
+}
+export type Account = {
+  number: number
+  alias: string
+  email: string
+  isActive: boolean
+  isDisabled: boolean
+  status: string
+  fiveHour: AccountWindow | null
+  sevenDay: AccountWindow | null
+  scoped: Array<AccountWindow & { name: string }>
+  loginExpiresAt: string | null
+  usageAgeSeconds: number | null
+  isStale: boolean
+}
+export type AccountsState = {
+  installed: boolean
+  auto: { state: "on" | "off" | "dry run"; via: string }
+  fetchedAt: string | null
+  problem: string
+  accounts: Account[]
+}

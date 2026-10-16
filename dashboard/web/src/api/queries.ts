@@ -48,6 +48,8 @@ export const keys = {
   search: (q: string, all: boolean, p: string) =>
     ["search", q, all, p] as const,
   file: (url: string) => ["file", url] as const,
+  chat: (p: string) => ["chat", p] as const,
+  accounts: ["accounts"] as const,
 }
 export const retryQuery = (count: number, error: unknown): boolean =>
   !(error instanceof ApiError && error.status < 500) && count < 2

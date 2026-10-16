@@ -103,6 +103,7 @@ const emptyOverview = (): Overview => ({
   workers: { brief: [0, 4], build: [0, 3], babysit: [0, 3] },
   gateDown: null,
   away: null,
+  awayPending: null,
   quietHours: null,
 })
 
@@ -257,6 +258,7 @@ export function createDb(): MockDb {
         workers: { brief: [1, 4], build: [3, 3], babysit: [1, 3] },
         gateDown: null,
         away: null,
+        awayPending: null,
         quietHours: { tz: "Asia/Manila", start: "22:00", end: "07:00" },
       },
       "sphere-api": emptyOverview(),
@@ -646,6 +648,7 @@ export function createDb(): MockDb {
             title: "Pause a member's seat",
             updatedAt: ago(1),
             ref: null,
+            deletable: true,
           },
           briefing: {
             busy: false,
@@ -691,6 +694,7 @@ export function createDb(): MockDb {
             title: "Export reports as CSV",
             updatedAt: ago(60 * 24),
             ref: "SPH-11",
+            deletable: true,
           },
           briefing: {
             busy: false,

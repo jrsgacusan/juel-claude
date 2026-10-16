@@ -89,6 +89,7 @@ export const handlers = [
             workers: { brief: [0, 4], build: [0, 3], babysit: [0, 3] },
             gateDown: null,
             away: null,
+            awayPending: null,
             quietHours: null,
           }
         : getDb().overview[p]
@@ -296,6 +297,7 @@ export const handlers = [
         title: "New briefing",
         updatedAt: new Date().toISOString(),
         ref: null,
+        deletable: true,
       },
       briefing: { turns: [], draft: null, busy: false },
     })
