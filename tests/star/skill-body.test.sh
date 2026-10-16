@@ -756,7 +756,9 @@ S137="Record STAR's own \`gh\` login as \`ghLogin\`"
 S129R='| `held` "the hosted reviewer is not reviewing…" | `retry` | set `hostedDown` to null in `star.json` and close the item'
 S129C='(`grep -cE '\''^[^ ]+ pass [0-9]+ head='\'' HOME_DIR/reviews/<project>/<item>-hosted.log` prints `hostedReviewer.maxPasses`'
 S125='and the reference in `ref` (for a spec path, the path `import` printed)'
+S137S="STAR's own scripts do the same when \`GH_TOKEN\` is unset: \`merge.sh\`, \`pr-verify.sh\`, \`done-check.sh\` and \`codex-gate.sh post-pass\` run gh with the token \`gh-token.sh\` prints"
 has "#137 STAR records its own gh login as ghLogin" "$S137"
+has "#137 STAR's scripts act as the configured account" "$S137S"
 has "#129 retry clears hostedDown and closes the item" "$S129R"
 has "#129 the merge order counts only pass lines" "$S129C"
 has "#125 the row's ref is the imported path" "$S125"

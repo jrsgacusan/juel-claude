@@ -172,6 +172,7 @@ grep -qF 'a worker merges the base in only when the PR conflicts or a gate round
 grep -qF 'A hosted review that reviewed nothing (a usage limit) is not a pass: STAR parks every babysit, asks you once' "$PAGE" && pass "R129 the page says a skipped hosted review parks babysits" || fail "R129 hosted down on the page"
 grep -qF 'The codex gate names every site of a finding class in one finding' "$PAGE" && pass "R131 the page names finding classes" || fail "R131 finding classes on the page"
 grep -qF 'With no <code>tokenCmd</code>, every worker acts as the same GitHub account STAR does.' "$PAGE" && pass "R137 the page says workers act as STAR's account" || fail "R137 ghLogin on the page"
+grep -qF "STAR's own scripts use that account too, whatever account the keyring has active." "$PAGE" && pass "R137b the page says STAR's scripts use the configured account" || fail "R137b STAR's scripts on the page"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
