@@ -293,5 +293,28 @@ out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/m.md" --repo-dir "$R4");
 want=$(printf 'scope docs/decisions/D-1.md\nscope docs/decisions/D-2.md\nscope docs/decisions/D-3.md\nscope src/a.sh\nscope tests/')
 [ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 a line at the label's indent ends a nested block, a to range, a blank line inside a block" || fail "#134 block end (rc=$rc: $out)"
 
+# review fixes for #134
+cat > "$R4/docs/plans/r.md" <<'EOF'
+**Files:**
+- Modify: each of these
+  - `src/a.sh`
+- Modify (rename `run()` to `start()`): `src/c.sh`
+- Create: `docs/decisions/D-08.md` through `-11.md`
+- Create: `docs/decisions/E-3.md` through `-1.md`
+- Create: `docs/decisions/F-1.md` through `docs/decisions/F-3.md`
+  Explains why, and names nothing.
+EOF
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/r.md" --repo-dir "$R4"); rc=$?
+want=$(printf 'scope docs/decisions/D-08.md\nscope docs/decisions/D-09.md\nscope docs/decisions/D-10.md\nscope docs/decisions/D-11.md\nscope docs/decisions/E-1.md\nscope docs/decisions/E-2.md\nscope docs/decisions/E-3.md\nscope docs/decisions/F-1.md\nscope docs/decisions/F-2.md\nscope docs/decisions/F-3.md\nscope src/a.sh\nscope src/c.sh')
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 prose labels read their nested bullets, nested parentheses, zero-padded, reversed and full-name ranges" || fail "#134 review forms (rc=$rc: $out)"
+printf '**Files:**\n\t- Modify:\n\t\t- `src/b.sh`\n' > "$R4/docs/plans/t.md"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/t.md" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "scope src/b.sh" ] && pass "#134 a tab-indented label reads its tab-indented bullets" || fail "#134 tabs (rc=$rc: $out)"
+printf '**Files:**\n- Modify:\n' > "$R4/docs/plans/e.md"
+out=$(cd "$TMP" && sh "$SCRIPT" "$R4/docs/plans/e.md" "$BASE4" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "unchecked the plan names no files" ] && pass "#134 a label that names nothing is no entry, so nothing is reverted" || fail "#134 empty label (rc=$rc: $out)"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/e.md" --repo-dir "$R4"); rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && pass "#134 --print on a plan that names nothing prints nothing" || fail "#134 empty --print (rc=$rc: $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
