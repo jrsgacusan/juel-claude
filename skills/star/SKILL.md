@@ -346,7 +346,8 @@ gates/<project>/<item>.json
 releases/<YYYY-MM-DD>-<project>-<item>.md
 evidence/<item>/                     the item's evidence folder, copied from its worktree before worktree-clean.sh removes it
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
-drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack reply STAR drafted: first line "to: slack <channelId> <threadTs, or ts>", then the reply
+drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack draft the dashboard writes before the hand-over: first line "to: slack <channelId> <threadTs, or ts>", then the reply its drafter wrote (nothing more when it failed)
+slack/redraft/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md   a request for the drafter to write a draft again: "draft: <path>", "loop: <id>", "how: <text>" (slack-redraft.sh or the dashboard writes it; the drafter deletes it when done)
 memory/<project>.md
 ```
 
@@ -440,7 +441,8 @@ work gets the answer without waiting for the next tick.
 | a build was lost to a restart | `loops.sh add --kind restart-or-drop --project <p> --item <i> --title "build was interrupted" --body "worktree: <path> (it must be clean before a restart: commit or discard what the interrupted run left)\nOptions: restart / drop"` |
 | a draft is ready | `loops.sh add --kind draft --project <p> --item <i> --title "<what the draft is>" --body "<draft path>\nOptions: send / drop"` |
 | a worker held an outward action, or a merge waits for something only a person gives | `loops.sh add --kind held --project <p> --item <i> --title "<action, or what the merge waits for>" --body "Options: done"` |
-| an inbox file brought a Slack message (a `slack:` block, the Inbox step) | `loops.sh add --kind slack-reply --project <p> --item slack --title "<from> in <channel>: <first 60 characters of its text>" --body "draft: <draft path>\nmessage: <permalink>\nSuggest: <the reply's first line>\nOptions: send (recommended) / rewrite: <how> / skip"` |
+| an inbox file brought a Slack message whose draft holds a reply (a `slack:` block, the Inbox step's `queue`) | `loops.sh add --kind slack-reply --project <p> --item slack --title "<from> in <channel>: <first 60 characters of its text>" --body "draft: <draft path>\nmessage: <permalink>\nSuggest: <the reply's first line>\nOptions: send (recommended) / rewrite: <how> / skip"` |
+| an inbox file brought a Slack message whose draft holds no reply (the drafter failed, or the Inbox step's `new`) | `loops.sh add --kind slack-reply --project <p> --item slack --title "<from> in <channel>: <first 60 characters of its text>" --body "draft: <draft path>\nmessage: <permalink>\nSuggest: no draft: <why>\nOptions: rewrite: <how> / skip"` |
 
 **A pick.** When STAR adds an item and has a pick, it marks that option in the `Options:` line with a ` (recommended)` suffix (`Options: done (recommended) / can't now`) and adds a body line
 `Suggest: <one line, why>`. A `secret` step never gets either: no suggested value for a secret.
@@ -755,26 +757,32 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    file.
 
    A file with a `slack:` block is a Slack message the dashboard's watcher routed to this project,
-   not a work item: it adds no row. The watcher hands a message over at least once, so the same
+   not a work item: it adds no row. STAR never writes reply text. The dashboard writes the draft
+   before it hands the message over, `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`: its
+   first line `to: slack <channelId> <threadTs>` (the block's `ts` when `threadTs` is `-`), then the
+   reply its drafter wrote, or nothing more when the drafter failed or timed out. The block's
+   `draft:` line names that file, and a `drafterError:` line says why when the drafter failed. The
+   watcher hands a message over at least once, so the same
    message can come again, that day or a later one. After its `repo:` check, before anything else,
    run `sh S/slack-handled.sh --home HOME_DIR <id>` (`<id>` the block's `id`) and act on its line:
    - `handled sent <draft name>` or `handled drafted <draft name>`: STAR already raised this message
-     (drafted a reply and queued it, or sent one).
+     (queued its draft, or sent its reply).
      Delete the file and do nothing else: no draft, no queue item, no notification.
-   - `queue <draft path>`: the draft was written but its item never was (STAR stopped in between).
-     Queue it with the `slack-reply` row of the queue table: `<draft path>` on its `draft:` line, the
-     title and `message:` from this file's block, its Suggest line the reply's first line (the
-     draft's second line). Do not rewrite the draft.
-   - `new`: write the reply as a draft, `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`: its
-     first line `to: slack <channelId> <threadTs>` (the block's `ts` when `threadTs` is `-`), then the
-     reply. The reply is in the owner's voice, at most two sentences, no greeting, and says only
-     what STAR's own files say (ledger states, brief titles, PR numbers); when they do not answer the
-     message, the reply says the owner will check, and so does its Suggest line. Then queue it (the
-     `slack-reply` row of the queue table).
+   - `queue <draft path>`: the draft was written but its item never was (the dashboard writes every
+     draft before the hand-over, or STAR stopped before queueing it). Queue it with the `slack-reply`
+     row of the queue table: `<draft path>` on its `draft:` line, the title and `message:` from this
+     file's block, its Suggest line the reply's first line (the draft's second line). A draft with
+     nothing after its first line holds no reply: queue it with the no-reply row instead, its Suggest
+     line `no draft: <why>` (`<why>` the block's `drafterError:`, else `the drafter wrote no reply`).
+     Do not rewrite the draft.
+   - `new`: no draft file for this message at all (an older dashboard, or the file was removed).
+     Write the draft's first line from this file's block, `to: slack <channelId> <threadTs>` (its
+     `ts` when `threadTs` is `-`), to `HOME_DIR/drafts/<YYYY-MM-DD>-<project>-slack-<id>.md`: a first
+     line, never reply text. Then queue it with the no-reply row, as `queue` does.
    - Anything else (a non-zero exit, or output that is not exactly one of those lines): leave the
      file where it is and queue `--kind held` "slack-handled.sh could not check inbox file <name>; it
-     stays in the inbox until the check succeeds": a failed check neither drafts a second reply nor
-     loses the message.
+     stays in the inbox until the check succeeds": a failed check neither raises the message twice nor
+     loses it.
 
    After `queue` or `new`, delete the file only once `loops.sh add` has printed the item's id. A
    draft or an item that could not be written leaves the file where it is, and the next tick's check
@@ -790,6 +798,8 @@ starts ("Fill slots"), so two sessions never work in one worktree.
          threadTs: <ts, or ->
          from: <display name>
          permalink: <url>
+         draft: <absolute draft path>
+         drafterError: <one line why, only when the drafter failed>
          text: |
            <the message, every line indented four spaces>
          thread: |
@@ -835,7 +845,8 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    `approve`, `no`, `drop`, `drop it`, `drop it please`, `restart`, `send`, `done`, `can't now`,
    `accept`, `retry`, `skip` or `not merging`. For a `go-batch` item, `go except <items>` and `drop <item>` match
    as prefixes, and the names after them compare case-insensitively with the batch's ledger names;
-   for a `slack-reply` item, `rewrite: <how>` matches as a prefix. A trailing ` (recommended)` is
+   for a `slack-reply` item, `rewrite: <how>` and `redraft failed: <why>` match as prefixes, and
+   `redrafted` is a command word too (the dashboard's drafter records both). A trailing ` (recommended)` is
    dropped from an answer before any of this (an answer copied from the Options line).
    So `Drop.` and `restart!` count, while `go, but rename the flag` and `Drop the retry wrapper
    and call the queue directly` do not: anything longer than the bare word is feedback or a
@@ -890,8 +901,10 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
    | `held` "the hosted reviewer is not reviewing…" | `retry` | set `hostedDown` to null in `star.json` and close the item: "Fill slots" starts the parked babysits again (#129) |
-   | `slack-reply` | send | load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
-   | `slack-reply` | `rewrite: <how>` | rewrite the draft's reply as `<how>` asks (the Inbox step's rules for a reply, first line kept), close the item and add the `slack-reply` item again with the new reply's first line on its Suggest line |
+   | `slack-reply` | send | a draft with nothing after its first line has no reply to send: keep the item open, and the status line says `no reply to send for <draft name>: answer rewrite: <how> or skip`. Otherwise load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
+   | `slack-reply` | `rewrite: <how>` | STAR never writes reply text: the dashboard's drafter writes the new version, also for a draft that holds no reply yet. When a request for this item is already waiting (`grep -lx 'loop: <id>' HOME_DIR/slack/redraft/*.md` prints a file), do nothing but the status line below. Otherwise `sh S/slack-redraft.sh --home HOME_DIR --draft <the item's draft: path> --loop <the item's id> --how "<how>"`: `requested <file name>` → keep the item open (do not close it); until its answer changes, the status line says `redrafting <draft name>`. Any other exit (65: the draft file was removed) → keep it open and queue `--kind held` "could not ask for a redraft of <draft name>: <its last line>" |
+   | `slack-reply` | `redrafted` | the drafter wrote the new version: close it and add the `slack-reply` item again with the same `draft:` and `message:` lines, its title without a ` (redraft failed: …)` ending, its Suggest line the draft's new second line (`sed -n 2p <draft path>`), and `Options: send (recommended) / rewrite: <how> / skip` |
+   | `slack-reply` | `redraft failed: <why>` | close it and add it again as it was, with ` (redraft failed: <why>)` at the end of its title, in place of an earlier one |
    | `slack-reply` | skip | close it |
    | `slack-reply` | anything else | close it and add it again with "(answer send, rewrite: <how> or skip)" at the end of its title |
    | `draft`, `held` | anything else | close it |
@@ -1619,6 +1632,10 @@ STAR writes for the user only what shipping needs, and sends none of it by itsel
   the escalation; the user's answer on the escalation is the decision the next babysit run applies.
 - "Draft a status note": STAR writes `HOME_DIR/drafts/<date>-status.md` from the ledger and the
   queue (its own small files) and queues it as `--kind draft`. The user sends it.
+- A Slack reply is never STAR's to write: the dashboard's drafter writes each draft from the
+  project's code, briefs and PRs before the message reaches STAR, and writes it again when the owner
+  answers `rewrite: <how>` (`slack-redraft.sh` asks for it). STAR queues it, posts it on the owner's
+  `send`, and never writes or changes reply text.
 
 ## Memory notes
 
@@ -2055,6 +2072,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   the item's grant, outside quiet hours. No worker merges.
 - Never read review, evidence, log or diff content into this session. One line per fact, from a
   script or a report.
+- STAR never writes Slack reply text: the dashboard's drafter writes every draft and writes it
+  again when asked (`slack-redraft.sh`); STAR queues it and posts it on the owner's `send`.
 - On Claude Code 2.1.287 and later, juel's mod refuses a direct `gh pr merge` in the coordinator and in STAR's workers, and refuses reading review, evidence, report or log files into the coordinator; on any other agent or build these rules hold as written.
 - An item is never built before the owner's go for its batch, or, for a re-scope's follow-up, its
   parent's grant. A go is never inferred.
@@ -2088,6 +2107,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A worker moving the tracker status | Workers never write it; STAR follows the row's state |
 | Pasting ticket text or a project name into an improvement issue | Placeholders only; `star-issue.sh` refuses project details |
 | Opening a report "to check it" before asking for the accept | The queue item carries the path; the user reads it |
+| Writing or editing a Slack reply's text | The dashboard's drafter writes it; `rewrite: <how>` goes to `slack-redraft.sh` |
 | Editing `open-loops.md` with Edit or sed | `loops.sh` only: it keeps what the user typed |
 | Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go, waits out quiet hours and passes `--match-head-commit` |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
@@ -2127,6 +2147,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | A second `/juel:star` in another terminal of the same project | It hands its refs to the running STAR and ends; it never becomes a second coordinator |
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, tell the user to resolve the file, keep workers running |
 | The project is not registered with Orca | `--kind held` "register this repo with Orca: orca repo add"; inbox files stay until it is |
+| The drafter failed or timed out on a Slack message | Its draft holds only the `to:` line: the item says `no draft: <why>` and offers `rewrite: <how>` or `skip`; a `send` is refused |
 | `codex` missing | STAR does not start: the executor and the gate need it (Preflight) |
 | A stage's model is refused at launch (no access, no credits) | The stage falls back to `worker` once and the queue says which model ran |
 | `/juel:star` typed in a linked worktree or a subfolder | The same folder as the main checkout: one STAR per project |

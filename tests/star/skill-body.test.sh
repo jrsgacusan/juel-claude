@@ -687,8 +687,6 @@ g "DASH23 the slack block's thread field" 'threadTs: <ts, or ->'
 g "DASH24 the slack block's channel id" 'channelId: <id>'
 g "DASH25 the slack block's permalink" 'permalink: <url>'
 g "DASH26 a draft for a top-level message names its own ts" '(the block'"'"'s `ts` when `threadTs` is `-`)'
-g "DASH27 the reply's rules" 'at most two sentences, no greeting'
-g "DASH28 a reply STAR cannot answer says the owner will check" 'reply says the owner will check'
 g "DASH29 a slack: file adds no row" 'not a work item: it adds no row'
 g "DASH30 the sent.log line for a Slack reply" '`<iso>\tSTAR\tslack\tslack reply <draft name>`'
 g "DASH31 the reply goes in the message's thread" '(`thread_ts`)'
@@ -701,7 +699,6 @@ g "DASH37 handled: STAR already raised the message" '`handled sent <draft name>`
 g "DASH38 handled: the file is deleted and nothing is raised" 'Delete the file and do nothing else: no draft, no queue item, no notification.'
 g "DASH39 queue: the item is added for the draft already written" '`queue <draft path>`: the draft was written but its item never was'
 g "DASH40 queue: the draft is not rewritten" 'Do not rewrite the draft.'
-g "DASH41 new: the reply is drafted as before" '`new`: write the reply as a draft,'
 g "DASH42 a check that could not run keeps the file" 'Anything else (a non-zero exit, or output that is not exactly one of those lines)'
 g "DASH43 the held item names the file" 'slack-handled.sh could not check inbox file <name>'
 g "DASH44 the file is deleted only once its item is queued" 'delete the file only once `loops.sh add` has printed the item'"'"'s id'
@@ -815,5 +812,31 @@ has "LB3b an away from the dashboard asks nothing in the terminal" 'finds nobody
 has "LB3c part A goes into the chat thread" 'After step 2, post part A into the dashboard'"'"'s chat thread instead'
 has "LB3d it is posted with chat.sh post" '`sh S/chat.sh --home HOME_DIR post --body-file <that file>`'
 has "LB3e not again when already away" 'not when `handoff.sh start` said STAR was already away.'
+# the Slack drafter (spec 3.5)
+has "LB4a STAR never writes reply text; the dashboard drafts first" 'STAR never writes reply text. The dashboard writes the draft before it hands the message over'
+has "LB4b the block's draft and drafterError lines" 'The block'"'"'s `draft:` line names that file, and a `drafterError:` line says why when the drafter failed.'
+has "LB4c new: no draft file at all" '`new`: no draft file for this message at all (an older dashboard, or the file was removed).'
+g "LB4d the no-reply queue row" '--body "draft: <draft path>\nmessage: <permalink>\nSuggest: no draft: <why>\nOptions: rewrite: <how> / skip"'
+has "LB4e the block listing names drafterError" 'drafterError: <one line why, only when the drafter failed>'
+has "LB4f the drafter's answers are command words" '`rewrite: <how>` and `redraft failed: <why>` match as prefixes, and `redrafted` is a command word too'
+has "LB4g rewrite asks the drafter through slack-redraft.sh" '`sh S/slack-redraft.sh --home HOME_DIR --draft <the item'"'"'s draft: path> --loop <the item'"'"'s id> --how "<how>"`'
+has "LB4h the item stays open while it is redrafted" 'keep the item open (do not close it); until its answer changes, the status line says `redrafting <draft name>`'
+has "LB4i a waiting request is not made twice" 'When a request for this item is already waiting'
+g "LB4j the redrafted row" '| `slack-reply` | `redrafted` |'
+has "LB4k redrafted takes the draft's new first reply line" 'its Suggest line the draft'"'"'s new second line (`sed -n 2p <draft path>`)'
+g "LB4l the redraft failed row" '| `slack-reply` | `redraft failed: <why>` |'
+has "LB4m a failed redraft says so on the title" 'with ` (redraft failed: <why>)` at the end of its title'
+has "LB4n Drafts: a Slack reply is never STAR's" 'A Slack reply is never STAR'"'"'s to write'
+g "LB4o the home lists redraft requests" 'slack/redraft/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md'
+has "LB4p hard rule: STAR never writes Slack reply text" '- STAR never writes Slack reply text'
+g "LB4q common mistake: writing reply text" '| Writing or editing a Slack reply'"'"'s text |'
+g "LB4r edge case: the drafter failed" '| The drafter failed or timed out on a Slack message |'
+has "LB4s a send with no reply is refused" 'no reply to send for <draft name>: answer rewrite: <how> or skip'
+grep -qF 'at most two sentences, no greeting' "$SKILL" && fail "LB4t STAR's own reply rules are gone" || pass "LB4t STAR's own reply rules are gone"
+grep -qF 'reply says the owner will check' "$SKILL" && fail "LB4u the owner-will-check reply is gone" || pass "LB4u the owner-will-check reply is gone"
+grep -qF 'rewrite the draft'"'"'s reply as `<how>` asks' "$SKILL" && fail "LB4v STAR no longer rewrites a reply" || pass "LB4v STAR no longer rewrites a reply"
+grep -qF 'a Slack reply STAR drafted' "$SKILL" && fail "LB4w the home listing no longer says STAR drafted" || pass "LB4w the home listing no longer says STAR drafted"
+has "LB4x a draft with no reply takes the no-reply row" 'A draft with nothing after its first line holds no reply: queue it with the no-reply row instead'
+has "LB4y new writes a first line, never reply text" 'a first line, never reply text.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

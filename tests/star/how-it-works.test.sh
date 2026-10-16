@@ -149,7 +149,7 @@ grep -qF 'a direct <code>gh pr merge</code> is refused in STAR'"'"'s session and
 # the STAR dashboard (star-dashboard-server)
 grep -qF '<code>/juel:star dashboard</code> opens one local page for every STAR project on this Mac' "$PAGE" && pass "DASH the page names the dashboard" || fail "DASH dashboard on the page"
 grep -qF 'When STAR has a pick on something it asks you, it marks the option it recommends and says why in one line, never for a secret.' "$PAGE" && pass "DASH the page names STAR picks" || fail "DASH picks on the page"
-grep -qF 'A Slack message the dashboard routes to a project comes to you as a reply STAR drafted in your voice: send it, have it rewritten, or skip it.' "$PAGE" && pass "DASH the page names Slack replies" || fail "DASH Slack replies on the page"
+grep -qF 'A Slack message the dashboard routes to a project comes to you with a reply its drafter (Opus 5.5, read-only) already wrote in your voice from the project'"'"'s code, briefs and PRs: send it, have it rewritten, or skip it. STAR never writes reply text.' "$PAGE" && pass "DASH the page names Slack replies" || fail "DASH Slack replies on the page"
 grep -qF 'STAR raises each Slack message once, even when the dashboard hands it over again.' "$PAGE" && pass "DASH the page says each Slack message is raised once" || fail "DASH a Slack message raised once on the page"
 # the docs copy: docs/star-closed-loop.html changes in the same commit as this page
 DOCS="$ROOT/docs/star-closed-loop.html"
@@ -182,5 +182,9 @@ grep -qF 'or chat with STAR from the dashboard, which answers in the thread' "$P
 grep -qF '>From the dashboard</text>' "$PAGE" && grep -qF '>chat: STAR replies in the thread</text>' "$PAGE" && pass "LB2 the drawing shows chat" || fail "LB2 chat in the drawing"
 grep -qF "The dashboard's Chat page talks to the running STAR: your message reaches STAR's inbox, and it answers in the thread within seconds, acting only through its own rules, so a bare go there is never a go." "$PAGE" && pass "LB2 the page explains chat" || fail "LB2 chat on the page"
 grep -qF 'Its away switch does what <code>/juel:star away</code> and <code>back</code> do, and STAR posts what still needs you into the chat.' "$PAGE" && pass "LB3 the page names the away switch" || fail "LB3 away switch on the page"
+grep -qF 'a reply STAR drafted in your voice' "$PAGE" && fail "LB4 the page no longer says STAR drafts" || pass "LB4 the page no longer says STAR drafts"
+grep -qF '>Slack: drafted before STAR</text>' "$PAGE" && pass "LB4 the drawing shows the drafter" || fail "LB4 drafter in the drawing"
+grep -qF 'and a Slack message the dashboard routes arrives with a reply its drafter already wrote' "$PAGE" && pass "LB4 the drawing's label names the drafter" || fail "LB4 drafter in the aria-label"
+grep -qF '<td>Slack drafter, run by the dashboard</td>' "$PAGE" && pass "LB4 the Models table names the drafter" || fail "LB4 drafter in Models"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
