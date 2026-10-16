@@ -117,5 +117,14 @@ G2=$(mktemp -d); trap 'rm -rf "$G" "$G2"' EXIT
 (cd "$G2" && git init -q . && printf 'superpowers/\n' > .gitignore && mkdir -p tests/superpowers && touch tests/superpowers/a.test.sh)
 rule=$(cd "$G2" && sh -c "$(printf '%s' "$CV" | sed 's|<path>|tests/superpowers/a.test.sh|')" | cut -f1)
 [ -n "$CV" ] && [ "$rule" = ".gitignore:1:superpowers/" ] && pass "#145 the rule in the report comes from the skill's own check-ignore command" || fail "#145 check-ignore -v in a scratch repo (got: $rule)"
+# lane c: #145 every skill that sets up docsRoot anchors its ignore entries
+for s in ship-ticket execute review-and-execute receive-review-and-execute compact-context review-pr; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF 'unanchored `superpowers/`' "$F" && fail "#145 $s: still asks for unanchored entries" || pass "#145 $s: no unanchored entries"
+  tr '\n' ' ' < "$F" | tr -s ' ' | grep -qF '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`.' && pass "#145 $s: names the anchored entries" || fail "#145 $s: anchored entries"
+done
+for s in execute review-and-execute receive-review-and-execute; do
+  grep -qF "printf '/.superpowers/\n'" "$ROOT/skills/$s/SKILL.md" && pass "#145 $s: the ledger's exclude entry is anchored" || fail "#145 $s: the ledger's exclude entry"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

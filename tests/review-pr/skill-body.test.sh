@@ -91,5 +91,9 @@ g "F6b the open-PR preflight row passes the chosen PR" '| open PR | context | SO
 srow "F6c Step 7's skip rule 2 passes the chosen PR" 7 '(`gh pr view $PR_SEL --json number` fails)'
 g "F6d the frontmatter check stays static" 'check: "gh pr view --json number"'
 
+# lane c: #145 the exclude entries are anchored, and an earlier review's unanchored lines are dropped first
+g "C145o the docs root entry comes from docsRoot" 'for d in "${docsRoot#"$ROOT"/}" .superpowers; do'
+g "C145p each entry is appended anchored" "printf '/%s/\n' \"\$d\" >> \"\$EXCLUDE\""
+g "C145q an earlier review's unanchored lines are dropped first" "grep -vxF -e 'superpowers/' -e '.superpowers/' \"\$EXCLUDE\""
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
