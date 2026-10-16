@@ -1113,7 +1113,7 @@ before any review runs, with
 `ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>`
 (#113): the worker merges the base in, runs the sweep and runs the same round again.
 That is not an `ERROR` retry: it counts toward no escalation and casts no `gate.maxRounds` vote.
-A base that moved without touching the branch's files is not acted on. A capacity error is retried
+A base that moved without touching the branch's files is not acted on. Outside babysit's Phase 4 sync before `READY` and STAR's "Sync after the base moved", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with `ERROR base-moved`, never otherwise. A capacity error is retried
 after 60 and 180 seconds. After that, or at once
 when the Codex account is out of usage, the same prompt runs through `gate.fallback`: a headless
 `claude -p` review on Opus at xhigh, with read-only tools and no MCP server. The review's `Gate:`
