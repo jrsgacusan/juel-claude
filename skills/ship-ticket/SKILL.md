@@ -533,7 +533,9 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 
 1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
 2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity
-   (capacity retries, then the fallback model, then this session runs the plan; see Phase 4).
+   (capacity retries, then the fallback model, then this session runs the plan; see Phase 4), or
+   a task fails on a planned file git ignores, whoever ran the plan (Phase 4, "A planned file git
+   ignores").
 3. `verification-failed`: a phase 6 item is still FAIL after one loop back through phase 5.
    Before raising it, when what still fails is a residual that no further change inside this item
    can close (an open-ended input the fix keeps chasing, say), ask the coordinator with
@@ -892,6 +894,17 @@ transcript. If `spawn_agent` is unavailable (the `multi_agent` feature is off), 
 line and apply the plan in this session directly rather than falling back to `codex exec`.
 
 Do not redirect its output to a file — the user watches the executor run in the shell. Wait for it to exit, then state the exit status and files changed before marking the phase done — do not print its full output back into the conversation.
+
+**A planned file git ignores.** After every run of the plan in this skill (this phase, and each
+fix round of the codex gate loop), look in the executor's report for a line that begins
+`task <N> failed: planned file`. One such line means a file the plan needs never reached a
+commit: stop there, before the scope check. Never `git add -f` the file, move it, or edit an
+ignore file to carry on. Under `--unattended` it is
+`ESCALATION item=<item> phase=<n> reason=codex-failed needs=planned file is git-ignored: <path> (<source>:<line>:<pattern>)`,
+copied from that line; interactively, show the line and ask how to go on. When this session runs
+the plan (`--executor session`, or the last step of the capacity rule), it never runs `git add -f`
+either: a path a task's `**Files:**` block names that `git add` refuses as ignored stops the run
+the same way, with the rule from `git check-ignore -v --no-index -- <path>`.
 
 **Scope check.** After the plan ran (codex exited 0, or this session finished it), run
 `sh <scope-check.sh> <the plan> <that sha> --before <the record>` (`scope-check.sh` is next to this

@@ -40,6 +40,8 @@ When invoked, the agent should:
 5. state deviations, blockers, and incomplete items clearly
 
 The executor never runs `git add -f`, and never commits a path the repository ignores.
+A task whose `**Files:**` block names a path the repository ignores fails, and the run stops
+there with `task <N> failed: planned file <path> is git-ignored (<source>:<line>:<pattern>)`.
 
 ## Fix-round plans
 

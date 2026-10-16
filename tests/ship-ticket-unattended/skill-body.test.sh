@@ -326,5 +326,12 @@ printf '/docs/superpowers/\n/.superpowers/\n' > "$IG/.gitignore"
 ig docs/superpowers/plans/p.md && ig .superpowers/sdd/l.md && ! ig tests/superpowers/a.test.sh && ! ig tests/.superpowers/x && pass "C145f the anchored entries ignore the docs root and the scratch folder, and nothing under tests/" || fail "C145f the anchored entries in a scratch repo"
 printf 'superpowers/\n.superpowers/\n' > "$IG/.gitignore"
 ig tests/superpowers/a.test.sh && pass "C145g (control) the old unanchored line ignores tests/superpowers/" || fail "C145g (control) the old unanchored line"
+has "C145h ship-ticket stops on a planned file git ignores" '**A planned file git ignores.** After every run of the plan in this skill'
+has "C145i it reads the executor's failed-task line and stops before the scope check" 'look in the executor'"'"'s report for a line that begins `task <N> failed: planned file`. One such line means a file the plan needs never reached a commit: stop there, before the scope check.'
+has "C145j the escalation it raises" '`ESCALATION item=<item> phase=<n> reason=codex-failed needs=planned file is git-ignored: <path> (<source>:<line>:<pattern>)`'
+has "C145k never forced, moved or unignored" 'Never `git add -f` the file, move it, or edit an ignore file to carry on.'
+has "C145l the escalation list names it" 'or a task fails on a planned file git ignores, whoever ran the plan'
+has "C145m a session run stops the same way" 'a path a task'"'"'s `**Files:**` block names that `git add` refuses as ignored stops the run the same way'
+grep -qF 'task <N> failed: planned file <path> is git-ignored' "$ROOT/assets/codex-skills/claude-plan-executor/SKILL.md" && pass "C145n the executor writes the line ship-ticket reads" || fail "C145n the executor writes the line ship-ticket reads"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
