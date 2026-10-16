@@ -1,7 +1,9 @@
 // D5 for GET /api/slack: a routed message's reply is the project's drafts/*-slack-*.md file whose
-// first line is `to: slack <channelId> <threadTs, or ts>`, and its loop the open slack-reply item of
-// open-loops.md (read through hooks/star.ts) whose body names that draft. A draft with no open item
-// is a finished reply.
+// first line is `to: slack <channelId> <threadTs, or ts>`, and its loop the last open slack-reply
+// item of open-loops.md (read through hooks/star.ts) whose body names that draft. Every message in
+// a thread shares that first line, so a draft named after another message's id is never this
+// message's. A draft with no open item is a finished reply; when open-loops.md is missing or does
+// not parse, a draft counts as open (loopId null).
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -44,14 +46,16 @@ export async function readOpenReplies(home: string): Promise<OpenReply[] | null>
   return queue.value.needs.filter(need => need.kind === 'slack-reply' && need.answer === '').map(need => ({ id: need.id, body: need.body }))
 }
 
+/** A draft STAR named after one message: <date>-<project>-slack-<channelId>-<ts>.md. */
+const NAMED = /-slack-[A-Za-z0-9]+-\d+\.\d+\.md$/
+
 export function replyOf(message: Message, id: string, drafts: Draft[], loops: OpenReply[] | null): Reply {
   const to = `to: slack ${message.channelId} ${message.threadTs ?? message.ts}`
   const matching = drafts.filter(draft => draft.to === to)
-  const draft = matching.find(d => d.name.endsWith(`-slack-${id}.md`)) ?? matching[matching.length - 1]
+  const draft = matching.find(d => d.name.endsWith(`-slack-${id}.md`)) ?? matching.filter(d => !NAMED.test(d.name)).at(-1)
   if (!draft) return { draftPath: null, loopId: null, finished: false }
   const draftPath = `drafts/${draft.name}`
   if (loops === null) return { draftPath, loopId: null, finished: false }
-  const open = loops.filter(loop => loop.body.some(line => line.includes(draft.name)))
-  const loop = open[open.length - 1]
+  const loop = loops.findLast(open => open.body.some(line => line.includes(draft.name)))
   return loop ? { draftPath, loopId: loop.id, finished: false } : { draftPath, loopId: null, finished: true }
 }

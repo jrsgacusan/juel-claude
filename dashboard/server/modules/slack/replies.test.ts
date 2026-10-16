@@ -34,9 +34,23 @@ test('a rewrite re-adds the item: the last open one is the loop', () => {
   assert.equal(replyOf(msg(), ID, [DRAFT], open).loopId, 'N-9')
 })
 
-test('a thread reply matches the draft addressed to its thread', () => {
-  const reply = msg({ ts: '1700000005.000000', threadTs: '1700000000.000100' })
-  assert.equal(replyOf(reply, 'C1-1700000005.000000', [DRAFT], null).draftPath, `drafts/${NAME}`)
+test("a message in a thread takes only its own draft, never another message's", () => {
+  const T = '1700000000.000100'
+  const reply = msg({ ts: '1700000005.000000', threadTs: T })
+  const replyId = 'C1-1700000005.000000'
+  const own = { name: '2026-10-16-app-slack-C1-1700000005.000000.md', to: `to: slack C1 ${T}` }
+  const later = { name: '2026-10-16-app-slack-C1-1700000009.000000.md', to: `to: slack C1 ${T}` }
+  // DRAFT is the thread's first message's reply: this message has no draft yet.
+  assert.deepEqual(replyOf(reply, replyId, [DRAFT], null), { draftPath: null, loopId: null, finished: false })
+  assert.deepEqual(replyOf(reply, replyId, [DRAFT], []), { draftPath: null, loopId: null, finished: false })
+  assert.equal(replyOf(reply, replyId, [DRAFT, own], null).draftPath, `drafts/${own.name}`)
+  // A later reply's draft in the same thread does not stand in for this one's.
+  const loops = [{ id: 'N-4', body: [`draft: drafts/${own.name}`] }]
+  assert.deepEqual(replyOf(reply, replyId, [own, later], loops), { draftPath: `drafts/${own.name}`, loopId: 'N-4', finished: false })
+  assert.deepEqual(replyOf(reply, replyId, [later], loops), { draftPath: null, loopId: null, finished: false })
+  // A draft named after no message still matches by its first line.
+  const plain = { name: '2026-10-16-app-slack-thread.md', to: `to: slack C1 ${T}` }
+  assert.equal(replyOf(reply, replyId, [plain], null).draftPath, `drafts/${plain.name}`)
   assert.equal(replyOf(msg({ channelId: 'C2' }), 'C2-1700000000.000100', [DRAFT], null).draftPath, null)
 })
 
