@@ -21,6 +21,7 @@ function twentyFive(
   statusOf: (n: number) => ItemStatus = (n) =>
     n <= 22 ? "building" : n <= 24 ? "needs-you" : "merged"
 ): ItemDetail[] {
+  const updated = new Date().toISOString()
   return Array.from({ length: 25 }, (_, i) => {
     const n = i + 1
     const id = `R-${String(n).padStart(2, "0")}`
@@ -34,7 +35,7 @@ function twentyFive(
         worktree: `/Users/owner/code/sphere-app/.worktrees/sphere-app/${id.toLowerCase()}-a-branch-name-long-enough-to-wrap`,
         pr: pr ? String(pr) : "-",
         head: null,
-        updated: new Date().toISOString(),
+        updated,
         title: `${n % 2 ? "Export" : "Import"} batch ${n}`,
         status: statusOf(n),
         step: null,
@@ -347,9 +348,9 @@ describe("Progress pages", () => {
     expect(running).toHaveAttribute("aria-selected", "true")
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
       "Running 22",
-      "All 25",
       "Needs you 2",
       "Merged 1",
+      "All 25",
     ])
     expect(rows()).toHaveLength(11)
     expect(pager()).toHaveTextContent("Page 1 of 3")
@@ -425,7 +426,9 @@ describe("Progress pages", () => {
     expect(
       await screen.findByText("Nothing is running right now.")
     ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Show all items" })).toHaveClass("pointer-coarse:h-11")
+    expect(screen.getByRole("button", { name: "Show all items" })).toHaveClass(
+      "pointer-coarse:h-11"
+    )
     await user.click(screen.getByRole("button", { name: "Show all items" }))
     expect(screen.getByRole("tab", { name: /^All\s*25$/ })).toHaveAttribute(
       "aria-selected",
@@ -463,18 +466,37 @@ describe("Progress pages", () => {
     expect(router.state.location.search).toBe("?item=R-11")
   })
 
-  it("shows the table from sm, its cells wrapping until md", async () => {
+  it("shows the table from sm, fixed to its width with the title wrapping", async () => {
     use25()
     renderApp("/sphere-app/progress")
     const table = await screen.findByRole("table")
     expect(
       screen.queryByRole("list", { name: "Items" })
     ).not.toBeInTheDocument()
-    expect(table).toHaveClass("md:min-w-[720px]")
-    expect(table).not.toHaveClass("min-w-[720px]")
+    expect(table).toHaveClass("table-fixed")
+    expect(table.className).not.toMatch(/min-w-/)
     const cell = within(table).getAllByRole("cell")[0] as HTMLElement
-    expect(cell).toHaveClass("md:whitespace-nowrap")
-    expect(cell).not.toHaveClass("whitespace-nowrap")
+    expect(cell).toHaveClass("md:whitespace-normal")
+    expect(cell).not.toHaveClass("md:whitespace-nowrap")
+  })
+
+  it("lists the latest update first", async () => {
+    use25((n) => (n <= 3 ? "merged" : "building"))
+    const items = getDb().items["sphere-app"]!
+    items[0]!.row.updated = "2026-01-01T00:00:00Z"
+    items[1]!.row.updated = "2026-03-01T00:00:00Z"
+    items[2]!.row.updated = "2026-02-01T00:00:00Z"
+    const { user } = renderApp("/sphere-app/progress")
+    await user.click(await screen.findByRole("tab", { name: /^Merged/ }))
+    expect(
+      rows()
+        .slice(1)
+        .map((r) => within(r).getByRole("button").getAttribute("aria-label"))
+    ).toEqual([
+      "R-02 Import batch 2",
+      "R-03 Export batch 3",
+      "R-01 Export batch 1",
+    ])
   })
 
   it("lets the tabs scroll and puts the stat cards in two columns", async () => {
@@ -483,7 +505,8 @@ describe("Progress pages", () => {
     expect(summary).toHaveClass("grid-cols-2")
     expect(summary).toHaveClass("lg:grid-cols-4")
     expect(screen.getByRole("tablist").parentElement).toHaveClass(
-      "overflow-x-auto"
+      "overflow-x-auto",
+      "overflow-y-hidden"
     )
     expect(screen.getByLabelText("Filter items")).toHaveClass(
       "pointer-coarse:h-11"

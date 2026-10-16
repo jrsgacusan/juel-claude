@@ -17,7 +17,7 @@ export function CountTabs<T extends string>({
       onValueChange={(next) => onChange(next as T)}
       className="max-w-full min-w-0"
     >
-      <div className="max-w-full overflow-x-auto overscroll-x-contain">
+      <div className="max-w-full overflow-x-auto overflow-y-hidden overscroll-x-contain">
         <TabsList>
           {tabs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="gap-1.5">

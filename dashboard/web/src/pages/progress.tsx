@@ -37,9 +37,9 @@ import { ItemSheet } from "./progress-sheet"
 
 const TABS: Array<{ id: ProgressTab; label: string }> = [
   { id: "running", label: "Running" },
-  { id: "all", label: "All" },
   { id: "needs", label: "Needs you" },
   { id: "merged", label: "Merged" },
+  { id: "all", label: "All" },
 ]
 
 const matches = (row: ItemRow, q: string) =>
@@ -47,6 +47,8 @@ const matches = (row: ItemRow, q: string) =>
   `${row.ref ?? ""} ${row.item} ${row.title ?? ""}`
     .toLowerCase()
     .includes(q.trim().toLowerCase())
+
+const updatedAt = (row: ItemRow) => Date.parse(row.updated ?? "") || 0
 
 export function ProgressPage() {
   const { project = "" } = useParams()
@@ -348,9 +350,9 @@ function ItemList({
   onOpen: (item: string) => void
   onShowAll: () => void
 }) {
-  const rows = all.filter(
-    (r) => (tab === "all" || TAB_OF[r.status] === tab) && matches(r, q)
-  )
+  const rows = all
+    .filter((r) => (tab === "all" || TAB_OF[r.status] === tab) && matches(r, q))
+    .sort((a, b) => updatedAt(b) - updatedAt(a))
   const { page, pageCount, pageItems, setPage } = usePage(rows, {
     resetKey: `${tab}:${q}`,
   })
@@ -373,74 +375,77 @@ function ItemList({
           />
         )
       ) : (
-        <div className="overflow-x-auto">
-          <Table className="md:min-w-[720px]">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="px-4">Item</TableHead>
-                <TableHead className="px-4">Status</TableHead>
-                <TableHead className="px-4">Current step</TableHead>
-                <TableHead className="px-4">PR</TableHead>
-                <TableHead className="px-4 text-right">Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody key={swap} className="motion-fade-in">
-              {pageItems.map((row) => {
-                const label = itemLabel(row)
-                const title = row.title ?? row.item
-                return (
-                  <TableRow
-                    key={`${row.item}:${row.status}`}
-                    className={cn(
-                      "cursor-pointer",
-                      fresh.has(row.item) && "motion-row-in"
-                    )}
-                    onClick={() => onOpen(row.item)}
-                  >
-                    <TableCell className="px-4 py-3">
-                      <button
-                        type="button"
-                        aria-label={`${label} ${title}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onOpen(row.item)
-                        }}
-                        className="flex flex-col rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                      >
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {label}
-                        </span>
-                        <span className="font-medium">{title}</span>
-                      </button>
-                    </TableCell>
-                    <TableCell className="px-4 py-3">
-                      <StateBadge status={row.status} />
-                    </TableCell>
-                    <TableCell className="px-4 py-3 break-words text-muted-foreground md:max-w-[280px] md:truncate">
-                      {stepText(row.step)}
-                    </TableCell>
-                    <TableCell className="px-4 py-3">
-                      <PrLabel pr={prLabel(row)} />
-                    </TableCell>
-                    <TableCell className="px-4 py-3 text-right text-muted-foreground tabular-nums">
-                      {age(row.updated)}
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-              {rows.length === 0 && (
-                <TableRow>
+        <Table className="table-fixed">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="px-4">Item</TableHead>
+              <TableHead className="w-36 px-4">Status</TableHead>
+              <TableHead className="hidden w-[28%] px-4 lg:table-cell">
+                Current step
+              </TableHead>
+              <TableHead className="w-24 px-4">PR</TableHead>
+              <TableHead className="w-24 px-4 text-right">Updated</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody key={swap} className="motion-fade-in">
+            {pageItems.map((row) => {
+              const label = itemLabel(row)
+              const title = row.title ?? row.item
+              return (
+                <TableRow
+                  key={`${row.item}:${row.status}`}
+                  className={cn(
+                    "cursor-pointer",
+                    fresh.has(row.item) && "motion-row-in"
+                  )}
+                  onClick={() => onOpen(row.item)}
+                >
+                  <TableCell className="px-4 py-3 md:whitespace-normal">
+                    <button
+                      type="button"
+                      aria-label={`${label} ${title}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onOpen(row.item)
+                      }}
+                      className="flex flex-col rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {label}
+                      </span>
+                      <span className="font-medium break-words">{title}</span>
+                    </button>
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    <StateBadge status={row.status} />
+                  </TableCell>
                   <TableCell
-                    colSpan={5}
-                    className="px-4 py-10 text-center text-sm text-muted-foreground"
+                    className="hidden truncate px-4 py-3 text-muted-foreground lg:table-cell"
+                    title={stepText(row.step)}
                   >
-                    <EmptyRows tab={tab} q={q} onShowAll={onShowAll} />
+                    {stepText(row.step)}
+                  </TableCell>
+                  <TableCell className="px-4 py-3">
+                    <PrLabel pr={prLabel(row)} />
+                  </TableCell>
+                  <TableCell className="px-4 py-3 text-right text-muted-foreground tabular-nums">
+                    {age(row.updated)}
                   </TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
+              )
+            })}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell
+                  colSpan={5}
+                  className="px-4 py-10 text-center text-sm text-muted-foreground"
+                >
+                  <EmptyRows tab={tab} q={q} onShowAll={onShowAll} />
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
       )}
       {pageCount > 1 && (
         <div className="border-t px-3 py-2">
