@@ -13,6 +13,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { isPage, PAGE_LABELS, projectPath } from "@/lib/routes"
+import { AccountsChip } from "./accounts-chip"
 import { ThemeSwitch } from "./theme-switch"
 
 export function SiteHeader({
@@ -25,7 +26,7 @@ export function SiteHeader({
   onSearch: () => void
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
+    <header className="sticky top-0 z-20 box-content flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4 md:static">
       <SidebarTrigger className="md:hidden" aria-label="Open the menu" />
       <Separator
         orientation="vertical"
@@ -52,12 +53,13 @@ export function SiteHeader({
           size="sm"
           onClick={onSearch}
           aria-label="Search (⌘K)"
-          className="h-8 w-28 justify-start gap-2 px-2.5 font-normal text-muted-foreground sm:w-64"
+          className="h-8 w-8 justify-center gap-2 px-0 font-normal text-muted-foreground sm:w-64 sm:justify-start sm:px-2.5"
         >
           <Search />
-          <span className="flex-1 truncate text-left">Search</span>
+          <span className="hidden flex-1 truncate text-left sm:inline">Search</span>
           <Kbd className="hidden sm:inline-flex">⌘K</Kbd>
         </Button>
+        <AccountsChip project={project} />
         <ThemeSwitch />
       </div>
     </header>

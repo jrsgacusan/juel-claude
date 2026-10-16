@@ -44,7 +44,7 @@ export function AppLayout() {
   return (
     <SidebarProvider>
       <AppSidebar project={project} page={page} />
-      <SidebarInset className="min-w-0 md:h-[calc(100svh-1rem)] md:overflow-hidden">
+      <SidebarInset className="min-w-0 overflow-x-clip md:h-[calc(100svh-1rem)] md:overflow-hidden">
         <SiteHeader
           project={project}
           page={segment}
