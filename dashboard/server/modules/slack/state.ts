@@ -29,7 +29,7 @@ export type Entry = Message & { seenAt: string; project: string | null; inbox?: 
 export type Seen = Record<string, Entry>
 /** routes.json: channel id to project name, learned only from the owner's routes (D3). */
 export type Routes = Record<string, string>
-export type Status = { connected: boolean; lastCheck: string | null; error: string | null; model: string; workspace: string | null }
+export type Status = { connected: boolean; lastCheck: string | null; error: string | null; model: string; workspace: string | null; stderr: string | null }
 
 export const MINUTE_MS = 60_000
 export const DAY_MS = 24 * 60 * MINUTE_MS
@@ -41,7 +41,7 @@ export class StateError extends Error {}
 export const juelDir = (): string => process.env.JUEL_DIR || join(homedir(), '.juel')
 export const slackDir = (): string => join(juelDir(), 'slack')
 export const idOf = (m: { channelId: string; ts: string }): string => `${m.channelId}-${m.ts}`
-export const defaultStatus = (model: string): Status => ({ connected: false, lastCheck: null, error: null, model, workspace: null })
+export const defaultStatus = (model: string): Status => ({ connected: false, lastCheck: null, error: null, model, workspace: null, stderr: null })
 export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 export const oneLine = (text: string, max = 200): string => text.replace(/\s+/g, ' ').trim().slice(0, max)
 /** The message is still waiting for a project: neither routed nor dropped. */
@@ -144,6 +144,7 @@ export async function readStatus(model: string): Promise<Status> {
     error: typeof data.error === 'string' ? data.error : null,
     model,
     workspace: typeof data.workspace === 'string' ? data.workspace : null,
+    stderr: typeof data.stderr === 'string' ? data.stderr : null,
   }
 }
 export const writeStatus = (status: Status): Promise<void> => writeJson('status.json', status)

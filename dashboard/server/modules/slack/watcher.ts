@@ -14,7 +14,7 @@ import { parseEnvelope } from './parse.ts'
 import { readDrafts, readOpenReplies, replyOf } from './replies.ts'
 import type { Draft, OpenReply } from './replies.ts'
 import { routeMessage, signalsOf } from './route.ts'
-import { loadConfig, readSlackSettings } from './settings.ts'
+import { loadConfig, pluginIds, readSlackSettings } from './settings.ts'
 import type { Config } from './settings.ts'
 import {
   DAY_MS,
@@ -50,7 +50,7 @@ export { loadConfig } from './settings.ts'
 const loadPrompt = (): string => readFileSync(join(HERE, 'prompt.md'), 'utf8')
 
 /** The read-only run: D6, with S1's --settings, --setting-sources and --permission-mode. */
-function argsOf(config: Config): string[] {
+function argsOf(config: Config, plugin: string): string[] {
   return [
     '-p',
     '--model',
@@ -62,7 +62,7 @@ function argsOf(config: Config): string[] {
     '--setting-sources',
     '',
     '--settings',
-    JSON.stringify({ enabledPlugins: { [config.plugin]: true } }),
+    JSON.stringify({ enabledPlugins: { [plugin]: true } }),
     '--allowedTools',
     config.allowedTools.join(','),
     '--disallowedTools',
@@ -91,6 +91,12 @@ function fillPrompt(template: string, since: Date, now: Date): string {
 }
 
 const lastLine = (text: string): string => oneLine(text.trim().split('\n').pop() ?? '')
+
+/** The last n non-blank lines of text, joined with a newline; null when there are none. */
+function lastLines(text: string, n: number): string | null {
+  const lines = text.replaceAll('\r', '').split('\n').map(line => line.trimEnd()).filter(line => line.trim() !== '')
+  return lines.length === 0 ? null : lines.slice(-n).join('\n')
+}
 
 /** Newest Slack ts first. */
 function byTsDesc(a: { ts: string }, b: { ts: string }): number {
@@ -169,16 +175,16 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   let timer: ReturnType<typeof setInterval> | null = null
 
   /** A failed check: status.json gets the error (and connected, when Slack said so); nothing else changes. */
-  async function fail(kind: string, error: string, connected?: boolean): Promise<CheckOutcome> {
+  async function fail(kind: string, error: string, connected?: boolean, stderr: string | null = null): Promise<CheckOutcome> {
     log(`slack check failed: ${kind}`)
     let moved = false
     try {
       moved = await locked(async () => {
         const before = await readStatus(config.model).catch(() => defaultStatus(config.model))
         // D8: when Slack is not connected, no workspace is known.
-        const after: Status = { ...before, connected: connected ?? before.connected, error, ...(connected === false ? { workspace: null } : {}) }
+        const after: Status = { ...before, connected: connected ?? before.connected, error, stderr, ...(connected === false ? { workspace: null } : {}) }
         await writeStatus(after)
-        return after.connected !== before.connected || after.error !== before.error
+        return after.connected !== before.connected || after.error !== before.error || after.stderr !== before.stderr
       })
     } catch (err) {
       log(`slack: status.json could not be written: ${errorText(err)}`)
@@ -253,7 +259,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         await writeUnrouted(unrouted)
         await writeSeen(seen)
       }
-      await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace })
+      await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace, stderr: null })
       return {
         routed: handOver.length - failed - waiting,
         unrouted: added + failed,
@@ -276,17 +282,18 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       return fail('state', errorText(err))
     }
     const since = windowStart(lastCheck, start)
-    const out = await runCli({ bin, args: argsOf(config), cwd: slackDir(), input: fillPrompt(template, since, start), timeoutMs })
+    const out = await runCli({ bin, args: argsOf(config, pluginIds(config, readSlackSettings()).slack), cwd: slackDir(), input: fillPrompt(template, since, start), timeoutMs })
+    const stderr = lastLines(out.stderr, 5)
     if (out.spawnError !== null) return fail('spawn', `claude could not start: ${oneLine(out.spawnError)}`)
-    if (out.timedOut) return fail('timeout', `claude did not answer within ${Math.round(timeoutMs / 1000)} s`)
-    if (out.tooLarge) return fail('output-too-large', 'claude printed more than the watcher reads')
+    if (out.timedOut) return fail('timeout', `claude did not answer within ${Math.round(timeoutMs / 1000)} s`, undefined, stderr)
+    if (out.tooLarge) return fail('output-too-large', 'claude printed more than the watcher reads', undefined, stderr)
     if (out.code !== 0) {
       const how = out.code === null ? `on ${out.signal ?? 'a signal'}` : String(out.code)
-      return fail(`exit ${how}`, `claude exited ${how}${out.stderr.trim() ? `: ${lastLine(out.stderr)}` : ''}`)
+      return fail(`exit ${how}`, `claude exited ${how}${out.stderr.trim() ? `: ${lastLine(out.stderr)}` : ''}`, undefined, stderr)
     }
     const parsed = parseEnvelope(out.stdout)
-    if (parsed.kind === 'disconnected') return fail('not-connected', `Slack is not connected: ${parsed.why}`, false)
-    if (parsed.kind === 'error') return fail(parsed.cli ? 'cli-error' : 'bad-json', parsed.error)
+    if (parsed.kind === 'disconnected') return fail('not-connected', `Slack is not connected: ${parsed.why}`, false, stderr)
+    if (parsed.kind === 'error') return fail(parsed.cli ? 'cli-error' : 'bad-json', parsed.error, undefined, stderr)
     let applied: Applied
     try {
       applied = await apply(parsed.messages, parsed.workspace, start)

@@ -1,5 +1,6 @@
 {
   "plugin": "slack@anthropic-plugin-directory",
+  "linearPlugin": "linear@claude-plugins-official",
   "model": "haiku",
   "timeoutMin": 4,
   "allowedTools": [

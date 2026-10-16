@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { readSlackSettings } from './settings.ts'
+import { installedPlugin, loadConfig, pluginIds, readSlackSettings } from './settings.ts'
 import { slackDir } from './state.ts'
 import { cleanup, world } from './test-helpers.ts'
 import type { World } from './test-helpers.ts'
@@ -59,5 +59,44 @@ test('JUEL_DIR, set and not empty, replaces ~/.juel for dashboard.json and the s
   assert.equal(slackDir(), join(w.home, '.juel', 'slack'))
   assert.equal(readSlackSettings().everyMin, 5)
   delete process.env.JUEL_DIR
+  await cleanup(w)
+})
+
+const installed = async (w: World, plugins: unknown): Promise<void> => {
+  await mkdir(join(w.root, 'claude-config', 'plugins'), { recursive: true })
+  await writeFile(join(w.root, 'claude-config', 'plugins', 'installed_plugins.json'), typeof plugins === 'string' ? plugins : JSON.stringify({ version: 2, plugins }))
+}
+
+test('installedPlugin: the first id with that name and an install, under CLAUDE_CONFIG_DIR', async () => {
+  const w = await world()
+  assert.equal(installedPlugin('slack'), null)
+  await installed(w, {
+    'superpowers@claude-plugins-official': [{ scope: 'user' }],
+    'slack@gone': [],
+    'slack@claude-plugins-official': [{ scope: 'user', installPath: '/x', version: '1.4.1' }],
+    'linear@claude-plugins-official': [{ scope: 'user' }],
+    'slack@later': [{ scope: 'local' }],
+  })
+  assert.equal(installedPlugin('slack'), 'slack@claude-plugins-official')
+  assert.equal(installedPlugin('linear'), 'linear@claude-plugins-official')
+  for (const bad of ['{oops', '[]', JSON.stringify({ plugins: [] })]) {
+    await installed(w, bad)
+    assert.equal(installedPlugin('slack'), null, bad)
+  }
+  delete process.env.CLAUDE_CONFIG_DIR
+  await mkdir(join(w.home, '.claude', 'plugins'), { recursive: true })
+  await writeFile(join(w.home, '.claude', 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'slack@home': [{ scope: 'user' }] } }))
+  assert.equal(installedPlugin('slack'), 'slack@home', 'no CLAUDE_CONFIG_DIR: ~/.claude')
+  await cleanup(w)
+})
+
+test('pluginIds: dashboard.json first, then installed_plugins.json, then config.json (#146)', async () => {
+  const w = await world()
+  const config = loadConfig()
+  const none = { plugin: null, linearPlugin: null }
+  assert.deepEqual(pluginIds(config, none), { slack: 'slack@anthropic-plugin-directory', linear: 'linear@claude-plugins-official' })
+  await installed(w, { 'slack@claude-plugins-official': [{ scope: 'user' }], 'linear@mine': [{ scope: 'user' }] })
+  assert.deepEqual(pluginIds(config, none), { slack: 'slack@claude-plugins-official', linear: 'linear@mine' })
+  assert.deepEqual(pluginIds(config, { plugin: 'slack@set', linearPlugin: 'linear@set' }), { slack: 'slack@set', linear: 'linear@set' })
   await cleanup(w)
 })

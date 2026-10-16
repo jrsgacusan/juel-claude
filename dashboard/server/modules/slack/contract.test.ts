@@ -34,12 +34,14 @@ test('types.ts is the module contract of D1, unchanged', async () => {
 test('config.json pins read-only Slack tools and denies every other tool the connector exposes', async () => {
   const config = JSON.parse(await read('config.json')) as {
     plugin: string
+    linearPlugin: string
     model: string
     timeoutMin: number
     allowedTools: string[]
     disallowedTools: string[]
   }
   assert.equal(config.plugin, 'slack@anthropic-plugin-directory')
+  assert.equal(config.linearPlugin, 'linear@claude-plugins-official')
   assert.equal(config.model, 'haiku')
   assert.equal(config.timeoutMin, 4)
   for (const tool of config.allowedTools) {

@@ -69,6 +69,7 @@ test('a check runs claude read-only from ~/.juel/slack with the window in its pr
     error: null,
     model: 'haiku',
     workspace: 'Acme',
+    stderr: null,
   })
   await cleanup(w)
 })
@@ -164,6 +165,38 @@ async function snapshot(w: World, app: Project): Promise<Record<string, unknown>
   return { seen: await read('seen.json'), routes: await read('routes.json'), unrouted: await read('unrouted.json'), inbox: await inboxFiles(app) }
 }
 
+test('a check enables the installed Slack plugin, and dashboard.json can name another (#146)', async () => {
+  const w = await world()
+  await mkdir(join(w.root, 'claude-config', 'plugins'), { recursive: true })
+  await writeFile(join(w.root, 'claude-config', 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'slack@claude-plugins-official': [{ scope: 'user' }] } }))
+  const slack = createSlack(stub([]).api, { now: () => NOW, everyMs: HOUR })
+  const enabled = async (): Promise<unknown> => {
+    const argv = (await calls(w)).at(-1)?.argv ?? []
+    return JSON.parse(argv[argv.indexOf('--settings') + 1] ?? '')
+  }
+  await slack.check()
+  assert.deepEqual(await enabled(), { enabledPlugins: { 'slack@claude-plugins-official': true } })
+  await mkdir(join(w.home, '.juel'), { recursive: true })
+  await writeFile(join(w.home, '.juel', 'dashboard.json'), JSON.stringify({ slack: { plugin: 'slack@mine' } }))
+  await slack.check()
+  assert.deepEqual(await enabled(), { enabledPlugins: { 'slack@mine': true } })
+  await cleanup(w)
+})
+
+test('a failed run keeps the last 5 lines of its stderr in status.json; a good check clears them (#146)', async () => {
+  const w = await world()
+  await play(w, [{ exit: 1, stderr: 'one\ntwo\nthree\nfour\n\nfive\nsix\nseven\n\n' }])
+  const slack = createSlack(stub([]).api, { now: () => NOW, everyMs: HOUR })
+  await slack.check()
+  const failed = await readState(w, 'status.json')
+  assert.equal(failed.error, 'claude exited 1: seven')
+  assert.equal(failed.stderr, 'three\nfour\nfive\nsix\nseven')
+  await play(w, [answer([])])
+  await slack.check()
+  assert.equal((await readState(w, 'status.json')).stderr, null)
+  await cleanup(w)
+})
+
 const FAILURES: { name: string; scenario: Scenario; connected: boolean; error: RegExp; kind: string; opts?: SlackOptions }[] = [
   {
     name: 'Slack not connected',
@@ -209,6 +242,7 @@ for (const f of FAILURES) {
     assert.equal(status.connected, f.connected)
     assert.match(status.error, f.error)
     assert.equal(status.lastCheck, SEEDED.lastCheck)
+    assert.equal(status.stderr, f.scenario.stderr ? f.scenario.stderr.trim() : null)
     // D8: not connected means no workspace is known; any other failure changes nothing else.
     assert.equal(status.workspace, f.connected ? 'Acme' : null)
     assert.deepEqual(await snapshot(w, app), before)

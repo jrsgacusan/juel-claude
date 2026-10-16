@@ -28,7 +28,7 @@ import {
 
 const NOW = new Date('2026-10-16T12:00:00.000Z')
 const HOUR = 3_600_000
-const DEFAULT_STATUS = { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null }
+const DEFAULT_STATUS = { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null, stderr: null }
 type Listing = { status: unknown; routed: Record<string, unknown>[]; unrouted: Record<string, unknown>[] }
 
 test('the module registers three routes; GET before any check has the default status and empty lists', async () => {
@@ -192,7 +192,7 @@ test('POST /api/slack/check answers when the check ends, and 409 while one runs'
   await release(w)
   assert.deepEqual(await first, {
     status: 200,
-    json: { ok: true, routed: 0, unrouted: 0, status: { connected: true, lastCheck: NOW.toISOString(), error: null, model: 'haiku', workspace: 'Acme' } },
+    json: { ok: true, routed: 0, unrouted: 0, status: { connected: true, lastCheck: NOW.toISOString(), error: null, model: 'haiku', workspace: 'Acme', stderr: null } },
   })
   await cleanup(w)
 })

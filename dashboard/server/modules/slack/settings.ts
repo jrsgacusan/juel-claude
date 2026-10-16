@@ -2,6 +2,7 @@
 // `slack` keys of <JUEL_DIR>/dashboard.json (I-12), read from disk at every call so an edit applies
 // without a restart. A missing or damaged file, or a key of the wrong type, reads as its default.
 import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -9,7 +10,7 @@ import { isObject, juelDir } from './state.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 
-export type Config = { plugin: string; model: string; timeoutMin: number; allowedTools: string[]; disallowedTools: string[] }
+export type Config = { plugin: string; linearPlugin: string; model: string; timeoutMin: number; allowedTools: string[]; disallowedTools: string[] }
 export const loadConfig = (): Config => JSON.parse(readFileSync(join(HERE, 'config.json'), 'utf8')) as Config
 
 export type SlackSettings = {
@@ -50,5 +51,34 @@ export function readSlackSettings(): SlackSettings {
       model: text(drafter.model) ?? 'opus',
       timeoutMin: typeof timeout === 'number' && Number.isFinite(timeout) && timeout > 0 ? timeout : 10,
     },
+  }
+}
+
+/**
+ * The first id, in file order, of `plugins` in <CLAUDE_CONFIG_DIR, else ~/.claude>/plugins/installed_plugins.json
+ * whose part before `@` is `name` and that has an install. Null when there is none (#146).
+ */
+export function installedPlugin(name: string): string | null {
+  try {
+    const dir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude')
+    const data = JSON.parse(readFileSync(join(dir, 'plugins', 'installed_plugins.json'), 'utf8')) as unknown
+    const plugins = isObject(data) ? data.plugins : undefined
+    if (!isObject(plugins)) return null
+    for (const [id, installs] of Object.entries(plugins)) {
+      if (id.split('@')[0] === name && Array.isArray(installs) && installs.length > 0) return id
+    }
+  } catch {
+    // no readable file: no installed plugin
+  }
+  return null
+}
+
+export type PluginIds = { slack: string; linear: string }
+
+/** dashboard.json first, then the installed plugin, then config.json (I-12, spec 3.11). */
+export function pluginIds(config: Pick<Config, 'plugin' | 'linearPlugin'>, settings: Pick<SlackSettings, 'plugin' | 'linearPlugin'>): PluginIds {
+  return {
+    slack: settings.plugin ?? installedPlugin('slack') ?? config.plugin,
+    linear: settings.linearPlugin ?? installedPlugin('linear') ?? config.linearPlugin,
   }
 }

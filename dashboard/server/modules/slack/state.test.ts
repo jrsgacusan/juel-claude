@@ -29,7 +29,7 @@ test('a missing state file is its default, and the folder follows HOME', async (
   assert.deepEqual(await readSeen(), {})
   assert.deepEqual(await readRoutes(), {})
   assert.deepEqual(await readUnrouted(), [])
-  assert.deepEqual(await readStatus('haiku'), { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null })
+  assert.deepEqual(await readStatus('haiku'), { connected: false, lastCheck: null, error: null, model: 'haiku', workspace: null, stderr: null })
   await cleanup(w)
 })
 
@@ -82,7 +82,7 @@ test('a routed entry is pending until delivered; unroute drops its reservation',
 test('writes are atomic: each file is whole and no temp file is left', async () => {
   const w = await world()
   const entry: Entry = { ...msg(), seenAt: NOW.toISOString(), project: null }
-  const status = { connected: true, lastCheck: NOW.toISOString(), error: null, model: 'haiku', workspace: 'Acme' }
+  const status = { connected: true, lastCheck: NOW.toISOString(), error: null, model: 'haiku', workspace: 'Acme', stderr: null }
   await writeSeen({ 'C1-1700000000.000100': entry })
   await writeRoutes({ C9: 'app' })
   await writeStatus(status)
