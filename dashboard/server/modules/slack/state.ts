@@ -29,7 +29,7 @@ export type Routes = Record<string, string>
 export type Status = { connected: boolean; lastCheck: string | null; error: string | null; model: string; workspace: string | null }
 
 export const MINUTE_MS = 60_000
-export const DAY_MS = 24 * MINUTE_MS
+export const DAY_MS = 24 * 60 * MINUTE_MS
 export const KEEP_MS = 30 * DAY_MS
 
 export class StateError extends Error {}
