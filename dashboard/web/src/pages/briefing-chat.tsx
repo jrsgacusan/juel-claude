@@ -156,10 +156,13 @@ export function Conversation({
   const lastMine =
     [...(briefing.data?.turns ?? [])].reverse().find((t) => t.who === "me")
       ?.text ?? ""
+  // A message is in flight until its turn ends (done, error or a refetch says so): the server
+  // takes one turn at a time (briefing D7), so the composer holds the next message until then.
+  const inFlight = pending !== null && pending.failed === null
 
   const submit = async (value: string) => {
     const message = value.trim()
-    if (!message || !id) return
+    if (!message || !id || inFlight) return
     setPendingBriefing(project, id, {
       text: message,
       failed: null,
@@ -227,8 +230,20 @@ export function Conversation({
               </li>
             ))}
           {briefing.isError && (
-            <li role="alert" className="text-sm text-stop-fg">
-              Couldn't load this briefing: {errorMessage(briefing.error)}
+            <li
+              role="alert"
+              className="flex flex-wrap items-center gap-2 text-sm text-stop-fg"
+            >
+              <span className="min-w-0 flex-1 break-words">
+                {`Couldn't load this briefing: ${errorMessage(briefing.error)}. Check that the dashboard server is running, then try again.`}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void briefing.refetch()}
+              >
+                Try again
+              </Button>
             </li>
           )}
           {briefing.data?.turns.length === 0 && !streaming && !showPending && (
@@ -312,7 +327,7 @@ export function Conversation({
               className="size-8 rounded-full"
               aria-label="Send"
               onClick={() => void submit(text)}
-              disabled={send.isPending || !id}
+              disabled={send.isPending || !id || inFlight}
             >
               <ArrowUp />
             </Button>

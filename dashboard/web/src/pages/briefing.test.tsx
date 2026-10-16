@@ -60,13 +60,6 @@ describe("Briefing", () => {
     ).toBeDisabled()
   })
 
-  it("opens the briefing a search result names", async () => {
-    renderApp("/sphere-app/briefing?id=b0")
-    expect(
-      await screen.findByRole("combobox", { name: "Briefing" })
-    ).toHaveTextContent("Export reports as CSV")
-  })
-
   it("streams the agent's turn from briefing events", async () => {
     const { user } = renderApp("/sphere-app/briefing")
     const box = await screen.findByLabelText("Message the briefing agent")
@@ -107,6 +100,68 @@ describe("Briefing", () => {
     expect(
       within(chat).queryByText(/The briefing agent stopped/)
     ).not.toBeInTheDocument()
+  })
+
+  it("opens the briefing a search result names", async () => {
+    renderApp("/sphere-app/briefing?id=b0")
+    expect(
+      await screen.findByRole("combobox", { name: "Briefing" })
+    ).toHaveTextContent("Export reports as CSV")
+  })
+
+  it("holds a second message until the agent has answered", async () => {
+    const { user } = renderApp("/sphere-app/briefing")
+    const box = await screen.findByLabelText("Message the briefing agent")
+    await waitFor(() => expect(getConnection()).toBe("open"))
+    await user.type(box, "Also log who paused it{Enter}")
+    const chat = screen.getByRole("region", { name: "Conversation" })
+    expect(
+      await within(chat).findByText("Also log who paused it")
+    ).toBeInTheDocument()
+    await waitFor(() => expect(box).toHaveValue(""))
+    await user.type(box, "And who resumed it{Enter}")
+    expect(box).toHaveValue("And who resumed it")
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled()
+    expect(
+      await within(chat).findByText(
+        /^Noted: Also log who paused it\./,
+        {},
+        { timeout: 3000 }
+      )
+    ).toBeInTheDocument()
+    expect(
+      b1()?.briefing.turns.some((t) => t.text === "And who resumed it")
+    ).toBe(false)
+    await waitFor(
+      () => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled(),
+      { timeout: 3000 }
+    )
+  })
+
+  it("offers Try again when one briefing cannot be read", async () => {
+    let failing = true
+    server.use(
+      http.get("*/api/projects/:p/briefings/:id", () =>
+        failing
+          ? HttpResponse.json(
+              { error: "transcript.jsonl is not readable" },
+              { status: 502 }
+            )
+          : undefined
+      )
+    )
+    const { user } = renderApp("/sphere-app/briefing")
+    const chat = await screen.findByRole("region", { name: "Conversation" })
+    expect(
+      await within(chat).findByText(
+        /^Couldn't load this briefing: transcript\.jsonl is not readable/
+      )
+    ).toBeInTheDocument()
+    failing = false
+    await user.click(within(chat).getByRole("button", { name: "Try again" }))
+    expect(
+      await within(chat).findByText(/^Admins keep asking to pause/)
+    ).toBeInTheDocument()
   })
 
   it("saves the tracker answer, warns when it is not connected, and creates the ticket", async () => {
