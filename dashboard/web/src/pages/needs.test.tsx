@@ -78,6 +78,18 @@ describe("Needs you", () => {
     expect(within(list).getAllByText("Sent to STAR")).toHaveLength(1)
   })
 
+  it("names a go-batch's items by their ledger name, not a raw spec path (integration brief D5)", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-12"
+    )?.row
+    if (!row) throw new Error("fixture SPH-12 missing")
+    row.ref = "/Users/owner/star/items/sphere-app/sph-12.md"
+    renderApp("/sphere-app/needs?loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(await within(detail).findByText("SPH-12")).toBeInTheDocument()
+    expect(within(detail).queryByText(/sph-12\.md/)).not.toBeInTheDocument()
+  })
+
   it("a loop with no time shows no age", async () => {
     renderApp("/sphere-app/needs?loop=N-39")
     const detail = await screen.findByRole("region", { name: "Answer" })
