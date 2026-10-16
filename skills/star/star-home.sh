@@ -7,7 +7,14 @@
 #                                        prints one "stop <dispatch>" per worker of a removed stage,
 #                                        then "migrated gate" when it moved a v2.0.0 gate to Sol,
 #                                        then "current" or "migrated rows=<n>"
-#   star-home.sh [--cwd <dir>] import <spec path> copy an outside spec and the files beside it into STAR's items
+#   star-home.sh [--cwd <dir>] import <spec path>
+#                                        copy a spec from outside the folder, with each file under the spec's folder that its text
+#                                        names, into items/<project>/<kebab name>[-<n>]/ and print the copy's path; a spec already
+#                                        in the folder prints as given; an earlier copy of the same source is reused, a changed
+#                                        source gets the next -<n>. The name is a folder-safe kebab form. References to copied files
+#                                        with the source's given or real folder prefix are rewritten to the destination; .import.json
+#                                        records that source and digest.
+#                                        Imports take the folder lock.
 #   star-home.sh [--cwd <dir>] register  list the folder in ~/.juel/star-homes.json ({"name", "repo",
 #                                        "home"}, once per home, under a lock): the registry the STAR
 #                                        dashboard reads. Prints "registered <home>" (added or changed)
@@ -40,11 +47,13 @@
 # string "fallback" (v2.0.0's codex fallback) becomes {"agent": "claude", "model": "opus",
 # "effort": "xhigh"}. Any other gate value is the owner's and is left alone. init and migrate both
 # create every folder, evidence/ included (worktree-clean.sh copies a worktree's evidence there).
-# Exit: 0 ok; 1 not inside a usable git checkout, import cannot read or copy its spec, register with no STAR folder or a registry it
-# cannot read or write, a STAR folder migrate cannot read, or ledger.sh or loops.sh failing during
+# Exit: 0 ok; 1 not inside a usable git checkout, import with a spec that is not a readable file, no STAR folder, an unreadable star.json
+# or project name, a named file it cannot read, or a copy that fails, register with no STAR folder or a registry it cannot read or write,
+# a STAR folder migrate cannot read, or ledger.sh or loops.sh failing during
 # migrate (the message names it); 64 usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -418,10 +427,12 @@ if cmd == "import":
     try:
         star_data = json.load(open(star_path, encoding="utf-8"))
     except (OSError, ValueError, TypeError):
-        star_data = {}
+        die(1, f"cannot read the project name from {star_path}")
     project_data = star_data.get("project") if isinstance(star_data, dict) else None
     project = project_data.get("name") if isinstance(project_data, dict) else None
     project = project if isinstance(project, str) and project else os.path.basename(main)
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,59}", project):
+        die(1, f"project name {project} in {star_path} is not a folder name")
     stem = os.path.splitext(os.path.basename(path))[0]
     name = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
     name = re.sub(r"[^A-Za-z0-9._-]", "-", name).lstrip(".-")[:60] or "item"
@@ -438,42 +449,47 @@ if cmd == "import":
     candidates = {}
 
     def add_candidate(candidate):
-        if not candidate or os.path.isabs(candidate) or ".." in candidate.split(os.sep):
+        candidate = candidate.strip().strip("\"'[]()<> ")
+        if not candidate:
             return
-        full = os.path.realpath(os.path.join(real, candidate))
+        candidate = re.split(r"[?#]", candidate, maxsplit=1)[0].rstrip(".,:;!?")
+        if not candidate:
+            return
+        if os.path.isabs(candidate):
+            full = os.path.realpath(candidate)
+        else:
+            if ".." in candidate.replace("\\", "/").split("/"):
+                return
+            full = os.path.realpath(os.path.join(real, candidate))
         if not (full == real or full.startswith(real + os.sep)) or full == spec_real or not os.path.isfile(full):
             return
         candidates[full] = os.path.relpath(full, real)
 
     source_text = text if text is not None else text_bytes.decode("utf-8", "ignore")
-    for match in re.finditer(r"`([^`]+)`|!?\[[^]]*\]\(([^)]+)\)|\S+", source_text):
-        token = next((g for g in match.groups() if g is not None), match.group(0))
-        token = token.strip().rstrip(".,:;!?)")
+    candidate_texts = []
+    candidate_texts.extend(re.findall(r"`([^`]+)`", source_text))
+    candidate_texts.extend(re.findall(r"\]\(\s*([^\s)]+)", source_text))
+    candidate_texts.extend(re.findall(r'"([^"]+)"|\'([^\']+)\'|<([^>]+)>', source_text))
+    candidate_texts.extend(re.findall(r"\S+", source_text))
+    for token in candidate_texts:
+        if isinstance(token, tuple):
+            token = next((part for part in token if part), "")
         add_candidate(token)
     prefixes = sorted({given + os.sep, real + os.sep}, key=len, reverse=True)
     if source_text:
-        pattern = re.compile("|".join(re.escape(x) for x in prefixes))
+        pattern = re.compile(r"(?<![A-Za-z0-9._/~\-])(?:" + "|".join(re.escape(x) for x in prefixes) + r")")
         for match in pattern.finditer(source_text):
             tail = source_text[match.end():]
-            tail = re.split(r"[\s`'\")>]+", tail, maxsplit=1)[0].rstrip(".,:;!?")
-            if tail:
-                full = os.path.realpath(os.path.join(real, tail))
-                if full != spec_real and full.startswith(real + os.sep) and os.path.isfile(full):
-                    candidates[full] = os.path.relpath(full, real)
+            tail = re.split(r"[\s`'\")>\]}]+", tail, maxsplit=1)[0]
+            add_candidate(match.group(0) + tail)
     copies = [(spec_real, os.path.basename(path))] + sorted(candidates.items(), key=lambda kv: kv[1])
-    rewritten_prefixes = sorted(prefixes, key=len, reverse=True)
-    rewrite_re = re.compile("|".join(re.escape(x) for x in rewritten_prefixes))
-
-    def content(src):
-        raw = open(src, "rb").read()
+    source_bytes = {}
+    for src, _ in copies:
         try:
-            decoded = raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return raw
-        return rewrite_re.sub(lambda _: dest + os.sep, decoded).encode("utf-8")
-
+            source_bytes[src] = open(src, "rb").read()
+        except OSError as e:
+            die(1, f"cannot read {src}: {e.strerror}")
     project_dir = os.path.join(home, "items", project)
-    os.makedirs(project_dir, exist_ok=True)
     lock_path = os.path.join(home, "init.lock")
     with open(lock_path, "a") as init_lock:
         fcntl.flock(init_lock, fcntl.LOCK_EX)
@@ -481,24 +497,66 @@ if cmd == "import":
         while True:
             folder_name = name if number == 1 else f"{name}-{number}"
             dest = os.path.join(project_dir, folder_name)
+            rewrite_alternatives = []
+            for src, rel in copies:
+                for prefix in prefixes:
+                    rewrite_alternatives.append((prefix + rel, rel))
+            rewrite_alternatives.sort(key=lambda item: len(item[0]), reverse=True)
+            rewrite_re = re.compile(
+                r"(?<![A-Za-z0-9._/~\-])(?:" + "|".join(re.escape(src) for src, _ in rewrite_alternatives) +
+                r")(?!\.?[A-Za-z0-9_/-])"
+            )
+
+            def content(src):
+                raw = source_bytes[src]
+                try:
+                    decoded = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    return raw
+                return rewrite_re.sub(
+                    lambda match: dest + os.sep + next(rel for src_path, rel in rewrite_alternatives
+                                                       if match.group(0) == src_path), decoded
+                ).encode("utf-8")
+
             expected = {}
             for src, rel in copies:
                 expected[rel] = content(src)
-            if os.path.isdir(dest) and all(os.path.isfile(os.path.join(dest, rel)) and open(os.path.join(dest, rel), "rb").read() == data
-                                           for rel, data in expected.items()):
-                print(os.path.join(dest, os.path.basename(path)))
-                sys.exit(0)
+            digest = hashlib.sha256()
+            for rel, data in sorted(expected.items()):
+                digest.update(rel.encode("utf-8"))
+                digest.update(b"\0")
+                digest.update(data)
+                digest.update(b"\0")
+            metadata = {"source": spec_real, "digest": digest.hexdigest()}
+            if os.path.isdir(dest):
+                metadata_path = os.path.join(dest, ".import.json")
+                if os.path.isfile(metadata_path):
+                    try:
+                        existing = json.load(open(metadata_path, encoding="utf-8"))
+                    except (OSError, ValueError, TypeError):
+                        existing = None
+                    if isinstance(existing, dict) and existing.get("source") == spec_real and existing.get("digest") == metadata["digest"]:
+                        print(os.path.join(dest, os.path.basename(path)))
+                        sys.exit(0)
+                elif all(os.path.isfile(os.path.join(dest, rel)) and open(os.path.join(dest, rel), "rb").read() == data
+                         for rel, data in expected.items()):
+                    print(os.path.join(dest, os.path.basename(path)))
+                    sys.exit(0)
             if os.path.exists(dest):
                 number += 1
                 continue
             tmp = os.path.join(project_dir, f".{folder_name}.tmp.{os.getpid()}")
             try:
+                os.makedirs(project_dir, exist_ok=True)
                 os.makedirs(tmp)
                 for rel, data in expected.items():
                     target = os.path.join(tmp, rel)
                     os.makedirs(os.path.dirname(target), exist_ok=True)
                     with open(target, "wb") as out_file:
                         out_file.write(data)
+                with open(os.path.join(tmp, ".import.json"), "w", encoding="utf-8") as metadata_file:
+                    json.dump(metadata, metadata_file)
+                    metadata_file.write("\n")
                 os.rename(tmp, dest)
             except OSError as e:
                 shutil.rmtree(tmp, ignore_errors=True)

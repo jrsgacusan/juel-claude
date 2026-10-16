@@ -293,7 +293,28 @@ IN="$IH/items/proj/inside.md"; printf -- '---\nstatus: todo\n---\nx\n' > "$IN"
 [ "$(sh "$SCRIPT" --cwd "$IMR" import "$IN")" = "$IN" ] && pass "#125 a spec already inside STAR's folder is printed as is" || fail "#125 inside path"
 before=$(ls -R "$IH/items" | wc -l)
 out4=$(sh "$SCRIPT" --cwd "$IMR" import "$SRC/missing.md" 2>"$TMP/imerr"); rc=$?
-[ "$rc" -ne 0 ] && [ -z "$out4" ] && [ "$(wc -l < "$TMP/imerr" | tr -d ' ')" = 1 ] && [ "$(ls -R "$IH/items" | wc -l)" = "$before" ] && pass "#125 a path that is not a readable file exits non-zero with one line and copies nothing" || fail "#125 missing file (rc=$rc: $out4 / $(cat "$TMP/imerr"))"
+[ "$rc" -eq 1 ] && [ -z "$out4" ] && [ "$(wc -l < "$TMP/imerr" | tr -d ' ')" = 1 ] && grep -q 'is not a readable file' "$TMP/imerr" && [ "$(ls -R "$IH/items" | wc -l)" = "$before" ] && pass "#125 a path that is not a readable file exits non-zero with one line and copies nothing" || fail "#125 missing file (rc=$rc: $out4 / $(cat "$TMP/imerr"))"
+
+# review fixes for #125
+SRC2="$TMP/src2"; mkdir -p "$SRC2/shared" "$TMP/outside"
+printf 'secret\n' > "$TMP/outside/key.txt"; ln -s "$TMP/outside/key.txt" "$SRC2/link.txt"
+printf 'abs only\n' > "$SRC2/shared/abs.md"; printf 'quoted\n' > "$SRC2/contract.json"; printf 'notes\n' > "$SRC2/notes.md"; printf 'keep\n' > "$SRC2/uncopied.log"
+printf -- '---\nstatus: todo\n---\nSee ../outside/key.txt and link.txt.\nOnly absolute: %s/shared/abs.md.\nRead "contract.json" and [notes](notes.md "the notes").\nLeave %s/uncopied.log.bak and /var%s/shared/abs.md alone.\n' "$SRC2" "$SRC2" "$SRC2" > "$SRC2/Review Fix.md"
+D2="$IH/items/proj/review-fix"
+out=$(sh "$SCRIPT" --cwd "$IMR" import "$SRC2/Review Fix.md"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "$D2/Review Fix.md" ] && [ -f "$D2/shared/abs.md" ] && [ -f "$D2/contract.json" ] && [ -f "$D2/notes.md" ] && pass "#125 siblings named only by absolute path, in quotes or as a titled link are copied" || fail "#125 sibling forms ($rc: $out; $(ls -R "$D2" 2>&1 | tr '\n' ' '))"
+[ ! -e "$D2/link.txt" ] && [ -z "$(find "$IH" -name key.txt)" ] && [ ! -e "$IH/items/proj/outside" ] && pass "#125 a ../ name and a symlink that leaves the folder are never copied" || fail "#125 escape ($(find "$IH" -name key.txt))"
+grep -qF "$D2/shared/abs.md" "$D2/Review Fix.md" && grep -qF "$SRC2/uncopied.log.bak" "$D2/Review Fix.md" && grep -qF "/var$SRC2/shared/abs.md" "$D2/Review Fix.md" && pass "#125 only references to copied files are rewritten, never a path that merely contains the folder" || fail "#125 rewrite scope ($(cat "$D2/Review Fix.md"))"
+python3 -c 'import sys; p=sys.argv[1]; t=open(p).read(); open(p,"w").write(t.replace("status: todo","status: in_progress"))' "$D2/Review Fix.md"
+[ "$(sh "$SCRIPT" --cwd "$IMR" import "$SRC2/Review Fix.md")" = "$D2/Review Fix.md" ] && [ ! -e "$IH/items/proj/review-fix-2" ] && pass "#125 a copy STAR edited after the import is still the same source's copy" || fail "#125 edited copy"
+cp "$IH/star.json" "$TMP/star.keep"
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["project"]["name"]="../escaped"; json.dump(d,open(p,"w"))' "$IH/star.json"
+sh "$SCRIPT" --cwd "$IMR" import "$SRC2/Review Fix.md" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 1 ] && [ ! -e "$IH/escaped" ] && [ ! -e "$IH/items/escaped" ] && pass "#125 a project name that is not a folder name exits 1 and writes nothing" || fail "#125 project name (rc=$rc)"
+printf '{broken' > "$IH/star.json"
+sh "$SCRIPT" --cwd "$IMR" import "$SRC2/Review Fix.md" >/dev/null 2>"$TMP/imerr2"; rc=$?
+[ "$rc" -eq 1 ] && [ "$(wc -l < "$TMP/imerr2" | tr -d ' ')" = 1 ] && pass "#125 an unreadable star.json exits 1 with one line" || fail "#125 unreadable star.json (rc=$rc: $(cat "$TMP/imerr2"))"
+cp "$TMP/star.keep" "$IH/star.json"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
