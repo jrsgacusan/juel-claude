@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test"
-import { isPhone, noHorizontalScroll, openApp, openNav } from "./helpers.js"
+import { goInApp, isPhone, noHorizontalScroll, openApp, openNav } from "./helpers.js"
 test("every page fits the width", async ({ page }) => {
   await openApp(page)
   for (const path of [
@@ -10,7 +10,7 @@ test("every page fits the width", async ({ page }) => {
     "/sphere-app/evidence?item=SPH-4",
     "/juel-claude/needs",
   ]) {
-    await page.goto(path)
+    await goInApp(page, path)
     await expect(page.locator("h1, h2").first()).toBeVisible()
     await noHorizontalScroll(page)
   }
@@ -42,7 +42,7 @@ test("makes no request outside its own origin", async ({ page, baseURL }) => {
     "/sphere-app/briefing",
     "/sphere-app/evidence",
   ])
-    await page.goto(path)
+    await goInApp(page, path)
   const offOrigin = urls.filter(
     (url) =>
       !url.startsWith(baseURL ?? "") &&

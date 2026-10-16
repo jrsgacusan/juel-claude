@@ -9,7 +9,7 @@ export type Scenario =
   | "stopped"
   | "slack-off"
 
-/** Sets the mock scenario before load, opens /?t=test-token like the launcher, checks the redirect to /sphere-app/needs, then goes to `path`. */
+/** Sets the mock scenario before load, opens /?t=test-token like the launcher, checks the redirect to /sphere-app/needs, then moves to `path` inside the app (goInApp). */
 export async function openApp(
   page: Page,
   path = "/sphere-app/needs",
@@ -25,7 +25,26 @@ export async function openApp(
   }, scenario)
   await page.goto("/?t=test-token")
   await expect(page).toHaveURL(/\/sphere-app\/needs$/)
-  if (path !== "/sphere-app/needs") await page.goto(path)
+  if (path !== "/sphere-app/needs") await goInApp(page, path)
+}
+
+/**
+ * Moves to `path` inside the app, the way a link does, without loading a new document.
+ * React Router's browser router follows popstate. A full page.goto can hang in development:
+ * MSW's worker sends the navigation request to the page being left, and waits for an answer
+ * that never comes once that page has unloaded.
+ */
+export async function goInApp(page: Page, path: string) {
+  await page.evaluate((to) => {
+    window.history.pushState(null, "", to)
+    window.dispatchEvent(new PopStateEvent("popstate", { state: null }))
+  }, path)
+  await expect
+    .poll(() => {
+      const url = new URL(page.url())
+      return url.pathname + url.search
+    })
+    .toBe(path)
 }
 
 export const isPhone = (page: Page) =>
