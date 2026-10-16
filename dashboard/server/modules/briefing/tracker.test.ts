@@ -94,6 +94,15 @@ test('a local file that is not a JSON object is refused and left as it was', asy
   }
 })
 
+test('an empty or whitespace-only local file counts as {} and takes the answer (D14)', async () => {
+  for (const blank of ['', '  \n\t\n']) {
+    await put('.claude/workflow.local.json', blank)
+    assert.deepEqual(await saveTracker(w.repo, 'github'), { ok: true })
+    assert.deepEqual(await local(), { tracker: { type: 'github' } })
+    assert.deepEqual(await resolveTracker(w.repo), { type: 'github', project: null })
+  }
+})
+
 test('workflow.json wins over the Work Source block', async () => {
   await put('.claude/workflow.json', { tracker: { type: 'jira' } })
   await put('CLAUDE.md', '## Work Source\n- type: linear\n')
