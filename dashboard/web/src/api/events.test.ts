@@ -225,6 +225,41 @@ describe("the event stream", () => {
     expect(call?.predicate?.({ queryKey: ["file", "/x"] })).toBe(false)
     expect(call?.predicate?.({ queryKey: ["loops", "p"] })).toBe(true)
   })
+  it("a reconnect that never answers leaves open, reaches lost, and a later answer brings it back", async () => {
+    useClock()
+    const s = stream()
+    const never = () => new Promise<Response>(() => {})
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(never)
+      .mockImplementationOnce(never)
+      .mockResolvedValue(s.response)
+    const states: string[] = []
+    stops.push(subscribeConnection(() => states.push(getConnection())))
+    stops.push(startEvents(new QueryClient(), { fetchImpl, pingTimeoutMs: 10_000 }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(getConnection()).toBe("connecting")
+    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() => expect(getConnection()).toBe("open"))
+    expect(states.slice(-2)).toEqual(["lost", "open"])
+  })
+  it("a restart from an open stream shows connecting until the new stream answers", async () => {
+    useClock()
+    const [first, second] = [stream(), stream()]
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response)
+    stops.push(startEvents(new QueryClient(), { fetchImpl, pingTimeoutMs: 10_000 }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getConnection()).toBe("open")
+    const states: string[] = []
+    stops.push(subscribeConnection(() => states.push(getConnection())))
+    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.waitFor(() => expect(getConnection()).toBe("open"))
+    expect(states).toEqual(["connecting", "open"])
+  })
   it("reconnects at once, without showing lost, after 35 s with no ping", async () => {
     useClock()
     const [first, second] = [stream(), stream()]
@@ -242,7 +277,7 @@ describe("the event stream", () => {
     await vi.advanceTimersByTimeAsync(1)
     await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2))
     await vi.waitFor(() => expect(getConnection()).toBe("open"))
-    expect(states).toEqual(["open"])
+    expect(states).toEqual(["open", "connecting", "open"])
     expect(PING_TIMEOUT_MS).toBe(35_000)
   })
   it("becoming visible with the stream lost reconnects at once and refetches when it is back", async () => {
