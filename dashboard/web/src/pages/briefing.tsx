@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react"
+import { useState } from "react"
 import { useParams, useSearchParams } from "react-router"
 import { toast } from "sonner"
 import { useBriefings, useNewBriefing } from "@/api/queries"
@@ -12,7 +13,10 @@ import {
 } from "@/components/page-state"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { errorMessage } from "@/lib/errors"
+import { cn } from "@/lib/utils"
+import { FILL_HEIGHT } from "./chat"
 import { Conversation } from "./briefing-chat"
 import { DraftPanel } from "./briefing-draft"
 
@@ -21,6 +25,7 @@ export function BriefingPage() {
   const briefings = useBriefings(project)
   const newBriefing = useNewBriefing(project)
   const [params, setParams] = useSearchParams()
+  const [tab, setTab] = useState<"chat" | "draft">("chat")
 
   const create = async () => {
     try {
@@ -96,16 +101,35 @@ export function BriefingPage() {
           onRetry={() => void briefings.refetch()}
         />
       )}
-      <div className="grid min-h-0 min-w-0 flex-1 md:h-full md:overflow-y-auto lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
-        <Conversation
-          key={id ?? "none"}
-          project={project}
-          id={id}
-          briefings={briefings.data!}
-          onPick={(next) => setParams({ briefing: next })}
-          newButton={newButton}
-        />
-        <DraftPanel key={`draft-${id ?? "none"}`} project={project} id={id} />
+      <div className={cn(FILL_HEIGHT, "flex min-w-0 flex-col")}>
+        <Tabs
+          value={tab}
+          onValueChange={(value) => setTab(value === "draft" ? "draft" : "chat")}
+          className="shrink-0 border-b px-3 py-2 md:hidden"
+        >
+          <TabsList className="w-full">
+            <TabsTrigger value="chat">Chat</TabsTrigger>
+            <TabsTrigger value="draft">Draft</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="grid min-h-0 min-w-0 flex-1 max-md:grid-rows-[minmax(0,1fr)] md:overflow-y-auto lg:grid-cols-[minmax(0,1fr)_400px] lg:overflow-hidden">
+          <Conversation
+            key={id ?? "none"}
+            className={cn(tab !== "chat" && "max-md:hidden")}
+            project={project}
+            id={id}
+            briefings={briefings.data!}
+            onPick={(next) => setParams({ briefing: next })}
+            newButton={newButton}
+            onDeleted={() => setParams({}, { replace: true })}
+          />
+          <DraftPanel
+            key={`draft-${id ?? "none"}`}
+            className={cn(tab !== "draft" && "max-md:hidden")}
+            project={project}
+            id={id}
+          />
+        </div>
       </div>
     </>
   )
