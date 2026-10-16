@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import fsp, { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
-import { afterEach, beforeEach, test } from 'node:test'
+import { basename } from 'node:path'
+import { afterEach, beforeEach, mock, test } from 'node:test'
 
 import { ID_RE } from './ids.ts'
 import { register } from './index.ts'
 import { briefingDir, writeDraft } from './store.ts'
-import { block, calls, cleanup, done, init, play, release, say, stub, until, world } from './test-helpers.ts'
+import { block, calls, cleanup, done, ingest, init, ledgerText, play, release, say, stub, until, world } from './test-helpers.ts'
 import type { Stub, World } from './test-helpers.ts'
 
 const T = { title: 'Retry the sync', description: 'The sync drops on a flaky network.', criteria: ['A failed sync retries once'], outOfScope: ['Backoff tuning'] }
@@ -44,6 +46,10 @@ const settled = (id: string, n = 1) =>
 const withDraft = async (id: string): Promise<void> => {
   await writeDraft(briefingDir(w.home, id)!, T)
 }
+const markMade = async (id: string, extra: Record<string, unknown>): Promise<void> => {
+  await writeFile(join(briefingDir(w.home, id)!, 'created.json'), JSON.stringify({ tracker: 'github', ref: '#42', specPath: null, url: 'https://github.com/o/r/issues/42', at: '2026-10-16T00:00:00.000Z', state: 'made', ...extra }))
+}
+const inboxPath = (): string => join(w.home, 'inbox', '20261016T000000Z-abcd.md')
 
 test('register adds exactly the seven routes', () => {
   assert.deepEqual([...s.routes].sort(), [...ROUTES].sort())
@@ -416,4 +422,159 @@ test('STAR is nudged only once its inbox file is written', async () => {
   await withDraft(id)
   assert.equal((await watching.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })).status, 201)
   assert.deepEqual(counts, [1])
+})
+
+test('STAR finishing the item while created.json cannot record its inbox file never gets a second inbox file', async () => {
+  await play(w, 'gh', [{ stdout: 'https://github.com/o/r/issues/42\n' }])
+  const id = await newBriefing()
+  await withDraft(id)
+  const ingested: string[] = []
+  const inboxNow = async (): Promise<string[]> => readdir(join(w.home, 'inbox')).catch(() => [])
+  const realRename = fsp.rename
+  // Once an inbox file exists, STAR reads it, finishes the item and deletes the file, and only then
+  // does created.json's rewrite fail: the window the interrupted create leaves.
+  mock.method(fsp, 'rename', async (from: string, to: string) => {
+    if (basename(String(to)) === 'created.json' && (await inboxNow()).length > 0) {
+      ingested.push(...(await ingest(w.home, 'done')))
+      throw Object.assign(new Error('EIO: i/o error, rename'), { code: 'EIO' })
+    }
+    return realRename(from, to)
+  })
+  syncBuiltinESMExports()
+  try {
+    assert.equal((await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })).status, 500)
+  } finally {
+    mock.restoreAll()
+    syncBuiltinESMExports()
+  }
+  const again = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(again.status, 201)
+  assert.deepEqual(again.json, { ref: '#42', url: 'https://github.com/o/r/issues/42' })
+  ingested.push(...(await ingest(w.home, 'done')))
+  assert.deepEqual(ingested, ['#42'], 'exactly one inbox file for #42 ever reached STAR')
+  assert.deepEqual(s.nudges, ['proj'])
+  assert.equal((await calls(w, 'gh')).length, 1)
+})
+
+test('a press after a kill that followed the write-ahead writes the one inbox file at the recorded path', async () => {
+  const id = await newBriefing()
+  await markMade(id, { inbox: inboxPath(), queued: false })
+  await mkdir(join(w.home, 'inbox'), { recursive: true })
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(res.status, 201)
+  assert.deepEqual(res.json, { ref: '#42', url: 'https://github.com/o/r/issues/42' })
+  assert.deepEqual(await readdir(join(w.home, 'inbox')), [basename(inboxPath())])
+  assert.equal((await readFile(join(briefingDir(w.home, id)!, 'created.json'), 'utf8')).includes('"queued": true'), true)
+  assert.deepEqual(s.nudges, ['proj'])
+  assert.equal((await calls(w, 'gh')).length, 0)
+})
+
+test('a press after a kill that followed the inbox file writes nothing more', async () => {
+  const id = await newBriefing()
+  await mkdir(join(w.home, 'inbox'), { recursive: true })
+  const content = `repo: ${w.repo}\nrefs:\n- #42\n`
+  await writeFile(inboxPath(), content)
+  await markMade(id, { inbox: inboxPath(), queued: false })
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(res.status, 201)
+  assert.deepEqual(await readdir(join(w.home, 'inbox')), [basename(inboxPath())])
+  assert.equal(await readFile(inboxPath(), 'utf8'), content)
+  assert.deepEqual(s.nudges, ['proj'])
+  assert.equal((await calls(w, 'gh')).length, 0)
+})
+
+test("a press after STAR ingested the file writes nothing, with the item's row open, done or dropped", async () => {
+  for (const state of ['inbox', 'done', 'dropped']) {
+    const id = await newBriefing()
+    await markMade(id, { inbox: inboxPath(), queued: false })
+    await writeFile(join(w.home, 'ledger.md'), ledgerText([{ item: 'issue-42', ref: '#42', state }]))
+    const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+    assert.equal(res.status, 201, state)
+    assert.deepEqual(await readdir(join(w.home, 'inbox')).catch(() => []), [], state)
+    assert.equal(s.nudges.length, state === 'inbox' ? 1 : state === 'done' ? 2 : 3)
+  }
+  assert.equal((await calls(w, 'gh')).length, 0)
+})
+
+test('a press on a made record with inbox: null queues it once', async () => {
+  const id = await newBriefing()
+  await markMade(id, { inbox: null })
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(res.status, 201)
+  const files = await readdir(join(w.home, 'inbox'))
+  assert.equal(files.length, 1)
+  assert.match(await readFile(join(w.home, 'inbox', files[0]), 'utf8'), /- #42\n/)
+  const created = JSON.parse(await readFile(join(briefingDir(w.home, id)!, 'created.json'), 'utf8')) as Record<string, unknown>
+  assert.equal(created.queued, true)
+  assert.equal(typeof created.inbox, 'string')
+  assert.deepEqual(s.nudges, ['proj'])
+  assert.equal((await calls(w, 'gh')).length, 0)
+})
+
+test("a record in the parent's form is queued: a press is 409 and writes nothing", async () => {
+  const id = await newBriefing()
+  await markMade(id, { inbox: inboxPath() })
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(res.status, 409)
+  assert.equal(json(res).error, 'this briefing already made a ticket')
+  assert.deepEqual(await readdir(join(w.home, 'inbox')).catch(() => []), [])
+  assert.deepEqual(s.nudges, [])
+  assert.equal((await calls(w, 'gh')).length, 0)
+})
+
+test('a press with a broken ledger.md is 500 with made, names the ledger and writes nothing', async () => {
+  const id = await newBriefing()
+  await markMade(id, { inbox: inboxPath(), queued: false })
+  await writeFile(join(w.home, 'ledger.md'), '# notes\n')
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(res.status, 500)
+  const body = json(res)
+  assert.equal((body.made as Record<string, unknown>).ref, '#42')
+  assert.ok(String(body.error).includes(join(w.home, 'ledger.md')))
+  assert.deepEqual(await readdir(join(w.home, 'inbox')).catch(() => []), [])
+  const created = JSON.parse(await readFile(join(briefingDir(w.home, id)!, 'created.json'), 'utf8')) as Record<string, unknown>
+  assert.equal(created.queued, false)
+  assert.deepEqual(s.nudges, [])
+  assert.equal((await calls(w, 'gh')).length, 0)
+})
+
+test('after a resume, the next press is 409 and nudges nothing more', async () => {
+  const id = await newBriefing()
+  await markMade(id, { inbox: inboxPath(), queued: false })
+  await mkdir(join(w.home, 'inbox'), { recursive: true })
+  const first = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(first.status, 201)
+  const second = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+  assert.equal(second.status, 409)
+  assert.equal(json(second).error, 'this briefing already made a ticket')
+  assert.deepEqual(s.nudges, ['proj'])
+  assert.equal((await calls(w, 'gh')).length, 0)
+})
+
+test('a press on an inbox: null record whose ticket STAR already has writes nothing, whatever the row\'s state', async () => {
+  for (const state of ['inbox', 'done', 'dropped']) {
+    const id = await newBriefing()
+    await markMade(id, { inbox: null })
+    await writeFile(join(w.home, 'ledger.md'), ledgerText([{ item: 'issue-42', ref: '#42', state }]))
+    const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'github' })
+    assert.equal(res.status, 201, state)
+    assert.deepEqual(await readdir(join(w.home, 'inbox')).catch(() => []), [], state)
+    const created = JSON.parse(await readFile(join(briefingDir(w.home, id)!, 'created.json'), 'utf8')) as Record<string, unknown>
+    assert.equal(created.queued, true, state)
+    assert.equal(s.nudges.length, state === 'inbox' ? 1 : state === 'done' ? 2 : 3, state)
+  }
+  assert.deepEqual(await calls(w, 'gh'), [])
+})
+
+test("a spec record's resume answers 201 with its spec path", async () => {
+  const id = await newBriefing()
+  const specPath = join(w.home, 'items', 'proj', 'retry-the-sync.md')
+  const url = '/api/projects/proj/file?path=items%2Fproj%2Fretry-the-sync.md'
+  await writeFile(join(briefingDir(w.home, id)!, 'created.json'), JSON.stringify({ tracker: 'none', ref: null, specPath, url, at: '2026-10-16T00:00:00.000Z', state: 'made', inbox: null }))
+  const res = await s.call('POST', `/api/projects/proj/briefings/${id}/create`, { tracker: 'none' })
+  assert.equal(res.status, 201)
+  assert.deepEqual(res.json, { specPath, url })
+  const files = await readdir(join(w.home, 'inbox'))
+  assert.equal(files.length, 1)
+  assert.match(await readFile(join(w.home, 'inbox', files[0]), 'utf8'), new RegExp(`- ${specPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`))
 })
