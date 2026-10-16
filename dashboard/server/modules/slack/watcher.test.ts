@@ -370,3 +370,32 @@ test('workspace is the one this answer names: a bare array leaves it null (D8)',
   assert.equal((await readState(w, 'status.json')).workspace, null)
   await cleanup(w)
 })
+
+test('a pending hand-over that cannot be finished stays pending, out of unrouted, until a later check finishes it', async () => {
+  const w = await world()
+  const app = await project(w, 'app')
+  const m = msg({ ts: '1700000001.000000', text: 'one' })
+  const id = 'C1-1700000001.000000'
+  await writeState(w, 'seen.json', { [id]: { ...m, seenAt: '2026-10-16T11:00:00.000Z', project: 'app', inbox: '20261016T110000Z-slack-0001.md', delivered: false } })
+  await writeState(w, 'status.json', SEEDED)
+  // STAR's drafts folder cannot be read: whether STAR already has this message is unknown.
+  await writeFile(join(app.home, 'drafts'), 'not a folder')
+  const s = stub([app])
+  const slack = createSlack(s.api, { now: () => NOW, everyMs: HOUR })
+  await play(w, [answer([])])
+  assert.deepEqual(await slack.check(), { ok: true, routed: 0, unrouted: 0 })
+  const after = await readState(w, 'seen.json')
+  assert.equal(after[id].project, 'app')
+  assert.equal(after[id].delivered, false)
+  assert.deepEqual(await readState(w, 'unrouted.json'), [])
+  assert.deepEqual(await inboxFiles(app), [])
+  assert.deepEqual(s.nudges, [])
+  assert.ok(s.logs.some(line => line.startsWith('slack: a pending hand-over could not be finished')), s.logs.join('\n'))
+  // The folder is readable again: the next check finishes it.
+  await rm(join(app.home, 'drafts'))
+  assert.deepEqual(await slack.check(), { ok: true, routed: 1, unrouted: 0 })
+  assert.deepEqual(await inboxFiles(app), ['20261016T110000Z-slack-0001.md'])
+  assert.equal((await readState(w, 'seen.json'))[id].delivered, true)
+  assert.deepEqual(s.nudges, ['app'])
+  await cleanup(w)
+})

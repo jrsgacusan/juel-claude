@@ -190,8 +190,8 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
    * S4: under the lock, the lists first, with each routed entry reserving its inbox file name
    * (delivered false), then the inbox files, then the entries marked delivered, then status.json.
    * Hand-overs an earlier run left pending (a crash between its commit and its mark) are finished
-   * here too, exactly once (`deliver`). A message whose inbox file cannot be written goes back to the
-   * unrouted list, where the owner can route it by hand. The workspace is this answer's (D8).
+   * here too, exactly once (`deliver`). A fresh hand-over that fails goes back to the unrouted list, where the owner can route it by hand;
+   * a pending one that fails stays pending for the next check. The workspace is this answer's (D8).
    */
   async function apply(messages: Message[], workspace: string | null, start: Date): Promise<Applied> {
     const projects = routable()
@@ -203,10 +203,11 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       const seen: Seen = kept.seen
       // An id whose entry is gone (a crash between two writes) or was routed by hand leaves the list.
       const unrouted = [...new Set(kept.unrouted)].filter(id => isUnrouted(seen, id))
-      const handOver: { project: Project; id: string }[] = []
+      // fresh: reserved by this check, so nothing of it can be written yet.
+      const handOver: { project: Project; id: string; fresh: boolean }[] = []
       for (const [id, entry] of Object.entries(seen)) {
         const project = isPending(entry) ? projects.find(p => p.name === entry.project) : undefined
-        if (project) handOver.push({ project, id })
+        if (project) handOver.push({ project, id, fresh: false })
       }
       let added = 0
       for (const m of messages) {
@@ -216,7 +217,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
         const project = decision.project === null ? undefined : projects.find(p => p.name === decision.project)
         if (project) {
           seen[id] = { ...m, seenAt: start.toISOString(), project: project.name, inbox: inboxName(start), delivered: false }
-          handOver.push({ project, id })
+          handOver.push({ project, id, fresh: true })
         } else {
           seen[id] = { ...m, seenAt: start.toISOString(), project: null }
           unrouted.push(id)
@@ -227,17 +228,24 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       await writeSeen(seen)
       const files = new Map<string, number>()
       let failed = 0
-      for (const { project, id } of handOver) {
+      let waiting = 0
+      for (const { project, id, fresh } of handOver) {
         const entry = seen[id] as Entry
         try {
           const inbox = await deliver(project.home, entry.inbox as string, id, inboxText(project.repo, entry), start)
           seen[id] = { ...entry, inbox, delivered: true }
           files.set(project.name, (files.get(project.name) ?? 0) + 1)
         } catch (err) {
-          log(`slack: an inbox file could not be written, so its message waits in unrouted: ${errorText(err)}`)
-          seen[id] = unroute(entry)
-          unrouted.push(id)
-          failed += 1
+          if (fresh) {
+            log(`slack: an inbox file could not be written, so its message waits in unrouted: ${errorText(err)}`)
+            seen[id] = unroute(entry)
+            unrouted.push(id)
+            failed += 1
+          } else {
+            // An earlier run may have written its file: sending it back to unrouted could hand it over twice.
+            log(`slack: a pending hand-over could not be finished, so the next check tries again: ${errorText(err)}`)
+            waiting += 1
+          }
         }
       }
       if (handOver.length > 0) {
@@ -246,7 +254,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
       }
       await writeStatus({ connected: true, lastCheck: start.toISOString(), error: null, model: config.model, workspace })
       return {
-        routed: handOver.length - failed,
+        routed: handOver.length - failed - waiting,
         unrouted: added + failed,
         pruned: kept.pruned,
         statusMoved: !before.connected || before.error !== null,
