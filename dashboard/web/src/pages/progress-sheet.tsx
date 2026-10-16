@@ -98,7 +98,7 @@ export function ItemSheet({
             {row ? itemLabel(row) : item}
           </span>
           <SheetTitle className="text-lg leading-snug">
-            {row?.title ?? row?.item ?? item ?? ""}
+            {row?.title ?? item ?? ""}
           </SheetTitle>
           <SheetDescription className="sr-only">
             The item's branch, PR and step log

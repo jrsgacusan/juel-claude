@@ -218,6 +218,8 @@ export function ProgressPage() {
                 <TableBody>
                   {rows.map((row) => {
                     const pr = prLabel(row)
+                    const label = itemLabel(row)
+                    const title = row.title ?? row.item
                     return (
                       <TableRow
                         key={row.item}
@@ -235,11 +237,9 @@ export function ProgressPage() {
                             className="flex flex-col rounded-sm text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                           >
                             <span className="font-mono text-xs text-muted-foreground">
-                              {itemLabel(row)}{" "}
+                              {label}
                             </span>
-                            <span className="font-medium">
-                              {row.title ?? row.item}
-                            </span>
+                            <span className="font-medium">{title}</span>
                           </button>
                         </TableCell>
                         <TableCell className="px-4 py-3">

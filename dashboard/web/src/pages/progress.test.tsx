@@ -73,7 +73,7 @@ describe("Progress", () => {
     )
   })
 
-  it("names an item by its ledger name, with only a tracker ref beside it (brief D5)", async () => {
+  it("names an item by its ledger name, with only a tracker ref beside it (integration brief D5)", async () => {
     const items = getDb().items["sphere-app"] ?? []
     const rowOf = (item: string) => {
       const found = items.find((d) => d.row.item === item)
@@ -88,11 +88,27 @@ describe("Progress", () => {
     const sph13 = await screen.findByRole("button", { name: /^SPH-13 SPH-13$/ })
     expect(screen.getByRole("button", { name: /^SPH-14 / })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /^SPH-12 · #41 / })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole("button", { name: /^SPH-12 · #41 / })).getByText(
+        "SPH-12 · #41"
+      )
+    ).toBeInTheDocument()
     expect(screen.queryByText(/sph-13\.md/)).not.toBeInTheDocument()
     await user.click(sph13)
     const sheet = await screen.findByRole("dialog")
     expect(within(sheet).getByRole("heading", { name: "SPH-13" })).toBeInTheDocument()
     expect(within(sheet).queryByText(/sph-13\.md/)).not.toBeInTheDocument()
+  })
+
+  it("the sheet header shows the item name and its tracker ref (integration brief D5)", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-12"
+    )?.row
+    if (!row) throw new Error("fixture SPH-12 missing")
+    row.ref = "#41"
+    renderApp("/sphere-app/progress?item=SPH-12")
+    const sheet = await screen.findByRole("dialog")
+    expect(await within(sheet).findByText("SPH-12 · #41")).toBeInTheDocument()
   })
 
   it("links an item waiting in a go-batch to that batch", async () => {
