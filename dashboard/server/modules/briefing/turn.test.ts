@@ -127,7 +127,7 @@ test('a result line with is_error is a failed turn', async () => {
   assert.equal(await exists(join(dir, 'draft.json')), false)
 })
 
-test('a turn that fails before its init event leaves no session, so the next one starts fresh', async () => {
+test('a first turn that fails before its init event leaves no session, so the next one starts fresh (D3)', async () => {
   await play(w, 'claude', [{ stderr: 'Not logged in\n', exit: 1 }, { lines: [init('S9'), say(R1), done(R1)] }])
   assert.equal((await runTurn(ctx('one'))).ok, false)
   assert.equal(await exists(join(dir, 'session')), false)
@@ -185,6 +185,24 @@ test('a saved session the CLI no longer has is forgotten, so the next message st
   const third = (await calls(w, 'claude'))[2]
   assert.equal(third.argv.includes('--resume'), false)
   assert.equal((await readFile(join(dir, 'session'), 'utf8')).trim(), 'S2')
+})
+
+test('a saved session survives a failure before init that is not the CLI saying it is gone (D15)', async () => {
+  await play(w, 'claude', [
+    { lines: [init('S1'), say(R1), done(R1)] },
+    { stderr: 'Not logged in · Please run /login\n', exit: 1 },
+    { lines: [init('S1'), say(R2), done(R2)] },
+  ])
+  assert.equal((await runTurn(ctx('one'))).ok, true)
+  const failed = await runTurn(ctx('two'))
+  assert.equal(failed.ok, false)
+  assert.match(String(events.at(-1)!.error), /exited with 1: Not logged in/)
+  assert.equal((await readFile(join(dir, 'session'), 'utf8')).trim(), 'S1')
+  assert.equal((await readTurns(dir)).length, 2)
+  assert.equal((await runTurn(ctx('two'))).ok, true)
+  const [, second, third] = await calls(w, 'claude')
+  assert.deepEqual(second.argv.slice(-4), ['--resume', 'S1', '--', 'two'])
+  assert.deepEqual(third.argv.slice(-4), ['--resume', 'S1', '--', 'two'])
 })
 
 test('a first turn that fails after its init event keeps the session (D3)', async () => {
