@@ -104,11 +104,15 @@ export async function place(dir: string, text: string, first: string, at: Date, 
 /**
  * Hands message `id` to the STAR folder `home` as the inbox file `name`, exactly once: a reply STAR
  * already drafted for it (STAR writes the draft before it deletes the inbox file) means it was
- * handed over and nothing is written. A state it cannot read rejects, never guesses. Returns the
- * inbox file's name.
+ * handed over and nothing is written. A state it cannot read rejects, never guesses. `afterCheck` is
+ * a test seam, never passed in production, that runs between the draft check and the link: the
+ * window where STAR can ingest a pending hand-over's file and draft it, so the link writes the
+ * message again; STAR's `skills/star/slack-handled.sh` drops that copy. Returns the inbox file's
+ * name.
  */
-export async function deliver(home: string, name: string, id: string, text: string, at: Date = new Date()): Promise<string> {
+export async function deliver(home: string, name: string, id: string, text: string, at: Date = new Date(), afterCheck?: () => Promise<void>): Promise<string> {
   const done = (): Promise<boolean> => drafted(home, id)
   if (await done()) return name
+  if (afterCheck) await afterCheck()
   return place(join(home, 'inbox'), text, name, at, done)
 }
