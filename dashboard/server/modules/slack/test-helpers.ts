@@ -76,6 +76,7 @@ export async function world(): Promise<World> {
   await writeFile(join(w.bin, 'claude'), `#!${process.execPath}\n${FAKE}`)
   await chmod(join(w.bin, 'claude'), 0o755)
   process.env.HOME = w.home
+  delete process.env.JUEL_DIR
   process.env.PATH = `${w.bin}:/usr/bin:/bin`
   process.env.FAKE_DIR = w.fakes
   // git never looks above the temp root, so a project folder there is never read as a parent repo's.

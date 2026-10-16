@@ -5,7 +5,6 @@
 // would raise every message again). status.json fields of the wrong type read as their defaults.
 // Writes are atomic: a temp file, then a rename.
 import { randomBytes } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -38,7 +37,8 @@ export const KEEP_MS = 30 * DAY_MS
 
 export class StateError extends Error {}
 
-const juelDir = (): string => join(homedir(), '.juel')
+/** I-1: JUEL_DIR when set and not empty, else ~/.juel. */
+export const juelDir = (): string => process.env.JUEL_DIR || join(homedir(), '.juel')
 export const slackDir = (): string => join(juelDir(), 'slack')
 export const idOf = (m: { channelId: string; ts: string }): string => `${m.channelId}-${m.ts}`
 export const defaultStatus = (model: string): Status => ({ connected: false, lastCheck: null, error: null, model, workspace: null })
@@ -158,16 +158,4 @@ export function prune(seen: Seen, unrouted: string[], now: Date): { seen: Seen; 
     else kept[id] = entry
   }
   return { seen: kept, unrouted: unrouted.filter(id => Object.hasOwn(kept, id)), pruned }
-}
-
-/** ~/.juel/dashboard.json's slack.everyMin when it is a positive number, else 5. */
-export function readEveryMin(): number {
-  try {
-    const data = JSON.parse(readFileSync(join(juelDir(), 'dashboard.json'), 'utf8')) as unknown
-    const slack = isObject(data) ? data.slack : undefined
-    const every = isObject(slack) ? slack.everyMin : undefined
-    return typeof every === 'number' && Number.isFinite(every) && every > 0 ? every : 5
-  } catch {
-    return 5
-  }
 }

@@ -14,6 +14,8 @@ import { parseEnvelope } from './parse.ts'
 import { readDrafts, readOpenReplies, replyOf } from './replies.ts'
 import type { Draft, OpenReply } from './replies.ts'
 import { routeMessage, signalsOf } from './route.ts'
+import { loadConfig, readSlackSettings } from './settings.ts'
+import type { Config } from './settings.ts'
 import {
   DAY_MS,
   MINUTE_MS,
@@ -25,7 +27,6 @@ import {
   unroute,
   oneLine,
   prune,
-  readEveryMin,
   readRoutes,
   readSeen,
   readStatus,
@@ -45,8 +46,7 @@ const MAX_DELAY_MS = 2 ** 31 - 1
 /** D5's mark for a message the owner dropped. A project by this name is never routed to. */
 const DROPPED = 'none'
 
-export type Config = { plugin: string; model: string; timeoutMin: number; allowedTools: string[]; disallowedTools: string[] }
-export const loadConfig = (): Config => JSON.parse(readFileSync(join(HERE, 'config.json'), 'utf8')) as Config
+export { loadConfig } from './settings.ts'
 const loadPrompt = (): string => readFileSync(join(HERE, 'prompt.md'), 'utf8')
 
 /** The read-only run: D6, with S1's --settings, --setting-sources and --permission-mode. */
@@ -130,7 +130,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   const template = loadPrompt()
   const bin = opts.bin ?? 'claude'
   const now = opts.now ?? ((): Date => new Date())
-  const everyMs = Math.min(opts.everyMs ?? readEveryMin() * MINUTE_MS, MAX_DELAY_MS)
+  const everyMs = Math.min(opts.everyMs ?? readSlackSettings().everyMin * MINUTE_MS, MAX_DELAY_MS)
   const timeoutMs = opts.timeoutMs ?? config.timeoutMin * MINUTE_MS
 
   // The server's emit and log may throw. Nothing a timer or a route started may end the server.
@@ -165,6 +165,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
   }
 
   let running = false
+  let offLogged = false
   let timer: ReturnType<typeof setInterval> | null = null
 
   /** A failed check: status.json gets the error (and connected, when Slack said so); nothing else changes. */
@@ -318,6 +319,11 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
 
   function start(): void {
     if (timer !== null) return
+    if (everyMs === 0) {
+      if (!offLogged) log('slack: the watcher is off (slack.everyMin is 0)')
+      offLogged = true
+      return
+    }
     timer = setInterval(tick, everyMs)
     timer.unref()
     tick()
@@ -452,6 +458,7 @@ export function createSlack(api: ModuleApi, opts: SlackOptions = {}): Slack {
 
   api.route('GET', '/api/slack', async () => ({ status: 200, json: await listing() }))
   api.route('POST', '/api/slack/check', async () => {
+    if (everyMs === 0) return { status: 409, json: { error: 'the Slack watcher is off: slack.everyMin is 0' } }
     const outcome = await check()
     if (outcome === null) return { status: 409, json: { error: 'a check is already running' } }
     return { status: 200, json: { ...outcome, status: await statusOrDefault() } }

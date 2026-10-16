@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readdir, writeFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -8,7 +8,6 @@ import {
   StateError,
   isPending,
   prune,
-  readEveryMin,
   readRoutes,
   readSeen,
   readStatus,
@@ -98,25 +97,4 @@ test('prune drops entries first seen more than 30 days ago, and their unrouted i
   const at = (ago: number): Entry => ({ ...msg(), seenAt: new Date(NOW.getTime() - ago).toISOString(), project: null })
   const seen = { old: at(KEEP_MS + 1), edge: at(KEEP_MS), fresh: at(0) }
   assert.deepEqual(prune(seen, ['old', 'fresh'], NOW), { seen: { edge: seen.edge, fresh: seen.fresh }, unrouted: ['fresh'], pruned: 1 })
-})
-
-test('readEveryMin is slack.everyMin from ~/.juel/dashboard.json, else 5', async () => {
-  const w = await world()
-  assert.equal(readEveryMin(), 5)
-  await mkdir(join(w.home, '.juel'), { recursive: true })
-  const cases: [string, number][] = [
-    [JSON.stringify({ port: 4767, slack: { everyMin: 2 } }), 2],
-    [JSON.stringify({ slack: { everyMin: 0.5 } }), 0.5],
-    [JSON.stringify({ port: 4767 }), 5],
-    [JSON.stringify({ slack: { everyMin: 0 } }), 5],
-    [JSON.stringify({ slack: { everyMin: -1 } }), 5],
-    [JSON.stringify({ slack: { everyMin: '2' } }), 5],
-    ['null', 5],
-    ['{oops', 5],
-  ]
-  for (const [text, want] of cases) {
-    await writeFile(join(w.home, '.juel', 'dashboard.json'), text)
-    assert.equal(readEveryMin(), want, text)
-  }
-  await cleanup(w)
 })
