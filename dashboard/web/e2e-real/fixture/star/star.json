@@ -1,0 +1,12 @@
+{
+  "schema": 2,
+  "maxParallel": 3,
+  "maxInReview": 3,
+  "maxBriefs": 4,
+  "progressDeadlineMin": 30,
+  "terminal": "term_e2e_star",
+  "project": { "name": "sample", "remote": "origin" },
+  "quietHours": null,
+  "gateDown": null,
+  "away": null
+}

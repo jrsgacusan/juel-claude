@@ -1,6 +1,7 @@
 # Logs
 logs
 *.log
+!e2e-real/fixture/star/progress/*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

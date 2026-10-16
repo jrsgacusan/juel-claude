@@ -1,0 +1,108 @@
+#!/usr/bin/env node
+// The real-stack suite's claude (integration brief D3): one fake for both dashboard modules, chosen by the value after --output-format. Each call appends {format, args} to $STAR_E2E_FAKES/claude.log, for a run kept with STAR_E2E_KEEP=1.
+const fs = process.getBuiltinModule("node:fs")
+
+const args = process.argv.slice(2)
+const formatIndex = args.indexOf("--output-format")
+const format = formatIndex >= 0 ? args[formatIndex + 1] : undefined
+const fakeDir = process.env.STAR_E2E_FAKES
+if (fakeDir) {
+  fs.appendFileSync(
+    `${fakeDir}/claude.log`,
+    `${JSON.stringify({ format, args: args.length })}\n`,
+  )
+}
+
+const RIA = {
+  channelId: "C0E2E",
+  channel: "#eng",
+  ts: "1760000000.000100",
+  threadTs: null,
+  from: "Ria",
+  // It names the csv-import ledger item, so the watcher routes it itself; STAR already drafted its reply in the fixture.
+  text: "Is csv-import landing today?",
+  permalink: "https://acme.slack.com/archives/C0E2E/p1760000000000100",
+  thread: [],
+}
+const SAM = {
+  channelId: "C0E2F",
+  channel: "#support",
+  ts: "1760000100.000200",
+  threadTs: null,
+  from: "Sam",
+  // It names nothing, so the message is routed by hand.
+  text: "Can someone look at the flaky upload?",
+  permalink: "https://acme.slack.com/archives/C0E2F/p1760000100000200",
+  thread: [],
+}
+
+const TICKET = {
+  title: "Remind owners about unpaid invoices",
+  description: "Owners get an email when an invoice is 7 days overdue.",
+  criteria: ["An email goes out 7 days after the due date."],
+  outOfScope: ["SMS reminders"],
+}
+const FIRST = "I read the invoices module: reminders would go out from the billing job."
+const SECOND = `Here is the ticket.\n\n\`\`\`ticket
+${JSON.stringify(TICKET)}
+\`\`\``
+
+const waitForRelease = async () => {
+  if (!fakeDir) return
+  const release = `${fakeDir}/turn.release`
+  // briefing.spec.ts writes turn.release once it has seen the first text, so the reply arrives in two steps on any machine.
+  for (let waited = 0; waited < 30_000; waited += 50) {
+    if (fs.existsSync(release)) {
+      fs.unlinkSync(release)
+      return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  process.stderr.write("fake claude: no turn.release after 30 s\n")
+  process.exitCode = 1
+  throw new Error("turn.release timeout")
+}
+
+;(async () => {
+  if (format === "json") {
+    try {
+      fs.readFileSync(0, "utf8")
+    } catch {
+      // The Slack check may have no stdin in a smoke run.
+    }
+    process.stdout.write(
+      `${JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: JSON.stringify({ workspace: "Acme", messages: [RIA, SAM] }),
+      })}\n`,
+    )
+  } else if (format === "stream-json") {
+    const write = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
+    // claude prints hook lines before system/init, and the module must skip them.
+    write({ type: "system", subtype: "hook_response", hook_name: "SessionStart" })
+    write({ type: "system", subtype: "init", session_id: "e2e-session-1" })
+    write({
+      type: "assistant",
+      message: { content: [{ type: "text", text: FIRST }] },
+      session_id: "e2e-session-1",
+    })
+    await waitForRelease()
+    write({
+      type: "assistant",
+      message: { content: [{ type: "text", text: SECOND }] },
+      session_id: "e2e-session-1",
+    })
+    write({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: SECOND,
+      session_id: "e2e-session-1",
+    })
+  } else {
+    process.stderr.write("fake claude: no --output-format json or stream-json\n")
+    process.exitCode = 1
+  }
+})().catch(() => {})

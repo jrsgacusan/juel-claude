@@ -14,6 +14,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import { agoText } from "@/lib/format"
+import { itemLabel } from "@/lib/items"
 import { kindOf, visibleBody } from "@/lib/loops"
 import { projectPath } from "@/lib/routes"
 
@@ -122,8 +123,8 @@ export function LoopDetail({
                 key={line}
                 className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3"
               >
-                <span className="w-16 font-mono text-xs text-muted-foreground">
-                  {row?.ref ?? line}
+                <span className="min-w-16 font-mono text-xs text-muted-foreground">
+                  {row ? itemLabel(row) : line}
                 </span>
                 <span className="min-w-0 flex-1 text-sm font-medium break-words">
                   {row?.title ?? (row ? "" : line)}
