@@ -314,8 +314,8 @@ has "C143b a stalled gate is not red and not run again" 'It is not red and it is
 has "C143c the escalation list names a stalled gate" 'or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and was stopped)'
 has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.'
 grep -qF 'stalled, the command printed nothing for' "$ROOT/skills/ship-ticket/gate-lock.sh" && pass "C143e gate-lock.sh prints the line the skill quotes" || fail "C143e gate-lock.sh prints the line the skill quotes"
-has "C145a the ignore entries are anchored to the repo root" 'Ensure the repo'"'"'s `.gitignore` ignores the docs root and the scratch folder with entries anchored to the repo root, so no other folder of the same name is ignored'
-has "C145b the entries it names" '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`. Add each one that is absent.'
+has "C145a the ignore entries are anchored to the repo root" 'For each one that fails, the entry is anchored to the repo root, so no other folder of the same name is ignored'
+has "C145b the entries it names" '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`.'
 has "C145c an exact unanchored line is replaced in the same change" 'In the same change, replace a line that is exactly `superpowers/` with the docs root'"'"'s entry, and a line that is exactly `.superpowers/` with `/.superpowers/`'
 grep -qF 'unanchored so they match at any depth' "$SKILL" && fail "C145d the unanchored rule is gone" || pass "C145d the unanchored rule is gone"
 g "C145e the ledger's exclude entry is anchored" "echo '/.superpowers/' >>"
@@ -333,5 +333,19 @@ has "C145k never forced, moved or unignored" 'Never `git add -f` the file, move 
 has "C145l the escalation list names it" 'or a task fails on a planned file git ignores, whoever ran the plan'
 has "C145m a session run stops the same way" 'a path a task'"'"'s `**Files:**` block names that `git add` refuses as ignored stops the run the same way'
 grep -qF 'task <N> failed: planned file <path> is git-ignored' "$ROOT/assets/codex-skills/claude-plan-executor/SKILL.md" && pass "C145n the executor writes the line ship-ticket reads" || fail "C145n the executor writes the line ship-ticket reads"
+# lane a: #153 git is asked first, an unattended run never edits .gitignore, an interactive edit is its own commit
+has "A153a .gitignore is touched only when git does not ignore the paths" 'Make sure git ignores the docs root and the scratch folder, and touch `.gitignore` only when it does not (#153).'
+has "A153b the two checks" 'run `git check-ignore -q -- <docsRoot as a path from the repo root>/x` and `git check-ignore -q -- .superpowers/x`'
+has "A153c both ignored leaves .gitignore as it is" 'When both succeed, leave `.gitignore` as it is, an unanchored line included'
+has "A153d unattended writes info/exclude, never .gitignore" 'Under `--unattended`, append it to `$(git rev-parse --git-path info/exclude)`, never to `.gitignore`'
+has "A153e an interactive edit is its own commit" 'Commit that change alone, right away, as `chore: ignore the docs root and the scratch folder`'
+grep -qF 'Add each one that is absent.' "$SKILL" && fail "A153f the unconditional add is gone" || pass "A153f the unconditional add is gone"
+printf 'superpowers/\n' > "$IG/.gitignore"
+(cd "$IG" && git check-ignore -q -- docs/superpowers/x) && pass "A153g (control) an unanchored line already ignores the docs root, so Phase 2 leaves it" || fail "A153g (control) unanchored line"
+: > "$IG/.gitignore"
+printf '/docs/superpowers/\n/.superpowers/\n' >> "$IG/.git/info/exclude"
+(cd "$IG" && git check-ignore -q -- docs/superpowers/x && git check-ignore -q -- .superpowers/x) && [ ! -s "$IG/.gitignore" ] && pass "A153h (control) info/exclude ignores both with .gitignore untouched" || fail "A153h (control) info/exclude"
+has "A153i run interactively, the #145 repair still runs" 'Run interactively, the one exception is the #145 repair: when `git check-ignore -v -- <path>` shows the match comes from a `.gitignore` line that is exactly `superpowers/` or `.superpowers/`, make the second bullet'"'"'s replacement below, as its lone commit.'
+grep -qx 'product.' "$SKILL" && fail "A153j no stray wrapped line is left in Phase 2" || pass "A153j no stray wrapped line is left in Phase 2"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
