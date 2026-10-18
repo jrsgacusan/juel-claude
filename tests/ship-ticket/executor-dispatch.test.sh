@@ -132,5 +132,12 @@ hasf "$EX" "B154a the executor never starts a session task" '**A task with a `**
 hasf "$EX" "B154b it stops before it with the fixed line" 'Do not start it: stop before it, append no ledger line for it, and end the report with `stopped at task <N>: run by the session`.'
 hasf "$EX" "B154c the caller resumes the executor after it" 'The caller runs it, marks it complete in the ledger and dispatches you again, so you resume after it.'
 hasf "$PC" "B154d the contract names the marker" 'A task with the line `**Run:** session` right under its heading is run by the calling session, never by the executor'
+ST="$ROOT/skills/ship-ticket/SKILL.md"
+hasf "$ST" "B154e Phase 3 plans the marker" 'carries the line `**Run:** session` right under its `### Task <N>` heading, and Phase 4 runs it in this session (#154).'
+hasf "$ST" "B154f Phase 4 never hands a session task to Codex" '**Session tasks** (#154). A task with the line `**Run:** session` under its heading is never handed to Codex.'
+hasf "$ST" "B154g it runs after the executor's stop line" 'after a dispatch whose report ends with `stopped at task <N>: run by the session`'
+hasf "$ST" "B154h the session's ledger line" 'append `Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`'
+hasf "$ST" "B154i no ledger yet: create it first" 'with no ledger yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`'
+hasf "$ST" "B154j then the same line again" 'Then dispatch the same line: the executor resumes at the first task not marked complete.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

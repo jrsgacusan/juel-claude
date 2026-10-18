@@ -787,6 +787,10 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 - **If that path already exists, never overwrite it.** Write `-v2` instead; if `-v2` exists too, `-v3`, and so on — same rule as the spec path in Phase 2, and distinct from `review-plan.md`'s own `-vN` versioning in Phase 5 below.
 - Each step must include file paths, line refs where applicable, and a verification command.
 - Every task has a `**Files:**` block naming each file it changes, with the function or line range (``Modify: `path/to/file.py:120-145` ``, ``Create: `path/to/new.py` ``, ``Test: `tests/test_file.py` ``). The executor changes nothing a task does not name, and Phase 4's scope check restores any file no task names.
+- A task the executor cannot run (it drives a GUI, a browser profile, a screen or audio on this
+  Mac, or measures something live outside the repository) carries the line `**Run:** session`
+  right under its `### Task <N>` heading, and Phase 4 runs it in this session (#154). Every other
+  task carries no `**Run:**` line. Say so in the input to `superpowers:writing-plans`.
 - A task that creates a file whose name or id a project check enforces (a pretest checker, a lint rule) names that check as its verification command. The check runs before the task's commit.
 - On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
@@ -833,6 +837,18 @@ resolution still installs and runs nothing.
 `Task <N>: complete` line. A second dispatch of the same line, the fallback model and this session
 all resume from it, at the first task not marked complete. Before the first dispatch, make sure git
 ignores it: `git check-ignore -q .superpowers/x || echo '/.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
+
+**Session tasks** (#154). A task with the line `**Run:** session` under its heading is never
+handed to Codex. Before each dispatch, and after a dispatch whose report ends with
+`stopped at task <N>: run by the session`, look at the first task with no `Task <N>: complete`
+line in the ledger. While it is a session task, run it in this session (its steps, its tests and
+its commit, inside its `**Files:**` block, never `git add -f`), then append
+`Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`; with no ledger
+yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`. Then dispatch
+the same line: the executor resumes at the first task not marked complete. When every task left
+is a session task, nothing more is dispatched. The ledger is the record of who ran what: a
+`(session, …)` line is this session's, every other line the executor's. With `--executor session`,
+and on the capacity rule's last step, this session runs every task anyway.
 
 **The scope record.** Right before the first dispatch (Codex or this session), from the repo root,
 note the commit the executor starts from and record every path that already differs from it:
