@@ -186,7 +186,7 @@ grep -qF 'a reply STAR drafted in your voice' "$PAGE" && fail "LB4 the page no l
 grep -qF '>Slack: drafted before STAR</text>' "$PAGE" && pass "LB4 the drawing shows the drafter" || fail "LB4 drafter in the drawing"
 grep -qF 'and a Slack message the dashboard routes arrives with a reply its drafter already wrote' "$PAGE" && pass "LB4 the drawing's label names the drafter" || fail "LB4 drafter in the aria-label"
 grep -qF '<td>Slack drafter, run by the dashboard</td>' "$PAGE" && pass "LB4 the Models table names the drafter" || fail "LB4 drafter in Models"
-grep -qF 'from a phone you reach it over your tailnet with <code>tailscale serve --bg &lt;port&gt;</code>, never <code>tailscale funnel</code>: the server itself stays on 127.0.0.1.' "$PAGE" && pass "LB5 the page says how to reach the dashboard from a phone" || fail "LB5 tailscale serve on the page"
+grep -qF 'from a phone you reach it over your tailnet: <code>/juel:star dashboard --tailnet</code> maps it with <code>tailscale serve</code>, never <code>tailscale funnel</code>, and prints the link; the server itself stays on 127.0.0.1.' "$PAGE" && pass "LB5 the page says how to reach the dashboard from a phone" || fail "LB5 tailscale serve on the page"
 grep -qF 'and a gate that prints nothing for 15 minutes is stopped and reported as stalled, so it never holds every build.' "$PAGE" && pass "LB6 a stalled gate is stopped and reported (#143)" || fail "LB6 stalled gate on the page"
 # lane e: the page shows #147 #150 #151 #152 #154
 grep -qF 'A step you turn down in words goes back to the brief worker, which plans without it.' "$PAGE" && pass "E150p a declined step on the page" || fail "E150p declined step on the page"

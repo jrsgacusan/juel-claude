@@ -192,6 +192,7 @@ Typed in the project (its main checkout, a linked worktree or any subfolder):
 | `/juel:star` | Start STAR for this project, or resume it: the two are the same command |
 | `/juel:star status` | Print the Needs-you block and counts per state. Read-only |
 | `/juel:star dashboard` | Open the STAR dashboard: `sh S/dashboard.sh` starts the one local dashboard server on this Mac when it is not running, prints its URL and opens it. Needs no STAR running |
+| `/juel:star dashboard --tailnet` | The same, and maps the dashboard on your tailnet with `tailscale serve --bg <port>` (never `tailscale funnel`) when Tailscale is running and nothing else serves `/` there, then prints the link for your phone, or one line saying why it could not |
 | `/juel:star away` (or tell STAR "I'm leaving") | Ask once more what the batch summary left open, then write the handoff file and switch to away mode (below). Away holds no work |
 | `/juel:star back` (or tell STAR "I'm back") | Print the latest summary and the queue; leave away mode |
 | `/juel:star stop` | Finish the tick and stop. Running workers are left to finish; their reports wait in the Orca run |
@@ -213,7 +214,7 @@ not check the session's model.
 
 Everything after `/juel:star` is read as words. A first word of `draft-brief` or `post-report` is
 that command: they take arguments.
-`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text, as `take over`
+`status`, `dashboard`, `dashboard --tailnet`, `away`, `back` and `stop` are commands only when they are the whole text, as `take over`
 is, so `/juel:star stop the digest from sending twice` is a free-text brief, not a stop, and
 `/juel:star status badge on the dashboard` prints no status. When the whole text is `take over`, it
 is the user's "take over" ("Start, resume, stop"): this session becomes the coordinator even though
@@ -264,7 +265,7 @@ project." Otherwise `sh S/loops.sh --file HOME_DIR/open-loops.md list`, then cou
 
 ### `dashboard`
 
-`sh S/dashboard.sh`. It builds the dashboard's web app when it is missing or older than its sources
+`sh S/dashboard.sh`, or `sh S/dashboard.sh --tailnet` for `dashboard --tailnet`. It builds the dashboard's web app when it is missing or older than its sources
 (after checking free memory), starts the one dashboard server on this Mac when it is not running
 (`node <plugin>/dashboard/server/main.ts`, on 127.0.0.1 only, its port and token in
 `~/.juel/dashboard.json`), prints `STAR dashboard: <url>`, then `STAR dashboard on your tailnet: <https url>` when `tailscale serve` maps its port, and opens it. Print those lines. It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder. The page lists
@@ -273,9 +274,13 @@ over one that is gone), records answers with `loops.sh set-answer` and wakes STA
 terminal send --terminal <handle> --text inbox --enter`, as a hand-over does. The page also has a
 Chat page per project, where the owner talks to this STAR (a chat message, in the Inbox step), an
 away switch that writes the same control files as `away` and `back` from another session, and an
-Accounts page with the machine's cswap accounts, read-only. From a phone the owner reaches it over
-their tailnet with `tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`), which
-they run once themselves, never `tailscale funnel`: the server stays on 127.0.0.1. A dashboard server that
+Accounts page with the machine's cswap accounts, read-only. From a phone the owner reaches it over their tailnet: `--tailnet` runs `tailscale serve --bg <port>`
+(the `port` in `~/.juel/dashboard.json`) once Tailscale is running and nothing else serves `/` over
+HTTPS there, never `tailscale funnel`, so the server stays on 127.0.0.1 and the token in the link
+is its only key (#152). It then prints the tailnet line, or one `dashboard.sh:` line saying why it
+could not: Tailscale missing or stopped, `/` already serving something else (left as it is), or
+Serve not enabled on the tailnet (the line carries Tailscale's link to enable it). Without the flag
+it prints one line naming the flag when nothing maps the port. A dashboard server that
 another checkout or plugin version started is stopped and replaced by this one's, on the same port
 and token. A non-zero exit: print its last line, nothing else.
 

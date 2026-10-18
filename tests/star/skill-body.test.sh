@@ -296,7 +296,7 @@ g "H3 it reads each PR's review logins from the REST API" "gh api \"repos/{owner
 g "H4 and each PR's comment logins" "gh api \"repos/{owner}/{repo}/issues/<n>/comments\" --jq '.[].user.login'"
 g "H5 it stops at the exact REST login" 'stopping at the first line that is exactly `greptile-apps[bot]`'
 grep -qF 'gh pr view <n> --json comments,reviews' "$SKILL" && fail "H6 the GraphQL lookup is gone" || pass "H6 the GraphQL lookup is gone"
-g "CW1 status, dashboard, away, back and stop are commands only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "CW1 status, dashboard, away, back and stop are commands only as the whole text" '`status`, `dashboard`, `dashboard --tailnet`, `away`, `back` and `stop` are commands only when they are the whole text'
 g "CW2 a free-text brief may start with a command word" '`/juel:star stop the digest from sending twice` is a free-text brief'
 g "CW3 draft-brief and post-report match as the first word" 'A first word of `draft-brief` or `post-report` is'
 g "CW4 filler is dropped, a remark about the refs goes to the note" '(`and`, `add`, `please`), which is dropped, or only say something about the refs'
@@ -662,7 +662,7 @@ g "FIX2a Reconcile keeps a prompt bounded worker, Housekeeping answers it (#114)
 g "FIX2b an escalation answer counts a prompt bounded worker as still running (#114)" 'says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running'
 # the STAR dashboard (star-dashboard-server)
 g "DASH1 the dashboard command row" '| `/juel:star dashboard` |'
-g "DASH2 dashboard is a command word only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "DASH2 dashboard is a command word only as the whole text" '`status`, `dashboard`, `dashboard --tailnet`, `away`, `back` and `stop` are commands only when they are the whole text'
 g "DASH3 the dashboard section runs dashboard.sh" '`sh S/dashboard.sh`'
 g "DASH4 the dashboard needs no STAR running" 'It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder.'
 g "DASH5 init lists the folder in the registry" '`~/.juel/star-homes.json`'
@@ -843,7 +843,7 @@ has "LB5a dashboard.sh's lines are printed" 'prints `STAR dashboard: <url>`, the
 has "LB5b the Chat page" 'The page also has a Chat page per project, where the owner talks to this STAR'
 has "LB5c the away switch" 'an away switch that writes the same control files as `away` and `back` from another session'
 has "LB5d the Accounts page" 'an Accounts page with the machine'"'"'s cswap accounts, read-only'
-has "LB5e tailscale serve, never funnel" '`tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`), which they run once themselves, never `tailscale funnel`: the server stays on 127.0.0.1.'
+has "LB5e tailscale serve, never funnel" '`--tailnet` runs `tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`) once Tailscale is running and nothing else serves `/` over HTTPS there, never `tailscale funnel`, so the server stays on 127.0.0.1'
 # fix-1: a rewrite answer closes the answered item and re-adds it unanswered with (redrafting)
 has "F1a rewrite re-adds the item with a (redrafting) title" 'close the answered item and add it again unanswered, with the same kind, project, item and body lines (`draft:`, `message:`, Suggest and Options) and ` (redrafting)` at the end of its title'
 has "F1b the redraft runs on the new item's id" '--loop <the NEW item'"'"'s id>'
@@ -876,5 +876,10 @@ has "E151j an empty summary queues nothing" 'A summary with no row to show (ever
 has "E151k the hard rule" 'An item is never built before the owner'"'"'s go for its batch (a `go all` given while it drafted included)'
 has "E151l the chat exception" 'An ask to start a batch while rows of it are still drafting is the one exception'
 has "E151m the common mistake" 'Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent'"'"'s grant, stamps `approved:`'
+has "E152a the command row" '| `/juel:star dashboard --tailnet` | The same, and maps the dashboard on your tailnet'
+has "E152b it is a whole-text command" '`status`, `dashboard`, `dashboard --tailnet`, `away`, `back` and `stop` are commands only when they are the whole text'
+has "E152c it runs the script with the flag" '`sh S/dashboard.sh`, or `sh S/dashboard.sh --tailnet` for `dashboard --tailnet`.'
+has "E152d the token is the only key" 'the token in the link is its only key (#152)'
+has "E152e without the flag it only names the flag" 'Without the flag it prints one line naming the flag when nothing maps the port.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
