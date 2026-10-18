@@ -43,7 +43,16 @@ cat > "$TMP/bin/tailscale" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" >> "$TMP/tailscale.log"
 if [ -f "$TMP/ts.fail" ]; then echo 'failed to connect to local Tailscale daemon' >&2; exit 1; fi
-cat "$TMP/ts.json" 2>/dev/null || echo '{}'
+case "\$1 \$2" in
+  "serve status") cat "$TMP/ts.json" 2>/dev/null || echo '{}' ;;
+  "status --json") printf '{"BackendState": "%s", "Self": {"DNSName": "mac.tail1234.ts.net."}}\n' "\$(cat "$TMP/ts.state" 2>/dev/null || echo Running)" ;;
+  "serve --bg")
+    if [ -f "$TMP/ts.servefail" ]; then cat "$TMP/ts.servefail"; exit 1; fi
+    if [ -f "$TMP/ts.servehang" ]; then echo 'Serve is not enabled on your tailnet.'; exec sleep 30; fi
+    python3 -c 'import json, sys
+print(json.dumps({"TCP": {"443": {"HTTPS": True}}, "Web": {"mac.tail1234.ts.net:443": {"Handlers": {"/": {"Proxy": "http://127.0.0.1:" + sys.argv[1]}}}}}))' "\$3" > "$TMP/ts.json" ;;
+  *) echo "unexpected: \$*" >&2; exit 64 ;;
+esac
 EOF
 chmod +x "$TMP/bin/open" "$TMP/bin/orca" "$TMP/bin/claude" "$TMP/bin/cswap" "$TMP/bin/tailscale" "$TMP/bin/npm"
 D() { HOME="$TMP/home" PATH="$TMP/bin:$PATH" sh "$R/skills/star/dashboard.sh" "$@"; }
@@ -202,6 +211,48 @@ else
     && pass "without tailscale nothing more is printed" || fail "no tailscale (rc=$rc): $out"
 fi
 [ "$(sort -u "$TMP/tailscale.log")" = "serve status --json" ] && pass "tailscale is only asked serve status --json" || fail "tailscale calls: $(sort -u "$TMP/tailscale.log")"
+
+# lane d: #152 --tailnet maps the dashboard with tailscale serve, never funnel, and says why when it cannot
+: > "$TMP/tailscale.log"; rm -f "$TMP/ts.json" "$TMP/ts.state" "$TMP/ts.servefail" "$TMP/ts.servehang" "$TMP/ts.fail"
+LOCAL="STAR dashboard: http://127.0.0.1:$liveport/?t=$livetoken"
+TN="STAR dashboard on your tailnet: https://mac.tail1234.ts.net/?t=$livetoken"
+second() { printf '%s\n' "$1" | grep -A1 -xF "$LOCAL" | sed -n 2p; }
+out=$(D2 --nope 2>&1); rc=$?
+[ "$rc" = 64 ] && printf '%s\n' "$out" | grep -qxF 'dashboard.sh: usage: dashboard.sh [--tailnet]' && pass "D152a any other argument is a usage error" || fail "D152a usage (rc=$rc): $out"
+out=$(D2 2>&1)
+[ "$(second "$out")" = "dashboard.sh: to open it from your phone, run /juel:star dashboard --tailnet (tailscale serve, inside your tailnet only)" ] \
+  && pass "D152b without the flag, an unmapped port gets the hint" || fail "D152b hint: $out"
+! grep -q -e '^status' -e '^serve --bg' "$TMP/tailscale.log" && pass "D152c without the flag, only serve status runs" || fail "D152c calls: $(cat "$TMP/tailscale.log")"
+out=$(D2 --tailnet 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(second "$out")" = "$TN" ] && grep -qxF "serve --bg $liveport" "$TMP/tailscale.log" \
+  && pass "D152d --tailnet runs tailscale serve --bg <port> and prints the tailnet link" || fail "D152d map (rc=$rc): $out / $(cat "$TMP/tailscale.log")"
+: > "$TMP/tailscale.log"; out=$(D2 --tailnet 2>&1)
+[ "$(second "$out")" = "$TN" ] && ! grep -q '^serve --bg' "$TMP/tailscale.log" && pass "D152e an existing mapping is printed, and serve does not run again" || fail "D152e mapped: $out"
+serve_json "mac.tail1234.ts.net:443" "http://127.0.0.1:3000"; cp "$TMP/ts.json" "$TMP/ts.owner"; : > "$TMP/tailscale.log"
+out=$(D2 --tailnet 2>&1)
+[ "$(second "$out")" = "dashboard.sh: tailscale serve already sends https / to http://127.0.0.1:3000: left as it is; map the dashboard yourself with tailscale serve --bg --https=<another port> $liveport" ] \
+  && ! grep -q '^serve --bg' "$TMP/tailscale.log" && cmp -s "$TMP/ts.json" "$TMP/ts.owner" \
+  && pass "D152f the owner's own https / is left exactly as it is" || fail "D152f taken: $out"
+rm -f "$TMP/ts.json"; echo Stopped > "$TMP/ts.state"; : > "$TMP/tailscale.log"
+out=$(D2 --tailnet 2>&1)
+[ "$(second "$out")" = "dashboard.sh: tailscale is not running (Stopped): start it and sign in, then run this again" ] && ! grep -q '^serve --bg' "$TMP/tailscale.log" \
+  && pass "D152g a stopped tailscale is named, and nothing is mapped" || fail "D152g stopped: $out"
+rm -f "$TMP/ts.state"; printf 'Serve is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=abc\n\n' > "$TMP/ts.servefail"
+out=$(D2 --tailnet 2>&1); rc=$?
+[ "$rc" = 0 ] && [ "$(second "$out")" = "dashboard.sh: tailscale serve --bg $liveport did not map the dashboard: https://login.tailscale.com/f/serve?node=abc" ] \
+  && pass "D152h serve that needs the admin's approval says where, in one line" || fail "D152h servefail (rc=$rc): $out"
+rm -f "$TMP/ts.servefail"; touch "$TMP/ts.servehang"; t0=$(date +%s)
+out=$(JUEL_TAILSCALE_TIMEOUT=2 D2 --tailnet 2>&1); rc=$?; t1=$(date +%s)
+[ "$rc" = 0 ] && [ $((t1 - t0)) -lt 15 ] && [ "$(second "$out")" = "dashboard.sh: tailscale serve --bg $liveport did not map the dashboard: Serve is not enabled on your tailnet." ] \
+  && pass "D152i a serve that hangs is stopped after JUEL_TAILSCALE_TIMEOUT seconds" || fail "D152i hang (rc=$rc, $((t1 - t0)) s): $out"
+rm -f "$TMP/ts.servehang"; touch "$TMP/ts.fail"
+out=$(D2 --tailnet 2>&1)
+[ "$(second "$out")" = "dashboard.sh: tailscale is not running (unknown): start it and sign in, then run this again" ] && pass "D152j a tailscale that does not answer is named" || fail "D152j fail: $out"
+rm -f "$TMP/ts.fail"
+out=$(HOME="$TMP/home" PATH="$NOTS" STAR_FREE_GB=8 sh "$R2/skills/star/dashboard.sh" --tailnet 2>&1)
+[ "$(second "$out")" = "dashboard.sh: --tailnet needs tailscale on PATH: install Tailscale and sign in, then run this again" ] && pass "D152k no tailscale on PATH is named" || fail "D152k none: $out"
+! grep -q -e funnel -e reset "$TMP/tailscale.log" && pass "D152l never funnel, never serve reset" || fail "D152l calls: $(cat "$TMP/tailscale.log")"
+rm -f "$TMP/ts.json"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
