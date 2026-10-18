@@ -296,7 +296,7 @@ g "H3 it reads each PR's review logins from the REST API" "gh api \"repos/{owner
 g "H4 and each PR's comment logins" "gh api \"repos/{owner}/{repo}/issues/<n>/comments\" --jq '.[].user.login'"
 g "H5 it stops at the exact REST login" 'stopping at the first line that is exactly `greptile-apps[bot]`'
 grep -qF 'gh pr view <n> --json comments,reviews' "$SKILL" && fail "H6 the GraphQL lookup is gone" || pass "H6 the GraphQL lookup is gone"
-g "CW1 status, dashboard, away, back and stop are commands only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "CW1 status, dashboard, away, back and stop are commands only as the whole text" '`status`, `dashboard`, `dashboard --tailnet`, `away`, `back` and `stop` are commands only when they are the whole text'
 g "CW2 a free-text brief may start with a command word" '`/juel:star stop the digest from sending twice` is a free-text brief'
 g "CW3 draft-brief and post-report match as the first word" 'A first word of `draft-brief` or `post-report` is'
 g "CW4 filler is dropped, a remark about the refs goes to the note" '(`and`, `add`, `please`), which is dropped, or only say something about the refs'
@@ -662,7 +662,7 @@ g "FIX2a Reconcile keeps a prompt bounded worker, Housekeeping answers it (#114)
 g "FIX2b an escalation answer counts a prompt bounded worker as still running (#114)" 'says `ok`, `quiet …`, `stale …`, `prompt bounded …` or `stalled: …`: a worker in any of those is still running'
 # the STAR dashboard (star-dashboard-server)
 g "DASH1 the dashboard command row" '| `/juel:star dashboard` |'
-g "DASH2 dashboard is a command word only as the whole text" '`status`, `dashboard`, `away`, `back` and `stop` are commands only when they are the whole text'
+g "DASH2 dashboard is a command word only as the whole text" '`status`, `dashboard`, `dashboard --tailnet`, `away`, `back` and `stop` are commands only when they are the whole text'
 g "DASH3 the dashboard section runs dashboard.sh" '`sh S/dashboard.sh`'
 g "DASH4 the dashboard needs no STAR running" 'It needs no STAR running, does not become the coordinator and writes nothing in the STAR folder.'
 g "DASH5 init lists the folder in the registry" '`~/.juel/star-homes.json`'
@@ -843,7 +843,7 @@ has "LB5a dashboard.sh's lines are printed" 'prints `STAR dashboard: <url>`, the
 has "LB5b the Chat page" 'The page also has a Chat page per project, where the owner talks to this STAR'
 has "LB5c the away switch" 'an away switch that writes the same control files as `away` and `back` from another session'
 has "LB5d the Accounts page" 'an Accounts page with the machine'"'"'s cswap accounts, read-only'
-has "LB5e tailscale serve, never funnel" '`tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`), which they run once themselves, never `tailscale funnel`: the server stays on 127.0.0.1.'
+has "LB5e tailscale serve, never funnel" '`--tailnet` runs `tailscale serve --bg <port>` (the `port` in `~/.juel/dashboard.json`) once Tailscale is running and nothing else serves `/` over HTTPS there, never `tailscale funnel`, so the server stays on 127.0.0.1'
 # fix-1: a rewrite answer closes the answered item and re-adds it unanswered with (redrafting)
 has "F1a rewrite re-adds the item with a (redrafting) title" 'close the answered item and add it again unanswered, with the same kind, project, item and body lines (`draft:`, `message:`, Suggest and Options) and ` (redrafting)` at the end of its title'
 has "F1b the redraft runs on the new item's id" '--loop <the NEW item'"'"'s id>'
@@ -863,5 +863,31 @@ has "F149d the source and the contract" 'For a workspace MCP, `item.source` is `
 has "F149e no tool escalates" '`ESCALATION item=<name> phase=0 reason=needs-human-input needs=no MCP tool get_work_item for tracker <tracker.type>`'
 has "F149f post" '| `mcp:<type>` | `<TRACKER_PREFIX>add_comment` on the item, with the report file'"'"'s text as its body'
 has "F149g status" '| `mcp:<type>` | `<TRACKER_PREFIX>update_work_item` on the item, setting its status to the name `config.tracker.statusMap` gives that status, else the status itself'
+# lane e: #150 #151 #152 a declined step re-briefs, go all, dashboard --tailnet
+has "E150a a declined step is feedback on the brief" 'it is feedback on the brief, not on the step (#150): append `- <date> person-only step #<n> (<kind>) declined: <step> → <answer>` under the brief'"'"'s `## Feedback`'
+has "E150b the item is not asked again" 'close the answered item and do not add it again, and close the row'"'"'s other `person` items that `loops.sh answers` does not list'
+has "E150c a brief-ready row is briefed again" 'A `brief-ready` row → `inbox`, so the brief stage plans without the step (`--feedback`); a row in any other state does not change'
+has "E150d the bare words keep their row" '| `person` | `can'"'"'t now` or `no` | the same record, then close the answered item and add the same `person` item again'
+d=$(grep -n 'person-only step #<n> (<kind>) declined:' "$SKILL" | head -n 1 | cut -d: -f1)
+e=$(grep -n '| `person` | anything else |' "$SKILL" | head -n 1 | cut -d: -f1)
+[ -n "$d" ] && [ -n "$e" ] && [ "$d" -lt "$e" ] && pass "E150e the decline row comes before anything else" || fail "E150e row order ($d, $e)"
+has "E151a go all is a command word" 'compare all of it with `go`, `go all`, `yes`'
+has "E151b the go all row" '| `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151)'
+has "E151c the grant records the rest" 'its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant'"'"'s file name>`'
+has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps` and no `NEEDS CRITERIA`'
+has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item. Either way, clear `counters.go`.'
+has "E151f the counter" '| `go=<file>` | not a count: the grant file'
+has "E151g the early item" '--title "go for batch <batch>: <n> of <m> briefed, <k> still drafting"'
+has "E151h its options" 'Options: go / go all / go except <items> / drop <item> / or say what to change'
+has "E151i the ask is not a go" '**Going before every brief is drafted** (#151).'
+has "E151j an empty summary queues nothing" 'A summary with no row to show (every other row started under `go all`) is not printed and queues no `go-batch` item.'
+has "E151k the hard rule" 'An item is never built before the owner'"'"'s go for its batch (a `go all` given while it drafted included)'
+has "E151l the chat exception" 'An ask to start a batch while rows of it are still drafting is the one exception'
+has "E151m the common mistake" 'Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent'"'"'s grant, stamps `approved:`'
+has "E152a the command row" '| `/juel:star dashboard --tailnet` | The same, and maps the dashboard on your tailnet'
+has "E152b it is a whole-text command" '`status`, `dashboard`, `dashboard --tailnet`, `away`, `back` and `stop` are commands only when they are the whole text'
+has "E152c it runs the script with the flag" '`sh S/dashboard.sh`, or `sh S/dashboard.sh --tailnet` for `dashboard --tailnet`.'
+has "E152d the token is the only key" 'the token in the link is its only key (#152)'
+has "E152e without the flag it only names the flag" 'Without the flag it prints one line naming the flag when nothing maps the port.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
