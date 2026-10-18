@@ -504,6 +504,8 @@ rmdir "$APP/ev"
 # #61: an accepted residual in Decisions is not a missed criterion
 grep -q 'accepts with a documented residual and a named follow-up is met, not missed' "$P1" && pass "the prompt says an accepted residual is met (#61)" || fail "accepted residual line"
 grep -qF 'A finding class (the same invariant broken at several places) is one finding that names every site, never one site per round' "$P1" && pass "#131 the prompt asks for every site of a finding class in one finding" || fail "#131 finding-class line ($(grep -i 'finding class' "$P1"))"
+# lane c: #147 a criterion that names a CI check is proven by that check, never a finding in the round
+grep -qF 'A criterion that names a CI check (a lane, a workflow or a job that must pass on the PR'"'"'s head) is proven by that check, which STAR'"'"'s merge gate requires green on the head before it merges: never raise it as a finding in this round, whether or not the check has reported.' "$P1" && pass "#147 the prompt leaves a CI-proven criterion to the merge gate" || fail "#147 CI criterion line"
 # #67: a round with no -fix.md behind it takes the brief's later decisions as dispositions
 reset; mkdir -p "$H/reviews/app"; printf 'VERDICT item=ITEM-1 round=1 NOT-SAFE findings=1 head=%s\n' "$HEAD" > "$H/reviews/app/ITEM-1-r1.md"
 TZ=UTC touch -t 202610101200 "$H/reviews/app/ITEM-1-r1.md"; plan "0 safe"
