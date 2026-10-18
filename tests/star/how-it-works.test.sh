@@ -190,5 +190,6 @@ grep -qF 'from a phone you reach it over your tailnet with <code>tailscale serve
 grep -qF 'and a gate that prints nothing for 15 minutes is stopped and reported as stalled, so it never holds every build.' "$PAGE" && pass "LB6 a stalled gate is stopped and reported (#143)" || fail "LB6 stalled gate on the page"
 # lane e: the page shows #147 #150 #151 #152 #154
 grep -qF 'A step you turn down in words goes back to the brief worker, which plans without it.' "$PAGE" && pass "E150p a declined step on the page" || fail "E150p declined step on the page"
+grep -qF 'Leaving before every brief is drafted? Answer go all on the batch'"'"'s go: each brief still drafting starts once it is ready, unless it has a person-only step or needs criteria.' "$PAGE" && pass "E151p go all on the page" || fail "E151p go all on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

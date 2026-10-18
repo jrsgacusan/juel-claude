@@ -863,5 +863,18 @@ has "E150d the bare words keep their row" '| `person` | `can'"'"'t now` or `no` 
 d=$(grep -n 'person-only step #<n> (<kind>) declined:' "$SKILL" | head -n 1 | cut -d: -f1)
 e=$(grep -n '| `person` | anything else |' "$SKILL" | head -n 1 | cut -d: -f1)
 [ -n "$d" ] && [ -n "$e" ] && [ "$d" -lt "$e" ] && pass "E150e the decline row comes before anything else" || fail "E150e row order ($d, $e)"
+has "E151a go all is a command word" 'compare all of it with `go`, `go all`, `yes`'
+has "E151b the go all row" '| `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151)'
+has "E151c the grant records the rest" 'its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant'"'"'s file name>`'
+has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps` and no `NEEDS CRITERIA`'
+has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item. Either way, clear `counters.go`.'
+has "E151f the counter" '| `go=<file>` | not a count: the grant file'
+has "E151g the early item" '--title "go for batch <batch>: <n> of <m> briefed, <k> still drafting"'
+has "E151h its options" 'Options: go / go all / go except <items> / drop <item> / or say what to change'
+has "E151i the ask is not a go" '**Going before every brief is drafted** (#151).'
+has "E151j an empty summary queues nothing" 'A summary with no row to show (every other row started under `go all`) is not printed and queues no `go-batch` item.'
+has "E151k the hard rule" 'An item is never built before the owner'"'"'s go for its batch (a `go all` given while it drafted included)'
+has "E151l the chat exception" 'An ask to start a batch while rows of it are still drafting is the one exception'
+has "E151m the common mistake" 'Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent'"'"'s grant, stamps `approved:`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
