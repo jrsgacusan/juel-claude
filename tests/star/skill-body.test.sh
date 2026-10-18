@@ -855,5 +855,13 @@ has "F2a a refused send re-adds the item" 'close the item and add it again unans
 has "F3a start kills a wait left behind" 'run `sh S/messages.sh --home HOME_DIR --waiting`; when it prints `waiting <pid> <since>`, `kill <pid>`'
 has "F3b stop kills the wait" 'finish the current tick, run `sh S/messages.sh --home HOME_DIR --waiting` and `kill <pid>` when it prints `waiting <pid> <since>`'
 grep -qF 'ends by itself (its parent is gone)' "$SKILL" && fail "F3c the false self-ending claim is gone" || pass "F3c the false self-ending claim is gone"
+# lane e: #150 #151 #152 a declined step re-briefs, go all, dashboard --tailnet
+has "E150a a declined step is feedback on the brief" 'it is feedback on the brief, not on the step (#150): append `- <date> person-only step #<n> (<kind>) declined: <step> → <answer>` under the brief'"'"'s `## Feedback`'
+has "E150b the item is not asked again" 'close the answered item and do not add it again, and close the row'"'"'s other `person` items that `loops.sh answers` does not list'
+has "E150c a brief-ready row is briefed again" 'A `brief-ready` row → `inbox`, so the brief stage plans without the step (`--feedback`); a row in any other state does not change'
+has "E150d the bare words keep their row" '| `person` | `can'"'"'t now` or `no` | the same record, then close the answered item and add the same `person` item again'
+d=$(grep -n 'person-only step #<n> (<kind>) declined:' "$SKILL" | head -n 1 | cut -d: -f1)
+e=$(grep -n '| `person` | anything else |' "$SKILL" | head -n 1 | cut -d: -f1)
+[ -n "$d" ] && [ -n "$e" ] && [ "$d" -lt "$e" ] && pass "E150e the decline row comes before anything else" || fail "E150e row order ($d, $e)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
