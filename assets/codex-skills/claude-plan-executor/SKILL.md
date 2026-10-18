@@ -133,6 +133,13 @@ of the two; that is normal and not a problem to report.
   ones most often violated by accident.
 - **A task marked BLOCKED BY TASK N does not start until task N is done.** If task N could not be
   completed, stop and report rather than proceeding on assumed values.
+- **A task with a `**Run:** session` line is not yours.** That line, right under a task's
+  heading, means only the calling session can run it (it drives a GUI, a browser profile, a
+  screen or audio, or measures something live outside the repository). Do not start it: stop
+  before it, append no ledger line for it, and end the report with
+  `stopped at task <N>: run by the session`. The caller runs it, marks it complete in the ledger
+  and dispatches you again, so you resume after it. This holds over "finish the highest-value
+  subset" in Failure Handling.
 - **Keep a ledger, and resume from it.** The ledger is
   `<repo root>/.superpowers/sdd/<plan file name without .md>/progress.md`, where `<repo root>` is
   `git rev-parse --show-toplevel`. It is the file `superpowers:executing-plans` keeps, in the same
