@@ -871,6 +871,8 @@ has "E150d the bare words keep their row" '| `person` | `can'"'"'t now` or `no` 
 d=$(grep -n 'person-only step #<n> (<kind>) declined:' "$SKILL" | head -n 1 | cut -d: -f1)
 e=$(grep -n '| `person` | anything else |' "$SKILL" | head -n 1 | cut -d: -f1)
 [ -n "$d" ] && [ -n "$e" ] && [ "$d" -lt "$e" ] && pass "E150e the decline row comes before anything else" || fail "E150e row order ($d, $e)"
+has "E150f a decline on a (value) step is not its value" '| `person`, a `(value)` step | anything but `done`, `can'"'"'t now`, `no` or words that decline the step (the decline row below, which holds for a `(value)` step too) |'
+has "E150g the done row agrees" 'and any other answer but `can'"'"'t now`, `no` or words that decline the step is its value (the two rows above)'
 has "E151a go all is a command word" 'compare all of it with `go`, `go all`, `yes`'
 has "E151b the go all row" '| `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151)'
 has "E151c the grant records the rest" 'its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant'"'"'s file name>`'
