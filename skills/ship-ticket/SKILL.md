@@ -757,7 +757,10 @@ Make sure git ignores the docs root and the scratch folder, and touch `.gitignor
 does not (#153). From the repo root, run `git check-ignore -q -- <docsRoot as a path from the repo root>/x`
 and `git check-ignore -q -- .superpowers/x`. When both succeed, leave `.gitignore` as it is, an
 unanchored line included: Phase 4's planned-file stop names that line if a plan ever needs a path
-it ignores. A `docsRoot` outside the repo needs no check. For each one that fails, the entry is
+it ignores. Run interactively, the one exception is the #145 repair: when
+`git check-ignore -v -- <path>` shows the match comes from a `.gitignore` line that is exactly
+`superpowers/` or `.superpowers/`, make the second bullet's replacement below, as its lone commit.
+A `docsRoot` outside the repo needs no check. For each one that fails, the entry is
 anchored to the repo root, so no other folder of the same name is ignored: the resolved `docsRoot`
 as a path from the repo root, with a leading and a trailing `/` (`/docs/superpowers/`, or
 `/docs/.superpowers/`), and `/.superpowers/`.
@@ -772,7 +775,6 @@ as a path from the repo root, with a leading and a trailing `/` (`/docs/superpow
   shows it as its own commit.
 
 This directory is scratch, not product.
-product.
 
 **Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
 findings report, or context file that already exists at the derived path — append `-v2` before

@@ -345,5 +345,7 @@ printf 'superpowers/\n' > "$IG/.gitignore"
 : > "$IG/.gitignore"
 printf '/docs/superpowers/\n/.superpowers/\n' >> "$IG/.git/info/exclude"
 (cd "$IG" && git check-ignore -q -- docs/superpowers/x && git check-ignore -q -- .superpowers/x) && [ ! -s "$IG/.gitignore" ] && pass "A153h (control) info/exclude ignores both with .gitignore untouched" || fail "A153h (control) info/exclude"
+has "A153i run interactively, the #145 repair still runs" 'Run interactively, the one exception is the #145 repair: when `git check-ignore -v -- <path>` shows the match comes from a `.gitignore` line that is exactly `superpowers/` or `.superpowers/`, make the second bullet'"'"'s replacement below, as its lone commit.'
+grep -qx 'product.' "$SKILL" && fail "A153j no stray wrapped line is left in Phase 2" || pass "A153j no stray wrapped line is left in Phase 2"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
