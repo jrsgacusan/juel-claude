@@ -1944,6 +1944,7 @@ batch then runs without them.
 
    A `Not before:` line appears only for a brief that has `notBefore`.
    A summary with no row to show (every other row started under `go all`) is not printed and queues no `go-batch` item.
+   The early item of "Going before every brief is drafted" is the one exception: it is added with no row briefed.
    The `go-batch` item carries the same choice. The decision records are where the owner
    overrules STAR: an answer that names one is feedback for that brief.
 2. Between ticks, never inside one: ask each open `person` item of the batch in plain chat,
@@ -1986,7 +1987,7 @@ batch then runs without them.
 **Going before every brief is drafted** (#151). The owner may ask to start a batch while rows of
 it are still `inbox` or `briefing`, in chat or in STAR's terminal ("go for all of these, I have to
 leave"). The ask is not a go: STAR prints the summary for the batch's `brief-ready` rows at once,
-adds the batch's early `go-batch` item (the queue table), and says where to answer it, in the
+adds the batch's early `go-batch` item (the queue table) even when no row is `brief-ready` yet (its `go` then starts nothing, and `go all` covers every row), and says where to answer it, in the
 thread for a chat message. The ask names the batch or one of its items; one that names neither
 means a batch only when exactly one batch has rows still drafting, else STAR asks which. `go` on
 that item starts the briefed rows and leaves the rest for the batch's usual `go-batch` item;

@@ -883,6 +883,8 @@ has "E151g the early item" '--title "go for batch <batch>: <n> of <m> briefed, <
 has "E151h its options" 'Options: go / go all / go except <items> / drop <item> / or say what to change'
 has "E151i the ask is not a go" '**Going before every brief is drafted** (#151).'
 has "E151j an empty summary queues nothing" 'A summary with no row to show (every other row started under `go all`) is not printed and queues no `go-batch` item.'
+has "E151n the early item comes even with nothing briefed" 'adds the batch'"'"'s early `go-batch` item (the queue table) even when no row is `brief-ready` yet (its `go` then starts nothing, and `go all` covers every row)'
+has "E151o the empty-summary rule names the exception" 'The early item of "Going before every brief is drafted" is the one exception: it is added with no row briefed.'
 has "E151k the hard rule" 'An item is never built before the owner'"'"'s go for its batch (a `go all` given while it drafted included)'
 has "E151l the chat exception" 'An ask to start a batch while rows of it are still drafting is the one exception'
 has "E151m the common mistake" 'Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent'"'"'s grant, stamps `approved:`'
