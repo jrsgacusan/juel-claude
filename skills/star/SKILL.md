@@ -1280,6 +1280,9 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
 | `jira` | the connected Jira/Atlassian MCP's JQL search: `assignee = currentUser() AND project = <key> AND statusCategory = "To Do"` | the MCP's get-issue tool |
 | `github` | `gh issue list --assignee @me --state open --limit 200 --json number,title,url,labels` (skip `status:in-progress` / `status:in-review`) | `gh issue view <n> --json number,title,body,url,labels` |
 | `file` | `*.md` in the spec directory whose status is explicitly `todo` | read the file |
+| any other `tracker.type`: a workspace MCP (#149) | resolve `TRACKER_PREFIX`: the first loaded MCP tool prefix (`mcp__<server>__`) whose server name contains `tracker.type` (any case) and that exposes `get_work_item`, then `<TRACKER_PREFIX>search_work_items` for the items assigned to you that are still to do | `<TRACKER_PREFIX>get_work_item` with the ref as its id |
+
+For a workspace MCP, `item.source` is `mcp:<tracker.type>`, and the four tools `search_work_items`, `get_work_item`, `add_comment` and `update_work_item` are its whole contract. Load deferred tools with `ToolSearch` before looking. No prefix matches, or the one that does lacks `get_work_item`: `ESCALATION item=<name> phase=0 reason=needs-human-input needs=no MCP tool get_work_item for tracker <tracker.type>`.
 
 4. Normalize: `ref` (null when the source has none), `slug` (kebab-case from the title, at most
    6 words, unless the collision rule of step 5 extends it), `title`, `url`, `path` (a `file`
@@ -1527,6 +1530,7 @@ that was lost; then report `POSTED` with its URL and post nothing.
 | `linear` | the Linear MCP's comment tool, `<LINEAR_PREFIX>save_comment` or `<LINEAR_PREFIX>create_comment`, whichever that prefix has, with `(issueId: <id>, body: <the report file's text>)` |
 | `github` | `gh issue comment <n> --body-file <path>` |
 | `jira` | the connected Jira/Atlassian MCP's add-comment tool |
+| `mcp:<type>` | `<TRACKER_PREFIX>add_comment` on the item, with the report file's text as its body (resolve `TRACKER_PREFIX` as in `draft-brief`, from `<type>`; no such tool is a failed post) |
 | `file` | nothing to post: add `report: <path>` to the spec file's frontmatter |
 
 Report, as the `worker_done` body: `POSTED item=<name> url=<comment url, or the spec path>`, then
@@ -1863,6 +1867,7 @@ At the end of every tick outside quiet hours, compare each row's status with its
 | `linear` | `<LINEAR_PREFIX>save_issue(id: <ref>, state: <the team's state of that name>)` (resolve `LINEAR_PREFIX` as in `draft-brief`) |
 | `github` | `gh label create status:in-progress --force` and `gh label create status:in-review --force` once, then `gh issue edit <n>` adding the status's label and removing the other. Done: nothing for a merged PR (its `Closes` does it), `gh issue close <n>` for a report item |
 | `jira` | the transition named by `config.tracker.statusMap`, through the connected Jira/Atlassian MCP |
+| `mcp:<type>` | `<TRACKER_PREFIX>update_work_item` on the item, setting its status to the name `config.tracker.statusMap` gives that status, else the status itself (resolve `TRACKER_PREFIX` as in `draft-brief`, from `<type>`) |
 | `file` | the spec file's status marker: `todo`, `in_progress`, `in_review`, `done` |
 
 Each write sets `counters.tracker=<status>` and appends `<iso>\tSTAR\t<item>\tstatus <status>` to

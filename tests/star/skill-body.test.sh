@@ -855,5 +855,13 @@ has "F2a a refused send re-adds the item" 'close the item and add it again unans
 has "F3a start kills a wait left behind" 'run `sh S/messages.sh --home HOME_DIR --waiting`; when it prints `waiting <pid> <since>`, `kill <pid>`'
 has "F3b stop kills the wait" 'finish the current tick, run `sh S/messages.sh --home HOME_DIR --waiting` and `kill <pid>` when it prints `waiting <pid> <since>`'
 grep -qF 'ends by itself (its parent is gone)' "$SKILL" && fail "F3c the false self-ending claim is gone" || pass "F3c the false self-ending claim is gone"
+# lane f: #149 a workspace-MCP tracker has a fetch, post and status row
+has "F149a the prefix" 'resolve `TRACKER_PREFIX`: the first loaded MCP tool prefix (`mcp__<server>__`) whose server name contains `tracker.type` (any case) and that exposes `get_work_item`'
+has "F149b fetch" '`<TRACKER_PREFIX>get_work_item` with the ref as its id'
+has "F149c list" '`<TRACKER_PREFIX>search_work_items` for the items assigned to you that are still to do'
+has "F149d the source and the contract" 'For a workspace MCP, `item.source` is `mcp:<tracker.type>`, and the four tools `search_work_items`, `get_work_item`, `add_comment` and `update_work_item` are its whole contract.'
+has "F149e no tool escalates" '`ESCALATION item=<name> phase=0 reason=needs-human-input needs=no MCP tool get_work_item for tracker <tracker.type>`'
+has "F149f post" '| `mcp:<type>` | `<TRACKER_PREFIX>add_comment` on the item, with the report file'"'"'s text as its body'
+has "F149g status" '| `mcp:<type>` | `<TRACKER_PREFIX>update_work_item` on the item, setting its status to the name `config.tracker.statusMap` gives that status, else the status itself'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
