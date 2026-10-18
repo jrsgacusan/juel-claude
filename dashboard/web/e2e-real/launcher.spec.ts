@@ -10,11 +10,18 @@ test("the launcher started one server on 127.0.0.1 and opened its URL with the t
   expect(e2e().url).toBe(url)
   expect(() => process.kill(config.pid, 0)).not.toThrow()
   expect(fakeLog("open.log").trim().split("\n")[0]).toBe(url)
-  // A first run that builds also prints npm's own output, so only the last line is pinned.
+  // A first run that builds also prints npm's own output, so only the last line is pinned,
+  // past the launcher's own "dashboard.sh: " lines: the fake tailscale serves nothing, so the
+  // --tailnet hint follows the URL (#152).
   const out = readFileSync(`${e2e().root}/launch-1.out`, "utf8")
     .trim()
     .split("\n")
-  expect(out.at(-1)).toBe(`STAR dashboard: ${url}`)
+  expect(out.filter((line) => !line.startsWith("dashboard.sh: ")).at(-1)).toBe(
+    `STAR dashboard: ${url}`
+  )
+  expect(out).toContain(
+    "dashboard.sh: to open it from your phone, run /juel:star dashboard --tailnet (tailscale serve, inside your tailnet only)"
+  )
   expect(
     dashboardLog(e2e().home).match(/started on 127\.0\.0\.1:\d+/g)
   ).toHaveLength(1)
