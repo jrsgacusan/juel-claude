@@ -139,5 +139,9 @@ hasf "$ST" "B154g it runs after the executor's stop line" 'after a dispatch whos
 hasf "$ST" "B154h the session's ledger line" 'append `Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`'
 hasf "$ST" "B154i no ledger yet: create it first" 'with no ledger yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`'
 hasf "$ST" "B154j then the same line again" 'Then dispatch the same line: the executor resumes at the first task not marked complete.'
+hasf "$ST" "B154k the scope record comes first" 'Take the scope record below first, before the first task of either kind runs.'
+hasf "$ST" "B154l the ledger names the plan as the dispatch line does" 'the path exactly as the dispatch line names the plan'
+hasf "$ST" "B154m a session task that cannot finish stops the run" 'A session task that cannot be completed gets no ledger line, and nothing is dispatched past it: under `--unattended`, end the run with `ESCALATION item=<item> phase=4 reason=codex-failed needs=session task <N> failed: <one line>`; interactively, show that line and ask how to go on.'
+hasf "$ST" "B154n the escalation list names it" 'or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks")'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

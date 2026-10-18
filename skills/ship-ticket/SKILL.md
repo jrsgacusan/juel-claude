@@ -535,7 +535,7 @@ Nothing else stops an unattended run, and nothing on this list is ever worked ar
 2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity
    (capacity retries, then the fallback model, then this session runs the plan; see Phase 4), or
    a task fails on a planned file git ignores, whoever ran the plan (Phase 4, "A planned file git
-   ignores").
+   ignores"), or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks").
 3. `verification-failed`: a phase 6 item is still FAIL after one loop back through phase 5.
    Before raising it, when what still fails is a residual that no further change inside this item
    can close (an open-ended input the fix keeps chasing, say), ask the coordinator with
@@ -850,13 +850,18 @@ all resume from it, at the first task not marked complete. Before the first disp
 ignores it: `git check-ignore -q .superpowers/x || echo '/.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
 
 **Session tasks** (#154). A task with the line `**Run:** session` under its heading is never
-handed to Codex. Before each dispatch, and after a dispatch whose report ends with
+handed to Codex. Take the scope record below first, before the first task of either kind runs.
+Before each dispatch, and after a dispatch whose report ends with
 `stopped at task <N>: run by the session`, look at the first task with no `Task <N>: complete`
 line in the ledger. While it is a session task, run it in this session (its steps, its tests and
 its commit, inside its `**Files:**` block, never `git add -f`), then append
 `Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`; with no ledger
-yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`. Then dispatch
-the same line: the executor resumes at the first task not marked complete. When every task left
+yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`, the path
+exactly as the dispatch line names the plan. A session task that cannot be completed gets no
+ledger line, and nothing is dispatched past it: under `--unattended`, end the run with
+`ESCALATION item=<item> phase=4 reason=codex-failed needs=session task <N> failed: <one line>`;
+interactively, show that line and ask how to go on. Then dispatch the same line: the executor
+resumes at the first task not marked complete. When every task left
 is a session task, nothing more is dispatched. The ledger is the record of who ran what: a
 `(session, …)` line is this session's, every other line the executor's. With `--executor session`,
 and on the capacity rule's last step, this session runs every task anyway.
