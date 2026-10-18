@@ -29,6 +29,10 @@ is dropped when the path is matched. The executor changes nothing outside these 
 caller's scope check (`skills/ship-ticket/scope-check.sh` in the juel plugin) reverts any changed
 file no block names.
 
+A task with the line `**Run:** session` right under its heading is run by the calling session,
+never by the executor: the executor stops before it with `stopped at task <N>: run by the session`,
+and the session's ledger line for it reads `Task <N>: complete (session, …)`.
+
 ## Execution Contract
 
 When invoked, the agent should:

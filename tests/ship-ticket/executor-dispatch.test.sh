@@ -126,5 +126,11 @@ done
 for s in execute review-and-execute receive-review-and-execute; do
   grep -qF "printf '/.superpowers/\n'" "$ROOT/skills/$s/SKILL.md" && pass "#145 $s: the ledger's exclude entry is anchored" || fail "#145 $s: the ledger's exclude entry"
 done
+# lane b: #154 a task marked **Run:** session is the session's, never the executor's
+hasf() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qF -- "$3" && pass "$2" || fail "$2"; }
+hasf "$EX" "B154a the executor never starts a session task" '**A task with a `**Run:** session` line is not yours.**'
+hasf "$EX" "B154b it stops before it with the fixed line" 'Do not start it: stop before it, append no ledger line for it, and end the report with `stopped at task <N>: run by the session`.'
+hasf "$EX" "B154c the caller resumes the executor after it" 'The caller runs it, marks it complete in the ledger and dispatches you again, so you resume after it.'
+hasf "$PC" "B154d the contract names the marker" 'A task with the line `**Run:** session` right under its heading is run by the calling session, never by the executor'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
