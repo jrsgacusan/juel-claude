@@ -753,14 +753,25 @@ fi
 (If `.claude/workflow.json` or `.claude/workflow.local.json` sets `docsRoot`, that value wins over
 the filesystem check above — config always takes precedence.)
 
-Ensure the repo's `.gitignore` ignores the docs root and the scratch folder with entries anchored
-to the repo root, so no other folder of the same name is ignored: the resolved `docsRoot` as a
-path from the repo root, with a leading and a trailing `/` (`/docs/superpowers/`, or
-`/docs/.superpowers/`), and `/.superpowers/`. Add each one that is absent. In the same change,
-replace a line that is exactly `superpowers/` with the docs root's entry, and a line that is
-exactly `.superpowers/` with `/.superpowers/`: an unanchored line ignores every folder of that
-name at any depth, so a plan's `tests/superpowers/` file could never be committed. Leave every
-other line as it is. A `docsRoot` outside the repo needs no entry. This directory is scratch, not
+Make sure git ignores the docs root and the scratch folder, and touch `.gitignore` only when it
+does not (#153). From the repo root, run `git check-ignore -q -- <docsRoot as a path from the repo root>/x`
+and `git check-ignore -q -- .superpowers/x`. When both succeed, leave `.gitignore` as it is, an
+unanchored line included: Phase 4's planned-file stop names that line if a plan ever needs a path
+it ignores. A `docsRoot` outside the repo needs no check. For each one that fails, the entry is
+anchored to the repo root, so no other folder of the same name is ignored: the resolved `docsRoot`
+as a path from the repo root, with a leading and a trailing `/` (`/docs/superpowers/`, or
+`/docs/.superpowers/`), and `/.superpowers/`.
+
+- Under `--unattended`, append it to `$(git rev-parse --git-path info/exclude)`, never to
+  `.gitignore`: a worker's PR changes only what its brief scopes, and that file is never in a diff.
+- Otherwise add it to the repo's `.gitignore`. In the same change, replace a line that is exactly
+  `superpowers/` with the docs root's entry, and a line that is exactly `.superpowers/` with
+  `/.superpowers/`: an unanchored line ignores every folder of that name at any depth, so a plan's
+  `tests/superpowers/` file could never be committed. Leave every other line as it is. Commit that
+  change alone, right away, as `chore: ignore the docs root and the scratch folder`, so the PR
+  shows it as its own commit.
+
+This directory is scratch, not product.
 product.
 
 **Never overwrite an existing file under `${docsRoot}`.** On a name collision — a spec, plan,
