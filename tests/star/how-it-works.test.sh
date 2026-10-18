@@ -191,5 +191,7 @@ grep -qF 'and a gate that prints nothing for 15 minutes is stopped and reported 
 # lane e: the page shows #147 #150 #151 #152 #154
 grep -qF 'A step you turn down in words goes back to the brief worker, which plans without it.' "$PAGE" && pass "E150p a declined step on the page" || fail "E150p declined step on the page"
 grep -qF 'Leaving before every brief is drafted? Answer go all on the batch'"'"'s go: each brief still drafting starts once it is ready, unless it has a person-only step or needs criteria.' "$PAGE" && pass "E151p go all on the page" || fail "E151p go all on the page"
+grep -qF '<li>A criterion only CI can prove is left to the merge gate, which needs every check green on the head, so it never costs a codex round.</li>' "$PAGE" && pass "E147p a CI-proven criterion on the page" || fail "E147p CI criterion on the page"
+grep -qF '<li>Plan tasks only a session can run (a live measurement, a screen, a browser profile) run in the build worker'"'"'s own session, and codex runs the rest.</li>' "$PAGE" && pass "E154p session tasks on the page" || fail "E154p session tasks on the page"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
