@@ -914,5 +914,14 @@ has "HO159h the follow-up takes over the parent's worktree" 'With a parent PR it
 has "HO159i and its tooling file" 'copied the parent'"'"'s `gates/<project>/<item>-tooling.md` to `<name>-tooling.md` when there is one'
 has "HO159j a hand-over item never falls to the new-PR rules" 'A check that fails (not `OPEN`, a fork, another author) is always `ESCALATION item=<name> phase=0 reason=needs-human-input needs=<url> cannot be continued: <why>`, never the new-PR rules below'
 has "LG156j one held item for all rows" 'once, one item for every row it holds (when that item is open, add nothing)'
+# lane f: the library, the notes folder, the builds folder and the migration lines
+has "RM1a migrated notes line" '`migrated notes=<n> item=sort-memory-notes` → say in one line "<n> notes moved to one file each; sort-memory-notes asks you to sort them". The row it added is briefed like any `inbox` row.'
+has "RM1b migrated evidence line" '`migrated evidence folders=<n> gb=<x>` → queue `--kind held` "evidence holds <n> dependency folders (<x> GB): remove them?" with the body "`sh S/worktree-clean.sh --evidence-report` lists them."'
+has "RM1c evidence answer" '`sh S/worktree-clean.sh --evidence-prune`'
+g "RM1d layout notes dir" 'memory/<project>/M-<nnnn>-<slug>.md'
+g "RM1e layout library" 'library/<project>/L-<nnnn>-<slug>.md'
+g "RM1f layout builds" 'builds/<item>/'
+g "RM1g star.json notes key" '"notes": "split",'
+g "RM1h star.json evidenceChecked key" '"evidenceChecked": "<iso>",'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

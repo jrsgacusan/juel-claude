@@ -356,7 +356,13 @@ evidence/<item>/                     the item's evidence folder, copied from its
 drafts/<YYYY-MM-DD>-<project>-<item>-<kind>.md
 drafts/<YYYY-MM-DD>-<project>-slack-<id>.md   a Slack draft the dashboard writes before the hand-over: first line "to: slack <channelId> <threadTs, or ts>", then the reply its drafter wrote (nothing more when it failed)
 slack/redraft/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md   a request for the drafter to write a draft again: "draft: <path>", "loop: <id>", "how: <text>" (slack-redraft.sh or the dashboard writes it; the drafter deletes it when done)
-memory/<project>.md
+memory/<project>.md                  the project's notes before the split: workers read it while star.json "notes" is "legacy" (memory/<project>.md.pre-notes is migrate's copy)
+memory/<project>/M-<nnnn>-<slug>.md  one note per file, a rule or a fact (written only by notes.sh)
+memory/<project>.always.md           the notes every worker reads (notes.sh rewrites it on every change)
+library/<project>/L-<nnnn>-<slug>.md a decision that applies beyond one item (written only by library.sh)
+builds/<item>/                       the build's specs/ and plans/, copied from its worktree before worktree-clean.sh removes it
+index.db                             the search cache recall.sh keeps current; deleting it loses nothing
+library.base, notes.base             Obsidian tables over the library and the notes: open this folder as a vault
 ```
 
 `<project>` is the name in `star.json`. A folder holds one project; the name stays in the paths,
@@ -384,6 +390,8 @@ Settings in `star.json`:
   "hostGate": { "minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25 },
   "progressDeadlineMin": 30,                             // no progress for this long: a check-in
   "mcps":     { "mobbin": "available", "context7": "needs-sign-in" },   // null in a new folder; every start writes it from the Preflight: available, needs-sign-in or absent
+  "notes": "split",                                      // "legacy" from migrate until the owner accepts sort-memory-notes; notes.sh path follows it
+  "evidenceChecked": "<iso>",                            // set by the first migrate that measured the dependency folders in evidence/
   "gateDown": null,                                      // while the review gate is down: { "since", "why", "checked" }
   "hostedDown": null,                                    // while the hosted reviewer reviews nothing (a usage limit): { "since", "why" }
   "tokenCmd": null,                                      // or a command that prints a GitHub token, such as a keychain lookup
@@ -596,7 +604,9 @@ runs in <handle>", and end the turn.
 
 1. Migrate: `sh S/star-home.sh migrate`. `current` → nothing. `migrated gate` (it comes first, before
    `current` or `migrated rows=<n>`) → say in one line "gate moved to Sol with a Claude fallback".
-   `migrated rows=<n>` → say it in one line. For each `stop <dispatch>` line (a v1 review, fix or screen worker whose row moved on):
+   `migrated rows=<n>` → say it in one line.
+   `migrated notes=<n> item=sort-memory-notes` → say in one line "<n> notes moved to one file each; sort-memory-notes asks you to sort them". The row it added is briefed like any `inbox` row.
+   `migrated evidence folders=<n> gb=<x>` → queue `--kind held` "evidence holds <n> dependency folders (<x> GB): remove them?" with the body "`sh S/worktree-clean.sh --evidence-report` lists them." For each `stop <dispatch>` line (a v1 review, fix or screen worker whose row moved on):
    append `<dispatch> stopped <iso>` to `processed.log`, then
    `orca orchestration worker-stop --dispatch <id> --json` and `worker-release`. All before the
    reconcile, so no v1 report lands on a row that moved. A non-zero exit stops the start: print
@@ -911,6 +921,8 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `restart-or-drop` | anything else | add the item again with the title "build was interrupted: answer restart or drop" |
    | `draft` | send | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`; any other draft is the user's to send, say so. Before posting, append `<iso>\tSTAR\t<item>\tposted draft N-<id>` to `sent.log`; when that line is already there the draft was posted and only the close was lost: just close the item. |
    | `held` "could not move <item> to <status>…" | done | `counters.tracker=<status>` (the user moved it), then close it |
+   | `held` "evidence holds … dependency folders…" | `yes` | `sh S/worktree-clean.sh --evidence-prune`, say its `pruned …` line, then close it |
+   | `held` "evidence holds … dependency folders…" | anything else | close it; nothing is removed |
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
    | `held` "the hosted reviewer is not reviewing…" | `retry` | set `hostedDown` to null in `star.json` and close the item: "Fill slots" starts the parked babysits again (#129) |
