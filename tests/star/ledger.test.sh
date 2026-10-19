@@ -159,5 +159,9 @@ L add rescopedFrom=W-1 review="$H/reviews/app/W-1-r3.md" >/dev/null; [ "$(L get 
 L add V-1 ref=SPH-4 project=app >/dev/null; L set V-1 worktree=/wt/V-1 >/dev/null; printf 'eval/\n' > "$H/gates/app/V-1-tooling.md"
 L add rescopedFrom=V-1 review="$H/reviews/app/V-1-r3.md" >/dev/null
 [ "$(L get V-1 worktree)" = "/wt/V-1" ] && [ "$(L get V-1-followup worktree)" = "-" ] && [ ! -e "$H/gates/app/V-1-followup-tooling.md" ] && pass "E159o: without a PR the parent keeps its worktree and nothing is copied" || fail "E159o"
+# #162: prompted= counts the answered permission prompts (#114) and go= names the go-all grant (#151)
+L set W-1 counters.prompted=+1 >/dev/null && L set W-1 counters.prompted=+1 >/dev/null && [ "$(L get W-1 counters.prompted)" = "2" ] && pass "C162a prompted= is a counter" || fail "C162a prompted ($(L get W-1 counters))"
+L set W-1 counters.go=go-B-1-20261019T081200Z.md >/dev/null && [ "$(L get W-1 counters.go)" = "go-B-1-20261019T081200Z.md" ] && pass "C162b go= is a word" || fail "C162b go ($(L get W-1 counters))"
+L set W-1 counters.go=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "C162c go= does not count" || fail "C162c go +1"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
