@@ -80,5 +80,75 @@ R --json hosted review | head -1 | python3 -c 'import json,sys; d=json.loads(sys
 R --limit 21 x >/dev/null 2>&1; [ $? -eq 64 ] && pass "a limit over 20 is 64" || fail "limit 21"
 R '"' >/dev/null 2>&1; [ $? -eq 64 ] && pass "no searchable word is 64" || fail "empty query"
 [ "$(sh "$SCRIPT" --home "$H" rebuild)" = "indexed 3 files" ] && pass "rebuild counts only the files it indexed" || fail "rebuild ($(sh "$SCRIPT" --home "$H" rebuild))"
+# lane a: library and memory notes, staleness, a broken cache
+cat > "$H/library/app/L-0001-the-hosted-review-comes-after-ready.md" <<'EOF'
+---
+id: "L-0001"
+kind: "decision"
+title: "The hosted review comes after ready"
+status: "active"
+replacedBy: null
+always: false
+source: "brief-worker"
+since: "2026-10-13"
+from: "[[a]]"
+fromDecision: "D1"
+usedBy: []
+---
+Decision: mark the PR ready, then request the hosted review
+Why: the review needs a ready PR
+Source: SKILL.md
+EOF
+cat > "$H/library/app/L-0002-old-rule.md" <<'EOF'
+---
+id: "L-0002"
+kind: "decision"
+title: "Review before ready"
+status: "replaced"
+replacedBy: "L-0001"
+always: false
+source: "brief-worker"
+since: "2026-10-01"
+from: null
+fromDecision: null
+usedBy: []
+---
+Decision: request the review before the PR is ready
+Why: none
+Source: none
+EOF
+cat > "$H/memory/app/M-0001-never-post-to-slack.md" <<'EOF'
+---
+id: "M-0001"
+kind: "rule"
+title: "Never post to Slack"
+status: "active"
+replacedBy: null
+always: true
+source: "owner"
+since: "2026-10-12"
+from: null
+fromDecision: null
+usedBy: []
+---
+Never post to Slack; write a draft.
+EOF
+R --kind decision hosted review | head -1 | grep -q '^library L-0001 · active · The hosted review comes after ready · ' && pass "the library ranks above briefs" || fail "library first ($(R --kind decision hosted review))"
+R --kind decision review before ready | grep -q 'L-0002' && fail "a replaced note is shown" || pass "replaced notes are hidden"
+R --kind note slack | grep -q '^note M-0001 · active · Never post to Slack' && pass "memory notes" || fail "note"
+R --kind note hosted review | grep -q '^decision' && fail "--kind note shows decisions" || pass "--kind filters"
+# a changed brief is re-read on the next search
+sleep 1; sed -i '' 's/CSV over XLSX/Parquet over CSV/' "$H/briefs/app/a.md"
+R parquet | grep -q '^decision a#D2' && pass "a changed file is re-indexed" || fail "staleness"
+# a removed file leaves the index
+rm "$H/releases/2026-10-15-app-a.md"; R --kind release csv export | grep -q release && fail "a removed file stays" || pass "a removed file is dropped"
+# a damaged or deleted cache is rebuilt, never an error
+printf 'not a database' > "$H/index.db"; R hosted review | head -1 | grep -q 'L-0001' && pass "a damaged index is rebuilt" || fail "damaged index"
+rm -f "$H/index.db"*; R hosted review | grep -q 'L-0001' && pass "a missing index is rebuilt" || fail "missing index"
+# FTS syntax in the words is just words
+R 'hosted* AND "review' 'NEAR(' ':ready' | grep -q 'L-0001' && pass "FTS syntax is quoted away" || fail "syntax"
+# a brief with no front matter end or no Decisions is skipped quietly
+printf -- '---\napproved: x\n## Decisions\n### D1 Broken\n' > "$H/briefs/app/e.md"; R broken >/dev/null 2>&1; [ $? -eq 0 ] && pass "a malformed brief does not fail a search" || fail "malformed"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
