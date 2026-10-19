@@ -143,5 +143,21 @@ out=$(JUEL_EVIDENCE_GB_LIMIT=0 WC SZ)
 evidence-size SZ 0.0 GB
 removed $SZ" ] && pass "evidence over the limit prints its size" || fail "size line ($out)"
 
+# lane d: --evidence-report and --evidence-prune
+rm -rf "$H/evidence"; mkdir -p "$H/evidence/A/run/node_modules" "$H/evidence/A/run/deep" "$H/evidence/B/obj"
+printf '0123456789' > "$H/evidence/A/run/node_modules/x"; echo report > "$H/evidence/A/run/report.md"; printf '12345' > "$H/evidence/B/obj/a.o"
+mkdir -p "$H/evidence/A/run/deep/node_modules/a/node_modules"; : > "$H/evidence/A/run/deep/node_modules/a/node_modules/y"
+want=$(printf 'A\trun/deep/node_modules\t0\nA\trun/node_modules\t10\nB\tobj/a.o\t5\ntotal 3 gb=0.0\n')
+out=$(WC --evidence-report)
+[ "$out" = "$want" ] && [ -f "$H/evidence/A/run/node_modules/x" ] && pass "--evidence-report lists skip-listed paths once at the outer folder and removes nothing" || fail "report ($out)"
+rm -rf "$H/evidence/A/run/deep"
+out=$(WC --evidence-report)
+[ "$out" = "$(printf 'A\trun/node_modules\t10\nB\tobj/a.o\t5\ntotal 2 gb=0.0\n')" ] && pass "the report sorts by item then path" || fail "report 2 ($out)"
+out=$(WC --evidence-prune)
+[ "$out" = "pruned 2 gb=0.0" ] && [ ! -e "$H/evidence/A/run/node_modules" ] && [ ! -e "$H/evidence/B/obj/a.o" ] && [ -f "$H/evidence/A/run/report.md" ] && [ "$(tail -1 "$H/evidence/A/skipped.txt")" = "$(printf 'run/node_modules\t10')" ] && pass "--evidence-prune removes them and records them in skipped.txt" || fail "prune ($out)"
+rm -rf "$H/evidence"
+[ "$(WC --evidence-report)" = "total 0 gb=0.0" ] && pass "a home with none prints total 0" || fail "empty report"
+WC --evidence-report X >/dev/null 2>&1; [ $? -eq 64 ] && pass "--evidence-report with an item is 64" || fail "report usage"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

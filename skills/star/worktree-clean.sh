@@ -31,6 +31,14 @@
 # <why>: row is <state> | the main checkout | in use by <item> | not a git checkout |
 #        uncommitted changes | unpushed commits | evidence copy failed: <why> |
 #        build docs copy failed: <why> | orca: <message>
+#   worktree-clean.sh [--home H] --evidence-report
+#     -> one line "<item>\t<relative path>\t<bytes>" per skip-listed folder or file already under
+#        <H>/evidence/ (sorted by item, then path; a folder inside another is listed once, at the
+#        outer one), then "total <n> gb=<x.x>". Reads only; needs no ledger, git or orca.
+#   worktree-clean.sh [--home H] --evidence-prune
+#     -> removes exactly what the report lists, appends each to that item's skipped.txt, and prints
+#        "pruned <n> gb=<x.x>"
+#   Both modes exit 0; 2 the STAR folder cannot be read; 64 usage (an item with either mode).
 # Test seams: ORCA_CLI_COMMAND; JUEL_EVIDENCE_GB_LIMIT (GiB, default 1) sets the size above which
 # "evidence-size" is printed.
 # Exit: 0 with one of the lines above; 2 the STAR folder or star.json cannot be read; 4 no row for
@@ -120,6 +128,50 @@ if args[:1] == ["--home"]:
     if len(args) < 2:
         die(64, "--home needs a folder")
     home, args = args[1], args[2:]
+if args[:1] in (["--evidence-report"], ["--evidence-prune"]):
+    mode = args[0]
+    if len(args) != 1:
+        die(64, f"usage: worktree-clean.sh [--home H] {mode}")
+    if not home:
+        die(2, "no STAR folder: pass --home, or run inside a project")
+    base = os.path.join(home, "evidence")
+    found = []
+    try:
+        if not os.path.isdir(home):
+            raise OSError(2, "no such folder", home)
+        names = sorted(os.listdir(base)) if os.path.isdir(base) else []
+        for name in names:
+            root = os.path.join(base, name)
+            if not os.path.isdir(root) or os.path.islink(root):
+                continue
+            for top, dirs, files in os.walk(root):
+                dirs.sort()
+                for d in [d for d in dirs if skip_listed(d, True)]:
+                    full = os.path.join(top, d)
+                    found.append((name, os.path.relpath(full, root), tree_bytes(full), full))
+                dirs[:] = [d for d in dirs if not skip_listed(d, True)]
+                for f in sorted(files):
+                    if skip_listed(f, False):
+                        full = os.path.join(top, f)
+                        found.append((name, os.path.relpath(full, root), tree_bytes(full), full))
+        found.sort(key=lambda r: (r[0], r[1]))
+        if mode == "--evidence-prune":
+            for name, rel, size, full in found:
+                if os.path.islink(full) or not os.path.isdir(full):
+                    os.remove(full)
+                else:
+                    shutil.rmtree(full)
+                note_skipped(os.path.join(base, name), [(rel, size)])
+    except OSError as e:
+        die(2, f"cannot read or write the evidence folders ({getattr(e, 'strerror', None) or e})")
+    total = sum(r[2] for r in found)
+    if mode == "--evidence-report":
+        for name, rel, size, _ in found:
+            print(f"{name}\t{rel}\t{size}")
+        print(f"total {len(found)} gb={total / GIB:.1f}")
+    else:
+        print(f"pruned {len(found)} gb={total / GIB:.1f}")
+    sys.exit(0)
 if len(args) != 1 or args[0].startswith("-"):
     die(64, "usage: worktree-clean.sh [--home H] <item>")
 item = args[0]
