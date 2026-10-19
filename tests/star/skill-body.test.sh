@@ -912,5 +912,7 @@ g "Q157b away still limits notifications to escalations" 'only `escalation` item
 # review fix: the hand-over moves the worktree and the tooling file (#159, #160)
 has "HO159h the follow-up takes over the parent's worktree" 'With a parent PR it also moved the parent'"'"'s worktree to the follow-up'"'"'s row (the parent'"'"'s cell is `-`, so "Finished worktrees" never cleans it once the parent is dropped)'
 has "HO159i and its tooling file" 'copied the parent'"'"'s `gates/<project>/<item>-tooling.md` to `<name>-tooling.md` when there is one'
+has "HO159j a hand-over item never falls to the new-PR rules" 'A check that fails (not `OPEN`, a fork, another author) is always `ESCALATION item=<name> phase=0 reason=needs-human-input needs=<url> cannot be continued: <why>`, never the new-PR rules below'
+has "LG156j one held item for all rows" 'once, one item for every row it holds (when that item is open, add nothing)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

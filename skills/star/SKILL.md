@@ -1485,8 +1485,9 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    (`HOME_DIR/briefs/<project>/<rescopedFrom>.md`), with the parent's `## Decisions` copied in, plus
    one criterion per finding still open in its `review:` file: "<finding> is fixed, or carries a
    disposition the gate accepts". The gate reviews the whole PR, so the contract covers the parent's
-   work too. A check that fails is
-   `ESCALATION item=<name> phase=0 reason=needs-human-input needs=<url> cannot be continued: <why>`.
+   work too. A check that fails (not `OPEN`, a fork, another author) is always
+   `ESCALATION item=<name> phase=0 reason=needs-human-input needs=<url> cannot be continued: <why>`,
+   never the new-PR rules below: the item exists only to continue that PR.
    A PR whose `isCrossRepository` is
    true comes from a fork, which cannot be pushed to: leave `existingPr` out and take a decision
    record that `<url> comes from a fork`, so the build opens a new PR from a copy of its branch.
