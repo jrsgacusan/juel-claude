@@ -10,6 +10,11 @@
 #                                        then "migrated gate" when it moved a v2.0.0 gate to Sol,
 #                                        then "migrated quiet-hours" when it dropped a quietHours key
 #                                        (the feature is gone; a schema 2 folder is cleaned too),
+#                                        then "migrated notes=<n> item=sort-memory-notes" when it split
+#                                        memory/<project>.md once (notes.sh split), kept the original as
+#                                        memory/<project>.md.pre-notes, copied each standing key into a note
+#                                        and added the sort-memory-notes item (a folder with no old notes
+#                                        gets "notes": "split" and no line),
 #                                        then "current" or "migrated rows=<n>"
 #   star-home.sh [--cwd <dir>] import <spec path>
 #                                        copy a spec from outside the folder, with each file under the spec's folder that its text
@@ -244,6 +249,93 @@ def upgrade_gate(data):
     return changed
 
 
+ITEM_BODY = """---
+status: todo
+title: Sort the memory notes into rules and facts
+deliverable: report
+---
+STAR moved this project's notes from `memory/{p}.md` into one file per note under
+`memory/{p}/`, each with `source: "migration"`, and copied the standing orders it kept in
+`star.json` into notes of their own. Workers keep reading the old file until the owner accepts
+this report.
+
+This is a report, not a code change. Read every note in `memory/{p}/` and the original file
+`memory/{p}.md.pre-notes`, and write a report whose proposal has one line per note, in exactly
+this form, with nothing else on the line:
+
+M-<nnnn> kind=<rule|fact> always=<true|false> status=<active|replaced> why=<a few words>
+
+- kind: `rule` for an instruction from the owner, `fact` for something learned about the project
+  or its tools.
+- always: `true` only for a rule or fact every worker needs on every item (for example "never
+  post to Slack", the test command, how to get a GitHub token). Keep that set short.
+- status: `replaced` when a later note contradicts it, when it names a feature STAR no longer has
+  (quiet hours), or when its own words limit it to a session, a run or a night ("in this session
+  only", "for every open item of this run", "I have to go now"). Standing orders that pre-approve
+  briefs or grant a go or a merge are `replaced`: each batch asks for go again (the owner's call,
+  2026-10-20).
+
+## Acceptance criteria
+- [ ] Every note in `memory/{p}/` has exactly one proposal line.
+- [ ] Every `replaced` line says why.
+- [ ] Above the proposal, the report lists by title the notes proposed as `always` and the notes
+      proposed as `replaced`.
+"""
+
+
+def create_new(path, text):
+    """Exclusive create: an existing file is kept."""
+    try:
+        with open(path, "x", encoding="utf-8") as f:
+            f.write(text)
+    except FileExistsError:
+        pass
+
+
+def run_skill(script, *args):
+    done = subprocess.run(["sh", os.path.join(os.environ["STAR_SKILL_DIR"], script), "--home", home, *args],
+                          capture_output=True, text=True)
+    if done.returncode != 0:
+        die(1, f"{script} {' '.join(args[:1])}: " + (done.stderr.strip() or f"exit {done.returncode}"))
+    return done.stdout
+
+
+def migrate_notes(data):
+    """Split the old notes file once. True when star.json changed."""
+    if "notes" in data:
+        return False
+    project = (data.get("project") or {}).get("name") if isinstance(data.get("project"), dict) else ""
+    if not project:
+        return False
+    legacy = os.path.join(home, "memory", project + ".md")
+    try:
+        has_notes = any(l.startswith("- ") for l in open(legacy, encoding="utf-8", errors="replace"))
+    except OSError:
+        has_notes = False
+    if not has_notes:
+        data["notes"] = "split"
+        return True
+    keep = legacy + ".pre-notes"
+    if not os.path.exists(keep):
+        shutil.copyfile(legacy, keep)
+    out = run_skill("notes.sh", "--shelf", "memory", "--project", project, "split", legacy).split()
+    count = out[1] if len(out) > 1 and out[0] == "split" else "0"
+    standing = data.get("standing") if isinstance(data.get("standing"), dict) else {}
+    for key, value in standing.items():
+        text = value if isinstance(value, str) else json.dumps(value)
+        run_skill("notes.sh", "--shelf", "memory", "--project", project, "add", "--title", key, "--text", text,
+                  "--kind", "rule", "--source", "migration")
+    item = os.path.join(home, "items", project, "sort-memory-notes.md")
+    os.makedirs(os.path.dirname(item), exist_ok=True)
+    create_new(item, ITEM_BODY.format(p=project))
+    rows = run_skill("ledger.sh", "list").splitlines()
+    if not any(l.split("\t")[0] == "sort-memory-notes" for l in rows):
+        run_skill("ledger.sh", "add", "sort-memory-notes", f"ref={item}", f"project={project}")
+    data["notes"] = "legacy"
+    print(f"migrated notes={count} item=sort-memory-notes")
+    return True
+
+
 def migrate():
     star_path = os.path.join(home, "star.json")
     stops_path = os.path.join(home, "migrate-stops.txt")
@@ -271,12 +363,13 @@ def migrate():
         gate_moved = upgrade_gate(data)
         quiet_gone = "quietHours" in data
         data.pop("quietHours", None)
-        if gate_moved or quiet_gone:
-            write_json(star_path, data)
         if gate_moved:
             print("migrated gate")
         if quiet_gone:
             print("migrated quiet-hours")
+        notes_moved = migrate_notes(data)
+        if gate_moved or quiet_gone or notes_moved:
+            write_json(star_path, data)
         print("current")
         forget(stops_path)
         return
@@ -300,6 +393,7 @@ def migrate():
         del data["quietHours"]
         print("migrated quiet-hours")
     project = (data.get("project") or {}).get("name") or ""
+    migrate_notes(data)
     skill = os.environ["STAR_SKILL_DIR"]
     rows = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "list"],
                           capture_output=True, text=True)

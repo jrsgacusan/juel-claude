@@ -366,5 +366,49 @@ python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notes"]=="spli
 echo custom > "$HC1/library.base"; sh "$SCRIPT" --cwd "$LC1" init >/dev/null
 [ "$(cat "$HC1/library.base")" = custom ] && pass "lane c: init keeps an edited .base file" || fail "lane c: .base overwritten"
 
+# lane c: migrate splits the old notes once (stubbed notes.sh and worktree-clean.sh), keeps the original, adds one item
+SK="$TMP/skill"; cp -R "$ROOT/skills/star" "$SK"
+cat > "$SK/notes.sh" <<'EOF'
+#!/bin/sh
+echo "notes.sh $*" >> "$STUB_CALLS"
+case " $* " in *" split "*) echo "split 3";; *" add "*) echo "added M-0009 /x";; esac
+EOF
+cat > "$SK/worktree-clean.sh" <<'EOF'
+#!/bin/sh
+echo "worktree-clean.sh $*" >> "$STUB_CALLS"
+echo "${STUB_REPORT:-total 0 gb=0.0}"
+[ -z "${STUB_FAIL:-}" ] || exit 3
+EOF
+export STUB_CALLS="$TMP/calls"
+SH="$SK/star-home.sh"
+lcnotes() { python3 - "$1" "$2" <<'PY'
+import json, sys
+p = sys.argv[1] + "/star.json"; d = json.load(open(p)); d.pop("notes", None); d.pop("evidenceChecked", None)
+d["project"] = {"name": "app"} if sys.argv[2] == "app" else None
+if sys.argv[2] == "app":
+    d["standing"] = {"maxParallel": "two at most", "blanketGo20261015": "go for everything tonight"}
+json.dump(d, open(p, "w"), indent=2)
+PY
+}
+mkrepo "$TMP/lc2"; LC2=$(real "$TMP/lc2"); HC2=$(sh "$SH" --cwd "$LC2" init); lcnotes "$HC2" app
+printf -- '- 2026-10-01 one\n- 2026-10-02 two\n- 2026-10-03 three\n' > "$HC2/memory/app.md"; : > "$STUB_CALLS"
+out=$(sh "$SH" --cwd "$LC2" migrate)
+[ "$out" = "$(printf 'migrated notes=3 item=sort-memory-notes\ncurrent')" ] && pass "lane c: migrate prints the notes line before current" || fail "lane c: notes line ($out)"
+[ "$(grep -c "^notes.sh --home $HC2 --shelf memory --project app split $HC2/memory/app.md$" "$STUB_CALLS")" = 1 ] && pass "lane c: one split call" || fail "lane c: split call ($(cat "$STUB_CALLS"))"
+grep -q -- "add --title maxParallel .*--kind rule --source migration" "$STUB_CALLS" && grep -q -- "add --title blanketGo20261015 .*--kind rule --source migration" "$STUB_CALLS" && pass "lane c: one add per standing key" || fail "lane c: add calls"
+cmp -s "$HC2/memory/app.md" "$HC2/memory/app.md.pre-notes" && pass "lane c: the original is kept as .pre-notes" || fail "lane c: .pre-notes"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["notes"]=="legacy" and "standing" in d' "$HC2/star.json" && pass "lane c: notes is legacy and standing stays" || fail "lane c: star.json after migrate"
+IT="$HC2/items/app/sort-memory-notes.md"
+[ "$(sed -n 1,5p "$IT")" = "$(printf -- '---\nstatus: todo\ntitle: Sort the memory notes into rules and facts\ndeliverable: report\n---')" ] && grep -q 'memory/app.md.pre-notes' "$IT" && [ "$(sh "$SK/ledger.sh" --home "$HC2" get sort-memory-notes state)" = inbox ] && pass "lane c: the sorting item and its row" || fail "lane c: item or row"
+cp "$IT" "$TMP/item.before"; : > "$STUB_CALLS"
+out=$(sh "$SH" --cwd "$LC2" migrate)
+[ "$out" = current ] && ! grep -q ' split ' "$STUB_CALLS" && cmp -s "$IT" "$TMP/item.before" && [ "$(sh "$SK/ledger.sh" --home "$HC2" list | grep -c sort-memory-notes)" = 1 ] && pass "lane c: a second migrate does nothing" || fail "lane c: second migrate ($out)"
+mkrepo "$TMP/lc3"; LC3=$(real "$TMP/lc3"); HC3=$(sh "$SH" --cwd "$LC3" init); lcnotes "$HC3" app
+out=$(sh "$SH" --cwd "$LC3" migrate)
+[ "$out" = current ] && python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notes"]=="split"' "$HC3/star.json" && [ ! -e "$HC3/items/app/sort-memory-notes.md" ] && pass "lane c: no old notes file sets notes split" || fail "lane c: no notes file ($out)"
+mkrepo "$TMP/lc4"; LC4=$(real "$TMP/lc4"); HC4=$(sh "$SH" --cwd "$LC4" init); lcnotes "$HC4" none
+out=$(sh "$SH" --cwd "$LC4" migrate 2>&1)
+[ "$out" = current ] && pass "lane c: a null project has no notes step" || fail "lane c: null project ($out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
