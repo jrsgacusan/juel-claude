@@ -338,5 +338,25 @@ JUEL_DIR= sh "$SCRIPT" --cwd "$JG" init >/dev/null 2>"$TMP/jd.err"
 grep -qF "star-home.sh: could not register $JH in ~/.juel/star-homes.json (" "$TMP/jd.err" && pass "I-1 without JUEL_DIR the error names ~/.juel/star-homes.json, as before" || fail "I-1 without JUEL_DIR the error names ~/.juel/star-homes.json, as before ($(cat "$TMP/jd.err"))"
 rm -f "$HOME/.juel"
 
+# lane b: #157 migrate drops quietHours
+mkrepo "$TMP/qh"; QH=$(real "$TMP/qh"); HQ=$(sh "$SCRIPT" --cwd "$QH" init)
+python3 - "$HQ/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["quietHours"] = {"tz": "Asia/Manila", "start": "22:00", "end": "07:00"}
+json.dump(d, open(p, "w"), indent=2)
+PY
+out=$(sh "$SCRIPT" --cwd "$QH" migrate)
+[ "$out" = "$(printf 'migrated quiet-hours\ncurrent')" ] && ! grep -q quietHours "$HQ/star.json" && pass "Q157 migrate drops quietHours from a schema 2 star.json" || fail "quiet migrate ($out)"
+out=$(sh "$SCRIPT" --cwd "$QH" migrate)
+[ "$out" = "current" ] && pass "Q157 a second migrate prints only current" || fail "quiet migrate twice ($out)"
+mkrepo "$TMP/qh1"; QH1=$(real "$TMP/qh1"); HQ1=$(sh "$SCRIPT" --cwd "$QH1" init); unschema "$HQ1"
+python3 - "$HQ1/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["quietHours"] = None; json.dump(d, open(p, "w"), indent=2)
+PY
+out=$(sh "$SCRIPT" --cwd "$QH1" migrate)
+[ "$out" = "$(printf 'migrated quiet-hours\nmigrated rows=0')" ] && ! grep -q quietHours "$HQ1/star.json" && pass "Q157 the v1 path drops quietHours too" || fail "quiet migrate v1 ($out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

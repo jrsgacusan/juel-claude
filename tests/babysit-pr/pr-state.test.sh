@@ -234,7 +234,7 @@ fixture lateinline inline.json '{"id":701,"user":{"login":"ezra","type":"User"},
 fixture lateinline comments.json ''
 run lateinline 14 --since 2026-10-01T10:15:00Z
 check "inline comments are timed by their review's submit time" 'ids == [701]'
-# While this run's own replies or mark-ready are deferred, approval must not wake it in a loop.
+# While this run must not end on an approval yet, approval must not wake it in a loop.
 t0=$(date +%s); run draftbase 12 --wait --interval 600 --max-seconds 2 --hold-approval; t1=$(date +%s)
 check "wait --hold-approval: an approved draft waits instead of waking at once" 'd["wake"] == "timeout"'
 if [ $((t1 - t0)) -ge 1 ]; then echo "ok   wait --hold-approval really waits"; else echo "FAIL --hold-approval returned at once"; fails=$((fails + 1)); fi

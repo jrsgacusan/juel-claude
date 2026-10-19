@@ -8,7 +8,7 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 # has <name> <text>: the text is in $SKILL once line breaks and repeated spaces are folded
 has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
 if grep -nE '\$[0-9]' "$SKILL"; then fail "no positional parameters"; else pass "no positional parameters"; fi
-for f in '--unattended' '--brief <path>' '--quiet-hours <HH:MM-HH:MM@tz>' '--executor-model <id|latest-<family>>' '--executor-effort <level>'; do
+for f in '--unattended' '--brief <path>' '--executor-model <id|latest-<family>>' '--executor-effort <level>'; do
   grep -q -- "$f" "$SKILL" && pass "flag $f" || fail "flag $f"
 done
 grep -q '## Unattended mode' "$SKILL" && pass "section" || fail "section"
@@ -23,7 +23,6 @@ grep -q 'Pause for explicit user confirmation between every phase' "$SKILL" && p
 grep -qi 'never marked PASS' "$SKILL" && pass "unverifiable never PASS" || fail "unverifiable rule"
 grep -q 'Never merge the PR from this skill' "$SKILL" && pass "never merge" || fail "never merge"
 grep -q 'do not invoke `juel:start`' "$SKILL" && pass "--brief bypasses juel:start" || fail "--brief bypasses juel:start"
-grep -q 'once at the start' "$SKILL" && pass "quiet window checked per action" || fail "quiet window per action"
 grep -q 'without `--brief` is refused' "$SKILL" && pass "unattended requires brief" || fail "unattended requires brief"
 for l in 'PHASE <n> <item>' 'PR item=<item> url=<url> draft' 'DONE item=<item> pr=<url>'; do
   grep -qF "$l" "$SKILL" && pass "line $l" || fail "line $l"
@@ -61,19 +60,15 @@ grep -q 'GATES {"test":' "$SKILL" && fail "no inline gate JSON in the report" ||
 grep -q 'item.name' "$SKILL" && pass "item named by the brief's item.name" || fail "item.name"
 grep -q '## Decisions' "$SKILL" && pass "brief decisions are binding" || fail "Decisions"
 grep -q 'batch-dir' "$SKILL" && fail "no stale batch-dir paths" || pass "no stale batch-dir paths"
-grep -q '`always`' "$SKILL" && pass "quiet window can be always" || fail "always window"
 # Stress test pass fixes
 grep -q 'Nothing is asked at the terminal' "$SKILL" && pass "S4 no prompt survives unattended" || fail "S4 catch-all for prompts"
 grep -q 'needs=verification steps' "$SKILL" && pass "S4 an empty checklist escalates" || fail "S4 empty checklist"
 grep -q 'needs=browser verification of' "$SKILL" && pass "S4 no browser tool escalates" || fail "S4 browser fallback"
-grep -q 'quiet-hours.sh' "$SKILL" && ! grep -q 'date +%H:%M' "$SKILL" && pass "S6 the quiet window is decided by the script" || fail "S6 quiet-hours.sh"
-grep -q 'needs=a valid --quiet-hours window' "$SKILL" && pass "S6 an unreadable window stops the run at the start" || fail "S6 window validation"
 grep -q 'gate-busy' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-busy"
 grep -q 'the later one wins' "$SKILL" && pass "S12 contradictory decisions have an order" || fail "S12 decision precedence"
 grep -q 'more than two `HELD` lines' "$SKILL" && pass "S11 held lines are aggregated" || fail "S11 HELD aggregate"
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && grep -q '/tmp/juel.gate.<uid>.lock' "$SKILL" && pass "T1 one gate lock per user, no path to pass" || fail "T1 gate lock path"
 grep -q 'A gate inside an invoked skill' "$SKILL" && pass "T8 gates inside invoked skills are covered" || fail "T8 nested gates"
-grep -q 'anything but `inside` or `outside`' "$SKILL" && pass "T6 a broken quiet-hours check holds, never sends" || fail "T6 quiet helper failure"
 grep -q 'ask the coordinator' "$SKILL" && grep -q 'three times' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
 grep -q 'anything else only a person can supply' "$SKILL" && pass "R9 needs-human-input covers what it is used for" || fail "R9 reason 6 definition"
 # Final pass
@@ -134,8 +129,6 @@ g "F3c its evidence is reused when only non-runtime files changed" 'is outside t
 grep -qF 'then the regression gate through the gate lock' "$SKILL" && fail "F3d the second regression run is gone" || pass "F3d the second regression run is gone"
 g "F4a codex-failed covers a gate-loop fix" 'or in a gate-loop fix'
 g "F4b review-unavailable covers post-pass" '`post-pass` printed `ERROR` twice, a minute apart'
-g "F5a quiet-hours always does not wait for a PASS" 'action=post the codex PASS'
-g "F5b and ends asking for the PASS to be posted" 'post the codex PASS on <url> when you are back'
 g "F6a the screen lock is for the visible screen" 'Before launching an app you will drive on the visible screen'
 g "F6b a lapsed lock is handled like exit 65" 'printing `free` (the lock lapsed)'
 g "F7a a failing executor-model.sh counts as default" 'counts as `default <why>`'
@@ -175,9 +168,8 @@ g "R61f it is a fixed NOTE" '`NOTE: accepted residual'
 g "R61g never written as PASS" 'never written as PASS'
 # Issue #69: ready at the final SAFE round
 g "Y69a the build marks the PR ready after post-pass" 'mark the PR ready: `gh pr ready <url>`'
-g "Y69b not inside quiet hours, and no HELD line for it" 'leave the PR a draft and print no `HELD` line for it'
 g "Y69c the progress table has ready" '| `ready` |'
-g "Y69d the DONE row says ready" 'and it is marked ready (outside quiet hours)'
+g "Y69d the DONE row says ready" 'and it is marked ready'
 grep -qF 'It is marked ready once, by the babysit stage, after the gate passed.' "$SKILL" && fail "Y69e babysit no longer marks every PR ready" || pass "Y69e babysit no longer marks every PR ready"
 # Issue #56: one instruction for the report's shape
 g "W56a the worker_done body is the report lines only" 'The `worker_done` body is these report lines and nothing else.'
@@ -352,5 +344,8 @@ has "TL160f the build writes the tooling file" '`<star.gates>/<item>-tooling.md`
 has "TL160g the threshold is 20 files never imported" '20 or more files under one folder that the deliverable'"'"'s runtime code never imports'
 has "TL160h the cap line carries tooling=all" '`RESCOPE item=<item> reason=gate review=<the last review'"'"'s path> tooling=all`'
 has "TL160i tooling=all when every blocking finding is in tooling" 'when that round'"'"'s `tooling=` equals `p0 + p1`'
+# lane b: #157 quiet hours are gone
+! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh|quiet window' "$SKILL" && pass "Q157g ship-ticket has no quiet hours" || fail "Q157g quiet hours still in ship-ticket"
+g "Q157h a resumed build on a ready PR posts its PASS at once" 'A resumed build on a ready PR posts its PASS comment at once.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

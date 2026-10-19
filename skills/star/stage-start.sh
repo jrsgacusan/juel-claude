@@ -10,7 +10,7 @@
 #   hold disk <gb>            less free disk under STAR's home than hostGate.minDiskGB (default 25)
 #   hold trust <path>         Claude Code's first-run dialogs for <path> could not be cleared
 #   wait until <iso>          build only: the brief's notBefore is still ahead (#87). A date alone
-#                             is 00:00 in quietHours.tz, else local time; a time needs an offset or Z
+#                             is 00:00 in the machine's local zone; a time needs an offset or Z
 #   hold session <terminal> (<state>)
 #                             a session may still be working (#76): the row's previous dispatch has
 #                             an open terminal Orca does not prove it owns (<state> is its
@@ -74,7 +74,6 @@
 # babysit stage gets --reviewed <the newest round's <item>-r<k>-carried.md when the owner carried
 # that round (#82), else its <item>-r<k>.md>. The executor, gate and hosted-reviewer
 # settings are not in any prompt: workers read them from star.json through their brief.
-# --quiet-hours is star.json's quietHours, or nothing; being away does not change it.
 # Every spec sent is one line. A failed worker-start is retried once: with --retry-of, one effort
 # level lower when the effort was refused, or on "worker" when the model was refused.
 # Test seams: ORCA_CLI_COMMAND, STAR_FREE_GB, STAR_AGENTS, STAR_SWAP_GB, STAR_DISK_GB,
@@ -95,7 +94,6 @@ import subprocess
 import sys
 import time
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 S = os.environ["STAR_SKILL_DIR"]
 RUNNING = {"brief": "briefing", "build": "building", "babysit": "babysitting", "post": "posting"}
@@ -257,12 +255,6 @@ def not_before(value):
     try:
         if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
             day = datetime.strptime(value, "%Y-%m-%d")
-            q = star.get("quietHours")
-            if isinstance(q, dict) and q.get("tz"):
-                try:
-                    return day.replace(tzinfo=ZoneInfo(q["tz"]))
-                except (ZoneInfoNotFoundError, ValueError):
-                    pass
             return day.astimezone()  # a naive day read as local time
         when = datetime.fromisoformat(value[:-1] + "+00:00" if value[-1:] in ("Z", "z") else value)
     except ValueError:
@@ -517,13 +509,6 @@ def clear_trust(path):
         run([orca, "terminal", "close", "--terminal", handle, "--json"], 30)
 
 
-def window():
-    q = star.get("quietHours")
-    if isinstance(q, dict) and q.get("start") and q.get("end") and q.get("tz"):
-        return f"{q['start']}-{q['end']}@{q['tz']}"
-    return None
-
-
 def has_feedback(path):
     """The brief has a ## Feedback section, or STAR's side file for it exists (#112)."""
     if os.path.isfile(path + ".feedback.md"):
@@ -545,15 +530,13 @@ def newest_review():
 
 
 def prompt():
-    quiet_window = window()
-    quiet = f" --quiet-hours {quiet_window}" if quiet_window else ""
     if stage == "brief":
         feedback = " --feedback" if has_feedback(brief) else ""
         rescope = counters.get("rescope")
         rescope = f" --rescope {os.path.join(reviews, rescope)}" if rescope and rescope != "-" else ""
         return f"/juel:star draft-brief {row['ref']} --project {name} --item {item} --out {brief}{feedback}{rescope}"
     if stage == "build":
-        return f"/juel:ship-ticket --unattended --brief {brief}{quiet}"
+        return f"/juel:ship-ticket --unattended --brief {brief}"
     if stage == "babysit":
         pr = re.search(r"/pull/(\d+)", row["pr"])
         if not pr:
@@ -563,7 +546,7 @@ def prompt():
             out(f"failed brief: {item} has no review to prove its PR was gated")
         since = f" --since {row['cursor']}" if row["cursor"] not in ("", "-") else ""
         return (f"/juel:babysit-pr {pr.group(1)} --unattended --mark-ready --reviewed {review} --item {item} "
-                f"--brief {brief} --gates-file {gates}/{item}.json{since}{quiet}")
+                f"--brief {brief} --gates-file {gates}/{item}.json{since}")
     return f"/juel:star post-report {row['ref']} --item {item} --report {home}/reports/{name}/{item}.md"
 
 

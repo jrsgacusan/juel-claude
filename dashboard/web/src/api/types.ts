@@ -11,8 +11,6 @@ export type Project = {
   lastTick: string | null
   needsYou: number | null
 }
-/** The quiet window, as the server sends it. */
-export type QuietHours = { tz: string; start: string; end: string }
 export type Overview = {
   resume: {
     state: string | null
@@ -29,7 +27,6 @@ export type Overview = {
   gateDown: null | { since: string | null; why: string | null }
   away: string | null
   awayPending: "away" | "back" | null
-  quietHours: QuietHours | null
 }
 export type LoopOption = { label: string; answer: string; recommended: boolean }
 export type Loop = {

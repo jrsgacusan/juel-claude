@@ -70,8 +70,8 @@ T="$ROOT/skills/star/template"
 python3 - "$T/star.json" <<'PY' && pass "template star.json defaults" || fail "template star.json"
 import json, sys
 d = json.load(open(sys.argv[1])); keys = list(d)
-assert d["maxParallel"] == 3 and d["maxInReview"] == 3 and d["quietHours"] is None and d["notified"] == [] and d["away"] is None and d["terminal"] is None
-assert d["tokenCmd"] is None and keys.index("tokenCmd") == keys.index("quietHours") + 1
+assert d["maxParallel"] == 3 and d["maxInReview"] == 3 and "quietHours" not in d and d["notified"] == [] and d["away"] is None and d["terminal"] is None
+assert d["tokenCmd"] is None and keys.index("tokenCmd") == keys.index("hostedDown") + 1
 assert d["ownerApproval"] is None and keys.index("ownerApproval") == keys.index("hostedReviewer") + 1
 assert d["hostedDown"] is None and keys.index("hostedDown") == keys.index("gateDown") + 1
 assert d["ghLogin"] is None and keys.index("ghLogin") == keys.index("tokenCmd") + 1

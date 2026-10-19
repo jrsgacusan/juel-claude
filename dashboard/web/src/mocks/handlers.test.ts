@@ -41,11 +41,7 @@ describe("the mock API", () => {
   })
   it("serves the shapes of the server's contract", async () => {
     const overview = await apiJson<Overview>(paths.overview(HOME))
-    expect(overview.quietHours).toEqual({
-      tz: "Asia/Manila",
-      start: "22:00",
-      end: "07:00",
-    })
+    expect(overview).not.toHaveProperty("quietHours")
     const loops = await apiJson<Loop[]>(paths.loops(HOME))
     expect(loops.find((l) => l.id === "N-39")?.askedAt).toBeNull()
     expect(loops.find((l) => l.id === "N-41")?.answer).toBe("")

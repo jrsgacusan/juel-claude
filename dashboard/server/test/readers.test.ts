@@ -29,11 +29,7 @@ test("the ledger, queue and star.json read through hooks/star.ts", () => {
   assert.equal(tickOf({ "last tick": "-" }), null);
   const s = readStar(FIXTURE);
   assert.equal(s.star.terminal, "term_star");
-  assert.deepEqual(s.raw["quietHours"], {
-    tz: "Asia/Manila",
-    start: "22:00",
-    end: "07:00",
-  });
+  assert.equal("quietHours" in s.raw, false);
 });
 
 test("an unreadable or broken file is an Unreadable naming it", () => {

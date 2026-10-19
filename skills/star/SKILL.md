@@ -64,7 +64,7 @@ metadata:
         check: "git rev-parse --show-toplevel"
       - id: interactive-user
         hard: true
-        why: the first run asks for quiet hours, before any worker starts; every later question is asked in plain chat
+        why: every question is asked in plain chat
     skills:
       - id: juel:ship-ticket
         hard: true
@@ -315,9 +315,7 @@ then for each `<n>`:
 `gh api "repos/{owner}/{repo}/issues/<n>/comments" --jq '.[].user.login'`,
 stopping at the first line that is exactly `greptile-apps[bot]` (REST logins carry the `[bot]`
 suffix). The work source and base branch are not
-kept here: each item's brief carries them. Then, before any worker starts, it asks once, with
-AskUserQuestion, for a quiet window ("no reviewer pings, ready-marking or status changes while
-you're away?"), writes it to `star.json`, and tells the user where the queue is:
+kept here: each item's brief carries them. Then, before any worker starts, it tells the user where the queue is:
 `HOME_DIR/open-loops.md`.
 
 These files are plain local files. They are not a repository of their own: nothing is committed
@@ -388,7 +386,6 @@ Settings in `star.json`:
   "mcps":     { "mobbin": "available", "context7": "needs-sign-in" },   // null in a new folder; every start writes it from the Preflight: available, needs-sign-in or absent
   "gateDown": null,                                      // while the review gate is down: { "since", "why", "checked" }
   "hostedDown": null,                                    // while the hosted reviewer reviews nothing (a usage limit): { "since", "why" }
-  "quietHours": { "tz": "Asia/Manila", "start": "22:00", "end": "07:00" },  // null = off
   "tokenCmd": null,                                      // or a command that prints a GitHub token, such as a keychain lookup
   "ghLogin": null                                        // STAR's own gh login, written at every start
 }
@@ -562,7 +559,7 @@ answer can never land on the old row.
 
 Brief pool (at most `maxBriefs`; 4 when `star.json` has no such key): `inbox` rows, the oldest
 `updated` first. Briefs never take a build slot: they only read, and run no gate. Build pool (at
-most `maxParallel`): `post-queued` rows (only outside quiet hours: posting is outward), then
+most `maxParallel`): `post-queued` rows, then
 `queued` rows whose brief is stamped (`grep -cE '^approved: [0-9]' <brief>` prints 1) and whose
 `blockedBy` items are all `done` or `dropped` (#37), and whose `notBefore` time, when the brief has one, has passed (#87); within each, the oldest `updated` first. A `queued` row still waiting on a blocker
 is named in the status line: `<item> waiting on <items>`, and one waiting for its date: `<item> waits until <date>`. Babysit pool (at most `maxInReview`):
@@ -912,12 +909,12 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `restart-or-drop` | restart | `git -C <worktree> status --porcelain` must print nothing. Clean → `queued` (the build resumes on the branch as it is). Not clean → change nothing and add the item again with the title "build was interrupted: clean <worktree> first, then answer restart" |
    | `restart-or-drop` | drop | row → `dropped` |
    | `restart-or-drop` | anything else | add the item again with the title "build was interrupted: answer restart or drop" |
-   | `draft` | send | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`; any other draft is the user's to send, say so. Before posting, append `<iso>\tSTAR\t<item>\tposted draft N-<id>` to `sent.log`; when that line is already there the draft was posted and only the close was lost: just close the item. Posting is an outward action: inside quiet hours, leave the item open (do not close it) and say "posts at the first tick outside the quiet window"; the Answers step sees it again every tick and posts it then |
+   | `draft` | send | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`; any other draft is the user's to send, say so. Before posting, append `<iso>\tSTAR\t<item>\tposted draft N-<id>` to `sent.log`; when that line is already there the draft was posted and only the close was lost: just close the item. |
    | `held` "could not move <item> to <status>…" | done | `counters.tracker=<status>` (the user moved it), then close it |
    | `held` "<item>'s worktree … was kept…" | done | clear `counters.kept=`, so the next tick runs `worktree-clean.sh` for it again, then close it |
    | `held` "the review gate is down…" | `retry` | `sh S/codex-gate.sh check` now. `up <agent:model>` → as Housekeeping's `up`. `down <why>` → write `checked=<now>` and `why=<why>` in `gateDown`, close the item and add it again with the new `<why>` |
    | `held` "the hosted reviewer is not reviewing…" | `retry` | set `hostedDown` to null in `star.json` and close the item: "Fill slots" starts the parked babysits again (#129) |
-   | `slack-reply` | send | a draft with nothing after its first line has no reply to send: close the item and add it again unanswered, with ` (no reply to send: answer rewrite: <how> or skip)` at the end of its title, and the status line says `no reply to send for <draft name>: answer rewrite: <how> or skip`. Otherwise load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". Quiet hours do not hold it: the owner pressed send. |
+   | `slack-reply` | send | a draft with nothing after its first line has no reply to send: close the item and add it again unanswered, with ` (no reply to send: answer rewrite: <how> or skip)` at the end of its title, and the status line says `no reply to send for <draft name>: answer rewrite: <how> or skip`. Otherwise load the connected Slack MCP's send tool with `ToolSearch` first. None loaded: keep the item open, queue `--kind held` "connect Slack in Claude Code to send <draft name>", and write nothing to `sent.log`. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>`, the reply was posted and only the close was lost: just close the item. Otherwise post the draft's reply (everything after its first line) as the owner, in its channel, as a thread reply to the ts on the draft's first line (`thread_ts`); once the post succeeds, append that line to `sent.log`, then close the item. A post that fails: write nothing to `sent.log`, keep the item open and queue `--kind held` "could not send <draft name>: <why>". |
    | `slack-reply` | `rewrite: <how>` | STAR never writes reply text: the dashboard's drafter writes the new version, also for a draft that holds no reply yet. When a request for this item is already waiting (`grep -lx 'loop: <id>' HOME_DIR/slack/redraft/*.md` prints a file), do nothing but the status line below. Otherwise close the answered item and add it again unanswered, with the same kind, project, item and body lines (`draft:`, `message:`, Suggest and Options) and ` (redrafting)` at the end of its title (an item whose title already ends so is the same flow: a second `rewrite: <how>` while one runs is allowed, and the newest request wins). Then `sh S/slack-redraft.sh --home HOME_DIR --draft <the item's draft: path> --loop <the NEW item's id> --how "<how>"`: `requested <file name>` → the status line says `redrafting <draft name>`. Any other exit (65: the draft file was removed) → keep the new item open and queue `--kind held` "could not ask for a redraft of <draft name>: <its last line>" |
    | `slack-reply` | `redrafted` | the drafter wrote the new version: close it and add the `slack-reply` item again with the same `draft:` and `message:` lines, its title without its ` (redrafting)` ending and without a ` (redraft failed: …)` ending, its Suggest line the draft's new second line (`sed -n 2p <draft path>`), and `Options: send (recommended) / rewrite: <how> / skip` |
    | `slack-reply` | `redraft failed: <why>` | close it and add it again as it was, with ` (redraft failed: <why>)` at the end of its title in place of its ` (redrafting)` ending (or an earlier failure) |
@@ -980,7 +977,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | `REPORTED item=… path=<path>` | row → `reported`; queue `--kind accept-report` with the path; free the build slot. STAR never opens the report |
    | `POSTED item=… url=<url>` | row → `done`; free the build slot (its `SENT` line goes to `sent.log` as for any report) |
    | an `escalation` message while the worker still runs | queue it and notify, but keep the row and its slot until its `worker_done` arrives |
-   | a `question` message | **STAR answers first** ("Looking after the workers"): when the answer is STAR's to give → `reply` at once and record it; an in-scope product call is always STAR's, decided from the sourced options the worker brings. When it is the user's: a row that already has an open `question` item → close that item and `reply` to its `msg:` id "Superseded by your newer question." first. Then, inside quiet hours or while the user is away → reply "No answer from the user: escalate this." at once (nobody will read it in time); otherwise queue `--kind question` with the deadline `messages.sh` printed, notify, keep looping; the worker stays blocked and keeps its slot |
+   | a `question` message | **STAR answers first** ("Looking after the workers"): when the answer is STAR's to give → `reply` at once and record it; an in-scope product call is always STAR's, decided from the sourced options the worker brings. When it is the user's: a row that already has an open `question` item → close that item and `reply` to its `msg:` id "Superseded by your newer question." first. Then, while the user is away → reply "No answer from the user: escalate this." at once (nobody will read it in time); otherwise queue `--kind question` with the deadline `messages.sh` printed, notify, keep looping; the worker stays blocked and keeps its slot |
    | `CONFLICT:`, `AMBIGUOUS:`, `BRIEF-VIOLATION:` or `STOPPED:` (a `receive-review-and-execute` run that reported by itself) | as an `ESCALATION` whose reason is that word and whose `needs=` is the rest of the line |
    | a `worker_done` whose first line starts with none of its stage's report words (brief: `BRIEF`, `SPLIT`, `ESCALATION`; build: `DONE`, `RESCOPE`, `REPORTED`, `ESCALATION`; babysit: `READY`, `MERGED`, `RESCOPE`, `ESCALATION`, `CONFLICT:`, `AMBIGUOUS:`, `BRIEF-VIOLATION:`, `STOPPED:`; post: `POSTED`, `ESCALATION`), and the row has no `shape=` | a prose body in place of the report (#56). Write `counters.shape=1` with `last=`, keep the row in its state and its slot, and do not run `worker-release` for it; then `orca orchestration send --to dispatch:<dispatch> --subject "report" --body "STAR: your worker_done body must be the report lines your skill names, first line one of <that stage's words>. Send it again." --json`. The message does not count as a processed report: the settlement rule in Housekeeping still applies to that worker |
    | the same, and the row has `shape=1` | row → `failed`; queue `--kind escalation` "<stage> worker sent no report line twice: <the first line>" with `reason=report-shape`; free the slot |
@@ -1039,9 +1036,9 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    (`sed -n 's/^blockedBy: //p' <brief>`, one line) is `done` or `dropped` (#37), and its
    `notBefore` time (`sed -n 's/^notBefore: //p' <brief>`), when it has one, has passed (#87):
    `stage-start.sh build` checks that itself and prints `wait until <iso>` before then. A `post-queued`
-   row starts only outside quiet hours: posting is outward.
+   row starts like any other.
 5. **Housekeeping.**
-   - Questions past their deadline: when the user is not away, it is not quiet hours and the row
+   - Questions past their deadline: when the user is not away and the row
      has no `reask=`, remind once: a push notification "still waiting on you: <question>", the
      question first in the status line, the item added again with its `deadline:` moved on by its
      original length (then close the old item), and `counters.reask=1`. Otherwise reply "No answer
@@ -1165,8 +1162,8 @@ Every stage is its own Orca task and a fresh worker.
 | Stage | Worktree | Agent | Prompt |
 |---|---|---|---|
 | brief | the project's main checkout (`path:<repo path>`), read-only | `stages.brief` | `/juel:star draft-brief <ref> --project <name> --item <name> --out HOME_DIR/briefs/<project>/<item>.md [--feedback] [--rescope HOME_DIR/reviews/<project>/<file>]` (the row's raw `ref`, then its item name; `--rescope` when the row's `counters.rescope` names a review file) |
-| build | a new Orca worktree in that project, set up as below | `stages.build` | `/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`: the plan, the executor, the fresh Claude review, the live checks, the draft PR and the codex gate loop, in one worker |
-| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed <the item's newest review> --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>] [--quiet-hours <window>]` (`--reviewed` is the newest round's `<item>-r<k>-carried.md` when the owner shipped that round, else the newest `<item>-r<k>.md`, the gate's SAFE review of the head: the worker's proof that the head passed the gate. The build marks the PR ready after its final SAFE round; `--mark-ready` marks it when quiet hours held the build's) |
+| build | a new Orca worktree in that project, set up as below | `stages.build` | `/juel:ship-ticket --unattended --brief <brief>`: the plan, the executor, the fresh Claude review, the live checks, the draft PR and the codex gate loop, in one worker |
+| babysit | the item's worktree | `stages.babysit` | `/juel:babysit-pr <n> --unattended --mark-ready --reviewed <the item's newest review> --item <item> --brief <brief> --gates-file HOME_DIR/gates/<project>/<item>.json [--since <cursor>]` (`--reviewed` is the newest round's `<item>-r<k>-carried.md` when the owner shipped that round, else the newest `<item>-r<k>.md`, the gate's SAFE review of the head: the worker's proof that the head passed the gate. The build marks the PR ready after its final SAFE round; `--mark-ready` marks a PR the build left a draft) |
 | post | the project's main checkout (`path:<repo path>`), read-only | `stages.post` | `/juel:star post-report <ref> --item <name> --report HOME_DIR/reports/<project>/<item>.md` |
 
 **Build worktree.** `stage-start.sh build` sets it up before any agent starts, because Orca picks
@@ -1202,15 +1199,6 @@ access, no credits), it falls back to `worker` once and says so in a `fallback` 
 Every spec is one line: Orca echoes the spec inside its JSON, and a line break there once made the
 output unreadable and left an orphan task. A worker that starts and then sits on a usage-limit
 screen is the probe's `stuck: usage limit`.
-
-`--quiet-hours <window>` is `star.json`'s `quietHours` rendered as `HH:MM-HH:MM@tz` (for example
-`22:00-07:00@Asia/Manila`), omitted when it is null. Being away
-does not change it: away holds no work, and only quiet hours hold what goes out. A window is never judged by hand:
-`sh S/../ship-ticket/quiet-hours.sh "<window>"` prints `inside` or `outside`;
-anything but exit 0 with exactly `inside` or `outside` (exit 64 for a window it cannot read, a
-missing script, no `python3`, an empty line) is treated as inside: hold what would go out, notify only escalations,
-and queue `--kind held` "fix quietHours in star.json: <what the script said>". A window that
-cannot be judged never lets something out.
 
 **The codex gate.** Not a stage and not a worker: the build worker runs it on its own draft PR
 (`juel:ship-ticket`'s gate loop), and the babysit worker runs it again after every push it makes.
@@ -1476,8 +1464,8 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
 
    **Not before** (#87). When the item's text, a memory note or a `## Feedback` entry says it may
    only be built after a date or time ("after Wednesday", "not before the 15th"), set `notBefore`
-   to it: `YYYY-MM-DD` for a day, which starts at 00:00 in `star.json`'s `quietHours.tz` (the
-   machine's local zone when quiet hours are off), or an ISO datetime with an offset or `Z`. Take a
+   to it: `YYYY-MM-DD` for a day, which starts at 00:00 in the machine's local
+   zone, or an ISO datetime with an offset or `Z`. Take a
    decision record that quotes the words it came from. Leave the key out otherwise.
 
    `deliverable` is `report` when every acceptance criterion asks only for evidence, a
@@ -1626,7 +1614,7 @@ When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, f
 
 | Verdict | Then |
 |---|---|
-| `PASS …` | First close the row's open `held` item "PR #<n> waits for an approval from someone other than you" when it has one. The brief has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1): `sh S/merge.sh <pr url> --head <head> --grant <grant path> --home HOME_DIR --item <item> [--quiet-hours <window>]` (the window as `stage-start.sh` renders it; none when `quietHours` is null), run in the background like `stage-start.sh`; its line is the next table. No grant (a brief whose grant line was lost, since every go writes one): queue `--kind go-merge` and leave the row |
+| `PASS …` | First close the row's open `held` item "PR #<n> waits for an approval from someone other than you" when it has one. The brief has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1): `sh S/merge.sh <pr url> --head <head> --grant <grant path> --home HOME_DIR --item <item>`, run in the background like `stage-start.sh`; its line is the next table. No grant (a brief whose grant line was lost, since every go writes one): queue `--kind go-merge` and leave the row |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` |
 | `PENDING <what>` | `PENDING approval: …`: queue `--kind held` "PR #<n> waits for an approval from someone other than you" (GitHub never lets a PR's author approve their own PR), notify, and put `retry=<now + 10 min>` in `verify`: the gate runs again after that; it is not a `pending=`. `PENDING merge state: behind the base branch`: the sync rule below. `PENDING hosted-status <check> missing on <sha>`: the hosted reviewer has no status on this head, most often after a base sync that came after its last pass. When the brief's `## Decisions` has no line "the merge gate said: no <check> status on <sha7>" yet: append "- <date> the merge gate said: no <check> status on <sha7>; refresh the hosted status on <sha7>", row → `babysit-queued` (babysit resumes with `--since <cursor>`; its Phase 1 asks the hosted reviewer for a status refresh, which is not a pass, unless `refreshOutsideCap` is false: then babysit escalates `reason=hosted-cap`, which the owner answers); it is not a `pending=`. When that line is there already, the refresh did not help: the Otherwise branch. Otherwise: `counters` has no `pending=1`: write it, put `retry=<now + 2 min>` in `verify`, and check again in a later tick. It has: → `escalated`, queue `--kind escalation` "<what> still pending" |
 | `MOVED <head>` | `counters` has no `moved=1`: write it (its own budget, separate from `restarts` and from `pending=`, and never overwritten by them), row → `babysit-queued`. It has: → `escalated`, queue `--kind escalation` "head keeps moving" |
@@ -1638,7 +1626,6 @@ When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, f
 | Line | Then |
 |---|---|
 | `MERGED <sha>` | as the verdict `MERGED`, then print it and push one notification, "merged <item>: PR #<n>". Then run the merge gate for the other `verifying` rows on that base in this same tick ("One merge per base at a time") |
-| `HELD quiet hours` | put `retry=<now + 10 min>` in `verify`: the gate runs again after that, and merges at the first run outside quiet hours |
 | `FAIL head moved` | as the verdict `MOVED` |
 | `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push to the PR (#80): fence it ("A merge on a PR a worker is still working on", below), then run the gate again |
 | `FAIL ledger: <why>` | `merge.sh` found no ledger row for the item it was given: nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
@@ -1648,10 +1635,9 @@ When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, f
 | no line, or another exit that is not 0 | the merge may or may not have happened: change nothing; the next tick's gate prints `MERGED` when it did |
 
 Any verdict other than `PENDING` clears `pending=`; `PASS` clears `moved=` too. STAR merges only
-here: through `merge.sh`, on the exact head the gate passed, under the item's grant, never inside
-quiet hours. `merge.sh` posts the owner's go on the PR first (`Merging head <sha> under your go of
+here: through `merge.sh`, on the exact head the gate passed, under the item's grant. `merge.sh` posts the owner's go on the PR first (`Merging head <sha> under your go of
 <date>: "<their words>"`) and merges with `--match-head-commit`, so a head that moved after the gate
-is GitHub's refusal, never a merge. STAR never marks a PR ready: the build does after its final SAFE round, or babysit when quiet hours held the build's.
+is GitHub's refusal, never a merge. STAR never marks a PR ready: the build does after its final SAFE round.
 
 **A merge on a PR a worker is still working on** (#80). When the owner orders a merge ("merge it
 now", "ship it at this head") on a row in `building` or `babysitting`, its worker may push at any
@@ -1763,7 +1749,7 @@ with that path in `Consequences:`, and reply with the path. The worker's `DONE` 
 
 A question is the user's, and goes to the queue, when it would change or stretch the Scope or an
 acceptance criterion; needs a secret, an account or a paid service; is about anything that goes out
-to other people beyond the PR itself; or would delete or overwrite work. Inside quiet hours or while
+to other people beyond the PR itself; or would delete or overwrite work. While
 the user is away, such a question is answered "No answer from the user: escalate this." at once (the
 Messages table).
 
@@ -1859,27 +1845,20 @@ capacity, or a worker left at an empty prompt under an `API Error:` line (#123),
 (`stalled:`): STAR nudges it to retry, three times at most, then treats it as a lost worker (the capacity rule in
 Housekeeping).
 
-## Notifications and quiet hours
+## Notifications
 
 `star.json` keeps `"notified"`, the ids of the open queue items the user has been told about. At the
-end of a tick outside quiet hours, when `loops.sh list` shows open items that are not in it: print
+end of a tick, when `loops.sh list` shows open items that are not in it: print
 them, send one push notification naming them (Claude Code's `PushNotification` tool, loaded with
-`ToolSearch` when deferred; printing is enough when it does not exist), and add their ids. Inside
-quiet hours, and while the user is away, only `escalation` items are notified and added; every
-other item stays out of the list, so it is notified at the first tick after the window however
+`ToolSearch` when deferred; printing is enough when it does not exist), and add their ids. While the user is away, only `escalation` items are notified and added; every
+other item stays out of the list, so it is notified at the first tick after the user is back however
 many escalations went out in between, and a restart never loses a notification. Ids that are no
 longer open are dropped from the list. A question's deadline is the one `messages.sh` printed (30 minutes from when it was sent unless
-the worker asked for more), extended once by the Housekeeping reminder; one that arrives inside
-quiet hours or while the user is away is decided by STAR or answered "No answer" at once (the
+the worker asked for more), extended once by the Housekeeping reminder; one that arrives while the user is away is decided by STAR or answered "No answer" at once (the
 Messages table).
 
 A merge is announced as it happens: STAR prints it and sends one push notification,
 "merged <item>: PR #<n>".
-
-Workers get the quiet window (`--quiet-hours`) and decide at each outward action: they keep
-building, gating and pushing, while marking ready, replying to reviewers, re-requesting review,
-`@greptileai` comments and status writes wait for the window to end or come back as `HELD` lines.
-STAR's own merge waits the same way: `merge.sh` prints `HELD quiet hours`.
 
 ## Report items
 
@@ -1891,8 +1870,7 @@ or PR. Then:
 
 1. `REPORTED` → `reported`, and the queue asks "accept report for <item>" with the report's path.
    STAR never opens the report; the user reads it.
-2. `accept` → `post-queued`. Posting is outward, so it waits for the first tick outside quiet
-   hours. A post worker posts the report as one comment on the work item and
+2. `accept` → `post-queued`. A post worker posts the report as one comment on the work item and
    reports `POSTED`; the row → `done`, and the tracker status moves to Done.
 3. Anything else the user answers is a decision: it goes into the brief's `## Decisions`, and the
    build stage runs again.
@@ -1914,7 +1892,7 @@ follows the row's state:
 | `done` | Done |
 | `inbox`, `briefing`, `brief-ready`, `escalated`, `failed`, `dropped` | not written |
 
-At the end of every tick outside quiet hours, compare each row's status with its
+At the end of every tick, compare each row's status with its
 `counters.tracker=` and write only where they differ, through the source in the item's brief
 (`item.source`, `item.ref`):
 
@@ -1958,7 +1936,7 @@ these:
 3. `failed <why>` (no `gh`, no access): queue the body as `--kind draft` "STAR issue: <title>".
 4. Name each one in the status line ("filed issue #19").
 
-Filing is not held by quiet hours or away: it goes to the plugin's own repository and pings nobody
+Filing is not held by away: it goes to the plugin's own repository and pings nobody
 else. It never delays a tick's real work: it runs in Housekeeping, after the slots are filled.
 
 ## The batch summary and go
@@ -2077,8 +2055,7 @@ The handoff is how the user leaves and comes back without losing anything. `hand
 the queue stays the one place to answer, so an answer can never exist in two files.
 
 **Away holds no work.** Every stage keeps starting while the user is away, babysitting included,
-and STAR keeps merging under the owner's go. Quiet hours, not away, hold what goes out: marking
-ready, replies, reviewer pings, status writes and merges, in workers and in STAR's own merge.
+and STAR keeps merging under the owner's go.
 
 **Away** (`/juel:star away`, "I'm leaving", or a `control: away` inbox file). Away while already
 away changes nothing: `handoff.sh start` keeps the file and its summaries and says so.
@@ -2103,7 +2080,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 
 - A worker's question that is not STAR's to answer ("Looking after the workers") is answered "No
   answer from the user: escalate this." at once.
-- Only `escalation` items notify, as inside quiet hours.
+- Only `escalation` items notify.
 - About every 4 hours (housekeeping's `handoff.sh due`), `handoff.sh summary` adds a dated summary
   to the top of `handoff.md`: items per state, PRs waiting to merge, what merged, what stopped,
   everything in `sent.log` since the last summary, free memory and running workers, and the full
@@ -2149,7 +2126,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 ## Hard rules
 
 - **Merge only through `merge.sh`**, on the exact head `pr-verify.sh --merge-gate` passed, under
-  the item's grant, outside quiet hours. No worker merges.
+  the item's grant. No worker merges.
 - Never read review, evidence, log or diff content into this session. One line per fact, from a
   script or a report.
 - STAR never writes Slack reply text: the dashboard's drafter writes every draft and writes it
@@ -2189,7 +2166,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Opening a report "to check it" before asking for the accept | The queue item carries the path; the user reads it |
 | Writing or editing a Slack reply's text | The dashboard's drafter writes it; `rewrite: <how>` goes to `slack-redraft.sh` |
 | Editing `open-loops.md` with Edit or sed | `loops.sh` only: it keeps what the user typed |
-| Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go, waits out quiet hours and passes `--match-head-commit` |
+| Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go and passes `--match-head-commit` |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
 | Starting a build before its batch's go | Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent's grant, stamps `approved:` |
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
@@ -2202,7 +2179,6 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |
 | Picking a row for a message by its `item=` name | By dispatch id; the name only confirms it |
 | Writing a note or a count into `updated` | `updated` is a time. Counts go in `counters` |
-| Working out the quiet window in your head | `quiet-hours.sh` says `inside` or `outside` |
 | Working out the STAR folder's path yourself | `star-home.sh path` prints it; `init` creates it |
 | Writing a ledger row by hand, or building a `set` line by splitting a string | `ledger.sh`, one quoted argument per field |
 | Parsing `orca orchestration check` yourself | `messages.sh`: it drops heartbeats, replays and processed messages |

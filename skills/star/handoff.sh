@@ -35,11 +35,11 @@ OVERNIGHT = {
     "brief-ready": "waits for the batch go or a person-only step; nothing runs",
     "queued": "builds when a slot frees: plan, luna executes, checks, draft PR, then the codex gate",
     "building": "building: plan, luna executes, checks, draft PR, codex gate until it passes",
-    "babysit-queued": "gated and checked; marked ready when a babysit slot frees, outside your quiet hours",
-    "babysitting": "with the hosted reviewer or a reviewer: fixes are gated and pushed; ready and replies wait out your quiet hours",
-    "verifying": "STAR checks the merge gate on the exact head and merges it under your go, outside your quiet hours",
+    "babysit-queued": "gated and checked; marked ready when a babysit slot frees",
+    "babysitting": "with the hosted reviewer or a reviewer: fixes are gated and pushed",
+    "verifying": "STAR checks the merge gate on the exact head and merges it under your go",
     "reported": "its report is written and waits for your accept",
-    "post-queued": "accepted; the report is posted to the work item outside your quiet hours",
+    "post-queued": "accepted; the report is posted to the work item",
     "posting": "posting the report to the work item",
     "escalated": "stopped; waits for your answer",
     "failed": "stopped; waits for your answer",
@@ -220,7 +220,6 @@ if a.cmd == "start":
         *part_c,
         "",
         "While you're away everything keeps running: builds, the codex gate, babysitting and merges under your go.",
-        "Your quiet hours still hold marking ready, replies, reviewer pings, status changes and merges.",
     ])
     set_away(home, stamp)
     print(path)
