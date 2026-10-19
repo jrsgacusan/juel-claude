@@ -4,8 +4,9 @@
 #   notes.sh [--home H] --shelf library|memory --project P <command> ...
 #     add --title T [--text TEXT] [--decision D --why W --source-text S] [--kind rule|fact]
 #         [--source owner|brief-worker|worker-note|star|migration] [--always] [--since YYYY-MM-DD]
-#         [--from <item> [--from-decision D<n>]]              -> added <id> <path>
+#         [--from <item> [--from-decision D<n>]] [--once]     -> added <id> <path> | exists <id>
 #     replace <old-id> <add options>                          -> added <new-id> <path> replaces <old-id>
+#     show <id>                                               -> <id> <title>: <text>  (one line, any status)
 #     promote <item>#D<n> [--source owner|brief-worker|star] [--supersedes <item>#D<m>]
 #                                                             -> added <id> <path>[ replaces <old-id>] | exists <id>
 #     use <id> <item>                                         -> used <id> <item>
@@ -17,12 +18,17 @@
 #     apply <proposal file>                                   -> applied kind=<a> always=<b> replaced=<c>
 # Files: HOME/library/<project>/L-<nnnn>-<slug>.md (decisions) and HOME/memory/<project>/M-<nnnn>-<slug>.md
 # (notes). --decision, --why and --source-text are the library body; --text is the memory body.
-# --kind defaults to decision (library) or fact (memory); --source defaults to star. --always, promote, use,
-# split, apply and path belong to one shelf each; the other shelf is a usage error (64).
-# After every memory write HOME/memory/<project>.always.md is rewritten: the active notes marked always
-# (a note's closing "Replaces <id>." line is left out of its entry).
+# --kind defaults to decision (library) or fact (memory); --source defaults to star. replace keeps the old
+# note's kind and always unless --kind or --always is given. --once: a note on the shelf with the same title
+# and source already exists -> "exists <id>", nothing written. --always, promote, use, split, apply and path
+# belong to one shelf each; the other shelf is a usage error (64).
+# After every memory write HOME/memory/<project>.always.md is rewritten: the active notes marked always, one
+# "- <entry>" line each, the entry as show prints it (the title is left out when the text starts with it, and
+# a note's closing "Replaces <id>." line is left out).
 # While star.json "notes" is "legacy" (or is absent and memory/<project>.md exists), add also appends a
-# line to that old file, and path prints it.
+# line to that old file (never for --source migration: a migrated note is already in it), and path prints it.
+# split writes memory/<project>/.split when it is done, and prints "split 0 already" whenever that marker or
+# a note with source migration exists. A bullet that starts with a date gives the note that date.
 # Ids come from ids.sh (sequence <shelf>/<project>), so parallel writers never share one. Every command
 # runs under an fcntl lock on HOME/notes.lock; files are written whole then moved into place.
 # Exit: 0; 1 an id or a decision was not found; 2 a file cannot be read or written, or a proposal has
@@ -41,7 +47,7 @@ import re
 import subprocess
 import sys
 
-USAGE = ("usage: notes.sh [--home H] --shelf library|memory --project P add|replace|promote|use|set|list|path|split|apply ...")
+USAGE = ("usage: notes.sh [--home H] --shelf library|memory --project P add|replace|show|promote|use|set|list|path|split|apply ...")
 NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,59}")
 KEYS = ["id", "kind", "title", "status", "replacedBy", "always", "source", "since", "from",
         "fromDecision", "usedBy"]
@@ -107,7 +113,7 @@ def parse_args():
 G, CMD, REST = parse_args()
 HOME, SHELF, PROJECT = G["--home"], G["--shelf"], G["--project"]
 PREFIX = "L" if SHELF == "library" else "M"
-if CMD not in ("add", "replace", "promote", "use", "set", "list", "path", "split", "apply"):
+if CMD not in ("add", "replace", "promote", "use", "set", "list", "path", "split", "apply", "show"):
     die(64, USAGE)
 if not HOME or not os.path.isdir(HOME):
     die(2, f"no STAR folder at {HOME or '(unset)'}")
@@ -221,6 +227,19 @@ def one_line(text):
     return " ".join(text.split())
 
 
+def entry(n):
+    """<id> <title>: <text> on one line; the title alone when there is no text, the text alone when it
+    starts with the title (a split or worker note's title is its text's start)."""
+    fm = n["fm"]
+    title = one_line(str(fm.get("title", "")))
+    text = one_line(re.sub(r"\n?Replaces [LM]-\d{4}\.\s*$", "", n["body"]))
+    if not text:
+        return f"{fm['id']} {title}"
+    if text.startswith(title):
+        return f"{fm['id']} {text}"
+    return f"{fm['id']} {title}: {text}"
+
+
 def sync_always():
     if SHELF != "memory":
         return
@@ -228,8 +247,7 @@ def sync_always():
     for n in notes():
         fm = n["fm"]
         if fm.get("status") == "active" and fm.get("always") is True:
-            text = one_line(re.sub(r"\n?Replaces [LM]-\d{4}\.\s*$", "", n["body"]))
-            lines.append(f"- {fm['id']} {one_line(str(fm.get('title', '')))}" + (f": {text}" if text else ""))
+            lines.append(f"- {entry(n)}")
     os.makedirs(os.path.dirname(ALWAYS_FILE), exist_ok=True)
     write_atomic(ALWAYS_FILE, "\n".join(lines) + "\n")
 
@@ -270,13 +288,14 @@ ADD_FLAGS = {"--title", "--text", "--decision", "--why", "--source-text", "--kin
              "--since", "--from", "--from-decision"}
 
 
-def add_parts(args):
-    """Validates the add options; returns (frontmatter inputs, body, item)."""
-    o = options(args, ADD_FLAGS, {"--always"})
+def add_parts(args, old=None):
+    """Validates the add options; returns (frontmatter inputs, body, item, once). With old (replace),
+    kind and always default to the old note's."""
+    o = options(args, ADD_FLAGS, {"--always", "--once"})
     title = o.get("--title", "")
     if not title.strip():
         die(64, "--title is required")
-    kind = o.get("--kind", "decision" if SHELF == "library" else "fact")
+    kind = o.get("--kind", (old or {}).get("kind") or ("decision" if SHELF == "library" else "fact"))
     if kind not in (("decision",) if SHELF == "library" else ("rule", "fact")):
         die(64, f"--kind {kind!r} does not fit the {SHELF} shelf")
     if o.get("--always") and SHELF == "library":
@@ -302,9 +321,10 @@ def add_parts(args):
         if {"--decision", "--why", "--source-text"} & set(o):
             die(64, "--decision, --why and --source-text belong to the library shelf")
         body = o.get("--text", "")
-    fm = {"kind": kind, "title": title, "always": bool(o.get("--always")), "source": source,
+    always = bool(o.get("--always")) or (old is not None and old.get("always") is True and SHELF == "memory")
+    fm = {"kind": kind, "title": title, "always": always, "source": source,
           "since": since, "from": f"[[{item}]]" if item else None, "fromDecision": dec}
-    return fm, body, item
+    return fm, body, item, bool(o.get("--once"))
 
 
 def legacy_append(fm, body, item):
@@ -320,15 +340,20 @@ def legacy_append(fm, body, item):
 
 
 def cmd_add(args, replaces=None):
-    fm, body, item = add_parts(args)
+    old = find(replaces) if replaces else None
+    fm, body, item, once = add_parts(args, old["fm"] if old else None)
+    if once and not replaces:
+        for n in notes():
+            if n["fm"].get("title") == fm["title"] and n["fm"].get("source") == fm["source"]:
+                print(f"exists {n['fm']['id']}")
+                return
     if replaces:
-        old = find(replaces)
         body = (body + "\n" if body else "") + f"Replaces {replaces}."
     nid, path = new_note(item or "star", fm, body)
     if replaces:
         old["fm"]["status"], old["fm"]["replacedBy"] = "replaced", nid
         save(old)
-    elif SHELF == "memory" and is_legacy():
+    elif SHELF == "memory" and is_legacy() and fm["source"] != "migration":
         legacy_append(fm, body, item)
     sync_always()
     print(f"added {nid} {path}" + (f" replaces {replaces}" if replaces else ""))
@@ -344,6 +369,12 @@ def cmd_list(args):
             continue
         cells = [fm["id"], fm.get("kind"), fm.get("status"), json.dumps(fm.get("always")), fm.get("title")]
         print("\t".join(one_line(str(c)) for c in cells))
+
+
+def cmd_show(args):
+    if len(args) != 1:
+        die(64, "usage: show <id>")
+    print(entry(find(args[0])))
 
 
 def cmd_use(args):
@@ -393,6 +424,8 @@ def main():
             cmd_add(REST[1:], replaces=REST[0])
         elif CMD == "list":
             cmd_list(REST)
+        elif CMD == "show":
+            cmd_show(REST)
         elif CMD == "use":
             cmd_use(REST)
         elif CMD == "set":
@@ -533,7 +566,8 @@ def cmd_split(args):
         text = read(args[0])
     except OSError as e:
         die(2, f"cannot read {args[0]}: {e.strerror}")
-    if any(n["fm"].get("source") == "migration" for n in notes()):
+    marker = os.path.join(DIR, ".split")
+    if os.path.exists(marker) or any(n["fm"].get("source") == "migration" for n in notes()):
         print("split 0 already")
         return
     bullets = []
@@ -548,8 +582,11 @@ def cmd_split(args):
             b.pop()
         body = "\n".join(b)
         m = re.match(r"(\d{4}-\d{2}-\d{2}) (\S+): ", body)
+        d = re.match(r"(\d{4}-\d{2}-\d{2})(?![0-9])", body)
         if m:
             since, source, body = m.group(1), ("owner" if m.group(2) in ("user", "owner") else "migration"), body[m.end():]
+        elif d:
+            since, source = d.group(1), "migration"  # the date stays in the text: it may carry a time
         else:
             since, source = today(), "migration"
         parsed.append((since, source, body))
@@ -558,6 +595,7 @@ def cmd_split(args):
     for nid, (since, source, body) in zip(ids, parsed):
         fm = {"kind": "fact", "title": cut_title(body), "always": False, "source": source, "since": since}
         new_note("star", fm, body, note_id=f"{PREFIX}-{nid:04d}")
+    write_atomic(marker, today() + "\n")
     sync_always()
     print(f"split {len(parsed)}")
 

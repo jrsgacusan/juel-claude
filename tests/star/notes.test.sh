@@ -97,5 +97,35 @@ EOT
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["notes"]=="split" and "standing" not in d and d["standingPreNotes"]=={"a":1}' "$H2/star.json" && pass "apply ends legacy and keeps the standing orders aside" || fail "apply star.json"
 [ "$(N2 path)" = "$H2/memory/app.always.md" ] && pass "after apply, path is the always file" || fail "path after apply"
 printf 'no lines here\n' > "$TMP/empty.md"; N2 apply "$TMP/empty.md" >/dev/null 2>&1; [ $? -eq 2 ] && pass "a proposal with no line is exit 2" || fail "empty proposal"
+# review fixes: show, replace keeps kind and always, --once, migration notes stay out of the old file, split guard and dates
+H3="$TMP/h3"; mkdir -p "$H3/memory"; printf '{"project": {"name": "app"}}\n' > "$H3/star.json"
+N3() { sh "$ROOT/skills/star/notes.sh" --home "$H3" --shelf memory --project app "$@"; }
+N3 add --title 'Never post to Slack' --text 'Write a draft; the owner sends it.' --kind rule --source owner --always >/dev/null
+[ "$(N3 show M-0001)" = "M-0001 Never post to Slack: Write a draft; the owner sends it." ] && pass "show prints the whole note on one line" || fail "show ($(N3 show M-0001))"
+long="word0 word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24 word25 word26 word27 word28 word29"
+N3 add --title 'Long rule' --text "$long" >/dev/null
+N3 show M-0002 | grep -q 'word29$' && pass "show is never cut" || fail "show cut"
+N3 show M-0099 >/dev/null 2>&1; [ $? -eq 1 ] && pass "show of a missing id is exit 1" || fail "show missing"
+N3 replace M-0001 --title 'Slack: drafts only' --text 'Drafts only, never send.' --source owner >/dev/null
+grep -q '^kind: "rule"' "$H3"/memory/app/M-0003-*.md && grep -q '^always: true' "$H3"/memory/app/M-0003-*.md && pass "replace keeps the old note's kind and always" || fail "replace inherits"
+grep -qx -e '- M-0003 Slack: drafts only: Drafts only, never send.' "$H3/memory/app.always.md" && pass "the reworded rule stays in the always file" || fail "always after replace ($(cat "$H3/memory/app.always.md"))"
+N3 add --title 'Tests run with npm test' --text 'Tests run with npm test before every push.' --always >/dev/null
+grep -qx -e '- M-0004 Tests run with npm test before every push.' "$H3/memory/app.always.md" && pass "a title that starts the text is not printed twice" || fail "doubled title"
+[ "$(N3 add --title maxParallel --text 'two at most' --kind rule --source migration --once | cut -d' ' -f1)" = "added" ] && [ "$(N3 add --title maxParallel --text 'two at most' --kind rule --source migration --once)" = "exists M-0005" ] && pass "--once writes a note once" || fail "--once"
+# migration notes never reach the old file, which workers still read
+H4="$TMP/h4"; mkdir -p "$H4/memory"; printf '{"project": {"name": "app"}}\n' > "$H4/star.json"
+printf -- '- 2026-10-07 user: tracker is Linear.\n- 2026-10-12 on the warm server: skip pilot mode.\n- 2026-10-13T21:11:43Z owner dropped SPH-9.\n' > "$H4/memory/app.md"; cp "$H4/memory/app.md" "$TMP/h4-before.md"
+N4() { sh "$ROOT/skills/star/notes.sh" --home "$H4" --shelf memory --project app "$@"; }
+N4 split "$H4/memory/app.md" >/dev/null
+N4 add --title blanketGo --text 'go for everything tonight' --kind rule --source migration >/dev/null
+cmp -s "$H4/memory/app.md" "$TMP/h4-before.md" && pass "a migration note is not appended to the old file" || fail "migration append"
+grep -l 'warm server' "$H4"/memory/app/M-*.md | xargs grep -q '^since: "2026-10-12"' && pass "a dated bullet with no author keeps its date" || fail "date without author"
+grep -l 'dropped SPH-9' "$H4"/memory/app/M-*.md | xargs grep -q '^since: "2026-10-13"' && pass "a date with a time keeps its date" || fail "date with time"
+grep -l 'dropped SPH-9' "$H4"/memory/app/M-*.md | xargs grep -q '^2026-10-13T21:11:43Z owner dropped SPH-9.$' && pass "the time stays in the text" || fail "time kept"
+# an owner-only file split twice is still split once
+H5="$TMP/h5"; mkdir -p "$H5/memory"; printf '{"project": {"name": "app"}}\n' > "$H5/star.json"
+printf -- '- 2026-10-07 user: one.\n- 2026-10-08 owner: two.\n' > "$H5/memory/app.md"
+N5() { sh "$ROOT/skills/star/notes.sh" --home "$H5" --shelf memory --project app "$@"; }
+[ "$(N5 split "$H5/memory/app.md")" = "split 2" ] && [ "$(N5 split "$H5/memory/app.md")" = "split 0 already" ] && [ "$(ls "$H5"/memory/app/M-*.md | wc -l | tr -d ' ')" = "2" ] && pass "a file of owner notes splits once" || fail "owner-only split twice"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
