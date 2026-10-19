@@ -134,7 +134,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
-| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
+| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
@@ -853,6 +853,14 @@ ignores it: `git check-ignore -q .superpowers/x || echo '/.superpowers/' >> "$(g
 
 **Session tasks** (#154). A task with the line `**Run:** session` under its heading is never
 handed to Codex. Take the scope record below first, before the first task of either kind runs.
+Before each dispatch, run `sh <session-tasks.sh> <plan> --ledger <ledger>` (`session-tasks.sh` is
+next to this file; `<ledger>` is the plan's ledger above). When it prints `until <N>`, the dispatch
+line's prompt ends with ` Stop before task <N>: the session runs it.`, inside its quotes, so the stop holds even
+when Codex did not load the executor skill. After each executor run (every try of the capacity rule
+included), run it again: a `ran <N>` line means the executor ran a session task, so the run failed:
+under `--unattended`, end with
+`ESCALATION item=<item> phase=<n> reason=codex-failed needs=the executor ran session task <N>`;
+interactively, show that line and ask how to go on.
 Before each dispatch, and after a dispatch whose report ends with
 `stopped at task <N>: run by the session`, look at the first task with no `Task <N>: complete`
 line in the ledger. While it is a session task, run it in this session (its steps, its tests and
@@ -884,11 +892,13 @@ not survive between Bash calls: write the sha and the `$BEFORE` path in literall
 commands.
 
 **The executor skill.** Right before the line, check that the skill is current:
-`cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
+`cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
 (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
 copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
 is gone (a plugin update removes its old cache folder), even in the middle of a run, and for a
-link into another version's copy, which would run an older executor. Failing under
+link into another version's copy, which would run an older executor. `CODEX_HOME` is the
+Codex home this shell's `codex exec` reads, so the check and the relink look where the executor
+will. Failing under
 `--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check
 again. Still failing: do not dispatch. Run the plan in this session with
 `superpowers:executing-plans`, and carry
@@ -903,8 +913,11 @@ paths the sandbox may write, so `<add-dirs>` below is `--add-dir <git-dir> --add
 with those two paths. Otherwise `<add-dirs>` is empty. Work it out again before every dispatch.
 
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md[ Stop before task <N>: the session runs it.]' < /dev/null
 ```
+
+The brackets are not typed: the part inside them is added only when `session-tasks.sh` printed
+`until <N>` (Phase 4, "Session tasks").
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
@@ -1251,7 +1264,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries
    `**Base:** spec implemented at <the full head>; apply only the tasks below.` and whose tasks each
    name their files in a `**Files:**` block, run it with the executor
-   (Phase 4's line, its capacity rule and its scope check), then gate it as "Gate once per PR" says
+   (Phase 4's line, its session tasks, its capacity rule and its scope check), then gate it as "Gate once per PR" says
    for a push of the worker's own changes: the tests for the files it changed, then the sweep,
    the one regression gate of the round, run through the gate lock. When every file changed since
    the evidence head is outside the runtime, as its step 6 defines it, the evidence is reused as

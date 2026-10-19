@@ -62,16 +62,22 @@ grep -qF '6. Do not push here. The merge commit is pushed' "$SKILL" && fail "F10
 for s in execute review-and-execute receive-review-and-execute; do
   F="$ROOT/skills/$s/SKILL.md"
   grep -qF 'Right before the line, check that the skill is current:' "$F" && pass "#118a $s: right before each dispatch it checks that the skill is current" || fail "#118a $s: right before each dispatch it checks that the skill is current"
-  [ "$(grep -cF 'cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F")" -eq 2 ] && pass "#118b $s: the Preflight row and the dispatch compare the link with this plugin's copy" || fail "#118b $s: the Preflight row and the dispatch compare the link with this plugin's copy"
-  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$F" && fail "#118c $s: no test -f check of the executor is left" || pass "#118c $s: no test -f check of the executor is left"
+  [ "$(grep -cF 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F")" -eq 2 ] && pass "#118b $s: the Preflight row and the dispatch compare the link with this plugin's copy" || fail "#118b $s: the Preflight row and the dispatch compare the link with this plugin's copy"
+  grep -qF 'test -f "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md"' "$F" && fail "#118c $s: no test -f check of the executor is left" || pass "#118c $s: no test -f check of the executor is left"
   grep -qF "is gone, and for a link into another version's copy, which would run an older executor." "$F" && pass "#118d $s: a link into another version's copy fails the check" || fail "#118d $s: a link into another version's copy fails the check"
 done
 D="$ROOT/skills/doctor/SKILL.md"
-grep -qF 'echo "CODEXSKILL_claude-plan-executor=stale -> $(readlink "$HOME/.codex/skills/claude-plan-executor")"' "$D" && pass "#118e doctor: a link into another version's copy is stale" || fail "#118e doctor: a link into another version's copy is stale"
-grep -qF 'cmp -s "$HOME/.codex/skills/claude-plan-executor/SKILL.md" "${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md"' "$D" && pass "#118f doctor: ok means the linked copy matches this plugin's" || fail "#118f doctor: ok means the linked copy matches this plugin's"
+grep -qF 'echo "CODEXSKILL_claude-plan-executor=stale -> $(readlink "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor")"' "$D" && pass "#118e doctor: a link into another version's copy is stale" || fail "#118e doctor: a link into another version's copy is stale"
+grep -qF 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" "${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md"' "$D" && pass "#118f doctor: ok means the linked copy matches this plugin's" || fail "#118f doctor: ok means the linked copy matches this plugin's"
 grep -qF 'Report `absent` or `stale` for `CODEXSKILL_claude-plan-executor` as a **HARD** failure' "$D" && pass "#118g doctor: stale is a HARD failure, like absent" || fail "#118g doctor: stale is a HARD failure, like absent"
-grep -qF '| `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves and matches `${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md` (`cmp -s`) |' "$D" && pass "#118h doctor: the id table checks the copy is current" || fail "#118h doctor: the id table checks the copy is current"
+grep -qF '| `claude-plan-executor` | skill | `${CODEX_HOME:-~/.codex}/skills/claude-plan-executor` resolves and matches `${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md` (`cmp -s`) |' "$D" && pass "#118h doctor: the id table checks the copy is current" || fail "#118h doctor: the id table checks the copy is current"
 grep -qF '| `claude-mods` | cli | `claude --version` prints 2.1.287 or later | older, or `claude` absent | |' "$D" && pass "MOD1 doctor: the claude-mods requirement has a row" || fail "MOD1 doctor: the claude-mods requirement has a row"
 grep -qF 'claude --version 2>/dev/null || echo "CLAUDE_VERSION=unknown"' "$D" && pass "MOD2 doctor: Phase 1 records the Claude Code version" || fail "MOD2 doctor: Phase 1 records the Claude Code version"
+# lane c: #158 the stop and the check at the dispatch
+has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+has "C158i names session-tasks.sh" 'session-tasks.sh'
+has "C158j the dispatch prompt carries the stop sentence" ' Stop before task <N>: the session runs it.'
+has "C158k a ran line is a failed run" '`ran <N>` line is a failed run'
+has "C158l the escalation names the executor run" 'needs=the executor ran session task <N>'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

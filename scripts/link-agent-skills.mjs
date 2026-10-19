@@ -112,8 +112,10 @@ for (const name of SKILLS) {
 // --- Codex skills vendored by this plugin -----------------------------------
 // claude-plan-executor is dispatched by execute, review-and-execute,
 // receive-review-and-execute and ship-ticket as `$claude-plan-executor`. It must
-// live at ~/.codex/skills/<name>/ to keep that bare id: a plugin skill would be
-// namespaced juel:<name> and the four call sites would stop resolving.
+// live at ${CODEX_HOME:-~/.codex}/skills/<name>/, the home Codex reads, to keep that bare
+// id: a plugin skill would be namespaced juel:<name> and the four call sites would stop
+// resolving. A project that sets CODEX_HOME (a per-project Codex account) gets it too; it is
+// linked from the shell the skill runs in, so the check and the link agree.
 //
 // Symlinked rather than copied so the installed copy cannot drift from the
 // vendored one. The link points into the version-pinned plugin root, so it goes
@@ -121,7 +123,7 @@ for (const name of SKILLS) {
 // reports it the same way.
 const CODEX_SKILLS = ['claude-plan-executor'];
 const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const codexSkills = join(homedir(), '.codex', 'skills');
+const codexSkills = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'skills');
 
 if (!DRY_RUN) mkdirSync(codexSkills, { recursive: true });
 

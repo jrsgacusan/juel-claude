@@ -202,7 +202,7 @@ g "L81a a gate-loop fix plan carries a Base line" '`**Base:** spec implemented a
 g "L81b a Phase 6 loop-back plan carries one" '`**Base:** spec implemented at <the evidence head>; apply only the tasks below.`'
 g "L81c a resumed build's plan carries one" 'spec implemented at <the branch head'
 g "L81d the in-session run is told the Base line wins" "The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness."
-g "L78d the gate loop runs the scope check" "(Phase 4's line, its capacity rule and its scope check)"
+g "L78d the gate loop runs the scope check" "(Phase 4's line, its session tasks, its capacity rule and its scope check)"
 g "L83a decisions are read after every background step" 'after every background step returns, before choosing the next step'
 g "L83b through orca's unread messages" 'orca orchestration check --unread --json'
 g "L89a the gate lock line takes the progress log" '[--progress <star.home>/progress/<item>.log]'
@@ -281,11 +281,11 @@ g "L113c then the same round runs again, not as an ERROR retry" 'the same round 
 g "L113d it casts no maxRounds vote" 'it casts no vote toward `gate.maxRounds`.'
 g "L113e any other ERROR still waits 10 minutes" 'Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more'
 g "L113f review-unavailable never counts a base-moved round" 'An `ERROR base-moved` never counts: the gate loop'"'"'s step 6 merges the base and runs the round again.'
-g "L118a the executor check compares the link with this plugin's copy" 'cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md'
+g "L118a the executor check compares the link with this plugin's copy" 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md'
 g "L118b right before each dispatch it checks that the skill is current" 'Right before the line, check that the skill is current:'
 g "L118c a link into another version's copy fails it" 'link into another version'"'"'s copy, which would run an older executor.'
-grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$SKILL" && fail "L118d no test -f check of the executor is left" || pass "L118d no test -f check of the executor is left"
-g "L118e the Preflight row runs the same check" '| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`'
+grep -qF 'test -f "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md"' "$SKILL" && fail "L118d no test -f check of the executor is left" || pass "L118d no test -f check of the executor is left"
+g "L118e the Preflight row runs the same check" '| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`'
 g "L118f a failing check under --unattended relinks once" '`--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check'
 # #122: the build never pings the hosted reviewer; the ready mark starts its run
 g "L122a the build never pings or comments to the hosted reviewer (#122)" 'The build never pings or comments to the hosted reviewer on the PR at any point (no'
