@@ -15,6 +15,10 @@
 #                                        memory/<project>.md.pre-notes, copied each standing key into a note
 #                                        and added the sort-memory-notes item (a folder with no old notes
 #                                        gets "notes": "split" and no line),
+#                                        then "migrated evidence folders=<n> gb=<x.x>" on the first migrate
+#                                        (star.json has no evidenceChecked) when worktree-clean.sh
+#                                        --evidence-report finds dependency folders in evidence/; the key is
+#                                        set either way, and a failing report leaves it unset,
 #                                        then "current" or "migrated rows=<n>"
 #   star-home.sh [--cwd <dir>] import <spec path>
 #                                        copy a spec from outside the folder, with each file under the spec's folder that its text
@@ -336,6 +340,28 @@ def migrate_notes(data):
     return True
 
 
+def migrate_evidence(data):
+    """Measure the dependency folders kept in evidence, once. Best effort. True when star.json changed."""
+    if "evidenceChecked" in data:
+        return False
+    script = os.path.join(os.environ["STAR_SKILL_DIR"], "worktree-clean.sh")
+    try:
+        done = subprocess.run(["sh", script, "--home", home, "--evidence-report"],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if done.returncode != 0:
+        return False
+    lines = done.stdout.strip().splitlines()
+    found = re.fullmatch(r"total (\d+) gb=([0-9.]+)", lines[-1].strip()) if lines else None
+    if not found:
+        return False
+    if int(found.group(1)) > 0:
+        print(f"migrated evidence folders={found.group(1)} gb={found.group(2)}")
+    data["evidenceChecked"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return True
+
+
 def migrate():
     star_path = os.path.join(home, "star.json")
     stops_path = os.path.join(home, "migrate-stops.txt")
@@ -368,7 +394,8 @@ def migrate():
         if quiet_gone:
             print("migrated quiet-hours")
         notes_moved = migrate_notes(data)
-        if gate_moved or quiet_gone or notes_moved:
+        evidence_set = migrate_evidence(data)
+        if gate_moved or quiet_gone or notes_moved or evidence_set:
             write_json(star_path, data)
         print("current")
         forget(stops_path)
@@ -394,6 +421,7 @@ def migrate():
         print("migrated quiet-hours")
     project = (data.get("project") or {}).get("name") or ""
     migrate_notes(data)
+    migrate_evidence(data)
     skill = os.environ["STAR_SKILL_DIR"]
     rows = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "list"],
                           capture_output=True, text=True)

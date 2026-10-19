@@ -410,5 +410,19 @@ mkrepo "$TMP/lc4"; LC4=$(real "$TMP/lc4"); HC4=$(sh "$SH" --cwd "$LC4" init); lc
 out=$(sh "$SH" --cwd "$LC4" migrate 2>&1)
 [ "$out" = current ] && pass "lane c: a null project has no notes step" || fail "lane c: null project ($out)"
 
+# lane c: the first migrate measures the dependency folders in evidence, once
+mkrepo "$TMP/lc5"; LC5=$(real "$TMP/lc5"); HC5=$(sh "$SH" --cwd "$LC5" init); lcnotes "$HC5" app; : > "$STUB_CALLS"
+out=$(STUB_REPORT='total 2 gb=1.6' sh "$SH" --cwd "$LC5" migrate)
+[ "$out" = "$(printf 'migrated evidence folders=2 gb=1.6\ncurrent')" ] && pass "lane c: migrate prints the evidence line before current" || fail "lane c: evidence line ($out)"
+grep -q "^worktree-clean.sh --home $HC5 --evidence-report$" "$STUB_CALLS" && python3 -c 'import json,sys; from datetime import datetime; datetime.strptime(json.load(open(sys.argv[1]))["evidenceChecked"], "%Y-%m-%dT%H:%M:%SZ")' "$HC5/star.json" && pass "lane c: the report ran and evidenceChecked is set" || fail "lane c: evidenceChecked"
+: > "$STUB_CALLS"; out=$(STUB_REPORT='total 2 gb=1.6' sh "$SH" --cwd "$LC5" migrate)
+[ "$out" = current ] && [ ! -s "$STUB_CALLS" ] && pass "lane c: a second migrate measures nothing" || fail "lane c: second evidence ($out)"
+mkrepo "$TMP/lc6"; LC6=$(real "$TMP/lc6"); HC6=$(sh "$SH" --cwd "$LC6" init); lcnotes "$HC6" app
+out=$(sh "$SH" --cwd "$LC6" migrate)
+[ "$out" = current ] && grep -q evidenceChecked "$HC6/star.json" && pass "lane c: a total of 0 prints nothing but sets the key" || fail "lane c: total 0 ($out)"
+mkrepo "$TMP/lc7"; LC7=$(real "$TMP/lc7"); HC7=$(sh "$SH" --cwd "$LC7" init); lcnotes "$HC7" app
+out=$(STUB_FAIL=1 STUB_REPORT='total 2 gb=1.6' sh "$SH" --cwd "$LC7" migrate 2>&1); rc=$?
+[ "$out" = current ] && [ "$rc" = 0 ] && ! grep -q evidenceChecked "$HC7/star.json" && pass "lane c: a failing report is best effort and leaves the key unset" || fail "lane c: failing report ($out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
