@@ -999,13 +999,17 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    already at the brief's `star.gates` path, which the babysit stage is given.
 
    Also, for any report: each `HELD item=… action=…` line → `--kind held`; a `NOTE: <text>` line →
-   append `- <date> <item>: <text>` to `HOME_DIR/memory/<project>.md`; a `NOTE: accepted residual <criterion>: <follow-up path>` line
+   `sh S/notes.sh --shelf memory --project <project> add --title "<the text's first 80 characters>" --text "<text>" --source worker-note --from <item>` (with `--always` for `NOTE: always <text>`), which replaces the old append to `HOME_DIR/memory/<project>.md`; a `NOTE: accepted residual <criterion>: <follow-up path>` line
    also adds that path as an `inbox` row (its `ref` the path, `counters.batch` the item's,
    `counters.parent=<item>`; `ledger.sh name` prints `open <item>` when STAR already added it, and
    then nothing is added), or, when no file is at that path, queues `--kind held` "<item>'s
    accepted residual names <path>, which does not exist"; a `SENT …` line → append
    `<iso>\t<project>\t<item>\t<the text after SENT>` to `HOME_DIR/sent.log`; a `STAR-ISSUE: <text>`
-   line → "Improvement issues". STAR logs its own sends
+   line → "Improvement issues"; each `REUSED` and `CORRECTED` line of a `BRIEF` report, in this order:
+   `REUSED L-<nnnn>` → `sh S/library.sh --project <project> use L-<nnnn> <item>`;
+   `REUSED <item>#D<n>` → `sh S/library.sh --project <project> promote <item>#D<n> --source brief-worker`, then `use` on the id it printed;
+   `CORRECTED D<new> replaces D<old>` → `sh S/library.sh --project <project> promote <item>#D<new> --source owner --supersedes <item>#D<old>`.
+   STAR logs its own sends
    there too (a draft it posted with `gh pr comment`). After each settled
    `worker_done`: `orca orchestration worker-release --dispatch <id>` (in the order of effects
    above: before `processed.log`).
@@ -1716,9 +1720,27 @@ STAR writes for the user only what shipping needs, and sends none of it by itsel
 
 ## Memory notes
 
-`memory/<project>.md` is read by every worker before it starts (the brief lists it). Workers add
-to it only through a `NOTE:` line in their report, which STAR appends to it. The user edits or deletes notes freely. When a project file passes 80 lines,
-queue `--kind held` "trim memory/<project>.md" instead of trimming it yourself.
+A note is one file in `memory/<project>/`, a `rule` (something every worker must do or avoid) or a
+`fact` (something true about the project). STAR writes notes only through `sh S/notes.sh --shelf
+memory --project <project>`, never by hand: it numbers them (`M-<nnnn>`), and keeps
+`memory/<project>.always.md`, the notes every worker reads, current on every change. Workers never
+read the folder. A brief worker gets the file `notes.sh path` prints, and copies the notes that
+apply to its item under `## Notes that apply` ("Brief worker mode", step 1).
+
+- **A worker's `NOTE:`** is a `fact` note (`NOTE: always <text>` also gets `--always`): the command is in the Messages step.
+  The user edits or deletes notes freely; an edit made by hand shows at the next `notes.sh` call.
+- **A rule the owner says in chat** is written at once: `sh S/notes.sh --shelf memory --project <project> add --kind rule --source owner --title "<the rule in a few words>" --text "<the rule>"`,
+  with `--always` when the owner says it holds for every item. A standing order is a rule note too.
+  A standing order the owner gives is a rule note, never a new `star.json` key.
+- **Replacing a note:** `notes.sh ... replace M-<nnnn> --title … --text …` writes the new note and marks the old one
+  replaced. STAR's reply says "replaces M-<nnnn>".
+- **Legacy mode:** while `star.json`'s `notes` is `legacy` (from `migrate` until the owner accepts
+  `sort-memory-notes`), `notes.sh path` prints the old `memory/<project>.md`, and `add` still
+  appends to it, so workers keep reading what they read before.
+- **A replaced note in open briefs:** find the briefs that copied it with
+  `grep -l '^- M-<old> ' HOME_DIR/briefs/<project>/*.md`. A brief without `approved:` gets that line swapped for the new
+  note's. A brief with a go keeps its copy, and gets `- <date> note M-<old> replaced by M-<new>: <text>` under `## Decisions`.
+- Nothing is deleted: a replaced note keeps its file and drops out of every search and every `always` file.
 
 ## The host gate
 
@@ -1756,7 +1778,7 @@ or log file itself, and does no research in its own session.
 the user is there or not, from the sourced options the worker brings: pick the one that best fits
 the brief's intent and its decision records, reply, and append a decision record to the brief's
 `## Decisions`: `### D<n> <title> (<date>, decided by STAR)`, with the worker's source in `Source:`
-and the message id in `Context:`. A question that brings no sourced options gets the reply
+and the message id in `Context:`. Before deciding, run `sh S/recall.sh --kind decision <the question's key words>`: a library decision in force answers it, cited in `Source:`, so a mid-build answer never undoes the owner's correction. A question that brings no sourced options gets the reply
 "Bring sourced options: <what to look up>, each with its source." and no decision.
 
 **An accepted residual.** A build worker whose live check for one criterion still fails after its
@@ -1900,6 +1922,8 @@ or PR. Then:
 3. Anything else the user answers is a decision: it goes into the brief's `## Decisions`, and the
    build stage runs again.
 
+On `accept` of the `sort-memory-notes` report, STAR runs `sh S/notes.sh --shelf memory --project <project> apply HOME_DIR/reports/<project>/sort-memory-notes.md`, says its `applied …` line, and the row → `done` with no post. `apply` is what moves `star.json`'s `notes` to `split`.
+
 No release record is written for a report item: the report and its `sent.log` line are the
 record. The user can switch a brief to `deliverable: pr` in their feedback whenever they want the
 run kept in the repository.
@@ -1977,12 +2001,13 @@ batch then runs without them.
    `## Approach` and `## Person-only steps`, with the `### D<n>` headings under `## Decisions`.
 
    ```
-   Batch B-20261009T081200Z-a3f9 · 3 items
+   Batch B-20261009T081200Z-a3f9 · 3 items · notes every worker reads: 4
 
    ITEM-1 · Export reports as CSV
      Criteria (4): one line each
      Approach: one line
-     Decisions STAR took (2): D1 CSV over XLSX · D2 a 10,000-row cap
+     New decisions (2): D1 CSV over XLSX · D2 a 10,000-row cap
+     Reused (1): D3 The hosted review comes after ready (L-0007)
      Blocked by: none
    ITEM-2 · ...
      Not before: 2026-10-15
@@ -1993,6 +2018,7 @@ batch then runs without them.
    ```
 
    A `Not before:` line appears only for a brief that has `notBefore`.
+   The header gains ` · notes every worker reads: <n>`, the count of `sh S/notes.sh --shelf memory --project <project> list --always` (left out while `notes` is `legacy`). `Decisions STAR took` is two lines: `New decisions (<n>): D<n> <title> · …` and `Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>) · …`, split on `, reused ` in the heading; a line with nothing to list is left out.
    A summary with no row to show (every other row started under `go all`) is not printed and queues no `go-batch` item.
    The early item of "Going before every brief is drafted" is the one exception: it is added with no row briefed.
    The `go-batch` item carries the same choice. The decision records are where the owner
@@ -2139,6 +2165,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   comes. After a restart the old session's wait does not end by itself (the Bash tool's shell wrapper outlives a killed Claude, so `messages.sh` does not see its parent go): the start sequence and Stop kill it with `--waiting` and `kill <pid>`. A wait
   that died without a notification reads as `none` (`--waiting` removes its stale file): the next
   tick starts a new one. `waiter-exists` still ends a wait Orca holds for a dead one (#38).
+- **The notes every worker reads:** the session hook also lists them, so they survive a compaction without a read.
 - **Chat:** a chat message is answered once. The Inbox step checks `chat.sh pending` before it
   acts, `chat.sh reply` refuses a second reply (exit 66), and every start answers each pending
   message whose inbox file is gone, so a message sent while STAR was stopped, or caught by a
@@ -2180,6 +2207,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - A worktree is removed only by `worktree-clean.sh`, never with work in it that exists nowhere
   else, and only after its evidence is copied into `HOME_DIR/evidence/<item>/`.
 - `open-loops.md` is written only through `loops.sh`, and `ledger.md` only through `ledger.sh`.
+- Notes and library decisions are written only through `notes.sh` and `library.sh`; never read `memory/<project>/` or the old notes file into this session.
 
 ## Common mistakes
 
@@ -2192,6 +2220,9 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Writing or editing a Slack reply's text | The dashboard's drafter writes it; `rewrite: <how>` goes to `slack-redraft.sh` |
 | Editing `open-loops.md` with Edit or sed | `loops.sh` only: it keeps what the user typed |
 | Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go and passes `--match-head-commit` |
+| Deciding again what the library already answers | `recall.sh --kind decision` first; reuse it and cite it |
+| Keeping an owner's standing order as a new `star.json` key | A rule note: `notes.sh add --kind rule --source owner` |
+| Reading the notes folder or the old notes file to answer a worker | `recall.sh --kind note` and `notes.sh list` print one line per note |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
 | Starting a build before its batch's go | Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent's grant, stamps `approved:` |
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
