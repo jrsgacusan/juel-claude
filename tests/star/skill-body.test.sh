@@ -649,7 +649,7 @@ g "LH114e the escalation names the prompt (#114)" '`stuck: confirmation dialog: 
 g "LH114f never answer, except prompt bounded (#114)" 'Never answer a worker'"'"'s prompt for it, except `prompt bounded` (above, #114).'
 g "LH114g the probe reads the rendered screen (#114)" 'screen (`orca terminal read --screen`), not Orca'"'"'s transcript, which shows no prompt (#114).'
 g "LH114h the one exception to never answering a screen (#114)" 'user, and STAR never answers a worker'"'"'s screen for it, with one exception (#114): `prompt bounded`,'
-g "LH114i the common mistake names the exception (#114)" 'The one exception is `prompt bounded` (#114): the digit `1`, never Enter |'
+g "LH114i the common mistake names the exception (#114)" 'The one exception is `prompt bounded` (#114): the digit `1`, never Enter.'
 g "LH114j the prompted counter (#114)" '| `prompted=<n>` | Claude Code safety prompts STAR answered on this row'"'"'s worker screen (`prompt bounded`, #114) | a new worker starts |'
 grep -qF 'user, and STAR never answers a worker'"'"'s screen for it. A model at capacity' "$SKILL" && fail "LH114k the old unqualified rule is gone (#114)" || pass "LH114k the old unqualified rule is gone (#114)"
 grep -q 'id: claude-mods' "$SKILL" && pass "LHmod-a STAR requires claude-mods" || fail "LHmod-a STAR requires claude-mods"
@@ -727,7 +727,7 @@ g "LH123d the counter row names the API error (#123)" '| `capacity=<n>` | retry 
 g "LH123e looking after the workers names it (#123)" 'capacity, or a worker left at an empty prompt under an `API Error:` line (#123), is a third thing'
 g "LH123f the matching nudge, never both (#123)" 'capacity rule: below `capacity=3`, send the nudge that matches the line: for `stalled: model at capacity`'
 g "LH123g a stalled worker becomes a lost worker (#123)" '(`stalled:`): STAR nudges it to retry, three times at most, then treats it as a lost worker (the capacity rule in'
-g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
+g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
 
 R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
 S124="PASS self-approved under the owner's grant"
@@ -893,5 +893,15 @@ has "E152b it is a whole-text command" '`status`, `dashboard`, `dashboard --tail
 has "E152c it runs the script with the flag" '`sh S/dashboard.sh`, or `sh S/dashboard.sh --tailnet` for `dashboard --tailnet`.'
 has "E152d the token is the only key" 'the token in the link is its only key (#152)'
 has "E152e without the flag it only names the flag" 'Without the flag it prints one line naming the flag when nothing maps the port.'
+# lane d: #156 a lost Claude login restarts the stage once the login is back
+g "LG156a the login rule has its own row" '`stuck: login` (#156) → the login rule'
+g "LG156b the login is checked without a model call" 'claude auth status >/dev/null 2>&1'
+g "LG156c a lost login waits for the owner, once for all rows" 'the Claude login is lost: run /login in any Claude Code session of this profile'
+g "LG156d the status line counts the waiting workers" '<n> workers wait for the Claude login'
+g "LG156e a login that is back restarts the stage" 'the restart rule ("Checking in") with step `login` and diagnosis `lost its Claude login`'
+g "LG156f the machine-wide case is named" 'Claude login lost on all <n> workers at once: an account switch logged them out'
+g "LG156g held items say it" ' (machine-wide login loss)'
+g "LG156h the reconcile step routes it" '(`stuck: login` → the login rule)'
+g "LG156i Common mistakes" '| Failing every worker when an account switch logs them out |'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
