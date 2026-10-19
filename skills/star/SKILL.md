@@ -1548,13 +1548,17 @@ for findings that live only in a review file:
 1. `sh S/ledger.sh add rescopedFrom=<item> review=<the review path>` prints
    `added <name> ref=<item file>`. It wrote `items/<project>/<name>.md` (frontmatter
    `status: todo`, `title:`, `rescopedFrom:`, `review:`, and `existingPr:` with the parent's PR when
-   its row has one) and added the row, with `counters.parent=<item>` and the parent's batch. Run
-   again after a restart, it prints the same line and adds nothing.
+   its row has one) and added the row, with `counters.parent=<item>` and the parent's batch. With a
+   parent PR it also moved the parent's worktree to the follow-up's row (the parent's cell is `-`,
+   so "Finished worktrees" never cleans it once the parent is dropped) and copied the parent's
+   `gates/<project>/<item>-tooling.md` to `<name>-tooling.md` when there is one, so the follow-up's
+   gate grades the same harness for safety only. Run again after a restart, it prints the same line
+   and adds nothing.
 2. When the item file has `existingPr:`: `sh S/ledger.sh set <item> state=dropped`, append
    "- <date> continued by <name> on <pr>: <why>" to the parent brief's `## Decisions`, and say
    "<item>: continued by <name> on <pr>" in the status line. Dropping the parent frees its branch:
-   `stage-start.sh` builds the follow-up in the parent's worktree, or tracks the PR branch in a new
-   one when that worktree is gone.
+   `stage-start.sh` builds the follow-up in the worktree it took over, or in a new one on the PR
+   branch when the parent had none.
 3. The follow-up is briefed like any `inbox` row, and draft-brief continues the PR from its item
    file. Its brief has `rescopedFrom:`, so a cap on it escalates: one hand-over per PR. When it
    merges, its parent goes `done` with it (the merge gate's `MERGED` row).

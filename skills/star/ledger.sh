@@ -29,8 +29,10 @@
 # the body "Continue <pr> and resolve the findings still open in <path>." With no existingPr: line,
 # and the body "Resolve the findings still open in <path>.", when the parent's pr is "-". The row has
 # ref the item file's absolute path, project the parent's, counters.parent=<parent> and counters.batch
-# the parent's when it has one. The same call while that row is open prints the same line and adds
-# nothing. A ref under <home>/reviews/ is refused by every add (64): a review file is not an item.
+# the parent's when it has one. With a parent PR, the follow-up also takes over the parent's worktree
+# (the parent's worktree cell becomes -, so cleaning the dropped parent never removes it) and gets a
+# copy of gates/<project>/<parent>-tooling.md as <item>-tooling.md when the parent has one. The same
+# call while that row is open prints the same line and adds nothing. A ref under <home>/reviews/ is refused by every add (64): a review file is not an item.
 # Without --home the folder is $JUEL_STAR_HOME, else the one star-home.sh names for this directory.
 # Exit: 0 ok, 2 the ledger is missing or broken, 4 unknown item (or parent), 64 usage, 65 refused (the item, or
 # an open row for the ref, already exists).
@@ -40,6 +42,7 @@ exec python3 - "$@" <<'PY'
 import fcntl
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 
@@ -261,6 +264,16 @@ def follow_up(rest):
     batch = counters(parent_row["counters"]).get("batch")
     if batch:
         apply(row, "counters.batch", batch)
+    if pr != "-":
+        # The follow-up continues the parent's PR, so it takes over what goes with it: the
+        # worktree, which Housekeeping would otherwise clean once the parent is dropped, and the
+        # tooling file the gate reads by item name (#160).
+        if parent_row["worktree"] != "-":
+            row["worktree"], parent_row["worktree"], parent_row["updated"] = parent_row["worktree"], "-", now()
+        gates = os.path.join(home, "gates", project)
+        tooling = os.path.join(gates, f"{parent}-tooling.md")
+        if os.path.isfile(tooling) and not os.path.exists(os.path.join(gates, f"{name}-tooling.md")):
+            shutil.copyfile(tooling, os.path.join(gates, f"{name}-tooling.md"))
     rows.append(row)
     save(before, rows, after)
     print(f"added {name} ref={file}")

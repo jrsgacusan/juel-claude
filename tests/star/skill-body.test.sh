@@ -909,5 +909,8 @@ g "LG156i Common mistakes" '| Failing every worker when an account switch logs t
 ! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh' "$SKILL" && pass "Q157a STAR has no quiet hours" || fail "Q157a quiet hours still in STAR"
 g "Q157b away still limits notifications to escalations" 'only `escalation` items are notified'
 ! grep -qF 'HELD quiet hours' "$SKILL" && pass "Q157c the merge gate has no HELD quiet hours row" || fail "Q157c HELD quiet hours row"
+# review fix: the hand-over moves the worktree and the tooling file (#159, #160)
+has "HO159h the follow-up takes over the parent's worktree" 'With a parent PR it also moved the parent'"'"'s worktree to the follow-up'"'"'s row (the parent'"'"'s cell is `-`, so "Finished worktrees" never cleans it once the parent is dropped)'
+has "HO159i and its tooling file" 'copied the parent'"'"'s `gates/<project>/<item>-tooling.md` to `<name>-tooling.md` when there is one'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -145,5 +145,19 @@ L add rescopedFrom=P-1 review="$H/reviews/app/missing.md" >/dev/null 2>&1; [ $? 
 L add rescopedFrom=P-1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "E159j: rescopedFrom= alone is 64" || fail "E159j"
 err=$(L add X-1 ref="$H/reviews/app/P-1-r3.md" project=app 2>&1 >/dev/null); rc=$?
 [ $rc -eq 64 ] && echo "$err" | grep -q "is a review file, not an item" && pass "E159k: a review file as a ref is refused" || fail "E159k ($rc: $err)"
+# review fix: the follow-up takes over the parent's worktree and tooling file with its PR (#159, #160)
+H="$TMP/star-w"; mkdir -p "$H/reviews/app" "$H/items/app" "$H/gates/app"; cp "$ROOT/skills/star/template/ledger.md" "$H/ledger.md"
+: > "$H/reviews/app/W-1-r3.md"
+L add W-1 ref=SPH-3 project=app >/dev/null
+L set W-1 pr=https://github.com/o/r/pull/8 worktree=/wt/W-1 >/dev/null
+printf 'eval/\n' > "$H/gates/app/W-1-tooling.md"
+out=$(L add rescopedFrom=W-1 review="$H/reviews/app/W-1-r3.md")
+[ "$out" = "added W-1-followup ref=$H/items/app/W-1-followup.md" ] && [ "$(L get W-1-followup worktree)" = "/wt/W-1" ] && [ "$(L get W-1 worktree)" = "-" ] && pass "E159l: with a PR, the parent's worktree moves to the follow-up" || fail "E159l ($out; $(L get W-1-followup worktree) $(L get W-1 worktree))"
+[ "$(cat "$H/gates/app/W-1-followup-tooling.md" 2>/dev/null)" = "eval/" ] && pass "E159m: the parent's tooling file is copied to the follow-up's" || fail "E159m"
+L add rescopedFrom=W-1 review="$H/reviews/app/W-1-r3.md" >/dev/null; [ "$(L get W-1-followup worktree)" = "/wt/W-1" ] && pass "E159n: a replay keeps the moved worktree" || fail "E159n"
+: > "$H/reviews/app/V-1-r3.md"
+L add V-1 ref=SPH-4 project=app >/dev/null; L set V-1 worktree=/wt/V-1 >/dev/null; printf 'eval/\n' > "$H/gates/app/V-1-tooling.md"
+L add rescopedFrom=V-1 review="$H/reviews/app/V-1-r3.md" >/dev/null
+[ "$(L get V-1 worktree)" = "/wt/V-1" ] && [ "$(L get V-1-followup worktree)" = "-" ] && [ ! -e "$H/gates/app/V-1-followup-tooling.md" ] && pass "E159o: without a PR the parent keeps its worktree and nothing is copied" || fail "E159o"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
