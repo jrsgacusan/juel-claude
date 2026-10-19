@@ -643,7 +643,7 @@ runs in <handle>", and end the turn.
    `--kind escalation` "<stage> worker lost twice". For a lost `building` row,
    queue `--kind restart-or-drop` and set the row to `failed` (restarting a half-finished build
    blindly would build on a dirty worktree, and a dead row must not keep holding a build slot or
-   keep STAR ticking all night). `stuck: <what>` → as in housekeeping. `unknown <why>` (which includes empty or unreadable Orca
+   keep STAR ticking all night). `stuck: <what>` → as in housekeeping (`stuck: login` → the login rule). `unknown <why>` (which includes empty or unreadable Orca
    output) says nothing about the worker: keep the row and let housekeeping probe it again; it
    never justifies a restart. A `verifying` row has no worker: never restart it, and run the
    merge gate for it only when its `verify` is `-` or its `retry=` time has passed (a resume
@@ -1081,7 +1081,23 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      `- <date> STAR answered a permission prompt for the <stage> worker: Yes (<path>)` to the brief's
      `## Decisions` (a row with no brief yet: the status line only), name it in the status line, and
      `counters.prompted=+1`. At `prompted=3`, a fourth `prompt bounded` takes the `stuck:` path below.
-     `stuck: <what>` → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
+     `stuck: login` (#156) → the login rule, not the stop and fail below: the worker's Claude Code
+     sits on its login screen, most often because an account switch logged every session of the
+     profile out, and nothing in its worktree is in doubt. Check the profile's login from the
+     project folder: `claude auth status >/dev/null 2>&1` (no model call). It fails: keep the
+     worker and change nothing on its row; queue `--kind held`
+     "the Claude login is lost: run /login in any Claude Code session of this profile"
+     once for every row (when that item is open, add nothing), notify, say
+     "<n> workers wait for the Claude login" in the status line, and close the item on the first
+     tick the check passes again. It passes:
+     the restart rule ("Checking in") with step `login` and diagnosis `lost its Claude login`,
+     so the stage restarts once on its own, a build with uncommitted work is held, and a stage
+     already restarted once is held; none of them fails the row. When this tick's probes print
+     `stuck: login` for two or more rows and for every row they probed, the status line says
+     "Claude login lost on all <n> workers at once: an account switch logged them out",
+     and every held item this rule queues in that tick ends its title with
+     ` (machine-wide login loss)`.
+     `stuck: <what>` (any other) → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
      `--kind escalation` "<stage> worker stuck: <what>" (a prompt the probe would not answer reads
      `stuck: confirmation dialog: <its line>`, so the escalation names it). `settled failed agent_prompt_stalled` (the
      worker never took its prompt) → `failed`, release, queue `--kind escalation` "<stage> worker
@@ -2148,7 +2164,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
   automatic restart of a stage: a brief, babysit or post worker that was lost or stalled at
-  capacity or on an API error (`stalled:`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
+  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
   worktree).
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
@@ -2180,7 +2196,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Ticking forever with nothing to do | When every row waits on the user or is finished, go idle and end the turn |
 | Starting `messages.sh --wait` while one is outstanding, or in the foreground | `messages.sh --waiting` first: start one only on `none`, with `run_in_background: true`, and end the turn; its notification runs the next tick |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
-| Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter |
+| Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter. `stuck: login` is the other exception: the login rule restarts it once the login is back |
+| Failing every worker when an account switch logs them out | `stuck: login` is the login rule: check `claude auth status`, then restart the stage once |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
 | Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |
 | Picking a row for a message by its `item=` name | By dispatch id; the name only confirms it |
