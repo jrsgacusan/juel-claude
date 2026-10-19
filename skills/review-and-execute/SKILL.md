@@ -72,7 +72,7 @@ Orchestrates a full review-to-fix cycle: PR review → validate findings → wri
 |---|---|---|---|---|
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | fall back to `/review`, or an inline review of `git diff <base>...HEAD` |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
-| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; in an unattended invocation not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
+| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; in an unattended invocation not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
 | git repo with a diffable base | context | HARD | `git rev-parse --show-toplevel` | STOP |
 
@@ -252,7 +252,7 @@ Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-
 one line.
 
 **The executor skill.** Right before the line, check that the skill is current:
-`cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
+`cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
 (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
 copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
 is gone, and for a link into another version's copy, which would run an older executor.
