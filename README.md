@@ -45,7 +45,8 @@ Start a new thread afterwards — that is the boundary at which Codex picks up n
 The third command is not optional. Codex has no cross-marketplace dependency resolution, so the
 `dependencies` in `.claude-plugin/plugin.json` are ignored and superpowers never arrives on its own.
 The script links the superpowers skills and installs the vendored `claude-plan-executor` into
-`~/.codex/skills/` as well. `juel:execute`, `juel:review-and-execute`,
+`${CODEX_HOME:-~/.codex}/skills/` as well: the Codex home `codex exec` reads, so a project that sets
+`CODEX_HOME` gets it too (run it from that project). `juel:execute`, `juel:review-and-execute`,
 `juel:receive-review-and-execute` and `juel:ship-ticket` all hard-depend on the plan executor in
 both harnesses and will STOP without it. A pre-existing personal copy at that path is left alone
 rather than overwritten; move it aside if you want the vendored symlink. Re-run the script after a
