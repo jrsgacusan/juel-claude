@@ -8,7 +8,12 @@
 # is ever overwritten.
 # "- Evidence:" names <home>/evidence/<item>/, where worktree-clean.sh copies the worktree's
 # evidence before it removes the worktree, when the worktree holds an evidence folder (or the copy
-# is already there); else "none found".
+# is already there); else "none found". Over 1 GiB (JUEL_EVIDENCE_GB_LIMIT overrides, in GiB) the line
+# ends " (<x.x> GB)". Dependency and build folders and object files are not counted, as
+# worktree-clean.sh leaves them out of the copy.
+# "- Build docs:" follows it and names <home>/builds/<item>/, where worktree-clean.sh copies the
+# worktree's specs and plans, when the worktree holds a specs/ or plans/ folder with a file in it (or
+# the copy is already there); else "none found".
 exec python3 - "$@" <<'PY'
 import argparse
 import fcntl
@@ -86,8 +91,8 @@ for c in d.get("statusCheckRollup") or []:
 reviews = sorted(os.path.relpath(f, a.home) for f in glob.glob(os.path.join(a.home, "reviews", a.project, glob.escape(a.item) + "-r*.md")))
 
 
-def evidence_dirs(worktree):
-    """Each <docsRoot>/evidence/ folder the worktree holds: under the docsRoot this home sits in
+def doc_folders(worktree, sub):
+    """Each <docsRoot>/<sub>/ folder the worktree holds: under the docsRoot this home sits in
     (<main checkout>/<docsRoot>/context/star) and the plugin's two default docsRoots."""
     roots = ["docs/superpowers", "docs/.superpowers"]
     try:
@@ -100,11 +105,48 @@ def evidence_dirs(worktree):
             and os.path.basename(os.path.dirname(real_home)) == "context"
             and (docs == os.path.realpath(repo) or docs.startswith(os.path.realpath(repo) + os.sep))):
         roots.insert(0, os.path.relpath(docs, os.path.realpath(repo)))
-    return [os.path.join(worktree, r, "evidence") for r in roots if os.path.isdir(os.path.join(worktree, r, "evidence"))]
+    return [os.path.join(worktree, r, sub) for r in roots if os.path.isdir(os.path.join(worktree, r, sub))]
 
 
+def evidence_dirs(worktree):
+    return doc_folders(worktree, "evidence")
+
+
+SKIP_DIRS = ("node_modules", ".build", "DerivedData", ".venv", "venv", "target", "__pycache__", ".gradle")
+
+
+def folder_bytes(folder):
+    total = 0
+    for top, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for name in files:
+            if not name.endswith(".o"):
+                try:
+                    total += os.lstat(os.path.join(top, name)).st_size
+                except OSError:
+                    pass
+    return total
+
+
+def has_files(folder):
+    return any(files for _, _, files in os.walk(folder))
+
+
+has_wt = worktree not in ("", "-")
 evidence = os.path.join(a.home, "evidence", a.item)
-has_evidence = os.path.isdir(evidence) or (worktree not in ("", "-") and bool(evidence_dirs(worktree)))
+builds = os.path.join(a.home, "builds", a.item)
+wt_evidence = evidence_dirs(worktree) if has_wt else []
+has_evidence = os.path.isdir(evidence) or bool(wt_evidence)
+has_builds = os.path.isdir(builds) or (has_wt and any(has_files(f) for sub in ("specs", "plans") for f in doc_folders(worktree, sub)))
+evidence_note = ""
+if has_evidence:
+    try:
+        limit = float(os.environ.get("JUEL_EVIDENCE_GB_LIMIT", "1"))
+    except ValueError:
+        limit = 1.0
+    size = sum(folder_bytes(f) for f in ([evidence] if os.path.isdir(evidence) else wt_evidence))
+    if size / 1024 ** 3 > limit:
+        evidence_note = f" ({size / 1024 ** 3:.1f} GB)"
 follow = []
 loops = os.path.join(a.home, "open-loops.md")
 if os.path.exists(loops):
@@ -147,7 +189,8 @@ body = [
     f"- Brief: {brief if os.path.exists(os.path.join(a.home, brief)) else 'none on file'}",
     "- Reviews: " + (", ".join(reviews) if reviews else "none on file"),
     f"- Worktree: {worktree}",
-    f"- Evidence: {evidence}/" if has_evidence else "- Evidence: none found",
+    f"- Evidence: {evidence}/{evidence_note}" if has_evidence else "- Evidence: none found",
+    f"- Build docs: {builds}/" if has_builds else "- Build docs: none found",
     "- Open follow-ups: " + ("; ".join(follow) if follow else "none"),
     "",
 ]
