@@ -159,5 +159,11 @@ HOME="$TMPH" CODEX_HOME="$TMPH/codex-x" node "$ROOT/scripts/link-agent-skills.mj
 env -u CODEX_HOME HOME="$TMPH" node "$ROOT/scripts/link-agent-skills.mjs" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ -f "$TMPH/.codex/skills/claude-plan-executor/SKILL.md" ] && pass "C158c without CODEX_HOME the link lands in ~/.codex/skills" || fail "C158c linker without CODEX_HOME (rc $rc)"
 
+# lane c: #158 the stop is in the prompt, and a run that completed a session task is a failed run
+hasf "$EX" "C158d the executor honours a Stop-before sentence in the prompt" 'A dispatch prompt that ends with `Stop before task <N>: the session runs it.` names such a task: stop before task <N> the same way, even when its heading has no marker.'
+hasf "$ST" "C158e ship-ticket runs session-tasks.sh before and after each dispatch" 'sh <session-tasks.sh> <plan> --ledger <ledger>'
+hasf "$ST" "C158f the dispatch prompt ends with the stop sentence" ' Stop before task <N>: the session runs it.'
+hasf "$ST" "C158g a ran line escalates" 'ESCALATION item=<item> phase=<n> reason=codex-failed needs=the executor ran session task <N>'
+hasf "$ST" "C158h the gate loop fix plan runs with the session tasks" 'run it with the executor (Phase 4'"'"'s line, its session tasks, its capacity rule and its scope check)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

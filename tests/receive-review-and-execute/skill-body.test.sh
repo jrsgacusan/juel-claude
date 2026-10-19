@@ -73,5 +73,11 @@ grep -qF 'Report `absent` or `stale` for `CODEXSKILL_claude-plan-executor` as a 
 grep -qF '| `claude-plan-executor` | skill | `${CODEX_HOME:-~/.codex}/skills/claude-plan-executor` resolves and matches `${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md` (`cmp -s`) |' "$D" && pass "#118h doctor: the id table checks the copy is current" || fail "#118h doctor: the id table checks the copy is current"
 grep -qF '| `claude-mods` | cli | `claude --version` prints 2.1.287 or later | older, or `claude` absent | |' "$D" && pass "MOD1 doctor: the claude-mods requirement has a row" || fail "MOD1 doctor: the claude-mods requirement has a row"
 grep -qF 'claude --version 2>/dev/null || echo "CLAUDE_VERSION=unknown"' "$D" && pass "MOD2 doctor: Phase 1 records the Claude Code version" || fail "MOD2 doctor: Phase 1 records the Claude Code version"
+# lane c: #158 the stop and the check at the dispatch
+has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+has "C158i names session-tasks.sh" 'session-tasks.sh'
+has "C158j the dispatch prompt carries the stop sentence" ' Stop before task <N>: the session runs it.'
+has "C158k a ran line is a failed run" '`ran <N>` line is a failed run'
+has "C158l the escalation names the executor run" 'needs=the executor ran session task <N>'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

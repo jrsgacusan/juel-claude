@@ -853,6 +853,14 @@ ignores it: `git check-ignore -q .superpowers/x || echo '/.superpowers/' >> "$(g
 
 **Session tasks** (#154). A task with the line `**Run:** session` under its heading is never
 handed to Codex. Take the scope record below first, before the first task of either kind runs.
+Before each dispatch, run `sh <session-tasks.sh> <plan> --ledger <ledger>` (`session-tasks.sh` is
+next to this file; `<ledger>` is the plan's ledger above). When it prints `until <N>`, the dispatch
+line's prompt ends with ` Stop before task <N>: the session runs it.`, inside its quotes, so the stop holds even
+when Codex did not load the executor skill. After each executor run (every try of the capacity rule
+included), run it again: a `ran <N>` line means the executor ran a session task, so the run failed:
+under `--unattended`, end with
+`ESCALATION item=<item> phase=<n> reason=codex-failed needs=the executor ran session task <N>`;
+interactively, show that line and ask how to go on.
 Before each dispatch, and after a dispatch whose report ends with
 `stopped at task <N>: run by the session`, look at the first task with no `Task <N>: complete`
 line in the ledger. While it is a session task, run it in this session (its steps, its tests and
@@ -905,8 +913,11 @@ paths the sandbox may write, so `<add-dirs>` below is `--add-dir <git-dir> --add
 with those two paths. Otherwise `<add-dirs>` is empty. Work it out again before every dispatch.
 
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md[ Stop before task <N>: the session runs it.]' < /dev/null
 ```
+
+The brackets are not typed: the part inside them is added only when `session-tasks.sh` printed
+`until <N>` (Phase 4, "Session tasks").
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
@@ -1253,7 +1264,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries
    `**Base:** spec implemented at <the full head>; apply only the tasks below.` and whose tasks each
    name their files in a `**Files:**` block, run it with the executor
-   (Phase 4's line, its capacity rule and its scope check), then gate it as "Gate once per PR" says
+   (Phase 4's line, its session tasks, its capacity rule and its scope check), then gate it as "Gate once per PR" says
    for a push of the worker's own changes: the tests for the files it changed, then the sweep,
    the one regression gate of the round, run through the gate lock. When every file changed since
    the evidence head is outside the runtime, as its step 6 defines it, the evidence is reused as
