@@ -118,7 +118,7 @@ done
 grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is gone" || pass "P2b the free-form step field is gone"
 # Issue #60: the executor fallback reaches STAR through the report
 g "N60c babysit carries the executor fallback NOTE" 'NOTE: executor skill missing, the plan ran in this session'
-g "N60d the report line count includes it" 'That is 11 lines at most'
+g "N60d the report line count includes it" 'That is 10 lines at most'
 # Issues #63, #66, #71: the gate round from the worker's side
 grow "G66c babysit counts verdict files only" 'error logs, raw files and run files never count'
 grow "G66d babysit reruns the same round after an ERROR" 'run the same round once more'
@@ -300,7 +300,7 @@ grep -qF 'with no `node_modules` folder and no' "$SKILL" && fail "F105d the old 
 # fix: one NOTE line names every outside-merged path (#106)
 report_row=$(grep -F '| Phase 5 report |' "$SKILL")
 printf '%s\n' "$report_row" | grep -qF '`NOTE: scope outside-merged <path>[, <path> ...]` once, relayed from `receive-review-and-execute`' && pass "F106a the report carries the outside-merged NOTE, relayed once" || fail "F106a the report carries the outside-merged NOTE, relayed once"
-printf '%s\n' "$report_row" | grep -qF 'That is 11 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
+printf '%s\n' "$report_row" | grep -qF 'That is 10 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
 # lane g: a base-only merge push runs the sweep, the carry and base-moved wording (#111, #110, #113)
 phase 4 | grep -qF 'branch in runs the sweep, `sh <run-gates.sh> <the --gates-file manifest> --root <repo root> sweep`' && pass "#111a a base-only merge push runs the sweep" || fail "#111a a base-only merge push runs the sweep"
 phase 4 | grep -qF '`test` command), after a clean merge too: the base can change a call that an untouched file on' && pass "#111b after a clean merge too" || fail "#111b after a clean merge too"
