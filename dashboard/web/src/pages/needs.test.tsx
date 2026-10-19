@@ -124,7 +124,7 @@ describe("Needs you", () => {
     const { user } = renderApp("/sphere-app/needs?loop=N-46")
     const detail = await screen.findByRole("region", { name: "Answer" })
     await within(detail).findByRole("heading", {
-      name: /Mark PR #211 ready once quiet hours end/,
+      name: /Mark PR #211 ready, then/,
     })
     expect(
       within(detail).queryByText("STAR recommends")

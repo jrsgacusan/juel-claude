@@ -10,5 +10,10 @@ fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
 R128a="Each review agent writes its scratch files only under \`<scratchpad>/review-<agent>/\` (\`<agent>\` the agent's name), never in the build's scratchpad root: tell every agent so in its prompt."
 has "#128 each review agent writes under its own scratch folder" "$R128a"
+# lane c: #158 the stop and the check at the dispatch
+has "C158i names session-tasks.sh" 'session-tasks.sh'
+has "C158j the dispatch prompt carries the stop sentence" ' Stop before task <N>: the session runs it.'
+has "C158k a ran line is a failed run" '`ran <N>` line is a failed run'
+has "C158l the caller's Phase 5 escalation names the executor run" '`ESCALATION item=<item> phase=5 reason=codex-failed needs=the executor ran session task <N>`, `<item>` being the caller'"'"'s'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

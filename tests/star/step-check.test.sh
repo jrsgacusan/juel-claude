@@ -12,7 +12,7 @@ pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 [ -f "$SCRIPT" ] || { echo "FAIL step-check.sh missing"; exit 1; }
 H="$TMP/home"; R="$H/reviews/app"; mkdir -p "$R" "$H/progress"
-printf '{"project": {"name": "app"}, "quietHours": null}\n' > "$H/star.json"
+printf '{"project": {"name": "app"}}\n' > "$H/star.json"
 NOW=2026-10-12T12:00:00Z
 # ago <minutes>: the ISO time that many minutes before NOW
 ago() { python3 -c 'import sys,datetime; t=datetime.datetime(2026,10,12,12,0,tzinfo=datetime.timezone.utc)-datetime.timedelta(minutes=int(sys.argv[1])); print(t.strftime("%Y-%m-%dT%H:%M:%SZ"))' "$1"; }
@@ -105,7 +105,7 @@ HEADX=abc1234def5678abc1234def5678abc1234def56
 PR=https://github.com/o/r/pull/30
 # snap <draft> <checks> <hosted JSON> <merge>
 snap() { printf '{"head":"%s","draft":%s,"checks":"%s","hosted":%s,"merge":"%s"}\n' "$HEADX" "$1" "$2" "$3" "$4" > "$TMP/pr.json"; }
-SCP() { STAR_NOW=$NOW QUIET_NOW=$NOW STEP_CHECK_PR_STATE="$TMP/pr-state.sh" STUB_DIR="$TMP" sh "$SCRIPT" --item IT --home "$H" "$@"; }
+SCP() { STAR_NOW=$NOW STEP_CHECK_PR_STATE="$TMP/pr-state.sh" STUB_DIR="$TMP" sh "$SCRIPT" --item IT --home "$H" "$@"; }
 tp() { name=$1 exp=$2; shift 2; got=$(SCP "$@"); if [ "$got" = "$exp" ]; then pass "$name"; else fail "$name (got: $got)"; fi; }
 clean; rm -f "$TMP/pr-calls"; snap false green '"success"' clean; say 20 wait-hosted "wake: timeout"
 tp "a babysit still waiting on a hosted pass that landed is told to judge it" \
@@ -126,9 +126,7 @@ snap false green '"success"' clean; say 10 wait-ci "wake: timeout"
 tp "a pass 10 min old gets the worker's next wake first" "ok wait-ci" --state babysitting --pr "$PR" --hosted 'greptile-apps[bot]'
 snap false green '"none"' clean; say 5 ready "marked ready"
 tp "a ready green PR with no hosted run is named" "note ready checks green, no hosted run on abc1234" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
-printf '{"project": {"name": "app"}, "quietHours": {"tz": "Asia/Manila", "start": "19:00", "end": "07:00"}}\n' > "$H/star.json"
-tp "inside quiet hours nothing may be requested, so there is no note" "ok ready" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
-printf '{"project": {"name": "app"}, "quietHours": null}\n' > "$H/star.json"
+tp "no window holds the note back: the ready green PR is named again" "note ready checks green, no hosted run on abc1234" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
 snap true green '"none"' clean
 tp "a draft gets no hosted run by design" "ok ready" --state building --pr "$PR" --hosted 'greptile-apps[bot]'
 snap false green null clean

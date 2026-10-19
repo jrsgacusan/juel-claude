@@ -57,12 +57,11 @@ grep -q 'orca orchestration ask' "$SKILL" && pass "F16 workers ask through Orca"
 grep -q 'msg: <id>' "$SKILL" && pass "F15 question keeps its message id" || fail "F15 msg id"
 grep -q 'never overwrite an existing inbox file' "$SKILL" && grep -q 'git worktree list --porcelain' "$SKILL" && pass "F11 unique inbox files, real main checkout" || fail "F11 inbox"
 grep -q 'exactly `go`' "$SKILL" && pass "F18 a go is exact" || fail "F18 exact go"
-grep -q 'HH:MM-HH:MM@tz' "$SKILL" && pass "F19 quiet-hours rendering" || fail "F19 quiet hours format"
 grep -q 'moved=' "$SKILL" && grep -q 'mergefail=' "$SKILL" && pass "F18 moved and mergefail counters" || fail "F18 counters"
 # Handoff: away, night summaries, back
 grep -qF '`/juel:star away`' "$SKILL" && grep -qF '`/juel:star back`' "$SKILL" && pass "away and back commands" || fail "away/back commands"
 for c in start due summary end; do grep -q "handoff.sh --home HOME_DIR $c" "$SKILL" && pass "uses handoff.sh $c" || fail "uses handoff.sh $c"; done
-! grep -q -- '--quiet-hours always' "$SKILL" && grep -q 'Away holds no work' "$SKILL" && pass "away holds no work; quiet hours hold what goes out" || fail "away rule"
+grep -q 'Away holds no work' "$SKILL" && pass "away holds no work" || fail "away rule"
 grep -q 'sent.log' "$SKILL" && grep -q 'SENT ' "$SKILL" && pass "messages sent are logged" || fail "sent log"
 grep -q 'in the same turn' "$SKILL" && pass "chat answers are relayed in the same turn" || fail "same-turn relay"
 grep -q 'control: away' "$SKILL" && pass "away works from any session" || fail "away from anywhere"
@@ -82,7 +81,6 @@ grep -q 'worker-stop' "$SKILL" && grep -q 'never starts a second worker' "$SKILL
 grep -q 'add the same `go-merge` item again' "$SKILL" && pass "S18 a merge question is not lost to a chat answer" || fail "S18 go-merge reminder"
 grep -q 'PR was closed' "$SKILL" && grep -q '`babysit-queued`, `escalated` or `failed`' "$SKILL" && pass "S18 merged or closed PRs are noticed in every state, stopped rows included" || fail "S18 PR lifecycle"
 grep -q 'must be clean' "$SKILL" && pass "S18 a restarted build needs a clean worktree" || fail "S18 dirty restart"
-grep -q 'quiet-hours.sh' "$SKILL" && pass "S6 quiet hours are decided by the script" || fail "S6 quiet-hours.sh"
 grep -q -- '--reviewed' "$SKILL" && grep -q 'VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>' "$SKILL" && pass "S5 babysit gets the SAFE review as proof" || fail "S5 SAFE proof"
 grep -q '"notified"' "$SKILL" && ! grep -q 'notifiedThrough' "$T/star.json" && ! grep -q 'notifiedThrough' "$SKILL" && pass "S14 notifications tracked per item" || fail "S14 notified list"
 grep -q 'memory below 3 GB' "$SKILL" && pass "S14 a long memory hold reaches the user" || fail "S14 memory hold"
@@ -107,7 +105,6 @@ grep -q 'clears every counter except `hold=`, `last=`, `start=`, `tracker=`, `ba
 grep -q 'worker-stop' "$SKILL" && grep -q 'then `worker-release`' "$SKILL" && grep -q 'a dispatch STAR stopped itself' "$SKILL" && pass "T18 a stopped worker is released and its last report ignored" || fail "T18 stop then release"
 grep -q 'Before filling' "$SKILL" && pass "T18 the PR check runs before slots are filled" || fail "T18 PR check order"
 grep -q 'the time the message was sent plus 30 minutes' "$SKILL" && pass "T21 a replayed question is the same item" || fail "T21 question deadline"
-grep -q 'posts at the first tick outside' "$SKILL" && pass "T12 STAR posts nothing in quiet hours" || fail "T12 draft in quiet hours"
 ! grep -q -- '--feedback "<' "$SKILL" && grep -q -- '\[--feedback\]' "$SKILL" && pass "T12 feedback travels in the brief file, not in the prompt" || fail "T12 feedback in the prompt"
 grep -q '/tmp/juel.gate.<uid>.lock' "$SKILL" && ! grep -q 'HOME_DIR/gate.lock' "$SKILL" && pass "T1 the gate lock is one file per user" || fail "T1 gate lock path"
 # The coordinator looks after its workers
@@ -135,7 +132,6 @@ g "V16 a second answer cannot revive a dropped row" 're-read the row'
 g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
 g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
 g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 0'
-g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
 g "V23 the feedback cursor is passed back as it is" 'opaque'
 g "V26 a lost queue item is noticed" '`missing`'
 g "V29 inbox files are read in order" 'in file-name order'
@@ -161,10 +157,10 @@ assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"age
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
-assert [k for k in d if k not in ("tokenCmd", "ownerApproval", "hostedDown", "ghLogin")] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert [k for k in d if k not in ("tokenCmd", "ownerApproval", "hostedDown", "ghLogin")] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
 assert d.get("tokenCmd") is None and d.get("ownerApproval") is None and d.get("hostedDown") is None and d.get("ghLogin") is None, d
 assert d["notified"] == [], d["notified"]
-for k in ("mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
+for k in ("mcps", "gateDown", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
     assert d[k] is None, (k, d[k])
 PY2
 # STAR lives in the project
@@ -323,7 +319,7 @@ left=""; for gone in '| review | the item' '| fix | the item' '| screen | the it
   grep -qF -- "$gone" "$SKILL" && left="$left [$gone]"
 done
 [ -z "$left" ] && pass "the v1 stages and the reviewer prompt are gone" || fail "still there:$left"
-g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`'
+g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --unattended --brief <brief>`'
 g "ST2 the brief stage can re-scope" '[--rescope HOME_DIR/reviews/<project>/<file>]'
 g "ST3 the gate is a script, not a stage" 'sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>'
 g "ST4 the gate's files" "\`<item>-r<k>.raw.md\`, Codex's own text"
@@ -352,7 +348,6 @@ g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted <hostedRe
 g "MG5 STAR merges through merge.sh" 'sh S/merge.sh <pr url> --head <head> --grant <grant path>'
 g "MG6 a merge-gate failure goes back to babysitting once" 'mergefail=1'
 g "MG7 without a hosted reviewer, someone else approves" 'waits for an approval from someone other than you'
-g "MG8 a merge in quiet hours waits" 'HELD quiet hours'
 g "MG9 merges are announced" 'merged <item>: PR #<n>'
 g "BS1 the batch summary" '## The batch summary and go'
 g "BS2 one message for the whole batch" 'Reply go, go except <items>, drop <item>, or tell me what to change.'
@@ -649,7 +644,7 @@ g "LH114e the escalation names the prompt (#114)" '`stuck: confirmation dialog: 
 g "LH114f never answer, except prompt bounded (#114)" 'Never answer a worker'"'"'s prompt for it, except `prompt bounded` (above, #114).'
 g "LH114g the probe reads the rendered screen (#114)" 'screen (`orca terminal read --screen`), not Orca'"'"'s transcript, which shows no prompt (#114).'
 g "LH114h the one exception to never answering a screen (#114)" 'user, and STAR never answers a worker'"'"'s screen for it, with one exception (#114): `prompt bounded`,'
-g "LH114i the common mistake names the exception (#114)" 'The one exception is `prompt bounded` (#114): the digit `1`, never Enter |'
+g "LH114i the common mistake names the exception (#114)" 'The one exception is `prompt bounded` (#114): the digit `1`, never Enter.'
 g "LH114j the prompted counter (#114)" '| `prompted=<n>` | Claude Code safety prompts STAR answered on this row'"'"'s worker screen (`prompt bounded`, #114) | a new worker starts |'
 grep -qF 'user, and STAR never answers a worker'"'"'s screen for it. A model at capacity' "$SKILL" && fail "LH114k the old unqualified rule is gone (#114)" || pass "LH114k the old unqualified rule is gone (#114)"
 grep -q 'id: claude-mods' "$SKILL" && pass "LHmod-a STAR requires claude-mods" || fail "LHmod-a STAR requires claude-mods"
@@ -677,7 +672,6 @@ g "DASH13 the draft first line" '`to: slack <channelId> <threadTs>`'
 g "DASH14 the slack-reply queue item" '--kind slack-reply --project <p> --item slack'
 g "DASH15 the slack-reply options" 'Options: send (recommended) / rewrite: <how> / skip'
 g "DASH16 send posts through the Slack connector" '| `slack-reply` | send |'
-g "DASH17 quiet hours do not hold a send" 'Quiet hours do not hold it: the owner pressed send.'
 g "DASH18 no Slack connector holds the send" 'connect Slack in Claude Code to send <draft name>'
 g "DASH19 rewrite redrafts" '| `slack-reply` | `rewrite: <how>` |'
 g "DASH20 skip closes it" '| `slack-reply` | skip | close it |'
@@ -727,7 +721,7 @@ g "LH123d the counter row names the API error (#123)" '| `capacity=<n>` | retry 
 g "LH123e looking after the workers names it (#123)" 'capacity, or a worker left at an empty prompt under an `API Error:` line (#123), is a third thing'
 g "LH123f the matching nudge, never both (#123)" 'capacity rule: below `capacity=3`, send the nudge that matches the line: for `stalled: model at capacity`'
 g "LH123g a stalled worker becomes a lost worker (#123)" '(`stalled:`): STAR nudges it to retry, three times at most, then treats it as a lost worker (the capacity rule in'
-g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
+g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
 
 R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
 S124="PASS self-approved under the owner's grant"
@@ -893,5 +887,32 @@ has "E152b it is a whole-text command" '`status`, `dashboard`, `dashboard --tail
 has "E152c it runs the script with the flag" '`sh S/dashboard.sh`, or `sh S/dashboard.sh --tailnet` for `dashboard --tailnet`.'
 has "E152d the token is the only key" 'the token in the link is its only key (#152)'
 has "E152e without the flag it only names the flag" 'Without the flag it prints one line naming the flag when nothing maps the port.'
+# lane e: #159 #161 a capped PR goes on under one follow-up
+g "HO159a the hand-over paragraph" '**Handing a PR to a follow-up** (#159, #161).'
+g "HO159b the ledger call" '1. `sh S/ledger.sh add rescopedFrom=<item> review=<the review path>` prints'
+g "HO159c the RESCOPE row branches on tooling=all" 'A line that ends `tooling=all` (#160: every blocking finding left is in the paths the build marked tooling), on a row with a PR, no `counters.rescoped=1` and no `rescopedFrom:` in its brief'
+g "HO159d the escalation answer row" '| `escalation` | on "NOT-SAFE again after a re-scope", an answer that asks for a follow-up ("follow-up", "continue it as a follow-up") |'
+has "HO159e draft-brief continues a follow-up item file" 'An item file whose frontmatter has `existingPr: <url>` (a follow-up `ledger.sh add rescopedFrom=` wrote, #161) is such an item'
+g "HO159f the merge gate closes the parent" 'set that row `done` too and say "<parent> done with <item>" in the status line'
+g "HO159g the file row refuses a review path" 'never a path under `HOME_DIR/reviews/`: a row whose ref is one gets `--kind held`'
+# lane d: #156 a lost Claude login restarts the stage once the login is back
+g "LG156a the login rule has its own row" '`stuck: login` (#156) → the login rule'
+g "LG156b the login is checked without a model call" 'claude auth status >/dev/null 2>&1'
+g "LG156c a lost login waits for the owner, once for all rows" 'the Claude login is lost: run /login in any Claude Code session of this profile'
+g "LG156d the status line counts the waiting workers" '<n> workers wait for the Claude login'
+g "LG156e a login that is back restarts the stage" 'the restart rule ("Checking in") with step `login` and diagnosis `lost its Claude login`'
+g "LG156f the machine-wide case is named" 'Claude login lost on all <n> workers at once: an account switch logged them out'
+g "LG156g held items say it" ' (machine-wide login loss)'
+g "LG156h the reconcile step routes it" '(`stuck: login` → the login rule)'
+g "LG156i Common mistakes" '| Failing every worker when an account switch logs them out |'
+# lane b: #157 quiet hours are gone
+! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh' "$SKILL" && pass "Q157a STAR has no quiet hours" || fail "Q157a quiet hours still in STAR"
+g "Q157b away still limits notifications to escalations" 'only `escalation` items are notified'
+! grep -qF 'HELD quiet hours' "$SKILL" && pass "Q157c the merge gate has no HELD quiet hours row" || fail "Q157c HELD quiet hours row"
+# review fix: the hand-over moves the worktree and the tooling file (#159, #160)
+has "HO159h the follow-up takes over the parent's worktree" 'With a parent PR it also moved the parent'"'"'s worktree to the follow-up'"'"'s row (the parent'"'"'s cell is `-`, so "Finished worktrees" never cleans it once the parent is dropped)'
+has "HO159i and its tooling file" 'copied the parent'"'"'s `gates/<project>/<item>-tooling.md` to `<name>-tooling.md` when there is one'
+has "HO159j a hand-over item never falls to the new-PR rules" 'A check that fails (not `OPEN`, a fork, another author) is always `ESCALATION item=<name> phase=0 reason=needs-human-input needs=<url> cannot be continued: <why>`, never the new-PR rules below'
+has "LG156j one held item for all rows" 'once, one item for every row it holds (when that item is open, add nothing)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

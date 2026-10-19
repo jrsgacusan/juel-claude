@@ -1,0 +1,8 @@
+The harness under eval/ has two defects.
+
+Review comment:
+
+- [P1] The runner drops every failed case — eval/run.py:3-4
+  The loop swallows the exception and reports success.
+- [P1] The data builder overwrites the input file — eval/data/make.py:9
+  The output path equals the input path.

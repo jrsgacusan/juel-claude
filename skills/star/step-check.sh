@@ -26,19 +26,18 @@
 #       --asked 15 min or more ago                     restart <step> hosted review passed on <sha7>, worker still waiting after an instruction
 #       otherwise                                      act <step> hosted review passed on <sha7> -- judge it and report READY
 #   the newest activity older than --deadline (30)     act <step> no progress <m> min -- <the step's instruction>
-#   a ready PR, checks green, --hosted with no status on the head, outside star.json's quietHours
+#   a ready PR, checks green, --hosted with no status on the head
 #                                                      note <step> checks green, no hosted run on <sha7>
 #   babysitting, and the PR conflicts with its base    note <step> PR conflicts with its base
 #   otherwise                                          ok <step>
-# A PR that cannot be read adds nothing; a quiet window that cannot be judged counts as inside.
+# A PR that cannot be read adds nothing.
 # Activity is the progress line, the worktree's last commit and changed files (with --worktree),
 # and, at a gate-r<k> step, that round's verdict, log and error logs. An act whose instruction STAR
 # sent less than 15 minutes ago (--asked) prints "note <step> instructed <m> min ago: <diagnosis>"
 # instead, so the worker has time to answer; an --asked older than the newest progress line is
 # ignored, since the worker has moved. --pr and --hosted name the PR and its hosted reviewer.
 # <reviews> is H/reviews/<star.json's project.name>.
-# STAR_NOW (ISO UTC) overrides the clock, STEP_CHECK_PR_STATE the path of pr-state.sh; QUIET_NOW reaches
-# quiet-hours.sh. For tests.
+# STAR_NOW (ISO UTC) overrides the clock, STEP_CHECK_PR_STATE the path of pr-state.sh. For tests.
 # Exit: 0 with one line; 64 on bad usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd)
 export STAR_SKILL_DIR
@@ -255,8 +254,8 @@ def instruction(step, m):
                            "waiting and append a progress line; if it ended, read its result and continue.",
         "post-pass": f"STAR: the PASS comment is not posted after {m} min. Run codex-gate.sh post-pass again; "
                      "it waits out GitHub's head lag.",
-        "ready": f"STAR: marking the PR ready shows no progress for {m} min. Run gh pr ready unless quiet hours "
-                 "hold it, then report.",
+        "ready": f"STAR: marking the PR ready shows no progress for {m} min. Run gh pr ready, then "
+                 "report.",
         "wait-hosted": f"STAR: no wake for {m} min while you wait for the hosted review. Read the PR's hosted "
                        "status on its head now; when it reviewed the head, judge it and go on.",
         "wait-ci": f"STAR: no wake for {m} min while you wait for CI. Run gh pr checks on the PR now and act on "
@@ -283,20 +282,6 @@ def pr_snapshot():
     return snap if isinstance(snap, dict) and "error" not in snap else None
 
 
-def quiet():
-    """True inside star.json's quiet window, and whenever the window cannot be judged."""
-    q = star.get("quietHours")
-    if not q:
-        return False
-    try:
-        window = f"{q['start']}-{q['end']}@{q['tz']}"
-        proc = subprocess.run(["sh", os.path.join(os.path.dirname(S), "ship-ticket", "quiet-hours.sh"), window],
-                              capture_output=True, text=True, timeout=30)
-    except (KeyError, TypeError, OSError, subprocess.TimeoutExpired):
-        return True
-    return not (proc.returncode == 0 and proc.stdout.strip() == "outside")
-
-
 snap = pr_snapshot()
 sha = str((snap or {}).get("head") or "")[:7]
 if (snap and state == "babysitting" and token in ("phase2", "wait-hosted", "wait-ci") and snap.get("hosted") == "success"
@@ -310,7 +295,7 @@ if NOW - newest >= deadline * 60:
     m = minutes(newest)
     act(token, f"no progress {m} min", instruction(token, m))
 if (snap and sha and not snap.get("draft") and snap.get("checks") == "green" and opts.get("hosted")
-        and snap.get("hosted") == "none" and not quiet()):
+        and snap.get("hosted") == "none"):
     out(f"note {token} checks green, no hosted run on {sha}")
 if snap and state == "babysitting" and snap.get("merge") == "dirty":
     out(f"note {token} PR conflicts with its base")

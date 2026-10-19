@@ -117,7 +117,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
 
   <figure>
     <div class="scroll">
-      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief, or chat with STAR from the dashboard, which answers in the thread, and a Slack message the dashboard routes arrives with a reply its drafter already wrote; STAR ingests it, woken within seconds by a message wait that runs in the background; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if quiet hours kept it a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 NOT-SAFE rounds in a row or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
+      <svg class="flow" viewBox="0 0 760 1872" role="img" aria-label="One item's path: you give a brief, or chat with STAR from the dashboard, which answers in the thread, and a Slack message the dashboard routes arrives with a reply its drafter already wrote; STAR ingests it, woken within seconds by a message wait that runs in the background; brief workers explore, draft briefs from cited sources and sort every check into automated or person-first; STAR shows one batch summary; you do the person-only steps and say go, which is also the merge grant; STAR fills build slots behind a host gate; the build worker plans, executes on gpt-6-luna, verifies with a fresh Claude reviewer and live checks, opens a draft PR and loops through a codex gate until no P0 or P1 is left, then posts the PASS and marks the PR ready; STAR checks the report; the babysit worker marks it ready if it is still a draft, gets Greptile or an approval on the head and fixes findings; a codex gate still failing after 3 NOT-SAFE rounds in a row or a second Greptile pass still not clean goes back to STAR, which re-scopes and rebuilds; STAR checks the merge gate on the exact head and merges; done.">
         <defs>
           <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
@@ -281,7 +281,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <rect class="work" x="60" y="1300" width="340" height="44" rx="8"/>
         <text class="tag tg-work" x="388" y="1315" text-anchor="end">OPUS</text>
         <text class="t" x="76" y="1319">Mark ready, if still a draft</text>
-        <text class="s" x="76" y="1336">the build marks it at SAFE; quiet hours defer it</text>
+        <text class="s" x="76" y="1336">the build marks it at SAFE</text>
         <line class="edge" x1="230" y1="1344" x2="230" y2="1370" marker-end="url(#ah1)"/>
 
         <rect class="work" x="60" y="1372" width="340" height="62" rx="8"/>
@@ -329,10 +329,6 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <text class="tag tg-star" x="408" y="1713" text-anchor="end">STAR</text>
         <text class="t" x="56" y="1720">Merge</text>
         <text class="s" x="56" y="1739">quotes your go · --match-head-commit</text>
-        <line class="edge dot" x1="420" y1="1724" x2="470" y2="1724"/>
-        <rect class="note" x="470" y="1696" width="270" height="56" rx="8"/>
-        <text class="tsm" x="486" y="1719">Quiet hours</text>
-        <text class="s" x="486" y="1738">the merge waits for them to end</text>
         <line class="edge" x1="230" y1="1752" x2="230" y2="1794" marker-end="url(#ah1)"/>
         <text class="lbl" x="242" y="1778">merged</text>
 
@@ -355,7 +351,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <tr><td class="k">ingest</td><td>STAR</td><td>its own session</td><td>each ref, and each piece of free text, is an item</td></tr>
           <tr><td class="k">brief</td><td>brief worker, Opus 5.5 high</td><td>the main checkout, read-only</td><td>the brief has criteria, approach, scope, blockers, its checks sorted, and sourced decisions, on a branch of its own that no other item, remote branch or local branch already uses</td></tr>
           <tr><td class="k">go</td><td>you</td><td>chat</td><td>the person-only steps are done and you said go</td></tr>
-          <tr><td class="k">build</td><td>build worker, Opus 5.5 xhigh; luna executes, Sol gates (Claude when Codex is down)</td><td>the item's own worktree</td><td>the PR passed the codex gate, the PASS is posted on it, and it is marked ready (outside quiet hours)</td></tr>
+          <tr><td class="k">build</td><td>build worker, Opus 5.5 xhigh; luna executes, Sol gates (Claude when Codex is down)</td><td>the item's own worktree</td><td>the PR passed the codex gate, the PASS is posted on it, and it is marked ready</td></tr>
           <tr><td class="k">check</td><td>STAR</td><td>its own session</td><td>the review file, the PASS comment and the PR's head agree</td></tr>
           <tr><td class="k">babysit</td><td>babysit worker, Opus 5.5 xhigh; luna fixes</td><td>the item's worktree</td><td>the PR is ready, reviewed clean or approved, and green on its head</td></tr>
           <tr><td class="k">merge</td><td>STAR</td><td>its own session</td><td>every gate holds and the PR merged on that exact head</td></tr>
@@ -429,7 +425,6 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
           <li>Every check SUCCESS, NEUTRAL or SKIPPED</li>
           <li>A written disposition for every unfixed finding</li>
           <li>GitHub reports it mergeable, so branch rules still apply</li>
-          <li>Outside quiet hours</li>
           <li>One merge per base branch at a time: a PR with no hosted pass left goes first, then the oldest, and the others sync with the new base in the same tick</li>
         </ul>
       </div>
@@ -488,7 +483,10 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <li>The codex gate names every site of a finding class in one finding, and each fix covers every site of its pattern in the same round.</li>
         <li>A criterion only CI can prove is not failed in a codex round while its check has not reported: the merge gate needs every check green on the head. A red check, or a change to the check itself, is still a finding.</li>
         <li>Plan tasks only a session can run (a live measurement, a screen, a browser profile) run in the build worker's own session, and codex runs the rest.</li>
-        <li>Away holds nothing. Only quiet hours hold outward actions: marking ready, reviewer pings, merging.</li>
+        <li>Every codex dispatch names the session task it stops before, so the stop holds even where Codex did not load the executor skill, and a run that completed a session task anyway is a failed run. The executor skill is linked into the Codex home <code>codex exec</code> reads, <code>CODEX_HOME</code> included.</li>
+        <li>A worker that lost its Claude login (an account switch logs every session of the profile out) is not failed: once the login is back, STAR restarts its stage once on its own. A login lost on every worker at once is named as an account switch.</li>
+        <li>A codex gate still NOT SAFE at its cap with every blocking finding in a harness the build marked tooling (graded for safety only) goes on under one follow-up that continues the same PR with a fresh round budget, and the parent closes when the follow-up merges.</li>
+        <li>Away holds nothing: it only limits notifications to escalations. STAR marks ready, pings reviewers and merges as soon as the gates hold, at any hour.</li>
         <li>A PR that conflicts with its base while babysit waits is synced at once: base merged in, gated, pushed. A hunk where one side edited a line and the other inserted lines right after it is merged as the edited line, then the inserted lines. A base merge that changed none of the files the branch changes keeps the last codex PASS, so no codex round runs for it. A gate round on a base that moved and changed the branch's own files merges the base in first, so the round reviews a current head. Apart from babysit's sync before READY and STAR's sync after the base moved, a worker merges the base in only when the PR conflicts or a gate round refuses with base-moved. The full regression gate and every live check run once per PR, before the first draft push. Heavy gates take turns on one lock for the whole machine, and a gate that prints nothing for 15 minutes is stopped and reported as stalled, so it never holds every build. Each later push runs the tests for what it changed plus a sweep that runs every test file once, and a live check again only where its runtime code changed; a push that only merges the base runs the sweep, after a clean merge too. A head GitHub ran no CI on, while the PR does not conflict, comes to you.</li>
         <li>Before a stage starts again, a gate its stopped worker left holding the lock is stopped and the worker's own terminal is closed (a session Orca reports released with no retained reason is ended; one a person kept is still kept or held), a terminal still printing holds the start, and a merge you order stops the worker still fixing that PR first, so two sessions never work on one item. A previous terminal Orca no longer lists is gone and never holds a start, and a terminal Orca kept after the worker was released, sitting at an empty prompt with the recap of Claude Code as its newest lines, counts as quiet.</li>
       </ul>

@@ -232,18 +232,18 @@ done
 
 # the vendored Codex skill four juel skills dispatch as $claude-plan-executor; a link into another
 # version's copy is stale: Codex would run an older executor than this plugin ships
-if [ -L "$HOME/.codex/skills/claude-plan-executor" ] && cmp -s "$HOME/.codex/skills/claude-plan-executor/SKILL.md" "${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md"; then
+if [ -L "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor" ] && cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" "${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md"; then
   echo "CODEXSKILL_claude-plan-executor=ok"
-elif [ -L "$HOME/.codex/skills/claude-plan-executor" ] && [ -f "$HOME/.codex/skills/claude-plan-executor/SKILL.md" ]; then
-  echo "CODEXSKILL_claude-plan-executor=stale -> $(readlink "$HOME/.codex/skills/claude-plan-executor")"
-elif [ -e "$HOME/.codex/skills/claude-plan-executor" ]; then
+elif [ -L "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor" ] && [ -f "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" ]; then
+  echo "CODEXSKILL_claude-plan-executor=stale -> $(readlink "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor")"
+elif [ -e "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor" ]; then
   echo "CODEXSKILL_claude-plan-executor=unmanaged (not the vendored symlink)"
 else
   echo "CODEXSKILL_claude-plan-executor=absent"
 fi
 
 # Codex's installed plugin cache - the analogue of Claude's version-gated cache
-ls -1 "$HOME"/.codex/plugins/cache/*/juel 2>/dev/null || echo "juel not installed in Codex"
+ls -1 "${CODEX_HOME:-$HOME/.codex}"/plugins/cache/*/juel 2>/dev/null || echo "juel not installed in Codex"
 ```
 
 Report `broken` or `absent` for any of the three as a **HARD** failure with the remedy
@@ -257,7 +257,7 @@ wrong" - the remedy is the same either way.
 
 Report `absent` or `stale` for `CODEXSKILL_claude-plan-executor` as a **HARD** failure for
 `juel:execute`, `juel:review-and-execute`, `juel:receive-review-and-execute` and
-`juel:ship-ticket`, with the remedy `node scripts/link-agent-skills.mjs`. A `stale` link resolves,
+`juel:ship-ticket`, with the remedy `node scripts/link-agent-skills.mjs`. The link is `${CODEX_HOME:-~/.codex}/skills/claude-plan-executor`, in the home Codex reads. A `stale` link resolves,
 but into another version's copy (a link made before this plugin updated), so Codex would run an
 older executor: the four skills relink it once under `--unattended` and stop otherwise. Report `unmanaged` as
 DEGRADED, not a failure: a personal copy still works, it just is not the version this plugin
@@ -365,7 +365,7 @@ table** (this file can drift from a newer rollup) — classify it `unverifiable`
 | `playwright-video` | mcp | `PLAYWRIGHT_VIDEO=enabled` | `PLAYWRIGHT_VIDEO=disabled` | `PLAYWRIGHT_VIDEO=restart-needed`: set in settings.json but not yet in this session's environment |
 | `juel:daily-worktrees`, `juel:review-and-execute`, `juel:ship-ticket`, `juel:start` | skill | `${PLUGIN_ROOT}/skills/<name>/SKILL.md` exists | it doesn't (a corrupted or partial install) | |
 | `pr-review-toolkit`, `superpowers` | skill | a matching directory exists under `<config-dir>/plugins/cache/claude-plugins-official/` | it doesn't | |
-| `claude-plan-executor` | skill | `~/.codex/skills/claude-plan-executor/SKILL.md` resolves and matches `${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md` (`cmp -s`) | it does not resolve, or it differs (`stale`: a link into another version's copy) | when running under Claude Code — the Claude path still dispatches `codex exec`, so it is required there too; report it in both harnesses |
+| `claude-plan-executor` | skill | `${CODEX_HOME:-~/.codex}/skills/claude-plan-executor` resolves and matches `${PLUGIN_ROOT}/assets/codex-skills/claude-plan-executor/SKILL.md` (`cmp -s`) | it does not resolve, or it differs (`stale`: a link into another version's copy) | when running under Claude Code — the Claude path still dispatches `codex exec`, so it is required there too; report it in both harnesses |
 | `superpowers:brainstorming` | skill | the `superpowers` plugin cache dir exists **and** contains a `skills/brainstorming/SKILL.md` | the plugin dir is missing, or it's present without that skill | |
 | `run`, `verify` | skill | — | — | yes, always — harness built-ins this plugin cannot install or query. Report plainly: "cannot determine; assume present unless a skill actually fails to invoke it" |
 

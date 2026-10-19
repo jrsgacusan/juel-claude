@@ -22,7 +22,7 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
   F="$ROOT/skills/$s/SKILL.md"
   grep -E '^codex exec ' "$F" | grep -vqF '<add-dirs>' && fail "#57 $s: a dispatch line without <add-dirs>" || pass "#57 $s: every dispatch line takes <add-dirs>"
   grep -qF -- '`--add-dir <git-dir> --add-dir <common-dir>`' "$F" && grep -qF -- '--git-common-dir' "$F" && pass "#57 $s: a linked worktree adds its git dirs" || fail "#57 $s: a linked worktree adds its git dirs"
-  grep -qF 'cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F" && pass "#118 $s: checks that the executor skill is this plugin's own copy" || fail "#118 $s: checks that the executor skill is this plugin's own copy"
+  grep -qF 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F" && pass "#118 $s: checks that the executor skill is this plugin's own copy" || fail "#118 $s: checks that the executor skill is this plugin's own copy"
   grep -qF 'Right before the line, check that the skill is current' "$F" && pass "#118 $s: checks again right before each dispatch" || fail "#118 $s: checks again right before each dispatch"
 done
 for s in ship-ticket review-and-execute receive-review-and-execute; do
@@ -90,7 +90,7 @@ out=$(cd "$G" && sh -c "$CHECK")
 
 # lane e: #118 a link that resolves into another version's copy is not current, and the ledger is written per task
 for s in ship-ticket review-and-execute receive-review-and-execute execute; do
-  grep -qF 'test -f ~/.codex/skills/claude-plan-executor/SKILL.md' "$ROOT/skills/$s/SKILL.md" && fail "#118 $s: a link that only resolves is still accepted" || pass "#118 $s: a link that only resolves is no longer enough"
+  grep -qF 'test -f "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md"' "$ROOT/skills/$s/SKILL.md" && fail "#118 $s: a link that only resolves is still accepted" || pass "#118 $s: a link that only resolves is no longer enough"
 done
 grep -qF "Right after the task's commit, before the next task's first step, append" "$EX" && pass "#118 the executor writes each ledger line right after the task's commit" || fail "#118 ledger timing"
 
@@ -143,5 +143,27 @@ hasf "$ST" "B154k the scope record comes first" 'Take the scope record below fir
 hasf "$ST" "B154l the ledger names the plan as the dispatch line does" 'the path exactly as the dispatch line names the plan'
 hasf "$ST" "B154m a session task that cannot finish stops the run" 'A session task that cannot be completed gets no ledger line, and nothing is dispatched past it: under `--unattended`, end the run with `ESCALATION item=<item> phase=4 reason=codex-failed needs=session task <N> failed: <one line>`; interactively, show that line and ask how to go on.'
 hasf "$ST" "B154n the escalation list names it" 'or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks")'
+# lane c: #158 the executor is linked into and checked in the Codex home codex exec reads
+for s in ship-ticket execute review-and-execute receive-review-and-execute doctor; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF '~/.codex/skills' "$F" && fail "C158a-$s: a hard-coded ~/.codex/skills is left" || pass "C158a-$s: no hard-coded ~/.codex/skills"
+  grep -qF '$HOME/.codex/skills' "$F" && fail "C158a-$s: a hard-coded \$HOME/.codex/skills is left" || pass "C158a-$s: no hard-coded \$HOME/.codex/skills"
+done
+TMPH=$(mktemp -d); trap 'rm -rf "$G" "$G2" "$TMPH"' EXIT
+for n in brainstorming writing-plans receiving-code-review; do
+  mkdir -p "$TMPH/.claude/plugins/cache/claude-plugins-official/superpowers/9.9.9/skills/$n"
+  printf 'x\n' > "$TMPH/.claude/plugins/cache/claude-plugins-official/superpowers/9.9.9/skills/$n/SKILL.md"
+done
+HOME="$TMPH" CODEX_HOME="$TMPH/codex-x" node "$ROOT/scripts/link-agent-skills.mjs" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$TMPH/codex-x/skills/claude-plan-executor/SKILL.md" ] && [ ! -e "$TMPH/.codex/skills/claude-plan-executor" ] && pass "C158b the linker links into CODEX_HOME/skills, not ~/.codex" || fail "C158b linker with CODEX_HOME (rc $rc)"
+env -u CODEX_HOME HOME="$TMPH" node "$ROOT/scripts/link-agent-skills.mjs" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ -f "$TMPH/.codex/skills/claude-plan-executor/SKILL.md" ] && pass "C158c without CODEX_HOME the link lands in ~/.codex/skills" || fail "C158c linker without CODEX_HOME (rc $rc)"
+
+# lane c: #158 the stop is in the prompt, and a run that completed a session task is a failed run
+hasf "$EX" "C158d the executor honours a Stop-before sentence in the prompt" 'A dispatch prompt that ends with `Stop before task <N>: the session runs it.` names such a task: stop before task <N> the same way, even when its heading has no marker.'
+hasf "$ST" "C158e ship-ticket runs session-tasks.sh before and after each dispatch" 'sh <session-tasks.sh> <plan> --ledger <ledger>'
+hasf "$ST" "C158f the dispatch prompt ends with the stop sentence" ' Stop before task <N>: the session runs it.'
+hasf "$ST" "C158g a ran line escalates" 'ESCALATION item=<item> phase=<n> reason=codex-failed needs=the executor ran session task <N>'
+hasf "$ST" "C158h the gate loop fix plan runs with the session tasks" 'run it with the executor (Phase 4'"'"'s line, its session tasks, its capacity rule and its scope check)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

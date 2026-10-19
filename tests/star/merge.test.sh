@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs skills/star/merge.sh against a stub gh, with the real quiet-hours.sh on a fixed clock.
+# Runs skills/star/merge.sh against a stub gh.
 set -u
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPT="$ROOT/skills/star/merge.sh"
@@ -32,16 +32,14 @@ state() { # state <GitHub's word for the PR after the merge call>
   printf '{"state":"%s","mergeCommit":{"oid":"9e8d7c6b5a49382716051423324150617e8f9a0b"}}\n' "$1" > "$TMP/state.json"
 }
 reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json"; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[]}\n' > "$TMP/pr.json"; state MERGED; grant "go"; }
-M() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" "$@"; }
+M() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" "$@"; }
 
-reset; out=$(M --quiet-hours "22:00-07:00@UTC")
-[ "$out" = "MERGED 9e8d7c6b5a49382716051423324150617e8f9a0b" ] && pass "outside quiet hours it merges" || fail "merge ($out)"
+reset; out=$(M)
+[ "$out" = "MERGED 9e8d7c6b5a49382716051423324150617e8f9a0b" ] && pass "with no window it merges" || fail "merge ($out)"
 grep -q "pr merge $PR --squash --match-head-commit $HEAD" "$TMP/calls" && pass "squash first, pinned to the head" || fail "merge call ($(cat "$TMP/calls"))"
 [ "$(cat "$TMP/posted")" = "Merging head $HEAD under your go of 2026-10-09T08:00:00Z: \"go\"" ] && pass "the go is quoted on the PR first" || fail "comment ($(cat "$TMP/posted"))"
-reset; out=$(NOW=2026-10-09T23:00:00Z M --quiet-hours "22:00-07:00@UTC")
-[ "$out" = "HELD quiet hours" ] && [ ! -f "$TMP/calls" ] && pass "inside quiet hours nothing happens" || fail "quiet ($out)"
-reset; out=$(M --quiet-hours "nonsense")
-[ "$out" = "HELD quiet hours" ] && pass "a window that cannot be judged holds" || fail "bad window ($out)"
+reset; out=$(M --quiet-hours "22:00-07:00@UTC" 2> "$TMP/err"); rc=$?
+[ "$rc" -eq 64 ] && [ -z "$out" ] && [ ! -f "$TMP/calls" ] && grep -qx 'merge.sh: unknown argument: --quiet-hours' "$TMP/err" && pass "--quiet-hours is refused with 64 and nothing happens" || fail "quiet flag (rc=$rc, out=$out, err=$(cat "$TMP/err"))"
 reset; printf '{"squashMergeAllowed":false,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"
 M >/dev/null; grep -q -- "--merge --match-head-commit" "$TMP/calls" && pass "merge when squash is not allowed" || fail "method order"
 # Review Focus 5
@@ -121,7 +119,7 @@ p = sys.argv[1]
 d = json.load(open(p)); d["tokenCmd"] = None; json.dump(d, open(p, "w"), indent=2)
 PY
 reset; LD set ITEM-1 state=babysitting dispatch=ctx_w5 >/dev/null
-out=$(NOW=2026-10-09T23:00:00Z MW --quiet-hours "22:00-07:00@UTC"); [ "$out" = "FAIL live worker ctx_w5" ] && pass "the live-worker check comes before quiet hours" || fail "before quiet hours ($out)"
+out=$(MW); [ "$out" = "FAIL live worker ctx_w5" ] && pass "a live worker holds the merge" || fail "live worker ($out)"
 reset; out=$(PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item NOPE-9)
 case "$out" in "FAIL ledger: "*) [ ! -f "$TMP/calls" ] && pass "an item with no row is a FAIL, never a merge" || fail "no row called gh" ;; *) fail "no row ($out)" ;; esac
 PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--home without --item is 64" || fail "usage home"

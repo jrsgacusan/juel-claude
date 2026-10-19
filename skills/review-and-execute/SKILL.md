@@ -72,7 +72,7 @@ Orchestrates a full review-to-fix cycle: PR review → validate findings → wri
 |---|---|---|---|---|
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | fall back to `/review`, or an inline review of `git diff <base>...HEAD` |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP → `/plugin install superpowers@claude-plugins-official` |
-| claude-plan-executor | skill | HARD | `cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; in an unattended invocation not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
+| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; in an unattended invocation not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
 | git repo with a diffable base | context | HARD | `git rev-parse --show-toplevel` | STOP |
 
@@ -252,7 +252,7 @@ Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-
 one line.
 
 **The executor skill.** Right before the line, check that the skill is current:
-`cmp -s ~/.codex/skills/claude-plan-executor/SKILL.md <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
+`cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
 (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
 copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
 is gone, and for a link into another version's copy, which would run an older executor.
@@ -288,8 +288,20 @@ this skill's `.gitignore` edit). Shell variables do not survive between Bash cal
 and the `$BEFORE` path in literally in the later commands.
 
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-filename>.md' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-filename>.md[ Stop before task <N>: the session runs it.]' < /dev/null
 ```
+
+**Session tasks** (#158). A plan task marked `**Run:** session` is never handed to Codex.
+`sh <session-tasks.sh> <plan> --ledger <ledger>` (`../ship-ticket/session-tasks.sh` from this file;
+the plan is the file the dispatch line names, the ledger the one in "The progress ledger" above) before each dispatch gives the suffix
+` Stop before task <N>: the session runs it.`: when it prints `until <N>`, the dispatch line's prompt ends with it,
+inside its quotes, brackets not typed. After each run, run it again: a `ran <N>` line is a failed
+run. In an unattended invocation (`juel:ship-ticket --unattended` runs this skill in its Phase 5),
+stop before any further step and end the caller's run with
+`ESCALATION item=<item> phase=5 reason=codex-failed needs=the executor ran session task <N>`,
+`<item>` being the caller's; interactively, show that line and ask how to go on. The session runs a session task as
+`juel:ship-ticket`'s Phase 4 **Session tasks** says, then dispatches the same line again.
+
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the

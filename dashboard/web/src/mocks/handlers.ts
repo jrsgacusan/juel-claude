@@ -101,7 +101,6 @@ export const handlers = [
             gateDown: null,
             away: null,
             awayPending: null,
-            quietHours: null,
           }
         : getDb().overview[p]
     )

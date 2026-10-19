@@ -56,8 +56,8 @@
 # approving reviews, no reviewer's latest review is CHANGES_REQUESTED and "checks" is green) |
 # draft (approved while a draft: turned back into one, or never
 # marked ready) | closed | errors (3 in a row) | silence | timeout.
-# --hold-approval turns the approved and draft wakes off: use it while this run still holds
-# deferred replies or a deferred "gh pr ready", so an approved PR waits out the quiet window
+# --hold-approval turns the approved and draft wakes off: use it while this run must not end
+# on an approval yet
 # instead of waking at once on every call.
 # --as-reviewer <login> --reviewed-head <sha> [--settle-minutes <n>] [--head-seen <sha>@<iso>]
 # watch a PR that <login> reviewed and someone else authored (babysit-pr's reviewer mode).

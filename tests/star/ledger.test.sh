@@ -106,5 +106,62 @@ L set V2-1 counters.shape=1 >/dev/null && [ "$(L get V2-1 counters.shape)" = "1"
 # #70: asked= and step= hold the last instruction's time and step
 L set V2-1 counters.asked=2026-10-12T10:00:00Z counters.step=gate-r3 >/dev/null && [ "$(L get V2-1 counters.asked)" = "2026-10-12T10:00:00Z" ] && [ "$(L get V2-1 counters.step)" = "gate-r3" ] && pass "asked= and step= are words (#70)" || fail "asked and step ($(L get V2-1 counters))"
 L set V2-1 counters.asked=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "asked= does not count" || fail "asked +1"
+# lane e: a follow-up made from a review file gets a real item file (#159)
+H="$TMP/star-e"; mkdir -p "$H/reviews/app" "$H/items/app"; cp "$ROOT/skills/star/template/ledger.md" "$H/ledger.md"
+: > "$H/reviews/app/P-1-r3.md"; : > "$H/reviews/app/P-1-r4.md"
+L add P-1 ref=SPH-1 project=app counters.batch=B-1 >/dev/null
+L set P-1 pr=https://github.com/o/r/pull/7 >/dev/null
+out=$(L add rescopedFrom=P-1 review="$H/reviews/app/P-1-r3.md"); rc=$?
+[ $rc -eq 0 ] && [ "$out" = "added P-1-followup ref=$H/items/app/P-1-followup.md" ] && pass "E159a: rescopedFrom= adds the follow-up and prints its item file" || fail "E159a ($rc: $out)"
+want="---
+status: todo
+title: Follow-up of P-1: the findings left in P-1-r3.md
+rescopedFrom: P-1
+review: $H/reviews/app/P-1-r3.md
+existingPr: https://github.com/o/r/pull/7
+---
+Continue https://github.com/o/r/pull/7 and resolve the findings still open in $H/reviews/app/P-1-r3.md."
+[ "$(cat "$H/items/app/P-1-followup.md")" = "$want" ] && pass "E159b: the item file is the pinned text" || fail "E159b ($(cat "$H/items/app/P-1-followup.md"))"
+[ "$(L get P-1-followup counters.parent)" = "P-1" ] && [ "$(L get P-1-followup counters.batch)" = "B-1" ] && [ "$(L get P-1-followup project)" = "app" ] && [ "$(L get P-1-followup ref)" = "$H/items/app/P-1-followup.md" ] && pass "E159c: the row carries parent, batch, project and the item file as ref" || fail "E159c"
+out2=$(L add rescopedFrom=P-1 review="$H/reviews/app/P-1-r3.md")
+[ "$out2" = "$out" ] && [ "$(L list | grep -c P-1-followup)" -eq 1 ] && pass "E159d: the same call again adds nothing" || fail "E159d ($out2)"
+out3=$(L add rescopedFrom=P-1 review="$H/reviews/app/P-1-r4.md")
+[ "$out3" = "added P-1-followup-2 ref=$H/items/app/P-1-followup-2.md" ] && pass "E159e: a second review gets -2" || fail "E159e ($out3)"
+rm -f "$H/items/app/P-1-followup-3.md"; : > "$H/items/app/P-1-followup-3.md"
+L add NP-1 ref=SPH-2 project=app >/dev/null
+out4=$(L add rescopedFrom=NP-1 review="$H/reviews/app/P-1-r3.md")
+want="---
+status: todo
+title: Follow-up of NP-1: the findings left in P-1-r3.md
+rescopedFrom: NP-1
+review: $H/reviews/app/P-1-r3.md
+---
+Resolve the findings still open in $H/reviews/app/P-1-r3.md."
+[ "$out4" = "added NP-1-followup ref=$H/items/app/NP-1-followup.md" ] && [ "$(cat "$H/items/app/NP-1-followup.md")" = "$want" ] && pass "E159f: a parent without a PR gets no existingPr line" || fail "E159f ($out4)"
+L add rescopedFrom=NOPE review="$H/reviews/app/P-1-r3.md" >/dev/null 2>&1; [ $? -eq 4 ] && pass "E159g: an unknown parent is 4" || fail "E159g"
+: > "$TMP/outside.md"
+L add rescopedFrom=P-1 review="$TMP/outside.md" >/dev/null 2>&1; [ $? -eq 64 ] && pass "E159h: a review outside reviews/ is 64" || fail "E159h"
+L add rescopedFrom=P-1 review="$H/reviews/app/missing.md" >/dev/null 2>&1; [ $? -eq 64 ] && pass "E159i: a missing review is 64" || fail "E159i"
+L add rescopedFrom=P-1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "E159j: rescopedFrom= alone is 64" || fail "E159j"
+err=$(L add X-1 ref="$H/reviews/app/P-1-r3.md" project=app 2>&1 >/dev/null); rc=$?
+[ $rc -eq 64 ] && echo "$err" | grep -q "is a review file, not an item" && pass "E159k: a review file as a ref is refused" || fail "E159k ($rc: $err)"
+# review fix: the follow-up takes over the parent's worktree and tooling file with its PR (#159, #160)
+H="$TMP/star-w"; mkdir -p "$H/reviews/app" "$H/items/app" "$H/gates/app"; cp "$ROOT/skills/star/template/ledger.md" "$H/ledger.md"
+: > "$H/reviews/app/W-1-r3.md"
+L add W-1 ref=SPH-3 project=app >/dev/null
+L set W-1 pr=https://github.com/o/r/pull/8 worktree=/wt/W-1 >/dev/null
+printf 'eval/\n' > "$H/gates/app/W-1-tooling.md"
+out=$(L add rescopedFrom=W-1 review="$H/reviews/app/W-1-r3.md")
+[ "$out" = "added W-1-followup ref=$H/items/app/W-1-followup.md" ] && [ "$(L get W-1-followup worktree)" = "/wt/W-1" ] && [ "$(L get W-1 worktree)" = "-" ] && pass "E159l: with a PR, the parent's worktree moves to the follow-up" || fail "E159l ($out; $(L get W-1-followup worktree) $(L get W-1 worktree))"
+[ "$(cat "$H/gates/app/W-1-followup-tooling.md" 2>/dev/null)" = "eval/" ] && pass "E159m: the parent's tooling file is copied to the follow-up's" || fail "E159m"
+L add rescopedFrom=W-1 review="$H/reviews/app/W-1-r3.md" >/dev/null; [ "$(L get W-1-followup worktree)" = "/wt/W-1" ] && pass "E159n: a replay keeps the moved worktree" || fail "E159n"
+: > "$H/reviews/app/V-1-r3.md"
+L add V-1 ref=SPH-4 project=app >/dev/null; L set V-1 worktree=/wt/V-1 >/dev/null; printf 'eval/\n' > "$H/gates/app/V-1-tooling.md"
+L add rescopedFrom=V-1 review="$H/reviews/app/V-1-r3.md" >/dev/null
+[ "$(L get V-1 worktree)" = "/wt/V-1" ] && [ "$(L get V-1-followup worktree)" = "-" ] && [ ! -e "$H/gates/app/V-1-followup-tooling.md" ] && pass "E159o: without a PR the parent keeps its worktree and nothing is copied" || fail "E159o"
+# #162: prompted= counts the answered permission prompts (#114) and go= names the go-all grant (#151)
+L set W-1 counters.prompted=+1 >/dev/null && L set W-1 counters.prompted=+1 >/dev/null && [ "$(L get W-1 counters.prompted)" = "2" ] && pass "C162a prompted= is a counter" || fail "C162a prompted ($(L get W-1 counters))"
+L set W-1 counters.go=go-B-1-20261019T081200Z.md >/dev/null && [ "$(L get W-1 counters.go)" = "go-B-1-20261019T081200Z.md" ] && pass "C162b go= is a word" || fail "C162b go ($(L get W-1 counters))"
+L set W-1 counters.go=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "C162c go= does not count" || fail "C162c go +1"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

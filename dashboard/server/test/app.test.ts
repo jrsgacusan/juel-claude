@@ -236,7 +236,6 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
       gateDown: null,
       away: null,
       awayPending: null,
-      quietHours: { tz: "Asia/Manila", start: "22:00", end: "07:00" },
     });
     const s = JSON.parse(
       fs.readFileSync(path.join(env.star, "star.json"), "utf8"),

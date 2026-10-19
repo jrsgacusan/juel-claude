@@ -138,7 +138,9 @@ of the two; that is normal and not a problem to report.
   screen or audio, or measures something live outside the repository). Do not start it: stop
   before it, append no ledger line for it, and end the report with
   `stopped at task <N>: run by the session`. The caller runs it, marks it complete in the ledger
-  and dispatches you again, so you resume after it. This holds over "finish the highest-value
+  and dispatches you again, so you resume after it. A dispatch prompt that ends with
+  `Stop before task <N>: the session runs it.` names such a task: stop before task <N> the same
+  way, even when its heading has no marker. This holds over "finish the highest-value
   subset" in Failure Handling.
 - **Keep a ledger, and resume from it.** The ledger is
   `<repo root>/.superpowers/sdd/<plan file name without .md>/progress.md`, where `<repo root>` is

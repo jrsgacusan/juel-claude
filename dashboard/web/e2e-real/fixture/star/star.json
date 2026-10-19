@@ -6,7 +6,6 @@
   "progressDeadlineMin": 30,
   "terminal": "term_e2e_star",
   "project": { "name": "sample", "remote": "origin" },
-  "quietHours": null,
   "gateDown": null,
   "away": null
 }

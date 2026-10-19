@@ -104,7 +104,6 @@ const emptyOverview = (): Overview => ({
   gateDown: null,
   away: null,
   awayPending: null,
-  quietHours: null,
 })
 
 type FileSeed = [name: string, kind: FileKind, text?: string]
@@ -259,7 +258,6 @@ export function createDb(): MockDb {
         gateDown: null,
         away: null,
         awayPending: null,
-        quietHours: { tz: "Asia/Manila", start: "22:00", end: "07:00" },
       },
       "sphere-api": emptyOverview(),
       "juel-claude": emptyOverview(),
@@ -394,7 +392,7 @@ export function createDb(): MockDb {
           kind: "held",
           item: "SPH-10",
           title:
-            "Mark PR #211 ready once quiet hours end, then ask Greptile for its second pass on the same head and post what it finds in #sphere-eng",
+            "Mark PR #211 ready, then ask Greptile for its second pass on the same head and post what it finds in #sphere-eng",
           body: [],
           options: [],
           suggestion: null,
