@@ -57,6 +57,45 @@ for n in 1 2 3 4 5; do N add --title "race $n" --text r > "$TMP/race$n" & done; 
 [ "$(cut -d' ' -f2 "$TMP"/race* | sort -u | wc -l | tr -d ' ')" = "5" ] && pass "parallel adds never share an id" || fail "race"
 N path | grep -qx "$H/memory/app.always.md" && pass "path without legacy is the always file" || fail "path"
 
-# lane b, task B2 goes below this line
+# lane b, task B2: promote, split, apply and the legacy mode
+out=$(L promote a#D1 --source brief-worker); id=${out#added }; id=${id%% *}
+f=$(echo "$out" | cut -d' ' -f3)
+grep -q '^title: "The hosted review comes after ready"' "$f" && grep -q '^from: "\[\[a\]\]"' "$f" && grep -q '^fromDecision: "D1"' "$f" && grep -q '^since: "2026-10-13"' "$f" && pass "promote takes the record" || fail "promote ($out)"
+grep -qx 'Decision: mark ready, then request it' "$f" && grep -qx 'Why: when does the hosted review run' "$f" && grep -qx 'Source: SKILL.md:1400' "$f" && pass "promote's body" || fail "promote body"
+[ "$(L promote a#D1)" = "exists $id" ] && pass "promote twice writes nothing" || fail "promote again"
+L promote a#D9 >/dev/null 2>&1; [ $? -eq 1 ] && pass "a missing record is exit 1" || fail "missing D"
+# D2's heading says reused L-0001: superseding it replaces L-0001
+printf '### D3 Ask once (2026-10-15, decided by the brief worker)\nContext: c\nDecision: d\nConsequences: e\nSource: s\n' >> "$H/briefs/app/a.md"
+L promote a#D3 --source owner --supersedes a#D2 | grep -q ' replaces L-0001$' && pass "--supersedes finds the reused note" || fail "supersedes"
+N promote a#D1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "promote on memory is 64" || fail "promote memory"
+# split a legacy file
+H2="$TMP/h2"; mkdir -p "$H2/memory"; printf '{"project": {"name": "app"}, "notes": "legacy"}\n' > "$H2/star.json"
+cat > "$H2/memory/app.md" <<'EOT'
+# app notes
+
+- 2026-10-07 user: tracker is Linear. Move each ticket's status.
+  Statuses: Todo, In Progress, Done.
+- 2026-10-08 SPH-60: w0 and w1 lag real time after a sleep.
+- a bullet with no date
+EOT
+N2() { sh "$ROOT/skills/star/notes.sh" --home "$H2" --shelf memory --project app "$@"; }
+[ "$(N2 split "$H2/memory/app.md")" = "split 3" ] && pass "one note per bullet" || fail "split"
+grep -l 'Statuses: Todo' "$H2"/memory/app/M-*.md | xargs grep -q '^source: "owner"' && pass "a continuation line stays with its bullet; user is owner" || fail "continuation"
+grep -l 'lag real time' "$H2"/memory/app/M-*.md | xargs grep -q '^source: "migration"' && pass "any other author is migration" || fail "author"
+[ "$(N2 split "$H2/memory/app.md")" = "split 0 already" ] && pass "split is idempotent" || fail "split twice"
+[ "$(N2 path)" = "$H2/memory/app.md" ] && pass "legacy path is the old file" || fail "legacy path"
+N2 add --title 'New fact' --text 'learned today' >/dev/null; tail -1 "$H2/memory/app.md" | grep -q ': learned today$' && pass "legacy add also appends to the old file" || fail "legacy append"
+# apply a proposal
+printf '{"project": {"name": "app"}, "notes": "legacy", "standing": {"a": 1}}\n' > "$H2/star.json"
+cat > "$TMP/proposal.md" <<'EOT'
+Some prose the worker wrote.
+M-0001 kind=rule always=true status=active why=owner policy
+M-0002 kind=fact always=false status=replaced why=sleep bug fixed
+M-0099 kind=fact always=false status=active
+EOT
+[ "$(N2 apply "$TMP/proposal.md" 2>/dev/null)" = "applied kind=1 always=1 replaced=1" ] && pass "apply" || fail "apply ($(N2 apply "$TMP/proposal.md" 2>&1))"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["notes"]=="split" and "standing" not in d and d["standingPreNotes"]=={"a":1}' "$H2/star.json" && pass "apply ends legacy and keeps the standing orders aside" || fail "apply star.json"
+[ "$(N2 path)" = "$H2/memory/app.always.md" ] && pass "after apply, path is the always file" || fail "path after apply"
+printf 'no lines here\n' > "$TMP/empty.md"; N2 apply "$TMP/empty.md" >/dev/null 2>&1; [ $? -eq 2 ] && pass "a proposal with no line is exit 2" || fail "empty proposal"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

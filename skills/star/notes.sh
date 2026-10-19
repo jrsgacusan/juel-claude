@@ -416,16 +416,200 @@ def cmd_path():
     print(ALWAYS_FILE)
 
 
+def brief_block(item, number):
+    """The lines of the ### D<number> block of a brief: (heading, block lines), or None."""
+    path = os.path.join(HOME, "briefs", PROJECT, item + ".md")
+    try:
+        lines = read(path).split("\n")
+    except FileNotFoundError:
+        die(1, f"no brief for {item}")
+    except OSError as e:
+        die(2, f"cannot read {path}: {e.strerror}")
+    start = None
+    for i, l in enumerate(lines):
+        if re.match(rf"### D{number} ", l):
+            start = i
+            break
+    if start is None:
+        return None
+    block = []
+    for l in lines[start + 1:]:
+        if l.startswith("### ") or l.startswith("## ") or re.match(r"- \d{4}-\d{2}-\d{2}", l):
+            break
+        block.append(l)
+    return lines[start], block
+
+
+def block_line(block, name):
+    for l in block:
+        if l.startswith(name + ":"):
+            return l[len(name) + 1:].strip()
+    return ""
+
+
+def parse_ref(ref):
+    m = re.fullmatch(r"([A-Za-z0-9_][A-Za-z0-9._-]{0,59})#D(\d+)", ref or "")
+    if not m:
+        die(64, f"{ref!r} is not <item>#D<n>")
+    return m.group(1), m.group(2)
+
+
+def from_note(item, number):
+    for n in notes():
+        if n["fm"].get("from") == f"[[{item}]]" and n["fm"].get("fromDecision") == f"D{number}":
+            return n
+    return None
+
+
 def cmd_promote(args):
-    die(64, "promote is not built yet")
+    if not args:
+        die(64, "usage: promote <item>#D<n> [--source ...] [--supersedes <item>#D<m>]")
+    item, number = parse_ref(args[0])
+    o = options(args[1:], {"--source", "--supersedes"})
+    source = o.get("--source", "brief-worker")
+    if source not in ("owner", "brief-worker", "star"):
+        die(64, "--source must be owner, brief-worker or star")
+    sup = parse_ref(o["--supersedes"]) if "--supersedes" in o else None
+    got = brief_block(item, number)
+    if got is None:
+        die(1, f"no D{number} in {item}")
+    existing = from_note(item, number)
+    if existing:
+        print(f"exists {existing['fm']['id']}")
+        return
+    heading, block = got
+    title = re.sub(rf"^### D{number} ", "", heading)
+    paren = re.search(r"\s*\(([^()]*)\)\s*$", title)
+    date = today()
+    if paren:
+        title = title[:paren.start()]
+        d = DATE_RE.search(paren.group(1))
+        if d:
+            date = d.group(0)
+    old = None
+    if sup:
+        old = from_note(*sup)
+        if old is None or old["fm"].get("status") == "replaced":
+            old = None
+            hit = brief_block(sup[0], sup[1])
+            if hit:
+                m = re.search(r"\(([^()]*)\)\s*$", hit[0])
+                tail = m.group(1) if m else ""
+                r1 = re.search(r"reused (L-\d{4})", tail)
+                r2 = re.search(r"reused (\S+) D(\d+)", tail)
+                if r1:
+                    old = find(r1.group(1))
+                elif r2:
+                    old = from_note(r2.group(1), r2.group(2))
+    if old is not None and old["fm"].get("status") == "replaced":
+        old = None
+    body = (f"Decision: {block_line(block, 'Decision')}\nWhy: {block_line(block, 'Context')}\n"
+            f"Source: {block_line(block, 'Source')}")
+    if old:
+        body += f"\nReplaces {old['fm']['id']}."
+    fm = {"kind": "decision", "title": title.strip(), "always": False, "source": source,
+          "since": date, "from": f"[[{item}]]", "fromDecision": f"D{number}"}
+    nid, path = new_note(item, fm, body)
+    if old:
+        old["fm"]["status"], old["fm"]["replacedBy"] = "replaced", nid
+        save(old)
+    print(f"added {nid} {path}" + (f" replaces {old['fm']['id']}" if old else ""))
+
+
+def cut_title(text):
+    flat = one_line(text)
+    if len(flat) <= 80:
+        return flat
+    cut = flat[:80]
+    if flat[80] != " " and " " in cut:
+        cut = cut[:cut.rindex(" ")]
+    return cut.rstrip()
 
 
 def cmd_split(args):
-    die(64, "split is not built yet")
+    if len(args) != 1:
+        die(64, "usage: split <legacy file>")
+    try:
+        text = read(args[0])
+    except OSError as e:
+        die(2, f"cannot read {args[0]}: {e.strerror}")
+    if any(n["fm"].get("source") == "migration" for n in notes()):
+        print("split 0 already")
+        return
+    bullets = []
+    for l in text.split("\n"):
+        if l.startswith("- "):
+            bullets.append([l[2:]])
+        elif bullets:
+            bullets[-1].append(l.strip())
+    parsed = []
+    for b in bullets:
+        while b and not b[-1]:
+            b.pop()
+        body = "\n".join(b)
+        m = re.match(r"(\d{4}-\d{2}-\d{2}) (\S+): ", body)
+        if m:
+            since, source, body = m.group(1), ("owner" if m.group(2) in ("user", "owner") else "migration"), body[m.end():]
+        else:
+            since, source = today(), "migration"
+        parsed.append((since, source, body))
+    os.makedirs(DIR, exist_ok=True)
+    ids = reserve("star", len(parsed), highest()) if parsed else []
+    for nid, (since, source, body) in zip(ids, parsed):
+        fm = {"kind": "fact", "title": cut_title(body), "always": False, "source": source, "since": since}
+        new_note("star", fm, body, note_id=f"{PREFIX}-{nid:04d}")
+    sync_always()
+    print(f"split {len(parsed)}")
+
+
+PROPOSAL_RE = re.compile(r"(M-\d{4}) kind=(rule|fact) always=(true|false) status=(active|replaced)( why=.*)?")
 
 
 def cmd_apply(args):
-    die(64, "apply is not built yet")
+    if len(args) != 1:
+        die(64, "usage: apply <proposal file>")
+    try:
+        lines = read(args[0]).split("\n")
+    except OSError as e:
+        die(2, f"cannot read {args[0]}: {e.strerror}")
+    props = [m.groups() for m in (PROPOSAL_RE.fullmatch(l.rstrip("\r")) for l in lines) if m]
+    if not props:
+        die(2, "no proposal line in the file; nothing changed")
+    star_path = os.path.join(HOME, "star.json")
+    try:
+        star = json.loads(read(star_path))
+        if not isinstance(star, dict):
+            raise ValueError("not an object")
+    except (OSError, ValueError) as e:
+        die(2, f"cannot read {star_path}: {e}")
+    by_id = {n["fm"]["id"]: n for n in notes()}
+    kinds = always = replaced = skipped = 0
+    for nid, kind, alw, status, _ in props:
+        n = by_id.get(nid)
+        if n is None:
+            skipped += 1
+            continue
+        fm = n["fm"]
+        if fm.get("kind") != kind:
+            fm["kind"], kinds = kind, kinds + 1
+        if fm.get("always") is not (alw == "true"):
+            fm["always"], always = (alw == "true"), always + 1
+        if fm.get("status") != status:
+            fm["status"] = status
+            if status == "replaced":
+                replaced += 1
+            else:
+                fm["replacedBy"] = None
+        save(n)
+    if skipped:
+        print(f"notes.sh: skipped {skipped} unknown id(s)", file=sys.stderr)
+    out = {}
+    for k, v in star.items():
+        out["standingPreNotes" if k == "standing" else k] = v
+    out["notes"] = "split"
+    write_atomic(star_path, json.dumps(out, indent=2, ensure_ascii=False) + "\n")
+    sync_always()
+    print(f"applied kind={kinds} always={always} replaced={replaced}")
 
 
 main()
