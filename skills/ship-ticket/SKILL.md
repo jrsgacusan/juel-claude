@@ -332,7 +332,7 @@ line:
 | an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
 | build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`, `sweep`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
-| the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>` |
+| the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>`, ending ` tooling=all` when that round's `tooling=` equals `p0 + p1`: `RESCOPE item=<item> reason=gate review=<the last review's path> tooling=all` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
 
@@ -807,6 +807,15 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 - A task that creates a file whose name or id a project check enforces (a pretest checker, a lint rule) names that check as its verification command. The check runs before the task's commit.
 - On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
+**Tooling** (#160). Under a `star:` brief, when the plan adds 20 or more files under one folder that
+the deliverable's runtime code never imports (a measurement harness, an eval or a benchmark tool)
+beside the item's deliverable, write that folder, with a trailing `/`, as a line of
+`<star.gates>/<item>-tooling.md` (one path per line), and take a decision record in the spec that
+names it and why. The codex gate grades those paths for safety only: a finding only there is
+`[P2]` at most unless the code opens a device, reads or sends a secret or user data, or plays sound.
+Never list a path the deliverable imports, the deliverable's own tests, or the deliverable itself
+when the item is the tool.
+
 **Checkpoint:** show plan path, ask to proceed.
 
 ### Phase 4 — Execute
@@ -1275,7 +1284,9 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    findings never block: fix them when cheap, otherwise leave them in the review.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
-   item.
+   item. The line ends with ` tooling=all` when that round's `tooling=` equals `p0 + p1` (every
+   blocking finding left is in tooling: STAR hands the PR to one follow-up instead of narrowing it):
+   `RESCOPE item=<item> reason=gate review=<the last review's path> tooling=all`.
 6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.
    Fetch the base and merge it in as `juel:babysit-pr`'s Phase 4 step 1 does (`../babysit-pr/SKILL.md`
    from this file: `merge-union.sh` resolves a mechanical conflict; any other conflict is

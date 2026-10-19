@@ -367,5 +367,8 @@ has "#131 the fix covers every site of the pattern" "$R131b"
 # lane c: #143 a stalled gate (exit 125) is gate-unavailable here too, never a red gate
 gates_row=$(grep -F '| gates run directly |' "$SKILL")
 printf '%s\n' "$gates_row" | grep -qF 'Exit 71, 124 or 125 (the gate could not run, ran past its time limit, or stalled: it printed nothing for `--idle-max` seconds) → `ESCALATION item=<item> phase=8 reason=gate-unavailable needs=<the script'"'"'s message>`, never a red gate and never run again' && pass "C143f babysit reads exit 125 as a stalled gate" || fail "C143f babysit reads exit 125 as a stalled gate"
+# lane f: #160 a capped round whose blocking findings are all tooling reports tooling=all
+tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF 'reason=gate review=<path> tooling=all' && pass "TL160j babysit's gate cap line carries tooling=all" || fail "TL160j babysit's gate cap line carries tooling=all"
+tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF "when that round's \`tooling=\` equals \`p0 + p1\`" && pass "TL160k tooling=all when every blocking finding is in tooling" || fail "TL160k tooling=all condition"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

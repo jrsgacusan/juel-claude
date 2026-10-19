@@ -9,6 +9,7 @@
 # The gate prints one line:
 #   SAFE round=<k> findings=<n> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> head=<sha> review=<path>
+#   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> tooling=<t> head=<sha> review=<path>   (with a tooling file, #160)
 #   ERROR <why>
 #   ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>
 #   ERROR gate-down <why>    neither Sol nor the fallback could review: STAR holds new builds
@@ -35,6 +36,11 @@
 # is judged on that evidence (#63); a folder that does not exist is a usage error. From round 2,
 # when the previous round has no -fix.md (a re-scope), the prompt names the brief's ## Decisions
 # records dated that review's day (UTC) or later as its dispositions (#67).
+# <gates>/<item>-tooling.md (the folder of <item>-screen.md) lists the paths a build marked as
+# tooling, one prefix per non-blank line, # lines ignored (#160): a prefix ending in / covers
+# everything under it, one without covers that path and everything under it. The prompt grades
+# those paths for safety only, and the NOT-SAFE line gains tooling=<t>, the count of P0 and P1
+# findings whose every place (path:line) is under a prefix. Without a prefix the line has no tooling=.
 # codex review runs read-only with no MCP servers; its stdout goes to <reviews>/<item>-r<k>.raw.md
 # and its stderr to <item>-r<k>.log, and every line of both is copied to this script's stderr as
 # it arrives, so the worker's terminal shows the review running (#71). The verdict line is the
@@ -537,7 +543,44 @@ if not home or not project:
     die("the brief has no star: block with home and project")
 reviews = star.get("reviews") or os.path.join(home, "reviews", project)
 notes = [n.strip().strip("'\"") for n in star.get("notes", "").strip("[]").split(",") if n.strip()]
+def read_tooling(gates_dir, item):
+    try:
+        lines = [l.strip() for l in open(os.path.join(gates_dir, f"{item}-tooling.md"), encoding="utf-8")]
+    except OSError:
+        return []
+    return [l for l in lines if l and not l.startswith("#")]
+
+
+def tooling_count(findings, prefixes):
+    top = run(["git", "rev-parse", "--show-toplevel"], 30)
+    top = top.stdout.strip().rstrip("/") if top.returncode == 0 else ""
+    norm = [os.path.normpath(p[2:] if p.startswith("./") else p) for p in prefixes]
+
+    def covered(path):
+        return any(path == n or path.startswith(n.rstrip("/") + "/") for n in norm)
+
+    count = 0
+    for f in findings:
+        if f["p"] > 1:
+            continue
+        paths = []
+        for tok in re.split(r"[\s,;]+", f["where"].replace("`", "")):
+            m = re.fullmatch(r"(.+):\d+(?:-\d+)?", tok)
+            if not m:
+                continue
+            path = m.group(1)
+            if top and path.startswith(top + "/"):
+                path = path[len(top) + 1:]
+            while path.startswith("./"):
+                path = path[2:]
+            paths.append(os.path.normpath(path))
+        if paths and all(covered(p) for p in paths):
+            count += 1
+    return count
+
+
 gates_dir = os.path.dirname(star.get("gates") or os.path.join(home, "gates", project, f"{item}.json"))
+tooling_prefixes = read_tooling(gates_dir, item)
 try:
     gate = json.load(open(os.path.join(home, "star.json"), encoding="utf-8")).get("gate")
 except (OSError, ValueError, AttributeError):
@@ -576,8 +619,14 @@ def prompt_text():
         pending = []
     pending_text = ("Pending at the screen, verified separately with a person and never a finding here: "
                     + "; ".join(pending)) if pending else "No check is pending at the screen."
+    tooling_text = ("Tooling, graded for safety only: " + ", ".join(tooling_prefixes) + ". A finding whose every site is "
+                    "under these paths is [P2] at most, unless the code there opens a device (camera, microphone, "
+                    "screen capture), reads or sends a secret or user data, or plays sound. A path here that the "
+                    "deliverable's runtime code imports is not tooling: grade it in full."
+                    if tooling_prefixes else "No path is tooling: grade every file in full.")
     values = {"item": item, "round": str(k), "base": base_sha, "brief": brief, "notes": ", ".join(notes) or "none",
-              "previous": previous, "pending": pending_text, "evidence": evidence}
+              "previous": previous, "pending": pending_text, "evidence": evidence,
+              "tooling": tooling_text}
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), template)
 
 
@@ -879,5 +928,6 @@ with open(tmp, "w", encoding="utf-8") as f:
 os.replace(tmp, review_path)
 if verdict == "SAFE":
     out(f"SAFE round={k} findings={len(findings)} head={after} review={review_path}")
-out(f"NOT-SAFE round={k} findings={len(findings)} p0={p0} p1={p1} head={after} review={review_path}")
+tooling_mark = f" tooling={tooling_count(findings, tooling_prefixes)}" if tooling_prefixes else ""
+out(f"NOT-SAFE round={k} findings={len(findings)} p0={p0} p1={p1}{tooling_mark} head={after} review={review_path}")
 PY

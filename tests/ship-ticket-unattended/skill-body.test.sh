@@ -347,5 +347,10 @@ printf '/docs/superpowers/\n/.superpowers/\n' >> "$IG/.git/info/exclude"
 (cd "$IG" && git check-ignore -q -- docs/superpowers/x && git check-ignore -q -- .superpowers/x) && [ ! -s "$IG/.gitignore" ] && pass "A153h (control) info/exclude ignores both with .gitignore untouched" || fail "A153h (control) info/exclude"
 has "A153i run interactively, the #145 repair still runs" 'Run interactively, the one exception is the #145 repair: when `git check-ignore -v -- <path>` shows the match comes from a `.gitignore` line that is exactly `superpowers/` or `.superpowers/`, make the second bullet'"'"'s replacement below, as its lone commit.'
 grep -qx 'product.' "$SKILL" && fail "A153j no stray wrapped line is left in Phase 2" || pass "A153j no stray wrapped line is left in Phase 2"
+# lane f: #160 a harness beside a deliverable is tooling, graded for safety only
+has "TL160f the build writes the tooling file" '`<star.gates>/<item>-tooling.md`'
+has "TL160g the threshold is 20 files never imported" '20 or more files under one folder that the deliverable'"'"'s runtime code never imports'
+has "TL160h the cap line carries tooling=all" '`RESCOPE item=<item> reason=gate review=<the last review'"'"'s path> tooling=all`'
+has "TL160i tooling=all when every blocking finding is in tooling" 'when that round'"'"'s `tooling=` equals `p0 + p1`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

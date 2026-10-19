@@ -665,6 +665,26 @@ reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-grep.json
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit whose fallback was denied git grep still ends in a verdict, not gate-down (#117)" || fail "git grep denial ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
 grep -qxF 'Your previous run was denied: git grep -n chain origin/main -- package.json. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" && pass "the retry sends the denied git grep to Grep and Glob (#117)" || fail "git grep retry line ($(grep 'denied' "$TMP/claude-calls"))"
+# lane f: a path a build marked as tooling is graded for safety only, and its blocking findings are counted (#160)
+reset; plan "0 p1"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+grep -qF 'No path is tooling: grade every file in full.' "$H/specs/app/ITEM-1-gate-r1.md" && ! printf '%s' "$out" | grep -q 'tooling=' && pass "TL160a without a tooling file the prompt says no path is tooling and the line has no tooling=" || fail "TL160a ($out)"
+reset; plan "0 tooling-p1"; printf 'eval/\n' > "$H/gates/app/ITEM-1-tooling.md"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+grep -qF 'Tooling, graded for safety only: eval/.' "$H/specs/app/ITEM-1-gate-r1.md" && [ "$out" = "NOT-SAFE round=1 findings=2 p0=0 p1=2 tooling=2 head=$HEAD review=$R1" ] && pass "TL160b a tooling file puts the prefixes in the prompt and tooling=2 on the line" || fail "TL160b ($out)"
+grep -q '^VERDICT item=ITEM-1 round=1 NOT-SAFE findings=2 head=' "$R1" && pass "TL160b2 the review's VERDICT line is unchanged" || fail "TL160b2 ($(head -n 1 "$R1"))"
+reset; plan "0 tooling-mixed"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "NOT-SAFE round=1 findings=2 p0=0 p1=2 tooling=1 head=$HEAD review=$R1" ] && pass "TL160c a finding outside the prefixes is not counted" || fail "TL160c ($out)"
+reset; plan "0 p1"; printf '# nothing is tooling yet\n\n' > "$H/gates/app/ITEM-1-tooling.md"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+grep -qF 'No path is tooling' "$H/specs/app/ITEM-1-gate-r1.md" && ! printf '%s' "$out" | grep -q 'tooling=' && pass "TL160d a tooling file with only a comment counts as none" || fail "TL160d ($out)"
+reset; plan "0 abs"; printf 'eval\n' > "$H/gates/app/ITEM-1-tooling.md"
+printf 'x\n\nReview comment:\n\n- [P1] Runner drops failures \xe2\x80\x94 `%s/eval/run.py:3`\n  body\n' "$APPREAL" > "$TMP/fix/abs.txt"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 tooling=1 head=$HEAD review=$R1" ] && pass "TL160e an absolute place under the worktree counts" || fail "TL160e ($out)"
+rm -f "$H/gates/app/ITEM-1-tooling.md"
+
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
