@@ -24,7 +24,9 @@
 # paths. The block closes at the first non-blank line no deeper than its label. Ranges use through
 # or to, a short or full second end, keep zero padding and allow reversed ends; ranges over 1000
 # members name only their ends. A label counts only when it names a path. A ":<lines>" suffix is
-# dropped, and so is a "::<anything>" suffix (a pytest node id such as tests/test_b.py::test_foo).
+# dropped: one range or several, each comma with optional spaces around it, and a trailing comma (a
+# bare token in a list); so is a "::<anything>" suffix (a pytest node id such as
+# tests/test_b.py::test_foo).
 # A path ending in "/" names everything under it. Never outside: paths under .superpowers/ (the
 # executor's ledger), and the plan's own folder when the plan sits in the repository (only the plan
 # file itself when that folder is the repository's top). Only files are checked, never line ranges:
@@ -52,7 +54,7 @@ import sys
 LABEL = re.compile(r"^(\s*)(?:[-*+]\s+|\d+[.)]\s+)?(?:Create|Modify|Test|Delete)(?:\s*\((?:[^()\n]|\([^()\n]*\))*\))?:(.*)$")
 RANGE = re.compile(r"`?([^`\s]+?)-(\d+)((?:\.[A-Za-z0-9]+)*)`?\s+(?:through|to)\s+`?(?:(?:\1)?)-(\d+)((?:\.[A-Za-z0-9]+)*)`?")
 TICKED = re.compile(r"`([^`\n]+)`")
-LINES = re.compile(r":\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$")
+LINES = re.compile(r":\d+(?:-\d+)?(?:\s*,\s*\d+(?:-\d+)?)*\s*,?$")
 
 
 def die(code, msg):
