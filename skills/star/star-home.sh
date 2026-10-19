@@ -6,6 +6,8 @@
 #   star-home.sh [--cwd <dir>] migrate   bring a v1 folder to star.json schema 2 (STAR's closed loop):
 #                                        prints one "stop <dispatch>" per worker of a removed stage,
 #                                        then "migrated gate" when it moved a v2.0.0 gate to Sol,
+#                                        then "migrated quiet-hours" when it dropped a quietHours key
+#                                        (the feature is gone; a schema 2 folder is cleaned too),
 #                                        then "current" or "migrated rows=<n>"
 #   star-home.sh [--cwd <dir>] import <spec path>
 #                                        copy a spec from outside the folder, with each file under the spec's folder that its text
@@ -263,9 +265,15 @@ def migrate():
     if not isinstance(data, dict):
         die(1, f"{star_path} is not a JSON object")
     if data.get("schema") == 2:
-        if upgrade_gate(data):
+        gate_moved = upgrade_gate(data)
+        quiet_gone = "quietHours" in data
+        data.pop("quietHours", None)
+        if gate_moved or quiet_gone:
             write_json(star_path, data)
+        if gate_moved:
             print("migrated gate")
+        if quiet_gone:
+            print("migrated quiet-hours")
         print("current")
         forget(stops_path)
         return
@@ -285,6 +293,9 @@ def migrate():
         data.setdefault(key, value)
     if upgrade_gate(data):
         print("migrated gate")
+    if "quietHours" in data:
+        del data["quietHours"]
+        print("migrated quiet-hours")
     project = (data.get("project") or {}).get("name") or ""
     skill = os.environ["STAR_SKILL_DIR"]
     rows = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "list"],

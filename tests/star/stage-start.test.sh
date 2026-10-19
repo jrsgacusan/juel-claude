@@ -27,7 +27,7 @@ d["stages"] = {k: {"agent": "claude", "model": "opus", "effort": "high" if k == 
 d["worker"] = {"agent": "claude", "model": "opus", "effort": "xhigh"}
 d.pop("reviewer", None)
 d["hostGate"] = {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}
-d["away"], d["quietHours"] = None, None
+d["away"] = None
 for kv in sys.argv[2:]:
     path, value = kv.split("=", 1)
     node, keys = d, path.split(".")
@@ -181,12 +181,12 @@ reset; L add SPH-13 ref=SPH-13 project=app state=queued >/dev/null; brief SPH-13
 out=$(ST build SPH-13)
 [ "$out" = "hold trust $APP/.worktrees/app/SPH-13" ] && ! grep -q task-create "$TMP/calls" && pass "a stuck dialog holds" || fail "stuck dialog ($out)"
 
-# being away keeps the quiet window as it is: never "always"
+# being away adds nothing to the build command: no quiet-hours flag anywhere
 trust "$APP" "$WT"
-settings 'away="2026-10-09T08:00:00Z"' 'quietHours={"tz":"Asia/Manila","start":"22:00","end":"07:00"}'
+settings 'away="2026-10-09T08:00:00Z"'
 reset; L set SPH-11 state=queued >/dev/null
 ST build SPH-11 >/dev/null
-grep -q -- "--quiet-hours 22:00-07:00@Asia/Manila --task-title" "$TMP/calls" && ! grep -q -- '--quiet-hours always' "$TMP/calls" && pass "away does not turn the quiet window into always" || fail "away window ($(grep task-create "$TMP/calls"))"
+grep -q task-create "$TMP/calls" && ! grep -q -- '--quiet-hours' "$TMP/calls" && pass "away adds no quiet-hours flag" || fail "away flag ($(grep task-create "$TMP/calls"))"
 settings
 
 # babysit: the PR number, the cursor, and the item's newest review as proof
@@ -286,10 +286,9 @@ reset; nb SPH-60 2099-01-01
 out=$(ST build SPH-60)
 case "$out" in "wait until 2099-01-01T00:00:00"*) pass "a date still ahead holds the build" ;; *) fail "notBefore ahead ($out)" ;; esac
 [ ! -f "$TMP/calls" ] && [ "$(L get SPH-60 state)" = "queued" ] && pass "nothing is created or written while it waits" || fail "notBefore wrote ($(cat "$TMP/calls" 2>/dev/null))"
-settings 'quietHours={"tz":"Asia/Manila","start":"22:00","end":"07:00"}'
-reset; out=$(ST build SPH-60)
-[ "$out" = "wait until 2099-01-01T00:00:00+08:00" ] && pass "a date alone is midnight in the quiet-hours zone" || fail "zone ($out)"
 settings
+reset; out=$(export TZ=Asia/Manila; ST build SPH-60)
+[ "$out" = "wait until 2099-01-01T00:00:00+08:00" ] && ! grep -q quietHours "$H/star.json" && pass "a date alone is midnight in the machine's local zone" || fail "zone ($out)"
 reset; nb SPH-60 2099-01-01T09:00:00Z; out=$(ST build SPH-60)
 [ "$out" = "wait until 2099-01-01T09:00:00+00:00" ] && pass "an ISO time with Z is read as UTC" || fail "iso Z ($out)"
 reset; nb SPH-60 2099-01-01T09:00:00; out=$(ST build SPH-60)

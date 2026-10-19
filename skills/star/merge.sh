@@ -1,9 +1,8 @@
 #!/bin/sh
 # STAR's merge, the only place a PR is merged: under the owner's go, on the exact head.
-#   merge.sh <pr url> --head <sha> --grant <file> [--quiet-hours <window>] [--home <dir> --item <item>] [--dry-run]
+#   merge.sh <pr url> --head <sha> --grant <file> [--home <dir> --item <item>] [--dry-run]
 # Prints one line and exits 0:
 #   MERGED <merge commit sha>
-#   HELD quiet hours         inside the window, or a window quiet-hours.sh cannot judge
 #   DRY-RUN <method> <sha>   with --dry-run: everything checked, nothing posted or merged
 #   FAIL <what>              live worker <dispatch>, ledger: …, grant: …, merge methods: …,
 #                            comment: …, head moved, or merge: …
@@ -103,10 +102,10 @@ def live_worker(home, item):
     return (row.get("dispatch") or "-") if row.get("state") in WORKER_STATES else None
 
 
-args, pr, head, grant, window, dry, home, item = sys.argv[1:], None, None, None, None, False, None, None
+args, pr, head, grant, dry, home, item = sys.argv[1:], None, None, None, False, None, None
 while args:
     arg = args.pop(0)
-    if arg in ("--head", "--grant", "--quiet-hours", "--home", "--item"):
+    if arg in ("--head", "--grant", "--home", "--item"):
         if not args:
             die(f"{arg} needs a value")
         value = args.pop(0)
@@ -116,10 +115,8 @@ while args:
             grant = value
         elif arg == "--home":
             home = value
-        elif arg == "--item":
-            item = value
         else:
-            window = value
+            item = value
     elif arg == "--dry-run":
         dry = True
     elif arg.startswith("-"):
@@ -129,7 +126,7 @@ while args:
     else:
         die(f"unexpected argument: {arg}")
 if not pr or not head or not grant:
-    die("usage: merge.sh <pr url> --head <sha> --grant <file> [--quiet-hours <window>] [--home <dir> --item <item>] [--dry-run]")
+    die("usage: merge.sh <pr url> --head <sha> --grant <file> [--home <dir> --item <item>] [--dry-run]")
 if (home is None) != (item is None):
     die("--home and --item go together")
 if not re.fullmatch(r"[0-9a-f]{40}", head):
@@ -141,10 +138,6 @@ if home:
     live = live_worker(home, item)
     if live:
         out(f"FAIL live worker {live}")
-if window:
-    q = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "ship-ticket", "quiet-hours.sh"), window], 30)
-    if q.returncode != 0 or q.stdout.strip() != "outside":
-        out("HELD quiet hours")
 try:
     text = open(grant, encoding="utf-8").read()
 except OSError as e:
