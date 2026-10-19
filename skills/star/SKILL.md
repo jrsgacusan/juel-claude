@@ -1283,9 +1283,12 @@ Where a step below says ask, it sends `orca orchestration ask --question "<quest
 waits for the reply; a reply of "No answer … escalate this." ends the run with
 `ESCALATION item=<name> phase=0 reason=unanswered-question needs=<the question>`.
 
-1. Read `<HOME_DIR>/memory/<project>.md` (HOME_DIR is two levels
-   above `--out`'s directory), and `mcps` in `<HOME_DIR>/star.json`: the research MCPs STAR's
-   session found (`available`, `needs-sign-in` or `absent`). Then, before step 2, when a file already exists at `--out`, read its
+1. Read the file `sh S/notes.sh --home <HOME_DIR> --shelf memory --project <project> path` prints
+   (HOME_DIR is two levels above `--out`'s directory; it is the notes every worker reads, or the old
+   `memory/<project>.md` while `notes` is `legacy`), and `mcps` in `<HOME_DIR>/star.json`: the research MCPs STAR's
+   session found (`available`, `needs-sign-in` or `absent`).
+   When `star.json`'s `notes` is `split`, also run `sh S/recall.sh --home <HOME_DIR> --kind note <the item's key words>` and copy each note in force that applies to this item under `## Notes that apply`, one line each: `- M-<nnnn> <title>: <text>`.
+   Never open the `memory/<project>/` folder itself. Then, before step 2, when a file already exists at `--out`, read its
    `## Feedback` section: the user's dated answers to earlier runs of this stage. `--feedback` is
    a bare flag that says there is something new there; the text itself is never put in the prompt,
    where a quote or a line break could change it. An answer there settles the question it answers (which tracker holds the ref, what a
@@ -1344,7 +1347,7 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    first: revise it to answer every entry under its `## Feedback` section (the user's dated answers
    to earlier drafts, kept there by STAR), keep the `## Feedback` section as it is, and keep every
    entry under `## Decisions` (records and dated lines), adding new records after them with the
-   next free `D<n>`.
+   next free `D<n>`. When a new record overrules or narrows an earlier one, end the earlier record with `Status: Superseded by D<m> (<why>)` or `Status: Amended by D<m> (<what>)`. A record written because of the owner's `## Feedback` is reported as `CORRECTED D<new> replaces D<old>`.
 
    ```markdown
    ---
@@ -1369,7 +1372,7 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    star:
      home: <HOME_DIR>
      project: <project>
-     notes: [<HOME_DIR>/memory/<project>.md]
+     notes: [<the path notes.sh path printed>]
      reviews: <HOME_DIR>/reviews/<project>
      gates: <HOME_DIR>/gates/<project>/<item>.json
      reports: <HOME_DIR>/reports/<project>
@@ -1387,12 +1390,15 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    - <what is checked> | auto: <playwright, hidden-window, computer-use, api or cli>[ | helper: <path>]
    ## Person-only steps
    1. [<kind>] <what to do>
+   ## Notes that apply
+   - M-<nnnn> <title>: <text>   # or: none
    ## Decisions
    ### D1 <title> (<date>, decided by the brief worker)
    Context: <the question the item leaves open>
    Decision: <the choice>
    Consequences: <what it changes or rules out>
    Source: <a URL, a Mobbin screen or flow URL, a context7 library id and topic, or file:line>
+   Status: <Superseded or Amended> by D<m> (<why>)   # only on a record a later one overrules or narrows
    ```
 
    Acceptance criteria, by case. (1) The item's own and (2) any the user states in a `## Feedback`
@@ -1450,6 +1456,8 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    A brief names a file-name, path or id form only by quoting the rule the repository enforces it
    with (a checker, lint or pretest script, `file:line`); when it finds none, it names no form and
    the build follows the repository (#107).
+
+   **Search before deciding.** Before taking a decision, run `sh S/recall.sh --home <HOME_DIR> --kind decision <the question's key words>`. A library decision in force that fits this item is reused: write the record as `### D<n> <title> (<date>, reused L-<nnnn>)` with the library's `Decision:` and `Source: library L-<nnnn>`, and report `REUSED L-<nnnn>`. An earlier item's decision that fits is reused the same way: `### D<n> <title> (<date>, reused <item> D<m>)` with `Source: <item> D<m>, <its source>`, reported `REUSED <item>#D<m>`. Nothing fits: decide from sources, as above. Recall finds candidates; whether one fits this item is the worker's call, and a reused record is still a full record in this brief. Read at most the one record you reuse, never a whole earlier brief.
 
    **External ids are checked live** (#42). Every service slug, project id, DSN, hostname or
    account name the brief carries is checked where a CLI or API can reach it (`gh api`, the
@@ -1517,9 +1525,9 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    a `## Feedback` entry made part of the item impossible as written and you moved that part to a
    follow-up spec item, `<HOME_DIR>/items/<project>/<name>-followup.md` (`-followup-2` when that
    file exists; frontmatter `status: todo` and `title:`, then what is left to do and the feedback
-   that moved it), with a decision record that says what moved and why. Then `NEEDS-CRITERIA` (case 4 of
+   that moved it), with a decision record that says what moved and why. Then one `REUSED <ref>` line per reused record and one `CORRECTED D<new> replaces D<old>` line per corrected one, then `NEEDS-CRITERIA` (case 4 of
    step 6) when that applies, or `PROPOSED-CRITERIA` when any criterion ends in ` (proposed)`,
-   then at most one `NOTE: <one line>`, and at most one `STAR-ISSUE: <one line>` when STAR's own
+   then at most one `NOTE: <one line>` (`NOTE: always <text>` for a note every worker needs on every item), and at most one `STAR-ISSUE: <one line>` when STAR's own
    contract or tools got in the way (no project or ticket names). An item that holds more than one
    piece of work that could ship on its own is split instead: write each piece as a spec item,
    `<HOME_DIR>/items/<project>/<name>-<k>.md` (frontmatter `status: todo` and `title:`, then the
