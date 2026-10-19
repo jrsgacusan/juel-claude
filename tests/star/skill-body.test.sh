@@ -57,12 +57,11 @@ grep -q 'orca orchestration ask' "$SKILL" && pass "F16 workers ask through Orca"
 grep -q 'msg: <id>' "$SKILL" && pass "F15 question keeps its message id" || fail "F15 msg id"
 grep -q 'never overwrite an existing inbox file' "$SKILL" && grep -q 'git worktree list --porcelain' "$SKILL" && pass "F11 unique inbox files, real main checkout" || fail "F11 inbox"
 grep -q 'exactly `go`' "$SKILL" && pass "F18 a go is exact" || fail "F18 exact go"
-grep -q 'HH:MM-HH:MM@tz' "$SKILL" && pass "F19 quiet-hours rendering" || fail "F19 quiet hours format"
 grep -q 'moved=' "$SKILL" && grep -q 'mergefail=' "$SKILL" && pass "F18 moved and mergefail counters" || fail "F18 counters"
 # Handoff: away, night summaries, back
 grep -qF '`/juel:star away`' "$SKILL" && grep -qF '`/juel:star back`' "$SKILL" && pass "away and back commands" || fail "away/back commands"
 for c in start due summary end; do grep -q "handoff.sh --home HOME_DIR $c" "$SKILL" && pass "uses handoff.sh $c" || fail "uses handoff.sh $c"; done
-! grep -q -- '--quiet-hours always' "$SKILL" && grep -q 'Away holds no work' "$SKILL" && pass "away holds no work; quiet hours hold what goes out" || fail "away rule"
+grep -q 'Away holds no work' "$SKILL" && pass "away holds no work" || fail "away rule"
 grep -q 'sent.log' "$SKILL" && grep -q 'SENT ' "$SKILL" && pass "messages sent are logged" || fail "sent log"
 grep -q 'in the same turn' "$SKILL" && pass "chat answers are relayed in the same turn" || fail "same-turn relay"
 grep -q 'control: away' "$SKILL" && pass "away works from any session" || fail "away from anywhere"
@@ -82,7 +81,6 @@ grep -q 'worker-stop' "$SKILL" && grep -q 'never starts a second worker' "$SKILL
 grep -q 'add the same `go-merge` item again' "$SKILL" && pass "S18 a merge question is not lost to a chat answer" || fail "S18 go-merge reminder"
 grep -q 'PR was closed' "$SKILL" && grep -q '`babysit-queued`, `escalated` or `failed`' "$SKILL" && pass "S18 merged or closed PRs are noticed in every state, stopped rows included" || fail "S18 PR lifecycle"
 grep -q 'must be clean' "$SKILL" && pass "S18 a restarted build needs a clean worktree" || fail "S18 dirty restart"
-grep -q 'quiet-hours.sh' "$SKILL" && pass "S6 quiet hours are decided by the script" || fail "S6 quiet-hours.sh"
 grep -q -- '--reviewed' "$SKILL" && grep -q 'VERDICT item=<item> round=<k> SAFE findings=<n> head=<sha>' "$SKILL" && pass "S5 babysit gets the SAFE review as proof" || fail "S5 SAFE proof"
 grep -q '"notified"' "$SKILL" && ! grep -q 'notifiedThrough' "$T/star.json" && ! grep -q 'notifiedThrough' "$SKILL" && pass "S14 notifications tracked per item" || fail "S14 notified list"
 grep -q 'memory below 3 GB' "$SKILL" && pass "S14 a long memory hold reaches the user" || fail "S14 memory hold"
@@ -107,7 +105,6 @@ grep -q 'clears every counter except `hold=`, `last=`, `start=`, `tracker=`, `ba
 grep -q 'worker-stop' "$SKILL" && grep -q 'then `worker-release`' "$SKILL" && grep -q 'a dispatch STAR stopped itself' "$SKILL" && pass "T18 a stopped worker is released and its last report ignored" || fail "T18 stop then release"
 grep -q 'Before filling' "$SKILL" && pass "T18 the PR check runs before slots are filled" || fail "T18 PR check order"
 grep -q 'the time the message was sent plus 30 minutes' "$SKILL" && pass "T21 a replayed question is the same item" || fail "T21 question deadline"
-grep -q 'posts at the first tick outside' "$SKILL" && pass "T12 STAR posts nothing in quiet hours" || fail "T12 draft in quiet hours"
 ! grep -q -- '--feedback "<' "$SKILL" && grep -q -- '\[--feedback\]' "$SKILL" && pass "T12 feedback travels in the brief file, not in the prompt" || fail "T12 feedback in the prompt"
 grep -q '/tmp/juel.gate.<uid>.lock' "$SKILL" && ! grep -q 'HOME_DIR/gate.lock' "$SKILL" && pass "T1 the gate lock is one file per user" || fail "T1 gate lock path"
 # The coordinator looks after its workers
@@ -135,7 +132,6 @@ g "V16 a second answer cannot revive a dropped row" 're-read the row'
 g "V17 the automatic restart is per stage" '`restarts` goes back to 0'
 g "V18 a brief without criteria is not built on a bare approve" 'still says `NEEDS CRITERIA`'
 g "V20 a check that prints nothing is pending" 'no line, or an exit that is not 0'
-g "V21 an unreadable quiet window holds, for STAR too" 'anything but exit 0 with exactly `inside` or `outside`'
 g "V23 the feedback cursor is passed back as it is" 'opaque'
 g "V26 a lost queue item is noticed" '`missing`'
 g "V29 inbox files are read in order" 'in file-name order'
@@ -161,10 +157,10 @@ assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"age
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
-assert [k for k in d if k not in ("tokenCmd", "ownerApproval", "hostedDown", "ghLogin")] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert [k for k in d if k not in ("tokenCmd", "ownerApproval", "hostedDown", "ghLogin")] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
 assert d.get("tokenCmd") is None and d.get("ownerApproval") is None and d.get("hostedDown") is None and d.get("ghLogin") is None, d
 assert d["notified"] == [], d["notified"]
-for k in ("mcps", "gateDown", "quietHours", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
+for k in ("mcps", "gateDown", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
     assert d[k] is None, (k, d[k])
 PY2
 # STAR lives in the project
@@ -323,7 +319,7 @@ left=""; for gone in '| review | the item' '| fix | the item' '| screen | the it
   grep -qF -- "$gone" "$SKILL" && left="$left [$gone]"
 done
 [ -z "$left" ] && pass "the v1 stages and the reviewer prompt are gone" || fail "still there:$left"
-g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --unattended --brief <brief> [--quiet-hours <window>]`'
+g "ST1 the build stage runs one worker through the gate" '`/juel:ship-ticket --unattended --brief <brief>`'
 g "ST2 the brief stage can re-scope" '[--rescope HOME_DIR/reviews/<project>/<file>]'
 g "ST3 the gate is a script, not a stage" 'sh S/codex-gate.sh --brief <brief> --item <item> --round <k> --base <remote>/<baseBranch>'
 g "ST4 the gate's files" "\`<item>-r<k>.raw.md\`, Codex's own text"
@@ -352,7 +348,6 @@ g "MG4 a hosted reviewer stands in for the approval" 'adding `--hosted <hostedRe
 g "MG5 STAR merges through merge.sh" 'sh S/merge.sh <pr url> --head <head> --grant <grant path>'
 g "MG6 a merge-gate failure goes back to babysitting once" 'mergefail=1'
 g "MG7 without a hosted reviewer, someone else approves" 'waits for an approval from someone other than you'
-g "MG8 a merge in quiet hours waits" 'HELD quiet hours'
 g "MG9 merges are announced" 'merged <item>: PR #<n>'
 g "BS1 the batch summary" '## The batch summary and go'
 g "BS2 one message for the whole batch" 'Reply go, go except <items>, drop <item>, or tell me what to change.'
@@ -677,7 +672,6 @@ g "DASH13 the draft first line" '`to: slack <channelId> <threadTs>`'
 g "DASH14 the slack-reply queue item" '--kind slack-reply --project <p> --item slack'
 g "DASH15 the slack-reply options" 'Options: send (recommended) / rewrite: <how> / skip'
 g "DASH16 send posts through the Slack connector" '| `slack-reply` | send |'
-g "DASH17 quiet hours do not hold a send" 'Quiet hours do not hold it: the owner pressed send.'
 g "DASH18 no Slack connector holds the send" 'connect Slack in Claude Code to send <draft name>'
 g "DASH19 rewrite redrafts" '| `slack-reply` | `rewrite: <how>` |'
 g "DASH20 skip closes it" '| `slack-reply` | skip | close it |'
@@ -893,5 +887,9 @@ has "E152b it is a whole-text command" '`status`, `dashboard`, `dashboard --tail
 has "E152c it runs the script with the flag" '`sh S/dashboard.sh`, or `sh S/dashboard.sh --tailnet` for `dashboard --tailnet`.'
 has "E152d the token is the only key" 'the token in the link is its only key (#152)'
 has "E152e without the flag it only names the flag" 'Without the flag it prints one line naming the flag when nothing maps the port.'
+# lane b: #157 quiet hours are gone
+! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh' "$SKILL" && pass "Q157a STAR has no quiet hours" || fail "Q157a quiet hours still in STAR"
+g "Q157b away still limits notifications to escalations" 'only `escalation` items are notified'
+! grep -qF 'HELD quiet hours' "$SKILL" && pass "Q157c the merge gate has no HELD quiet hours row" || fail "Q157c HELD quiet hours row"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

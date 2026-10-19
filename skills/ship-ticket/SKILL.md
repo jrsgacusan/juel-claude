@@ -37,7 +37,7 @@ metadata:
         fallback: phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped
       - id: python3
         hard: false
-        why: executor-model.sh (every Phase 4) and, under --unattended, gate-lock.sh, run-gates.sh, quiet-hours.sh and screen-lock.sh run on it
+        why: executor-model.sh (every Phase 4) and, under --unattended, gate-lock.sh, run-gates.sh and screen-lock.sh run on it
         check: "command -v python3"
         fallback: Phase 4 dispatches codex on its own default model and says so; an unattended run stops with the preflight escalation
       - id: orca
@@ -173,10 +173,9 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` on the model `executor-model.sh` resolves (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
 | `--executor-model <id|latest-<family>>` | `star.json`'s `executor.model` under a `star:` brief, else `latest-luna` | The model `codex exec` runs the plan on. `executor-model.sh`, next to this file, resolves it from `codex debug models` |
 | `--executor-effort <level>` | `star.json`'s `executor.effort` under a `star:` brief, else `xhigh` | Its reasoning effort; a level the model lacks steps down to the highest it has |
-| `--quiet-hours <HH:MM-HH:MM@tz>` | off | Quiet window (may cross midnight), or the word `always` (the user is away: every moment is inside the window). Inside it, outward actions are held, not performed. `quiet-hours.sh` decides inside or outside. See "Unattended mode" |
 
 Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` worker,
-`/juel:ship-ticket --unattended --brief <project>/docs/superpowers/context/star/briefs/lstn/SAVI-1162.md --quiet-hours 22:00-07:00@Asia/Manila`
+`/juel:ship-ticket --unattended --brief <project>/docs/superpowers/context/star/briefs/lstn/SAVI-1162.md`
 
 `--fix-review` and `--screen-checks` were removed in v2, when STAR moved the codex gate loop into
 the build: a run given either stops at once. Under `--unattended` it prints
@@ -331,7 +330,7 @@ line:
 | PR opened | `PR item=<item> url=<url> draft` |
 | an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
 | a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
-| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready (outside quiet hours) | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`, `sweep`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
+| build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`, `sweep`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
 | the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
@@ -459,7 +458,7 @@ are waiting on; the free text goes in the third field:
 | `live-check` | after each live check in Phase 6, naming the check and its verdict |
 | `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix); while it waits for the gate lock, `gate-lock.sh --progress` writes this step itself every 10 minutes |
 | `gate-r<k>` | right before gate round `k` starts (`gate-r1`, `gate-r2`, …) |
-| `post-pass` | right before `post-pass`, and before each quiet-hours wait for it |
+| `post-pass` | right before `post-pass` |
 | `ready` | after the PR is marked ready (the codex gate loop, step 3) |
 | `sync` | right before merging the base branch in (an `existingPr`) |
 | `report` | right before the final report line |
@@ -586,26 +585,6 @@ conventions", Phase 5 reviews against `baseBranch`, and Phase 7 opens the PR wit
 not for a new one. Its `branch` is the PR's head branch, already checked out and tracking the
 remote. Bring it up to date by merging `<remote>/<baseBranch>` in, never by rebasing, and never
 force-push. Phase 7 updates that PR instead of opening one.
-
-**Quiet hours.** With `--quiet-hours`, check the window at the moment of each outward action, not
-once at the start — a run that starts before the window and acts inside it must still hold. Never
-work the window out by hand; `quiet-hours.sh`, next to this file, prints `inside` or `outside`:
-
-```sh
-sh <quiet-hours.sh> "<the --quiet-hours value>"    # 22:00-07:00@Asia/Manila, or always
-```
-
-A result that is anything but `inside` or `outside` (exit 64, a missing script on an older install,
-no `python3`, an empty line) is never read as outside: hold the action as if inside. Run it once
-before Phase 1 as well: any such result there means the window cannot be judged, and the run stops with
-`ESCALATION item=<item> phase=0 reason=preflight needs=a valid --quiet-hours window (<its message>)`,
-because guessing could send something while the user is away. `always` is inside at every moment.
-
-Inside the window, the phase 7 status write becomes a `HELD` line. Marking the PR ready waits too:
-outside the window the build marks it ready after its final SAFE round (the codex gate loop, step
-3), and inside it the babysit stage marks it ready once the window ends. Replying to reviewers and
-re-requesting review happen later, in the babysit stage, which gets the same window.
-Pushing commits and opening a **draft** PR are not outward in this sense and proceed.
 
 **Gate lock.** Under `--unattended`, every heavy command — Phase 5's targeted tests after
 remediation, the Phase 6 regression gate, and the heavy verification commands in the plan Codex
@@ -1188,7 +1167,7 @@ the evidence directory. Ask to proceed to PR.
      appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
      then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
      `PR item=<item> url=<url> existing`.
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. The build marks it ready after its final SAFE round (the codex gate loop, step 3), outside quiet hours; inside them the babysit stage marks it ready after the window.
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. The build marks it ready after its final SAFE round (the codex gate loop, step 3).
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 
@@ -1199,7 +1178,7 @@ the evidence directory. Ask to proceed to PR.
    | `github` | `gh label create status:in-review --force`, then `gh issue edit <n> --add-label status:in-review`, adding `--remove-label status:in-progress` only when the issue has that label |
    | `file` | rewrite the spec file's status marker to `in_review`. With `--brief`, the file is the brief's `item.path` (an absolute path in the main checkout), never a file in this worktree |
 
-   **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.** Under `--quiet-hours` inside the window, or when the provider has `update_status` but this host cannot reach it, print `HELD item=<item> action=set status in_review via <source>` instead of writing.
+   **If the provider has no `update_status` capability** — including when no tracker was ever resolved for this run — print exactly one line, `Status: skipped (provider '<x>' has no status field)`, and continue. **This is not a failure and must not block the PR.** When the provider has `update_status` but this host cannot reach it, print `HELD item=<item> action=set status in_review via <source>` instead of writing.
 5. Return the PR URL — or, if `gh` was unavailable, the compare URL — to the user.
 
 Trailers: apply the detected convention from "Base branch & repo conventions" above (zero `Co-Authored-By:` history → omit; do not impose a trailer the repo's own commit history doesn't use).
@@ -1229,17 +1208,11 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    The build never pings or comments to the hosted reviewer on the PR at any point (no
    `@greptileai`, no review request): marking the PR ready is the only thing that starts its run,
    and a ping on top of it would start a second run on the same head (#122). A PR that is
-   already ready is left as it is. Inside quiet hours (`quiet-hours.sh` says `inside`,
-   or anything but `outside`), leave the PR a draft and print no `HELD` line for it: the babysit
-   stage marks it ready after the window. Then end the run with
+   already ready is left as it is. Then end the run with
    `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
    `post-pass` printing `ERROR …`: wait a minute and run it once more; a second `ERROR` is
-   `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`. On a PR that is
-   no longer a draft (a resumed build), inside quiet hours, the PASS comment is an outward action:
-   wait for the window to end (foreground waits of at most 540 s, a progress line before each), then
-   post it and report `DONE`. Under `--quiet-hours always` there is no end to wait for: do not wait,
-   print `HELD item=<item> action=post the codex PASS` and end with
-   `ESCALATION item=<item> phase=7 reason=needs-human-input needs=post the codex PASS on <url> when you are back`.
+   `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`.
+   A resumed build on a ready PR posts its PASS comment at once.
 4. `NOT-SAFE …`: when this is the run's `gate.maxRounds`-th NOT-SAFE round (3 by default),
    go straight to step 5, before any fix. Otherwise read that review file's findings. Validate each
    `[P0]` and `[P1]` finding with `superpowers:receiving-code-review` against the brief; one outside

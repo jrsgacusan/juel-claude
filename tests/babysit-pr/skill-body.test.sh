@@ -25,10 +25,7 @@ grep -q '^## Unattended mode' "$SKILL" && pass "unattended mode documented" || f
 grep -q 'Always the foreground form with `--max-seconds 540`' "$SKILL" && pass "unattended waits in the foreground" || fail "unattended foreground wait"
 grep -q 'READY item=<item> pr=<url> head=<pushed sha>' "$SKILL" && pass "unattended READY line" || fail "READY line"
 grep -q 'Never mark it ready a second time' "$SKILL" && pass "marked ready once" || fail "mark-ready once"
-grep -q '\*\*deferred\*\*' "$SKILL" && pass "quiet hours defer reviewer-facing actions" || fail "quiet-hours deferral"
-grep -q 'Fixes, gates and pushes never wait' "$SKILL" && pass "pushes continue in quiet hours" || fail "pushes in quiet hours"
 grep -q 'wait for CI and the approval' "$SKILL" && pass "READY waits for CI" || fail "READY waits for CI"
-grep -q 'Nothing deferred is lost' "$SKILL" && pass "deferred actions flushed or held" || fail "deferred flush"
 grep -q '| `--since <iso>` |' "$SKILL" && pass "resumable cursor" || fail "--since cursor"
 grep -q 'reason=no-review' "$SKILL" && pass "review wait is bounded" || fail "no-review bound"
 grep -q 'when `decision` is null' "$SKILL" && pass "approval without required review" || fail "null decision approval"
@@ -49,12 +46,10 @@ grep -q 'at most 12 lines' "$SKILL" && pass "report capped at 12 lines" || fail 
 grep -q 'DRAFT <path>' "$SKILL" && grep -q 'candidate decisions' "$SKILL" && pass "ambiguous review comes with a draft" || fail "DRAFT on ambiguous review"
 grep -q 'MERGED item=<item> pr=<url>' "$SKILL" && pass "a merge seen while babysitting is reported" || fail "MERGED report"
 grep -q 'cursor=<last cursor>' "$SKILL" && grep -q 'ESCALATION item=<item> phase=8 reason=<reason> cursor=' "$SKILL" && pass "escalations carry the cursor" || fail "escalation cursor"
-grep -q 'one `HELD` line for all deferred' "$SKILL" && pass "deferred actions fit the 12-line cap" || fail "aggregate HELD"
 grep -q 'star.notes' "$SKILL" && grep -q '## Decisions' "$SKILL" && pass "reads notes and decisions first" || fail "notes and decisions"
 grep -q 'SENT replies=<n> review-requests=<m>' "$SKILL" && pass "reports what it sent" || fail "SENT line"
 # Stress test pass fixes
 grep -q '| `--reviewed <path>` |' "$SKILL" && grep -q 'reason=no-safe-verdict' "$SKILL" && pass "S5 mark-ready needs a SAFE review on this head" || fail "S5 SAFE proof"
-grep -q 'quiet-hours.sh' "$SKILL" && ! grep -q 'date +%H:%M' "$SKILL" && grep -q '`always`' "$SKILL" && pass "S6 the quiet window is decided by the script" || fail "S6 quiet-hours.sh"
 grep -q 'reason=ci-stuck' "$SKILL" && pass "S15 the CI wait is bounded" || fail "S15 ci-stuck"
 grep -q 'reason=gate-busy' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-busy"
 grep -q 'commit.oid' "$SKILL" && pass "S8 approvals are matched to the head commit" || fail "S8 approval by commit"
@@ -63,16 +58,13 @@ grep -q 'never dropped to fit' "$SKILL" && pass "S11 the report keeps what STAR 
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && pass "T1 no gate lock path to pass" || fail "T1 gate lock path"
 grep -q 'taken from the repo root' "$SKILL" && ! grep -q '(cd <cwd> && <cmd>)' "$SKILL" && pass "T9 each gate runs from the repo root" || fail "T9 gate cwd"
 grep -q 'at least 7 characters' "$SKILL" && grep -q 'newest review file' "$SKILL" && pass "T5 the SAFE proof must be exact and current" || fail "T5 SAFE proof"
-grep -q 'anything but `inside` or `outside`' "$SKILL" && pass "T6 a broken quiet-hours check holds, never sends" || fail "T6 quiet helper failure"
 grep -q '| `draft` |' "$SKILL" && grep -q 'reason=pr-draft-again' "$SKILL" && grep -q "the snapshot's \`base\`" "$SKILL" && pass "T6 a PR made draft again or retargeted is not reported ready" || fail "T6 draft and base"
 grep -q 'reason=blocked-without-feedback' "$SKILL" && pass "T13 a bot-only block does not wait 72 hours" || fail "T13 bot-only block"
 grep -q 'ask the coordinator' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
-grep -q 'again right before a deferred' "$SKILL" && pass "R3 a deferred mark-ready re-checks the proof" || fail "R3 deferred mark-ready"
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
 g "B1 gates run from the manifest, never from a hand-quoted string" 'run-gates.sh'
 g "B2 the SAFE proof is checked by the script" 'review-proof.sh'
-g "B3 an approved PR waits out the quiet window without spinning" '--hold-approval'
 g "B4 escalations carry the cursor the round started from" 'the cursor this round started from'
 g "B5 READY waits for checks whether or not Phase 4 pushed" 'whether or not Phase 4 pushed'
 g "B5 a head with no checks yet is not green at once" 'no checks reported'
@@ -133,7 +125,7 @@ grow "G66d babysit reruns the same round after an ERROR" 'run the same round onc
 grow "G63c babysit passes the evidence folder" '--evidence <its "evidenceDir">'
 grow "G71b babysit reads only the verdict line" 'read only the last line of its output'
 grow "G64b babysit quotes a gate-down line whole" 'quoted whole: an `ERROR gate-down'
-# Issue #69: the build marks ready; babysit only when quiet hours kept it a draft
+# Issue #69: the build marks ready; babysit marks ready only a PR the build left a draft
 g "Y69f mark-ready does nothing on a ready PR" 'A PR the build already marked ready is left as it is'
 g "Y69g pass 1 is the review started on ready, by either stage" 'Pass 1 is the review it started when the PR was marked ready, by the build or by this skill.'
 grep -q 'Never mark it ready a second time' "$SKILL" && pass "Y69h still never marked ready twice" || fail "Y69h still never marked ready twice"
@@ -253,7 +245,6 @@ mrow "R9c the newest SAFE review is the starting point" 'the newest `<star.revie
 mrow "R9d carry-check judges the current head" 'sh <carry-check.sh> --from <its head=> --head <the PR'"'"'s current headRefOid> --base <remote>/<base>'
 mrow "R9e a carry is proof as well" '`OK carried from …` is proof as well'
 mrow "R9f any other NO still escalates" 'Any other `NO …`'
-mrow "R9g the deferred ready re-checks the proof" 'again right before a deferred'
 
 # lane g: step 0a, the hosted log, the round count, messages, gate once per PR, CI and dependencies (#109, #96, #108, #99, #97, #102, #105)
 g "#109i babysit's Phase 3 merges the base only when the PR conflicts" 'It merges the base branch in only when the PR conflicts with it (a `behind` PR is synced in Phase 4)'
@@ -367,5 +358,9 @@ has "#131 the fix covers every site of the pattern" "$R131b"
 # lane c: #143 a stalled gate (exit 125) is gate-unavailable here too, never a red gate
 gates_row=$(grep -F '| gates run directly |' "$SKILL")
 printf '%s\n' "$gates_row" | grep -qF 'Exit 71, 124 or 125 (the gate could not run, ran past its time limit, or stalled: it printed nothing for `--idle-max` seconds) → `ESCALATION item=<item> phase=8 reason=gate-unavailable needs=<the script'"'"'s message>`, never a red gate and never run again' && pass "C143f babysit reads exit 125 as a stalled gate" || fail "C143f babysit reads exit 125 as a stalled gate"
+# lane b: #157 quiet hours are gone
+! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh|quiet window' "$SKILL" && pass "Q157d babysit-pr has no quiet hours" || fail "Q157d quiet hours still in babysit-pr"
+! grep -qF 'Nothing deferred is lost' "$SKILL" && pass "Q157e no deferred-command paragraph" || fail "Q157e deferred paragraph"
+g "Q157f away is not a reason to wait" 'nothing holds marking ready, replies, review requests or the `@greptileai` comment'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
