@@ -6,7 +6,7 @@
 #     -> "none" when nothing matches
 #     -> with --json: one JSON object per hit, one per line (kind, ref, item, status, title, excerpt,
 #        project, date, path relative to the home); no hidden line; nothing when there is no hit
-#   recall.sh [--home H] rebuild   -> indexed <n> files
+#   recall.sh [--home H] rebuild   -> indexed <n> files   (only alone: with any other option it is a search word)
 # <kind> printed is library, decision, note or release; --kind decision matches library and decision.
 # --limit defaults to 5, at most 20. Each word is reduced to its letters, digits, - and _, so search
 # syntax in the words is only words. Library notes rank first, then by match, then newer first.
@@ -282,7 +282,7 @@ def locked(home, fn):
 
 
 def one_line(text):
-    return re.sub(r"[\r\n\t]+", " ", text or "")
+    return re.sub(r"[\r\n\t]+", " ", text or "").strip()
 
 
 def main():
@@ -321,7 +321,9 @@ def main():
         if not re.fullmatch(r"\d+", limit) or not 1 <= int(limit) <= 20:
             die(64, "--limit must be a whole number from 1 to 20")
         n = int(limit)
-    rebuild = words == ["rebuild"]
+    # rebuild is the command only alone: any other option makes it a word to search for
+    rebuild = words == ["rebuild"] and kind is None and limit is None and project is None \
+        and not show_all and not as_json
     runs = []
     if not rebuild:
         for w in words:

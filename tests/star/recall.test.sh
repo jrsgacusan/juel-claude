@@ -150,5 +150,10 @@ R 'hosted* AND "review' 'NEAR(' ':ready' | grep -q 'L-0001' && pass "FTS syntax 
 # a brief with no front matter end or no Decisions is skipped quietly
 printf -- '---\napproved: x\n## Decisions\n### D1 Broken\n' > "$H/briefs/app/e.md"; R broken >/dev/null 2>&1; [ $? -eq 0 ] && pass "a malformed brief does not fail a search" || fail "malformed"
 
+# review fixes: "rebuild" with any option is a search word; no trailing space
+printf -- '---\napproved: 2026-10-16T00:00:00Z\n---\n## Decisions\n### D1 Rebuild the cache nightly (2026-10-16, decided by the brief worker)\nDecision: rebuild it\n' > "$H/briefs/app/r.md"
+R --kind decision rebuild | grep -q '^decision r#D1 · active · Rebuild the cache nightly · ' && pass "rebuild with --kind is a search" || fail "rebuild as a word ($(R --kind decision rebuild))"
+R --json --limit 20 rebuild | grep -q '"ref": "r#D1"' && pass "rebuild with --json is a search" || fail "rebuild json ($(R --json --limit 20 rebuild))"
+R --kind decision hosted review | grep -q ' $' && fail "a line ends with a space" || pass "no trailing space"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
