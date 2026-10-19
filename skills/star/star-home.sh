@@ -2,7 +2,9 @@
 # The one place that knows where a project's STAR folder is, and brings an old one up to date.
 #   star-home.sh [--cwd <dir>] path      print the folder for the repo containing <dir> (default: here)
 #   star-home.sh [--cwd <dir>] init      create it from the template when missing, make git ignore it,
-#                                        print it. Safe to repeat; never overwrites a file.
+#                                        print it. Safe to repeat; never overwrites a file. It makes
+#                                        library/ and builds/ beside the other folders and copies
+#                                        library.base and notes.base (the Obsidian tables) from the template.
 #   star-home.sh [--cwd <dir>] migrate   bring a v1 folder to star.json schema 2 (STAR's closed loop):
 #                                        prints one "stop <dispatch>" per worker of a removed stage,
 #                                        then "migrated gate" when it moved a v2.0.0 gate to Sol,
@@ -67,7 +69,8 @@ import sys
 from datetime import datetime, timezone
 
 SUBDIRS = ("inbox", "briefs", "reviews", "gates", "releases", "drafts", "memory", "specs", "reports",
-           "items", "grants", "progress", "evidence")
+           "items", "grants", "progress", "evidence", "library", "builds")
+BASES = ("library.base", "notes.base")
 FILES = ("open-loops.md", "ledger.md", "star.json")
 V2_DEFAULTS = {
     "executor": {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"},
@@ -594,6 +597,12 @@ lock = open(os.path.join(home, "init.lock"), "w")
 fcntl.flock(lock, fcntl.LOCK_EX)
 for d in SUBDIRS:
     os.makedirs(os.path.join(home, d), exist_ok=True)
+for name in BASES:  # the Obsidian tables: copied when missing, never over an edited one
+    target = os.path.join(home, name)
+    if not os.path.exists(target):
+        tmp = f"{target}.tmp.{os.getpid()}"
+        shutil.copyfile(os.path.join(os.environ["STAR_SKILL_DIR"], "template", name), tmp)
+        os.replace(tmp, target)
 if cmd == "migrate":
     migrate()
     sys.exit(0)

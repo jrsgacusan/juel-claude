@@ -1,0 +1,27 @@
+filters:
+  and:
+    - file.inFolder("memory")
+views:
+  - type: table
+    name: Notes in force
+    filters:
+      and:
+        - 'status == "active"'
+    groupBy:
+      property: note.always
+      direction: DESC
+    order:
+      - note.id
+      - note.kind
+      - note.title
+      - note.since
+  - type: table
+    name: All notes
+    groupBy:
+      property: note.status
+      direction: ASC
+    order:
+      - note.id
+      - note.kind
+      - note.title
+      - note.replacedBy

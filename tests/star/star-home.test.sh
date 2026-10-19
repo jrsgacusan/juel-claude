@@ -358,5 +358,13 @@ PY
 out=$(sh "$SCRIPT" --cwd "$QH1" migrate)
 [ "$out" = "$(printf 'migrated quiet-hours\nmigrated rows=0')" ] && ! grep -q quietHours "$HQ1/star.json" && pass "Q157 the v1 path drops quietHours too" || fail "quiet migrate v1 ($out)"
 
+# lane c: init starts the new notes layout, the Obsidian tables are copied once and never overwritten
+mkrepo "$TMP/lc1"; LC1=$(real "$TMP/lc1"); HC1=$(sh "$SCRIPT" --cwd "$LC1" init)
+[ -d "$HC1/library" ] && [ -d "$HC1/builds" ] && pass "lane c: init creates library and builds" || fail "lane c: library/builds missing"
+cmp -s "$HC1/library.base" "$ROOT/skills/star/template/library.base" && cmp -s "$HC1/notes.base" "$ROOT/skills/star/template/notes.base" && pass "lane c: init copies the two .base files" || fail "lane c: .base files"
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notes"]=="split"' "$HC1/star.json" && pass "lane c: a new star.json has notes split" || fail "lane c: notes key"
+echo custom > "$HC1/library.base"; sh "$SCRIPT" --cwd "$LC1" init >/dev/null
+[ "$(cat "$HC1/library.base")" = custom ] && pass "lane c: init keeps an edited .base file" || fail "lane c: .base overwritten"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
