@@ -157,9 +157,10 @@ assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"age
 assert d["hostedReviewer"] is None, d["hostedReviewer"]
 assert d["hostGate"] == {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25}, d["hostGate"]
 assert d["progressDeadlineMin"] == 30 and d["maxBriefs"] == 4 and d["maxParallel"] == 3 and d["maxInReview"] == 3
-assert [k for k in d if k not in ("tokenCmd", "ownerApproval", "hostedDown", "ghLogin")] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "gateDown", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
+assert [k for k in d if k not in ("tokenCmd", "ownerApproval", "hostedDown", "ghLogin")] == ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate", "hostedReviewer", "hostGate", "progressDeadlineMin", "mcps", "notes", "gateDown", "run", "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"], list(d)
 assert d.get("tokenCmd") is None and d.get("ownerApproval") is None and d.get("hostedDown") is None and d.get("ghLogin") is None, d
 assert d["notified"] == [], d["notified"]
+assert d["notes"] == "split", d["notes"]
 for k in ("mcps", "gateDown", "run", "terminal", "caffeinatePid", "heartbeat", "away", "project"):
     assert d[k] is None, (k, d[k])
 PY2
@@ -914,5 +915,41 @@ has "HO159h the follow-up takes over the parent's worktree" 'With a parent PR it
 has "HO159i and its tooling file" 'copied the parent'"'"'s `gates/<project>/<item>-tooling.md` to `<name>-tooling.md` when there is one'
 has "HO159j a hand-over item never falls to the new-PR rules" 'A check that fails (not `OPEN`, a fork, another author) is always `ESCALATION item=<name> phase=0 reason=needs-human-input needs=<url> cannot be continued: <why>`, never the new-PR rules below'
 has "LG156j one held item for all rows" 'once, one item for every row it holds (when that item is open, add nothing)'
+# lane f: the library, the notes folder, the builds folder and the migration lines
+has "RM1a migrated notes line" '`migrated notes=<n> item=sort-memory-notes` → say in one line "<n> notes moved to one file each; sort-memory-notes asks you to sort them". The row it added is briefed like any `inbox` row.'
+has "RM1b migrated evidence line" '`migrated evidence folders=<n> gb=<x>` → queue `--kind held` "evidence holds <n> dependency folders (<x> GB): remove them?" with the body "`sh S/worktree-clean.sh --evidence-report` lists them."'
+has "RM1c evidence answer" '`sh S/worktree-clean.sh --evidence-prune`'
+g "RM1d layout notes dir" 'memory/<project>/M-<nnnn>-<slug>.md'
+g "RM1e layout library" 'library/<project>/L-<nnnn>-<slug>.md'
+g "RM1f layout builds" 'builds/<item>/'
+g "RM1g star.json notes key" '"notes": "split",'
+g "RM1h star.json evidenceChecked key" '"evidenceChecked": "<iso>",'
+has "RM2a notes that apply" 'When `star.json`'"'"'s `notes` is `split`, also run `sh S/recall.sh --home <HOME_DIR> --kind note <the item'"'"'s key words>`. For each note in force that applies to this item, `sh S/notes.sh --home <HOME_DIR> --shelf memory --project <project> show M-<nnnn>` prints it whole on one line'
+has "RM2a2 an excerpt is never copied" 'Search excerpts are cut; never copy one.'
+has "RM2a3 the library decision is read whole" '`sh S/library.sh --home <HOME_DIR> --project <project> show L-<nnnn>` prints it whole'
+has "RM3i2 replace keeps kind and always" 'The new note keeps the old one'"'"'s kind and `always` unless `--kind` or `--always` says otherwise'
+has "RM2b search before deciding" '**Search before deciding.** Before taking a decision, run `sh S/recall.sh --home <HOME_DIR> --kind decision <the question'"'"'s key words>`.'
+has "RM2c recall finds candidates" 'Recall finds candidates; whether one fits this item is the worker'"'"'s call, and a reused record is still a full record in this brief.'
+has "RM2d status on overruled" 'When a new record overrules or narrows an earlier one, end the earlier record with `Status: Superseded by D<m> (<why>)` or `Status: Amended by D<m> (<what>)`.'
+has "RM2e corrected line" 'A record written because of the owner'"'"'s `## Feedback` is reported as `CORRECTED D<new> replaces D<old>`.'
+has "RM2f report lines" 'one `REUSED <ref>` line per reused record and one `CORRECTED D<new> replaces D<old>` line per corrected one'
+has "RM2g note always" 'NOTE: always <text>'
+g "RM2h template notes path" 'notes: [<the path notes.sh path printed>]'
+g "RM2i template section" '## Notes that apply'
+g "RM2j template status" 'Status: <Superseded or Amended> by D<m> (<why>)'
+has "RM3a NOTE goes through notes.sh" 'sh S/notes.sh --shelf memory --project <project> add --title "<the text'"'"'s first 80 characters>" --text "<text>" --source worker-note --from <item>'
+has "RM3b REUSED promotes" '`REUSED <item>#D<n>` → `sh S/library.sh --project <project> promote <item>#D<n> --source brief-worker`'
+has "RM3c recall before a mid-build answer" 'Before deciding, run `sh S/recall.sh --kind decision <the question'"'"'s key words>`: a library decision in force answers it, cited in `Source:`, so a mid-build answer never undoes the owner'"'"'s correction.'
+has "RM3d replaces" 'STAR'"'"'s reply says "replaces M-<nnnn>".'
+has "RM3e standing order" 'A standing order the owner gives is a rule note, never a new `star.json` key.'
+has "RM3f accept applies" 'On `accept` of the `sort-memory-notes` report, STAR runs `sh S/notes.sh --shelf memory --project <project> apply HOME_DIR/reports/<project>/sort-memory-notes.md`, says its `applied …` line, and the row → `done` with no post.'
+has "RM3g hard rule" '- Notes and library decisions are written only through `notes.sh` and `library.sh`; never read `memory/<project>/` or the old notes file into this session.'
+has "RM3h mistake decide again" '| Deciding again what the library already answers | `recall.sh --kind decision` first; reuse it and cite it |'
+has "RM3i mistake standing key" '| Keeping an owner'"'"'s standing order as a new `star.json` key | A rule note: `notes.sh add --kind rule --source owner` |'
+has "RM3j mistake reading notes" '| Reading the notes folder or the old notes file to answer a worker | `recall.sh --kind note` finds them and `notes.sh show M-<nnnn>` prints one whole, one line each |'
+has "RM3k batch header notes count" '· notes every worker reads: <n>'
+has "RM3l two decision lines" 'New decisions (<n>): D<n> <title>'
+g "RM3m reused line" 'Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>)'
+! grep -qF 'trim memory/<project>.md' "$SKILL" && pass "RM3n the 80-line trim rule is gone" || fail "RM3n trim rule still there"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

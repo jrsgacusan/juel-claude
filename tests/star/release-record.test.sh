@@ -103,5 +103,21 @@ grep -qx -- "- Evidence: $H/evidence/ev/" "$out20" && pass "the record names whe
 grep -q 'under its docs root' "$out20" && fail "the record still points into a folder that will be removed" || pass "the worktree line no longer points at the evidence"
 grep -qx -- '- Evidence: none found' "$out3" && pass "a worktree with no evidence says none found" || fail "no-evidence line ($(grep Evidence "$out3"))"
 
+# lane d: the build docs line and a big evidence folder's size
+grep -qx -- "- Evidence: $H/evidence/ev/" "$out20" && sed -n '/^- Evidence:/{n;p;}' "$out20" | grep -qx -- '- Build docs: none found' && pass "no spec or plan anywhere says Build docs: none found" || fail "build docs none ($(grep -A1 Evidence "$out20"))"
+mkdir -p "$TMP/wt2/docs/superpowers/plans"; echo p > "$TMP/wt2/docs/superpowers/plans/p.md"
+printf '| bd | bd | lstn | %s | ready | - | 1 | t | d | 0 | https://github.com/o/lstn/pull/21 | abc1234 | - | - | - | now |\n' "$TMP/wt2" >> "$H/ledger.md"
+sed -e 's/"number":12/"number":21/' -e 's#pull/12#pull/21#' "$TMP/merged.json" > "$TMP/merged21.json"
+out21=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged21.json" sh "$SCRIPT" --home "$H" --project lstn --item bd --pr 21)
+[ "$(sed -n '/^- Evidence:/{n;p;}' "$out21")" = "- Build docs: $H/builds/bd/" ] && pass "a plan in the worktree names the builds folder right after Evidence" || fail "build docs line ($(grep -A1 Evidence "$out21"))"
+mkdir -p "$H/builds/only"
+printf '| only | only | lstn | - | ready | - | 1 | t | d | 0 | https://github.com/o/lstn/pull/22 | abc1234 | - | - | - | now |\n' >> "$H/ledger.md"
+sed -e 's/"number":12/"number":22/' -e 's#pull/12#pull/22#' "$TMP/merged.json" > "$TMP/merged22.json"
+out22=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged22.json" sh "$SCRIPT" --home "$H" --project lstn --item only --pr 22)
+grep -qx -- "- Build docs: $H/builds/only/" "$out22" && pass "an existing builds folder is named" || fail "builds folder only ($(grep 'Build docs' "$out22"))"
+grep -q '^- Evidence: .* GB)$' "$out20" && fail "a small evidence folder got a size suffix" || pass "no size suffix under the limit"
+rm -f "$out20"; out20c=$(JUEL_EVIDENCE_GB_LIMIT=0 PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged20.json" sh "$SCRIPT" --home "$H" --project lstn --item ev --pr 20)
+grep -qx -- "- Evidence: $H/evidence/ev/ (0.0 GB)" "$out20c" && pass "evidence over the limit ends with its size" || fail "size suffix ($(grep Evidence "$out20c"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

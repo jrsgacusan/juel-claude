@@ -76,5 +76,17 @@ assert d["ownerApproval"] is None and keys.index("ownerApproval") == keys.index(
 assert d["hostedDown"] is None and keys.index("hostedDown") == keys.index("gateDown") + 1
 assert d["ghLogin"] is None and keys.index("ghLogin") == keys.index("tokenCmd") + 1
 PY
+# lane b: the coordinator hears the notes every worker reads
+cp "$T/star.json" "$H/star.json"
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["project"]={"name":"app"}; json.dump(d,open(p,"w"),indent=2)' "$H/star.json"
+owner term_A
+ctx() { run "$1" "$2" | python3 -c 'import json,sys; print(json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"])' 2>/dev/null; }
+NS() { sh "$ROOT/skills/star/notes.sh" --home "$H" --shelf memory --project app "$@"; }
+ctx "$TMP/app" term_A | grep -q 'Notes every worker reads' && fail "a notes line with no always note" || pass "no always note, no notes line"
+NS add --title 'Never post to Slack' --text 'draft only' --always >/dev/null
+NS add --title 'Second rule' --text 'x' --always >/dev/null
+NS add --title 'Plain note' --text 'y' >/dev/null
+ctx "$TMP/app" term_A | grep -qF 'Notes every worker reads (2): M-0001 Never post to Slack; M-0002 Second rule.' && pass "the coordinator hears the always set" || fail "always set ($(ctx "$TMP/app" term_A | tail -c 200))"
+out=$(run "$TMP/app" term_B); [ -z "$out" ] && pass "another terminal still hears nothing" || fail "another terminal ($out)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -11,10 +11,12 @@
 # The coordinator: it tells the one session that owns STAR for this project that it is the
 # coordinator, and how to pick up. It speaks only when star.json's "terminal" is this session's
 # ORCA_TERMINAL_HANDLE. Every other session, in this repo or anywhere, hears nothing.
-# It carries the standing rules, because the folder has no CLAUDE.md of its own.
+# It carries the standing rules, because the folder has no CLAUDE.md of its own, and the notes every
+# worker reads: the always set, from notes.sh list --always (at most 20, each title cut to 60 characters),
+# so the coordinator hears it again after every compaction. A notes.sh failure adds nothing.
 # Never fails a session: always exit 0.
 command -v python3 >/dev/null 2>&1 || exit 0
-STAR_HOOK_INPUT=$(cat) STAR_HOME_SH="$(cd "$(dirname "$0")" && pwd)/../skills/star/star-home.sh" python3 - <<'PY' 2>/dev/null
+STAR_HOOK_INPUT=$(cat) STAR_HOME_SH="$(cd "$(dirname "$0")" && pwd)/../skills/star/star-home.sh" STAR_NOTES_SH="$(cd "$(dirname "$0")" && pwd)/../skills/star/notes.sh" python3 - <<'PY' 2>/dev/null
 import json
 import os
 import subprocess
@@ -52,6 +54,18 @@ if handle and home and star.get("terminal") == handle:
             "files into this session. Merge only through merge.sh, when pr-verify.sh --merge-gate passes on the "
             "exact head and the item has the owner's go. Everything that matters is in those files, never "
             "only in chat: write the row before you act.")
+    project = star.get("project")
+    name = project.get("name") if isinstance(project, dict) else None
+    try:
+        listed = subprocess.run(["sh", os.environ["STAR_NOTES_SH"], "--home", home, "--shelf", "memory",
+                                 "--project", name, "list", "--always"],
+                                capture_output=True, text=True, timeout=10)
+        rows = [l.split("\t") for l in listed.stdout.splitlines() if l.strip()] if listed.returncode == 0 else []
+        shown = [r[0] + " " + r[-1][:60] for r in rows if len(r) >= 5][:20]
+        if shown:
+            text += " Notes every worker reads (" + str(len(rows)) + "): " + "; ".join(shown) + "."
+    except Exception:
+        pass
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}))
 PY
 exit 0

@@ -1,0 +1,26 @@
+filters:
+  and:
+    - file.inFolder("library")
+views:
+  - type: table
+    name: Decisions in force
+    filters:
+      and:
+        - 'status == "active"'
+    order:
+      - note.id
+      - note.title
+      - note.since
+      - note.source
+      - note.usedBy
+  - type: table
+    name: All decisions
+    groupBy:
+      property: note.status
+      direction: ASC
+    order:
+      - note.id
+      - note.title
+      - note.status
+      - note.replacedBy
+      - note.since

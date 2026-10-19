@@ -7,6 +7,7 @@ import { readBriefings } from "../readers/briefings.ts";
 import { slackDrafts } from "../readers/drafts.ts";
 import { listFiles } from "../readers/files.ts";
 import { readProgress } from "../readers/progress.ts";
+import { recall } from "../readers/recall.ts";
 import { readLedger, readQueue } from "../readers/star.ts";
 import type { Router } from "../router.ts";
 import type { Project } from "../types.ts";
@@ -23,7 +24,7 @@ type Hit = {
 const LIMIT = 50;
 const enc = encodeURIComponent;
 
-function searchProject(p: Project, q: string): Hit[] {
+async function searchProject(p: Project, q: string): Promise<Hit[]> {
   const out: Hit[] = [];
   const base = `/${enc(p.name)}`;
   const add = (
@@ -94,6 +95,37 @@ function searchProject(p: Project, q: string): Hit[] {
         item,
         `${base}/evidence?item=${enc(item)}`,
       );
+  // recall.sh matches stems the raw text does not contain, so no substring filter here.
+  const push = (
+    group: string,
+    title: string,
+    sub: string,
+    ref: string,
+    route: string,
+  ): void => {
+    out.push({ group, title, sub, ref, project: p.name, route });
+  };
+  for (const h of await recall(p.home, q)) {
+    const route = h.item
+      ? `${base}/progress?item=${enc(h.item)}`
+      : `${base}/progress`;
+    if (h.kind === "decision") {
+      const num = h.ref.split("#")[1] ?? h.ref;
+      const sub = `${h.item} ${num}`;
+      if (out.some((o) => o.group === "Decisions" && o.sub === sub)) continue;
+      push("Decisions", h.title, sub, num, route);
+    } else if (h.kind === "library") {
+      push("Decisions", `${h.ref} ${h.title}`, "library", h.ref, route);
+    } else if (h.kind === "release") {
+      push(
+        "Releases",
+        h.title,
+        h.item,
+        h.item,
+        `${base}/evidence?item=${enc(h.item)}`,
+      );
+    }
+  }
   return out;
 }
 
@@ -111,7 +143,7 @@ export function searchRoutes(router: Router, ctx: Ctx): void {
     const hits: Hit[] = [];
     for (const p of projects) {
       try {
-        hits.push(...searchProject(p, q));
+        hits.push(...(await searchProject(p, q)));
       } catch (err) {
         if (!all) throw err;
         ctx.log(

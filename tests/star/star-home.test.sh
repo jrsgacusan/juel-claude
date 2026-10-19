@@ -358,5 +358,90 @@ PY
 out=$(sh "$SCRIPT" --cwd "$QH1" migrate)
 [ "$out" = "$(printf 'migrated quiet-hours\nmigrated rows=0')" ] && ! grep -q quietHours "$HQ1/star.json" && pass "Q157 the v1 path drops quietHours too" || fail "quiet migrate v1 ($out)"
 
+# lane c: init starts the new notes layout, the Obsidian tables are copied once and never overwritten
+mkrepo "$TMP/lc1"; LC1=$(real "$TMP/lc1"); HC1=$(sh "$SCRIPT" --cwd "$LC1" init)
+[ -d "$HC1/library" ] && [ -d "$HC1/builds" ] && pass "lane c: init creates library and builds" || fail "lane c: library/builds missing"
+cmp -s "$HC1/library.base" "$ROOT/skills/star/template/library.base" && cmp -s "$HC1/notes.base" "$ROOT/skills/star/template/notes.base" && pass "lane c: init copies the two .base files" || fail "lane c: .base files"
+python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notes"]=="split"' "$HC1/star.json" && pass "lane c: a new star.json has notes split" || fail "lane c: notes key"
+echo custom > "$HC1/library.base"; sh "$SCRIPT" --cwd "$LC1" init >/dev/null
+[ "$(cat "$HC1/library.base")" = custom ] && pass "lane c: init keeps an edited .base file" || fail "lane c: .base overwritten"
+
+# lane c: migrate splits the old notes once (stubbed notes.sh and worktree-clean.sh), keeps the original, adds one item
+SK="$TMP/skill"; cp -R "$ROOT/skills/star" "$SK"
+cat > "$SK/notes.sh" <<'EOF'
+#!/bin/sh
+echo "notes.sh $*" >> "$STUB_CALLS"
+case " $* " in *" split "*) echo "split 3";; *" add "*) echo "added M-0009 /x";; esac
+EOF
+cat > "$SK/worktree-clean.sh" <<'EOF'
+#!/bin/sh
+echo "worktree-clean.sh $*" >> "$STUB_CALLS"
+echo "${STUB_REPORT:-total 0 gb=0.0}"
+[ -z "${STUB_FAIL:-}" ] || exit 3
+EOF
+export STUB_CALLS="$TMP/calls"
+SH="$SK/star-home.sh"
+lcnotes() { python3 - "$1" "$2" <<'PY'
+import json, sys
+p = sys.argv[1] + "/star.json"; d = json.load(open(p)); d.pop("notes", None); d.pop("evidenceChecked", None)
+d["project"] = {"name": "app"} if sys.argv[2] == "app" else None
+if sys.argv[2] == "app":
+    d["standing"] = {"maxParallel": "two at most", "blanketGo20261015": "go for everything tonight"}
+json.dump(d, open(p, "w"), indent=2)
+PY
+}
+mkrepo "$TMP/lc2"; LC2=$(real "$TMP/lc2"); HC2=$(sh "$SH" --cwd "$LC2" init); lcnotes "$HC2" app
+printf -- '- 2026-10-01 one\n- 2026-10-02 two\n- 2026-10-03 three\n' > "$HC2/memory/app.md"; : > "$STUB_CALLS"
+out=$(sh "$SH" --cwd "$LC2" migrate)
+[ "$out" = "$(printf 'migrated notes=3 item=sort-memory-notes\ncurrent')" ] && pass "lane c: migrate prints the notes line before current" || fail "lane c: notes line ($out)"
+[ "$(grep -c "^notes.sh --home $HC2 --shelf memory --project app split $HC2/memory/app.md$" "$STUB_CALLS")" = 1 ] && pass "lane c: one split call" || fail "lane c: split call ($(cat "$STUB_CALLS"))"
+grep -q -- "add --title maxParallel .*--kind rule --source migration" "$STUB_CALLS" && grep -q -- "add --title blanketGo20261015 .*--kind rule --source migration" "$STUB_CALLS" && pass "lane c: one add per standing key" || fail "lane c: add calls"
+cmp -s "$HC2/memory/app.md" "$HC2/memory/app.md.pre-notes" && pass "lane c: the original is kept as .pre-notes" || fail "lane c: .pre-notes"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["notes"]=="legacy" and "standing" in d' "$HC2/star.json" && pass "lane c: notes is legacy and standing stays" || fail "lane c: star.json after migrate"
+IT="$HC2/items/app/sort-memory-notes.md"
+[ "$(sed -n 1,5p "$IT")" = "$(printf -- '---\nstatus: todo\ntitle: Sort the memory notes into rules and facts\ndeliverable: report\n---')" ] && grep -q 'memory/app.md.pre-notes' "$IT" && [ "$(sh "$SK/ledger.sh" --home "$HC2" get sort-memory-notes state)" = inbox ] && pass "lane c: the sorting item and its row" || fail "lane c: item or row"
+cp "$IT" "$TMP/item.before"; : > "$STUB_CALLS"
+out=$(sh "$SH" --cwd "$LC2" migrate)
+[ "$out" = current ] && ! grep -q ' split ' "$STUB_CALLS" && cmp -s "$IT" "$TMP/item.before" && [ "$(sh "$SK/ledger.sh" --home "$HC2" list | grep -c sort-memory-notes)" = 1 ] && pass "lane c: a second migrate does nothing" || fail "lane c: second migrate ($out)"
+mkrepo "$TMP/lc3"; LC3=$(real "$TMP/lc3"); HC3=$(sh "$SH" --cwd "$LC3" init); lcnotes "$HC3" app
+out=$(sh "$SH" --cwd "$LC3" migrate)
+[ "$out" = current ] && python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["notes"]=="split"' "$HC3/star.json" && [ ! -e "$HC3/items/app/sort-memory-notes.md" ] && pass "lane c: no old notes file sets notes split" || fail "lane c: no notes file ($out)"
+mkrepo "$TMP/lc4"; LC4=$(real "$TMP/lc4"); HC4=$(sh "$SH" --cwd "$LC4" init); lcnotes "$HC4" none
+out=$(sh "$SH" --cwd "$LC4" migrate 2>&1)
+[ "$out" = current ] && pass "lane c: a null project has no notes step" || fail "lane c: null project ($out)"
+
+# lane c: the first migrate measures the dependency folders in evidence, once
+mkrepo "$TMP/lc5"; LC5=$(real "$TMP/lc5"); HC5=$(sh "$SH" --cwd "$LC5" init); lcnotes "$HC5" app; : > "$STUB_CALLS"
+out=$(STUB_REPORT='total 2 gb=1.6' sh "$SH" --cwd "$LC5" migrate)
+[ "$out" = "$(printf 'migrated evidence folders=2 gb=1.6\ncurrent')" ] && pass "lane c: migrate prints the evidence line before current" || fail "lane c: evidence line ($out)"
+grep -q "^worktree-clean.sh --home $HC5 --evidence-report$" "$STUB_CALLS" && python3 -c 'import json,sys; from datetime import datetime; datetime.strptime(json.load(open(sys.argv[1]))["evidenceChecked"], "%Y-%m-%dT%H:%M:%SZ")' "$HC5/star.json" && pass "lane c: the report ran and evidenceChecked is set" || fail "lane c: evidenceChecked"
+: > "$STUB_CALLS"; out=$(STUB_REPORT='total 2 gb=1.6' sh "$SH" --cwd "$LC5" migrate)
+[ "$out" = current ] && [ ! -s "$STUB_CALLS" ] && pass "lane c: a second migrate measures nothing" || fail "lane c: second evidence ($out)"
+mkrepo "$TMP/lc6"; LC6=$(real "$TMP/lc6"); HC6=$(sh "$SH" --cwd "$LC6" init); lcnotes "$HC6" app
+out=$(sh "$SH" --cwd "$LC6" migrate)
+[ "$out" = current ] && grep -q evidenceChecked "$HC6/star.json" && pass "lane c: a total of 0 prints nothing but sets the key" || fail "lane c: total 0 ($out)"
+mkrepo "$TMP/lc7"; LC7=$(real "$TMP/lc7"); HC7=$(sh "$SH" --cwd "$LC7" init); lcnotes "$HC7" app
+out=$(STUB_FAIL=1 STUB_REPORT='total 2 gb=1.6' sh "$SH" --cwd "$LC7" migrate 2>&1); rc=$?
+[ "$out" = current ] && [ "$rc" = 0 ] && ! grep -q evidenceChecked "$HC7/star.json" && pass "lane c: a failing report is best effort and leaves the key unset" || fail "lane c: failing report ($out)"
+
+# review fixes: migrate with the real notes.sh leaves the old file as it was, and a re-run after a failure adds nothing
+mkrepo "$TMP/realnotes"; RN=$(real "$TMP/realnotes"); HR=$(sh "$SCRIPT" --cwd "$RN" init)
+python3 - "$HR/star.json" <<'PYR'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["project"] = {"name": "app"}; d.pop("notes", None)
+d["standing"] = {"maxParallel": "two at most", "blanketGo20261015": "go for everything tonight"}
+json.dump(d, open(p, "w"), indent=2)
+PYR
+printf -- '- 2026-10-07 user: tracker is Linear.\n- 2026-10-08 SPH-60: w0 lags after a sleep.\n- 2026-10-09 user: drafts only.\n' > "$HR/memory/app.md"
+out=$(sh "$SCRIPT" --cwd "$RN" migrate)
+printf '%s\n' "$out" | grep -qx 'migrated notes=3 item=sort-memory-notes' && pass "real migrate: the notes line" || fail "real migrate line ($out)"
+cmp -s "$HR/memory/app.md" "$HR/memory/app.md.pre-notes" && pass "real migrate: the old notes file is unchanged" || fail "real migrate appended to the old file"
+[ "$(ls "$HR"/memory/app/M-*.md | wc -l | tr -d ' ')" = "5" ] && pass "real migrate: three notes and two standing orders" || fail "real migrate note count ($(ls "$HR"/memory/app/ | tr '\n' ' '))"
+python3 - "$HR/star.json" <<'PYR'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d.pop("notes", None); json.dump(d, open(p, "w"), indent=2)
+PYR
+sh "$SCRIPT" --cwd "$RN" migrate >/dev/null
+[ "$(ls "$HR"/memory/app/M-*.md | wc -l | tr -d ' ')" = "5" ] && cmp -s "$HR/memory/app.md" "$HR/memory/app.md.pre-notes" && pass "real migrate: a re-run after a failure adds nothing" || fail "real migrate re-run ($(ls "$HR"/memory/app/ | tr '\n' ' '))"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
