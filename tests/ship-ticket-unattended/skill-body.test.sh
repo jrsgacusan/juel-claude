@@ -340,7 +340,8 @@ printf '/docs/superpowers/\n/.superpowers/\n' >> "$IG/.git/info/exclude"
 has "A153i run interactively, the #145 repair still runs" 'Run interactively, the one exception is the #145 repair: when `git check-ignore -v -- <path>` shows the match comes from a `.gitignore` line that is exactly `superpowers/` or `.superpowers/`, make the second bullet'"'"'s replacement below, as its lone commit.'
 grep -qx 'product.' "$SKILL" && fail "A153j no stray wrapped line is left in Phase 2" || pass "A153j no stray wrapped line is left in Phase 2"
 # lane f: #160 a harness beside a deliverable is tooling, graded for safety only
-has "TL160f the build writes the tooling file" '`<star.gates>/<item>-tooling.md`'
+has "TL160f the build writes the tooling file beside the gate manifest" '`<item>-tooling.md` in the folder of the gate manifest (the folder of the file `star.gates` names, `<HOME_DIR>/gates/<project>/`; one path per line)'
+! grep -qF '<star.gates>/<item>-tooling.md' "$SKILL" && pass "TL160f2 no tooling file under the manifest's own path" || fail "TL160f2 tooling file under star.gates"
 has "TL160g the threshold is 20 files never imported" '20 or more files under one folder that the deliverable'"'"'s runtime code never imports'
 has "TL160h the cap line carries tooling=all" '`RESCOPE item=<item> reason=gate review=<the last review'"'"'s path> tooling=all`'
 has "TL160i tooling=all when every blocking finding is in tooling" 'when that round'"'"'s `tooling=` equals `p0 + p1`'

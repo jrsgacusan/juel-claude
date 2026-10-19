@@ -789,8 +789,9 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
 **Tooling** (#160). Under a `star:` brief, when the plan adds 20 or more files under one folder that
 the deliverable's runtime code never imports (a measurement harness, an eval or a benchmark tool)
 beside the item's deliverable, write that folder, with a trailing `/`, as a line of
-`<star.gates>/<item>-tooling.md` (one path per line), and take a decision record in the spec that
-names it and why. The codex gate grades those paths for safety only: a finding only there is
+`<item>-tooling.md` in the folder of the gate manifest (the folder of the file `star.gates` names,
+`<HOME_DIR>/gates/<project>/`; one path per line), and take a decision record in the spec that
+names it and why. Never create a folder named after `star.gates` itself: that path is a file. The codex gate grades those paths for safety only: a finding only there is
 `[P2]` at most unless the code opens a device, reads or sends a secret or user data, or plays sound.
 Never list a path the deliverable imports, the deliverable's own tests, or the deliverable itself
 when the item is the tool.
