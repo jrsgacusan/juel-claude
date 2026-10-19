@@ -1084,7 +1084,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      project folder: `claude auth status >/dev/null 2>&1` (no model call). It fails: keep the
      worker and change nothing on its row; queue `--kind held`
      "the Claude login is lost: run /login in any Claude Code session of this profile"
-     once for every row (when that item is open, add nothing), notify, say
+     once, one item for every row it holds (when that item is open, add nothing), notify, say
      "<n> workers wait for the Claude login" in the status line, and close the item on the first
      tick the check passes again. It passes:
      the restart rule ("Checking in") with step `login` and diagnosis `lost its Claude login`,
