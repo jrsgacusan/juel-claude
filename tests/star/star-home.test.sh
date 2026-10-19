@@ -424,5 +424,24 @@ mkrepo "$TMP/lc7"; LC7=$(real "$TMP/lc7"); HC7=$(sh "$SH" --cwd "$LC7" init); lc
 out=$(STUB_FAIL=1 STUB_REPORT='total 2 gb=1.6' sh "$SH" --cwd "$LC7" migrate 2>&1); rc=$?
 [ "$out" = current ] && [ "$rc" = 0 ] && ! grep -q evidenceChecked "$HC7/star.json" && pass "lane c: a failing report is best effort and leaves the key unset" || fail "lane c: failing report ($out)"
 
+# review fixes: migrate with the real notes.sh leaves the old file as it was, and a re-run after a failure adds nothing
+mkrepo "$TMP/realnotes"; RN=$(real "$TMP/realnotes"); HR=$(sh "$SCRIPT" --cwd "$RN" init)
+python3 - "$HR/star.json" <<'PYR'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d["project"] = {"name": "app"}; d.pop("notes", None)
+d["standing"] = {"maxParallel": "two at most", "blanketGo20261015": "go for everything tonight"}
+json.dump(d, open(p, "w"), indent=2)
+PYR
+printf -- '- 2026-10-07 user: tracker is Linear.\n- 2026-10-08 SPH-60: w0 lags after a sleep.\n- 2026-10-09 user: drafts only.\n' > "$HR/memory/app.md"
+out=$(sh "$SCRIPT" --cwd "$RN" migrate)
+printf '%s\n' "$out" | grep -qx 'migrated notes=3 item=sort-memory-notes' && pass "real migrate: the notes line" || fail "real migrate line ($out)"
+cmp -s "$HR/memory/app.md" "$HR/memory/app.md.pre-notes" && pass "real migrate: the old notes file is unchanged" || fail "real migrate appended to the old file"
+[ "$(ls "$HR"/memory/app/M-*.md | wc -l | tr -d ' ')" = "5" ] && pass "real migrate: three notes and two standing orders" || fail "real migrate note count ($(ls "$HR"/memory/app/ | tr '\n' ' '))"
+python3 - "$HR/star.json" <<'PYR'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); d.pop("notes", None); json.dump(d, open(p, "w"), indent=2)
+PYR
+sh "$SCRIPT" --cwd "$RN" migrate >/dev/null
+[ "$(ls "$HR"/memory/app/M-*.md | wc -l | tr -d ' ')" = "5" ] && cmp -s "$HR/memory/app.md" "$HR/memory/app.md.pre-notes" && pass "real migrate: a re-run after a failure adds nothing" || fail "real migrate re-run ($(ls "$HR"/memory/app/ | tr '\n' ' '))"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

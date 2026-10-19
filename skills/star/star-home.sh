@@ -328,7 +328,7 @@ def migrate_notes(data):
     for key, value in standing.items():
         text = value if isinstance(value, str) else json.dumps(value)
         run_skill("notes.sh", "--shelf", "memory", "--project", project, "add", "--title", key, "--text", text,
-                  "--kind", "rule", "--source", "migration")
+                  "--kind", "rule", "--source", "migration", "--once")
     item = os.path.join(home, "items", project, "sort-memory-notes.md")
     os.makedirs(os.path.dirname(item), exist_ok=True)
     create_new(item, ITEM_BODY.format(p=project))
