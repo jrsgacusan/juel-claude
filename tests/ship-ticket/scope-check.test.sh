@@ -328,5 +328,31 @@ out=$(cd "$TMP" && sh "$SCRIPT" --print "$R4/docs/plans/g.md" --repo-dir "$R4");
 want=$(printf 'scope src/a.sh\nscope src/b.sh\nscope tests/')
 [ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#134 a deeper label inside a nested block keeps the block open" || fail "#134 deeper label (rc=$rc: $out)"
 
+# lane a: #155, several line ranges after one path
+R5="$TMP/repo155"; mkdir -p "$R5/src" "$R5/docs/plans"
+h5() { git -C "$R5" "$@"; }
+git -c init.defaultBranch=main init -q "$R5"; h5 config user.email t@example.com; h5 config user.name t; h5 config commit.gpgsign false
+printf 'x\n' > "$R5/src/x.js"; printf 'y\n' > "$R5/src/y.js"
+h5 add -A; h5 commit -qm base; BASE5=$(h5 rev-parse HEAD)
+printf '**Files:**\n- Modify: `src/x.js:20-35, 90-105`\n' > "$R5/docs/plans/a.md"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R5/docs/plans/a.md" --repo-dir "$R5"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "scope src/x.js" ] && pass "#155a several ranges with spaces after the commas, backticked" || fail "#155a (rc=$rc: $out)"
+printf '**Files:**\n- Modify: `src/x.js:20-35 , 90-105 ,120`\n' > "$R5/docs/plans/b.md"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R5/docs/plans/b.md" --repo-dir "$R5"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "scope src/x.js" ] && pass "#155b spaces around the commas" || fail "#155b (rc=$rc: $out)"
+printf '**Files:**\n- Modify:\n  - src/x.js:20-35, 90-105\n  - src/y.js\n' > "$R5/docs/plans/c.md"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R5/docs/plans/c.md" --repo-dir "$R5"); rc=$?
+want=$(printf 'scope src/x.js\nscope src/y.js')
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#155c a bare list item with several ranges" || fail "#155c (rc=$rc: $out)"
+printf '**Files:**\n- Modify: src/x.js:20-35, 90-105\n' > "$R5/docs/plans/d.md"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R5/docs/plans/d.md" --repo-dir "$R5"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "scope src/x.js" ] && pass "#155d a bare label remainder with several ranges" || fail "#155d (rc=$rc: $out)"
+printf '**Files:**\n- Modify: `src/x.js:20-35, 90-105`, `src/y.js:3`\n' > "$R5/docs/plans/e.md"
+out=$(cd "$TMP" && sh "$SCRIPT" --print "$R5/docs/plans/e.md" --repo-dir "$R5"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "$want" ] && pass "#155e two backticked paths, the first with several ranges" || fail "#155e (rc=$rc: $out)"
+printf 'changed\n' > "$R5/src/x.js"
+out=$(cd "$TMP" && sh "$SCRIPT" "$R5/docs/plans/a.md" "$BASE5" --repo-dir "$R5"); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "ok" ] && pass "#155f a changed file named with several ranges is in scope" || fail "#155f (rc=$rc: $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
