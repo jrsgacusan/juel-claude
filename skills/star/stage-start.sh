@@ -62,7 +62,9 @@
 # throwaway terminal the way orca-ship-tickets does (only while "No, exit" is on screen, Down then
 # Enter, at most 3 rounds); the prompt; then task-create and worker-start. Both carry a
 # --retry-request id, so a STAR that died between a call and recording its result gets the same
-# task or dispatch back from Orca, never a second one.
+# task or dispatch back from Orca, never a second one. Orca takes only a UUID there (#163): the id is
+# the UUID5 of the STAR folder and star-<item>-<stage>-r<round>-s<n> (-w<attempt> for worker-start),
+# so a replay sends the same UUID and two projects never share one.
 # The row is written through ledger.sh before task-create (state, stage, round, counters.start
 # and counters.live), after it (task) and after worker-start (dispatch, live cleared). A row whose
 # counters still hold live= for this stage is a start that died: it is replayed with the same ids.
@@ -93,6 +95,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 
 S = os.environ["STAR_SKILL_DIR"]
@@ -785,6 +788,13 @@ ensure_trust(entry)
 spec = prompt()
 n = int(live) if replay and str(live).isdigit() else int(counters.get("start", "0") or 0) + 1
 rid = f"star-{item}-{stage}-r{round_}-s{n}"
+
+
+def request_id(key):
+    """Orca takes only a UUID as --retry-request (#163); the same folder and key give the same one."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"juel-star:{home}#{key}"))
+
+
 task = dispatch = None
 if replay:
     ledger("set", item, f"state={RUNNING[stage]}")
@@ -798,7 +808,7 @@ if task and dispatch:
     finish(f"started task={task} dispatch={dispatch}")
 if not task:
     made = run([orca, "orchestration", "task-create", "--spec", spec, "--task-title",
-                f"{item} {stage} r{round_}", "--retry-request", rid, "--json"], 60)
+                f"{item} {stage} r{round_}", "--retry-request", request_id(rid), "--json"], 60)
     task = ids(made.stdout, "task_")
     if made.returncode != 0 or not task:
         finish("failed task-create: " + why(made))
@@ -816,7 +826,7 @@ def worker_start(setting_, attempt, effort=None, retry_of=None):
             cmd += ["--effort", level]
     if retry_of:
         cmd += ["--retry-of", retry_of]
-    return run(cmd + ["--retry-request", f"{rid}-w{attempt}", "--json"], 540)
+    return run(cmd + ["--retry-request", request_id(f"{rid}-w{attempt}"), "--json"], 540)
 
 
 first, note = worker_start(entry, 1), ""

@@ -114,6 +114,8 @@ reset() { rm -f "$TMP/calls" "$TMP/ws" "$TMP"/ws-fail-* "$TMP/tr" "$TMP/dialog-a
 ST() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca STAR_FREE_GB=${FREE:-16} \
        STAR_AGENTS=${AGENTS:-3} STAR_SWAP_GB=${SWAP:-1} STAR_DISK_GB=${DISK:-500} \
        STAR_TRUST_POLL=0.01 CLAUDE_CONFIG_DIR="$TMP/cfg" sh "$SCRIPT" --home "$H" "$@"; }
+# the --retry-request a start sends: the UUID5 of the STAR folder and STAR's readable id (#163)
+rq() { python3 -c 'import sys, uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, "juel-star:" + sys.argv[1] + "#" + sys.argv[2]))' "$(cd "$H" && pwd)" "$1"; }
 
 # brief: in the main checkout, ids recorded, one-line spec, request ids
 reset
@@ -122,7 +124,7 @@ out=$(ST brief SPH-11)
 [ "$(L get SPH-11 state)" = "briefing" ] && [ "$(L get SPH-11 task)" = "task_aa11" ] && [ "$(L get SPH-11 dispatch)" = "ctx_bb1" ] && pass "the row is written" || fail "row ($(L get SPH-11))"
 [ "$(L get SPH-11 counters.start)" = "1" ] && [ "$(L get SPH-11 counters.live)" = "-" ] && pass "start=1, live cleared" || fail "counters ($(L get SPH-11 counters))"
 grep -q "task-create --spec /juel:star draft-brief SPH-11 --project app --item SPH-11 --out $H/briefs/app/SPH-11.md --task-title" "$TMP/calls" && pass "the brief prompt, on one line" || fail "brief prompt ($(cat "$TMP/calls"))"
-grep -q -- '--retry-request star-SPH-11-brief-r0-s1 ' "$TMP/calls" && grep -q -- "worker-start --task task_aa11 --worktree path:$APP .*--retry-request star-SPH-11-brief-r0-s1-w1" "$TMP/calls" && pass "request ids on both calls" || fail "request ids"
+grep -q -- "--retry-request $(rq star-SPH-11-brief-r0-s1) " "$TMP/calls" && grep -q -- "worker-start --task task_aa11 --worktree path:$APP .*--retry-request $(rq star-SPH-11-brief-r0-s1-w1)" "$TMP/calls" && pass "request ids on both calls" || fail "request ids"
 grep -q 'terminal create' "$TMP/calls" && fail "a trusted path opened a trust terminal" || pass "a trusted path needs no trust terminal"
 
 # the host gate: each of its four checks holds, and nothing is called
@@ -143,15 +145,15 @@ L set SPH-11 counters.rescope=- >/dev/null
 # Review Focus 4 (v1): a start that died before recording its task replays the same ids
 reset; L set SPH-11 stage=brief counters.start=7 counters.live=7 task=- dispatch=- >/dev/null
 ST brief SPH-11 >/dev/null
-grep -q -- '--retry-request star-SPH-11-brief-r0-s7 ' "$TMP/calls" && pass "a replay reuses the request id" || fail "replay id ($(cat "$TMP/calls"))"
+grep -q -- "--retry-request $(rq star-SPH-11-brief-r0-s7) " "$TMP/calls" && pass "a replay reuses the request id" || fail "replay id ($(cat "$TMP/calls"))"
 reset; ST brief SPH-11 >/dev/null
-grep -q -- '--retry-request star-SPH-11-brief-r0-s8 ' "$TMP/calls" && pass "a new start gets a new one" || fail "new id"
+grep -q -- "--retry-request $(rq star-SPH-11-brief-r0-s8) " "$TMP/calls" && pass "a new start gets a new one" || fail "new id"
 
 # worker-start: one retry with --retry-of; a refused effort steps down
 reset; printf '{"ok":false,"result":{"dispatch":{"id":"ctx_dead1"}},"error":{"message":"setup failed"}}\n' > "$TMP/ws-fail-1"
 out=$(ST brief SPH-11)
 case "$out" in "started task=task_aa11 dispatch=ctx_bb2") pass "a failed start is retried once" ;; *) fail "retry ($out)" ;; esac
-grep -q -- '--retry-of ctx_dead1 --retry-request star-SPH-11-brief-r0-s9-w2' "$TMP/calls" && pass "the retry links the failed dispatch" || fail "retry-of"
+grep -q -- "--retry-of ctx_dead1 --retry-request $(rq star-SPH-11-brief-r0-s9-w2)" "$TMP/calls" && pass "the retry links the failed dispatch" || fail "retry-of"
 reset; printf '{"ok":false,"error":{"message":"effort high is not supported by this model"}}\n' > "$TMP/ws-fail-1"
 ST brief SPH-11 >/dev/null; sed -n '$p' "$TMP/calls" | grep -q -- '--effort medium' && pass "a refused effort steps down one level" || fail "effort"
 
@@ -560,5 +562,9 @@ reset; L add SPH-82 ref=SPH-82 project=app >/dev/null; brief SPH-82; printf '## 
 ST brief SPH-82 >/dev/null
 grep -q -- "--out $H/briefs/app/SPH-82.md --feedback --task-title" "$TMP/calls" && pass "a brief's own ## Feedback still gives --feedback" || fail "brief feedback ($(grep task-create "$TMP/calls"))"
 
+# #163: Orca 1.4.230 takes only a UUID as --retry-request; two folders never share one
+reset; ST brief SPH-11 >/dev/null
+grep -o -- '--retry-request [^ ]*' "$TMP/calls" | cut -d' ' -f2 | grep -vqiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' && fail "#163 a request id Orca refuses ($(grep -o -- '--retry-request [^ ]*' "$TMP/calls"))" || pass "#163 every request id is a UUID"
+[ "$(rq star-SPH-11-brief-r0-s1)" != "$(python3 -c 'import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, "juel-star:/elsewhere/star#star-SPH-11-brief-r0-s1"))')" ] && pass "#163 another folder gets another id" || fail "#163 folder in the id"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
