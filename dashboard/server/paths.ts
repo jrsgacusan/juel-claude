@@ -13,3 +13,6 @@ export const juelDir = (): string => {
   const set = process.env.JUEL_DIR
   return set ? path.resolve(set) : path.join(os.homedir(), '.juel')
 }
+
+/** STAR's search script. A function, so a test can set JUEL_RECALL_SH after import. */
+export const recallSh = (): string => process.env.JUEL_RECALL_SH || path.join(REPO_ROOT, 'skills', 'star', 'recall.sh')
