@@ -893,5 +893,13 @@ has "E152b it is a whole-text command" '`status`, `dashboard`, `dashboard --tail
 has "E152c it runs the script with the flag" '`sh S/dashboard.sh`, or `sh S/dashboard.sh --tailnet` for `dashboard --tailnet`.'
 has "E152d the token is the only key" 'the token in the link is its only key (#152)'
 has "E152e without the flag it only names the flag" 'Without the flag it prints one line naming the flag when nothing maps the port.'
+# lane e: #159 #161 a capped PR goes on under one follow-up
+g "HO159a the hand-over paragraph" '**Handing a PR to a follow-up** (#159, #161).'
+g "HO159b the ledger call" '1. `sh S/ledger.sh add rescopedFrom=<item> review=<the review path>` prints'
+g "HO159c the RESCOPE row branches on tooling=all" 'A line that ends `tooling=all` (#160: every blocking finding left is in the paths the build marked tooling), on a row with a PR, no `counters.rescoped=1` and no `rescopedFrom:` in its brief'
+g "HO159d the escalation answer row" '| `escalation` | on "NOT-SAFE again after a re-scope", an answer that asks for a follow-up ("follow-up", "continue it as a follow-up") |'
+has "HO159e draft-brief continues a follow-up item file" 'An item file whose frontmatter has `existingPr: <url>` (a follow-up `ledger.sh add rescopedFrom=` wrote, #161) is such an item'
+g "HO159f the merge gate closes the parent" 'set that row `done` too and say "<parent> done with <item>" in the status line'
+g "HO159g the file row refuses a review path" 'never a path under `HOME_DIR/reviews/`: a row whose ref is one gets `--kind held`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
