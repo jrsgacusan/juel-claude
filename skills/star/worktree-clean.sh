@@ -2,7 +2,9 @@
 # Removes the Orca worktree of a finished STAR row when nothing in it would be lost.
 #   worktree-clean.sh [--home H] <item>
 #     -> removed <path> | kept <path>: <why> | none
-#        with "kept-evidence <H>/evidence/<item>/" on its own line first when evidence was copied
+#        with "kept-builds <H>/builds/<item>/" on its own line first when specs or plans were copied,
+#        then "kept-evidence <H>/evidence/<item>/" when evidence was copied, then
+#        "evidence-size <item> <x.x> GB" when that evidence is over 1 GiB
 # It removes the worktree only when all of these hold: the row is done or dropped; the path is not
 # the project's main checkout and no other open row names it; `git status --porcelain` is empty;
 # and the work is safe elsewhere: after a fetch from the project's remote, HEAD is contained in a
@@ -19,9 +21,18 @@
 # sits in (<main checkout>/<docsRoot>/context/star) and the plugin's defaults, docs/superpowers and
 # docs/.superpowers, since a build resolves docsRoot inside its own worktree. Evidence is
 # git-ignored, so git status never counts it: without this copy it would be removed with the folder.
+# The build's docs outlive it too: every specs/ and plans/ folder under those same docsRoots (the spec,
+# the plan, the review plan) is copied the same way, with the same size check, into
+# <H>/builds/<item>/specs/ and <H>/builds/<item>/plans/.
+# The evidence copy leaves out dependency and build folders (node_modules, .build, DerivedData, .venv,
+# venv, target, __pycache__, .gradle) and object files (*.o). Each skipped path is a line
+# "<path relative to the evidence folder>\t<bytes>" in <H>/evidence/<item>/skipped.txt (a folder's bytes
+# are its total). The size line counts what was copied, not what was skipped.
 # <why>: row is <state> | the main checkout | in use by <item> | not a git checkout |
-#        uncommitted changes | unpushed commits | evidence copy failed: <why> | orca: <message>
-# Test seam: ORCA_CLI_COMMAND.
+#        uncommitted changes | unpushed commits | evidence copy failed: <why> |
+#        build docs copy failed: <why> | orca: <message>
+# Test seams: ORCA_CLI_COMMAND; JUEL_EVIDENCE_GB_LIMIT (GiB, default 1) sets the size above which
+# "evidence-size" is printed.
 # Exit: 0 with one of the lines above; 2 the STAR folder or star.json cannot be read; 4 no row for
 # the item; 64 usage.
 STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/dev/null)}
@@ -59,6 +70,49 @@ def run(cmd, timeout=120):
         return 124, "", f"{cmd[0]} ran past {timeout} s"
     except OSError as e:
         return 127, "", f"cannot run {cmd[0]}: {e.strerror}"
+
+
+SKIP_DIRS = ("node_modules", ".build", "DerivedData", ".venv", "venv", "target", "__pycache__", ".gradle")
+GIB = 1024 ** 3
+
+
+def skip_listed(name, is_dir):
+    return name in SKIP_DIRS if is_dir else name.endswith(".o")
+
+
+def tree_bytes(path):
+    """Total size of a file, or of every file under a folder (links count as links)."""
+    if os.path.islink(path) or not os.path.isdir(path):
+        return os.lstat(path).st_size
+    total = 0
+    for top, dirs, files in os.walk(path):
+        for name in files + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
+            total += os.lstat(os.path.join(top, name)).st_size
+    return total
+
+
+def note_skipped(dest, rows):
+    """Append "<path>\t<bytes>" lines to <dest>/skipped.txt, leaving out lines already there."""
+    if not rows:
+        return
+    os.makedirs(dest, exist_ok=True)
+    listing = os.path.join(dest, "skipped.txt")
+    have = set()
+    if os.path.exists(listing):
+        have = set(open(listing, encoding="utf-8", errors="replace").read().splitlines())
+    with open(listing, "a", encoding="utf-8") as f:
+        for rel, size in rows:
+            line = f"{rel}\t{size}"
+            if line not in have:
+                f.write(line + "\n")
+                have.add(line)
+
+
+def gb_limit():
+    try:
+        return float(os.environ.get("JUEL_EVIDENCE_GB_LIMIT", "1"))
+    except ValueError:
+        return 1.0
 
 
 args, home = sys.argv[1:], os.environ.get("STAR_HOME_DEFAULT") or ""
@@ -99,8 +153,8 @@ def git_out(where, *a):
     return stdout.strip() if rc == 0 else ""
 
 
-def evidence_dirs(worktree):
-    """Each <docsRoot>/evidence/ folder the worktree holds: under the docsRoot STAR's home sits in,
+def doc_folders(worktree, sub):
+    """Each <docsRoot>/<sub>/ folder the worktree holds: under the docsRoot STAR's home sits in,
     and under the plugin's two default docsRoots."""
     roots = ["docs/superpowers", "docs/.superpowers"]
     real_home, main = os.path.realpath(home), os.path.realpath(repo)
@@ -110,40 +164,85 @@ def evidence_dirs(worktree):
         roots.insert(0, os.path.relpath(docs, main))
     found, seen = [], set()
     for rel in roots:
-        folder = os.path.join(worktree, rel, "evidence")
+        folder = os.path.join(worktree, rel, sub)
         if os.path.isdir(folder) and os.path.realpath(folder) not in seen:
             seen.add(os.path.realpath(folder))
             found.append(folder)
     return found
 
 
+def evidence_dirs(worktree):
+    return doc_folders(worktree, "evidence")
+
+
+def copy_checked(pairs, ignore=None):
+    """Copy each (src, dest) folder, then check every file arrived at its size. Returns (files
+    copied, skipped rows [(path under src, bytes)], bytes copied). Raises OSError or ValueError."""
+    skipped, copied, size = [], 0, 0
+
+    def ignorer(src):
+        def ignore_fn(top, names):
+            drop = []
+            for n in names:
+                full = os.path.join(top, n)
+                if ignore and skip_listed(n, os.path.isdir(full) and not os.path.islink(full)):
+                    drop.append(n)
+                    skipped.append((os.path.relpath(full, src), tree_bytes(full)))
+            return drop
+        return ignore_fn
+
+    for src, dest in pairs:
+        shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True, ignore=ignorer(src))
+    missing = 0
+    for src, dest in pairs:
+        for top, dirs, files in os.walk(src):
+            if ignore:
+                dirs[:] = [d for d in dirs if not (skip_listed(d, True) and not os.path.islink(os.path.join(top, d)))]
+                files = [f for f in files if not skip_listed(f, False)]
+            for name in files + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
+                copied += 1
+                orig = os.path.join(top, name)
+                copy = os.path.join(dest, os.path.relpath(orig, src))
+                plain = os.path.isfile(orig) and not os.path.islink(orig)
+                if plain:
+                    size += os.path.getsize(orig)
+                if not os.path.lexists(copy) or (plain and os.path.getsize(copy) != os.path.getsize(orig)):
+                    missing += 1
+    if missing:
+        raise ValueError(f"{missing} of {copied} files missing after the copy")
+    return copied, skipped, size
+
+
+def keep_builds(worktree):
+    """(<H>/builds/<item>/, None) after a full copy of the specs and plans; (None, None) when there
+    are none; (None, why) when the copy failed or left a file out."""
+    pairs = [(f, os.path.join(home, "builds", item, sub)) for sub in ("specs", "plans") for f in doc_folders(worktree, sub)]
+    if not pairs:
+        return None, None
+    if re.search(r"[\x00-\x1f\x7f/\\]", item) or item.startswith("."):
+        return None, f"{item} is not a plain folder name"
+    try:
+        copied, _, _ = copy_checked(pairs)
+    except (OSError, ValueError) as e:
+        return None, str(getattr(e, "strerror", None) or e)[:120]
+    return (os.path.join(home, "builds", item) + "/", None) if copied else (None, None)
+
+
 def keep_evidence(worktree):
-    """(<H>/evidence/<item>/, None) after a full copy; (None, None) when there is nothing to keep;
-    (None, why) when the copy failed or left a file out."""
+    """(<H>/evidence/<item>/, bytes copied) after a full copy; (None, None) when there is nothing to
+    keep; (None, why) when the copy failed or left a file out."""
     sources = evidence_dirs(worktree)
     if not sources:
         return None, None
     if re.search(r"[\x00-\x1f\x7f/\\]", item) or item.startswith("."):
         return None, f"{item} is not a plain folder name"
     dest = os.path.join(home, "evidence", item)
-    missing = total = 0
     try:
-        for src in sources:
-            shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
-        for src in sources:
-            for top, dirs, files in os.walk(src):
-                for name in files + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
-                    total += 1
-                    orig = os.path.join(top, name)
-                    copy = os.path.join(dest, os.path.relpath(orig, src))
-                    plain = os.path.isfile(orig) and not os.path.islink(orig)
-                    if not os.path.lexists(copy) or (plain and os.path.getsize(copy) != os.path.getsize(orig)):
-                        missing += 1
-    except OSError as e:
+        _, skipped, size = copy_checked([(src, dest) for src in sources], ignore=True)
+        note_skipped(dest, skipped)
+    except (OSError, ValueError) as e:
         return None, str(getattr(e, "strerror", None) or e)[:120]
-    if missing:
-        return None, f"{missing} of {total} files missing after the copy"
-    return dest + "/", None
+    return dest + "/", size
 
 
 row = dict(l.split("=", 1) for l in ledger("get", item).splitlines() if "=" in l)
@@ -174,11 +273,18 @@ on_remote = bool(git_out(path, "branch", "-r", "--contains", "HEAD"))
 merged_head = state == "done" and len(recorded) >= 7 and head.startswith(recorded)
 if not (on_remote or merged_head):
     out(f"kept {path}: unpushed commits")
-kept_at, why = keep_evidence(path)
+builds_at, why = keep_builds(path)
 if why:
-    out(f"kept {path}: evidence copy failed: {why}")
+    out(f"kept {path}: build docs copy failed: {why}")
+kept_at, result = keep_evidence(path)
+if kept_at is None and result:
+    out(f"kept {path}: evidence copy failed: {result}")
+if builds_at:
+    print(f"kept-builds {builds_at}")
 if kept_at:
     print(f"kept-evidence {kept_at}")
+    if result / GIB > gb_limit():
+        print(f"evidence-size {item} {result / GIB:.1f} GB")
 rc, stdout, stderr = run([orca, "worktree", "rm", "--worktree", f"path:{path}", "--json"])
 try:
     data = json.loads(stdout, strict=False)

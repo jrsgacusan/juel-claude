@@ -111,5 +111,37 @@ case "$out" in
   *) fail "failed copy ($out)" ;;
 esac
 
+# lane d: specs and plans are kept, dependency folders are skipped and listed, a big folder says its size
+BD=$(wt BD); git -C "$BD" push -q origin feat/BD; row BD done "$BD"
+mkdir -p "$BD/docs/superpowers/specs" "$BD/docs/superpowers/plans" "$BD/docs/superpowers/evidence/run"
+echo s > "$BD/docs/superpowers/specs/2026-10-20-x.md"; echo p > "$BD/docs/superpowers/plans/2026-10-20-x.md"; echo rp > "$BD/docs/superpowers/plans/review-plan.md"
+echo r > "$BD/docs/superpowers/evidence/run/report.md"
+out=$(WC BD)
+[ "$out" = "kept-builds $H/builds/BD/
+kept-evidence $H/evidence/BD/
+removed $BD" ] && pass "specs and plans are kept before the evidence line" || fail "builds + evidence ($out)"
+[ -f "$H/builds/BD/specs/2026-10-20-x.md" ] && [ -f "$H/builds/BD/plans/2026-10-20-x.md" ] && [ -f "$H/builds/BD/plans/review-plan.md" ] && pass "the spec, plan and review plan are in the STAR home" || fail "build files missing"
+BN=$(wt BN); git -C "$BN" push -q origin feat/BN; row BN done "$BN"
+mkdir -p "$BN/docs/superpowers/specs"; echo s > "$BN/docs/superpowers/specs/a.md"
+out=$(WC BN)
+[ "$out" = "kept-builds $H/builds/BN/
+removed $BN" ] && pass "specs without evidence print kept-builds then removed" || fail "builds only ($out)"
+SK=$(wt SK); git -C "$SK" push -q origin feat/SK; row SK done "$SK"
+E="$SK/docs/superpowers/evidence/run"
+mkdir -p "$E/tools/node_modules/pkg" "$E/tools/.build" "$E/obj"
+echo report > "$E/report.md"; printf 'abcd' > "$E/tools/node_modules/pkg/index.js"; printf 'xyz' > "$E/tools/.build/x"; printf 'ob' > "$E/obj/a.o"
+WC SK >/dev/null
+D="$H/evidence/SK/run"
+[ -f "$D/report.md" ] && [ ! -e "$D/tools/node_modules" ] && [ ! -e "$D/tools/.build" ] && [ ! -e "$D/obj/a.o" ] && pass "dependency folders and object files stay out of evidence" || fail "skip-listed paths were copied"
+[ "$(sort "$H/evidence/SK/skipped.txt")" = "$(printf 'run/obj/a.o\t2\nrun/tools/.build\t3\nrun/tools/node_modules\t4\n')" ] && pass "skipped.txt lists each skipped path with its bytes" || fail "skipped.txt ($(cat "$H/evidence/SK/skipped.txt"))"
+NK=$(wt NK); git -C "$NK" push -q origin feat/NK; row NK done "$NK"
+[ "$(WC NK)" = "removed $NK" ] && pass "a worktree with nothing to keep prints removed alone" || fail "nothing to keep"
+SZ=$(wt SZ); git -C "$SZ" push -q origin feat/SZ; row SZ done "$SZ"
+mkdir -p "$SZ/docs/superpowers/evidence/run"; echo r > "$SZ/docs/superpowers/evidence/run/report.md"
+out=$(JUEL_EVIDENCE_GB_LIMIT=0 WC SZ)
+[ "$out" = "kept-evidence $H/evidence/SZ/
+evidence-size SZ 0.0 GB
+removed $SZ" ] && pass "evidence over the limit prints its size" || fail "size line ($out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
