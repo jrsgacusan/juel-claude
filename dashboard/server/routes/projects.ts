@@ -69,10 +69,6 @@ export function projectRoutes(router: Router, ctx: Ctx): void {
             : null,
         away: str(raw["away"]),
         awayPending: awayPendingOf(p.home),
-        quietHours:
-          raw["quietHours"] && typeof raw["quietHours"] === "object"
-            ? raw["quietHours"]
-            : null,
       },
     };
   });
