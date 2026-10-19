@@ -14,6 +14,6 @@ has "#128 each review agent writes under its own scratch folder" "$R128a"
 has "C158i names session-tasks.sh" 'session-tasks.sh'
 has "C158j the dispatch prompt carries the stop sentence" ' Stop before task <N>: the session runs it.'
 has "C158k a ran line is a failed run" '`ran <N>` line is a failed run'
-has "C158l the escalation names the executor run" 'needs=the executor ran session task <N>'
+has "C158l the caller's Phase 5 escalation names the executor run" '`ESCALATION item=<item> phase=5 reason=codex-failed needs=the executor ran session task <N>`, `<item>` being the caller'"'"'s'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

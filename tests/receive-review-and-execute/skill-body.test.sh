@@ -78,6 +78,7 @@ has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fa
 has "C158i names session-tasks.sh" 'session-tasks.sh'
 has "C158j the dispatch prompt carries the stop sentence" ' Stop before task <N>: the session runs it.'
 has "C158k a ran line is a failed run" '`ran <N>` line is a failed run'
-has "C158l the escalation names the executor run" 'needs=the executor ran session task <N>'
+has "C158l an unattended run stops with a STOPPED line babysit escalates" 'print `STOPPED: the executor ran session task <N>` and stop, before any gate or push'
+! grep -qF 'ESCALATION item=<item> phase=4 reason=codex-failed needs=the executor ran session task' "$SKILL" && pass "C158l2 no ESCALATION line of its own" || fail "C158l2 ESCALATION line in receive-review-and-execute"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

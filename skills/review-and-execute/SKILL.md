@@ -296,9 +296,10 @@ codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effo
 the plan is the file the dispatch line names, the ledger the one in "The progress ledger" above) before each dispatch gives the suffix
 ` Stop before task <N>: the session runs it.`: when it prints `until <N>`, the dispatch line's prompt ends with it,
 inside its quotes, brackets not typed. After each run, run it again: a `ran <N>` line is a failed
-run. Under `--unattended` (an unattended invocation) end with
-`ESCALATION item=<item> phase=4 reason=codex-failed needs=the executor ran session task <N>`;
-interactively, show that line and ask how to go on. The session runs a session task as
+run. In an unattended invocation (`juel:ship-ticket --unattended` runs this skill in its Phase 5),
+stop before any further step and end the caller's run with
+`ESCALATION item=<item> phase=5 reason=codex-failed needs=the executor ran session task <N>`,
+`<item>` being the caller's; interactively, show that line and ask how to go on. The session runs a session task as
 `juel:ship-ticket`'s Phase 4 **Session tasks** says, then dispatches the same line again.
 
 
