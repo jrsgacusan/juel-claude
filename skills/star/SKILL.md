@@ -1291,7 +1291,7 @@ waits for the reply; a reply of "No answer … escalate this." ends the run with
    (HOME_DIR is two levels above `--out`'s directory; it is the notes every worker reads, or the old
    `memory/<project>.md` while `notes` is `legacy`), and `mcps` in `<HOME_DIR>/star.json`: the research MCPs STAR's
    session found (`available`, `needs-sign-in` or `absent`).
-   When `star.json`'s `notes` is `split`, also run `sh S/recall.sh --home <HOME_DIR> --kind note <the item's key words>` and copy each note in force that applies to this item under `## Notes that apply`, one line each: `- M-<nnnn> <title>: <text>`.
+   When `star.json`'s `notes` is `split`, also run `sh S/recall.sh --home <HOME_DIR> --kind note <the item's key words>`. For each note in force that applies to this item, `sh S/notes.sh --home <HOME_DIR> --shelf memory --project <project> show M-<nnnn>` prints it whole on one line, `M-<nnnn> <title>: <text>`: copy that line under `## Notes that apply` as `- <the line>`. Search excerpts are cut; never copy one.
    Never open the `memory/<project>/` folder itself. Then, before step 2, when a file already exists at `--out`, read its
    `## Feedback` section: the user's dated answers to earlier runs of this stage. `--feedback` is
    a bare flag that says there is something new there; the text itself is never put in the prompt,
@@ -1461,7 +1461,7 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    with (a checker, lint or pretest script, `file:line`); when it finds none, it names no form and
    the build follows the repository (#107).
 
-   **Search before deciding.** Before taking a decision, run `sh S/recall.sh --home <HOME_DIR> --kind decision <the question's key words>`. A library decision in force that fits this item is reused: write the record as `### D<n> <title> (<date>, reused L-<nnnn>)` with the library's `Decision:` and `Source: library L-<nnnn>`, and report `REUSED L-<nnnn>`. An earlier item's decision that fits is reused the same way: `### D<n> <title> (<date>, reused <item> D<m>)` with `Source: <item> D<m>, <its source>`, reported `REUSED <item>#D<m>`. Nothing fits: decide from sources, as above. Recall finds candidates; whether one fits this item is the worker's call, and a reused record is still a full record in this brief. Read at most the one record you reuse, never a whole earlier brief.
+   **Search before deciding.** Before taking a decision, run `sh S/recall.sh --home <HOME_DIR> --kind decision <the question's key words>`. A library decision in force that fits this item is reused: write the record as `### D<n> <title> (<date>, reused L-<nnnn>)` with the library's `Decision:` (`sh S/library.sh --home <HOME_DIR> --project <project> show L-<nnnn>` prints it whole) and `Source: library L-<nnnn>`, and report `REUSED L-<nnnn>`. An earlier item's decision that fits is reused the same way: `### D<n> <title> (<date>, reused <item> D<m>)` with `Source: <item> D<m>, <its source>`, reported `REUSED <item>#D<m>`. Nothing fits: decide from sources, as above. Recall finds candidates; whether one fits this item is the worker's call, and a reused record is still a full record in this brief. Read at most the one record you reuse, never a whole earlier brief.
 
    **External ids are checked live** (#42). Every service slug, project id, DSN, hostname or
    account name the brief carries is checked where a CLI or API can reach it (`gh api`, the
@@ -1733,10 +1733,10 @@ apply to its item under `## Notes that apply` ("Brief worker mode", step 1).
   with `--always` when the owner says it holds for every item. A standing order is a rule note too.
   A standing order the owner gives is a rule note, never a new `star.json` key.
 - **Replacing a note:** `notes.sh ... replace M-<nnnn> --title … --text …` writes the new note and marks the old one
-  replaced. STAR's reply says "replaces M-<nnnn>".
+  replaced. The new note keeps the old one's kind and `always` unless `--kind` or `--always` says otherwise; add `--source owner` when the owner changed it. STAR's reply says "replaces M-<nnnn>".
 - **Legacy mode:** while `star.json`'s `notes` is `legacy` (from `migrate` until the owner accepts
   `sort-memory-notes`), `notes.sh path` prints the old `memory/<project>.md`, and `add` still
-  appends to it, so workers keep reading what they read before.
+  appends to it (never a note `migrate` brought in: it is in that file already), so workers keep reading what they read before.
 - **A replaced note in open briefs:** find the briefs that copied it with
   `grep -l '^- M-<old> ' HOME_DIR/briefs/<project>/*.md`. A brief without `approved:` gets that line swapped for the new
   note's. A brief with a go keeps its copy, and gets `- <date> note M-<old> replaced by M-<new>: <text>` under `## Decisions`.
@@ -2222,7 +2222,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go and passes `--match-head-commit` |
 | Deciding again what the library already answers | `recall.sh --kind decision` first; reuse it and cite it |
 | Keeping an owner's standing order as a new `star.json` key | A rule note: `notes.sh add --kind rule --source owner` |
-| Reading the notes folder or the old notes file to answer a worker | `recall.sh --kind note` and `notes.sh list` print one line per note |
+| Reading the notes folder or the old notes file to answer a worker | `recall.sh --kind note` finds them and `notes.sh show M-<nnnn>` prints one whole, one line each |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
 | Starting a build before its batch's go | Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent's grant, stamps `approved:` |
 | Starting a worker by hand | `stage-start.sh`: it sets up the branch, the env files and the trust dialogs before any agent starts |
