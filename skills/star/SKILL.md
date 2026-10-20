@@ -331,19 +331,19 @@ open-loops.md.seq       the highest queue id ever used (so an id is never handed
 handoff.md              the summaries written while the user is away (handoff.sh)
 sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
 ledger.md               one row per item
-processed.log           <message id> <dispatch> <iso time>
+processed.log           <message id> <dispatch> <iso time>, plus "<dispatch> stopped <iso>" and "<dispatch> released <iso>" lines
 messages-wait           while a background message wait runs: "<pid> <iso start>" (messages.sh writes and removes it; --waiting reads it)
 inbox/                  one file per hand-over; deleted once ingested
 chat/                   the dashboard's chat thread: one file per message, never rewritten (<UTC>-me-<4 hex>.md the owner's, <UTC>-star-<4 hex>.md STAR's replies, written only by chat.sh)
 items/<project>/<name>.md            a spec item from a free-text brief, a split, or a re-scope's follow-up
 briefs/<project>/<item>.md
 grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, the time, the items
-reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log
+reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log (`.log.gz` once the item is done or dropped and its worktree is cleaned)
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
 reviews/<project>/<item>-hosted.log      one line per hosted-reviewer run a babysit worker logged: `<iso> pass <n> head=<sha>` (at most one per head) or `<iso> refresh head=<sha>` (a status refresh, or a second run on a head that already has a `pass` line, #122); `<iso> skipped head=<sha> <reason>` for a run that reviewed nothing (#129), never a pass; when it is missing, babysit rebuilds it from the PR's reviews and the reviewer's summary comments (`pr-state.sh --hosted-passes`) before it counts a pass
-reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
+reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number (`.log.gz` once the item is finished)
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
 progress/<item>.log                  one line per milestone, appended by the item's workers
@@ -434,8 +434,9 @@ alone. The command must be quick and must not ask anything. With `tokenCmd` null
 `hostedReviewer.refreshOutsideCap` (true when absent) says whether a status refresh after the
 last pass stays outside `maxPasses`. A project whose own rule counts every run the hosted reviewer
 starts sets it to false: babysit then never asks for a run past `maxPasses`, and a head that needs
-one comes to the owner as `reason=hosted-cap` (#93). Babysit also merges the base in before it asks
-for the last pass, so that pass reviews a current head.
+one comes to the owner as `reason=hosted-cap` (#93). Before it asks for the last pass, babysit merges the base in when Phase 4 step 1's condition holds
+(the base requires up-to-date branches, the PR conflicts or is behind, or the rule is unknown), so
+that pass reviews a current head.
 
 ### The queue: `open-loops.md`
 
@@ -448,8 +449,8 @@ work gets the answer without waiting for the next tick.
 | When | Command |
 |---|---|
 | a batch's briefs are drafted (no row of the batch is `inbox` or `briefing` any more) | `loops.sh add --kind go-batch --project <p> --item <batch> --title "go for batch <batch>: <n> items" --body "<item names, one per line>\nOptions: go / go except <items> / drop <item> / or say what to change"` |
-| the owner asks to start a batch while rows of it are still `inbox` or `briefing` (#151, "Going before every brief is drafted") | `loops.sh add --kind go-batch --project <p> --item <batch> --title "go for batch <batch>: <n> of <m> briefed, <k> still drafting" --body "<the brief-ready rows' names, one per line>\nStill drafting: <their names>\ngo all also starts each of those once its brief is drafted, unless it has a person-only step or needs criteria\nOptions: go / go all / go except <items> / drop <item> / or say what to change"` |
-| a brief lists a person-only step | `loops.sh add --kind person --project <p> --item <i> --title "<the step>" --body "brief: <brief path>\nstep: <n>\nkind: <secret, account, screen, confirm-id or risky>\nOptions: done / can't now"` (a `risky` step: `Options: approve / no`; a `(value)` step: the kind line `kind: <kind> (value)` and `Options: <the value> / can't now`) |
+| the owner asks to start a batch while rows of it are still `inbox` or `briefing` (#151, "Going before every brief is drafted") | `loops.sh add --kind go-batch --project <p> --item <batch> --title "go for batch <batch>: <n> of <m> briefed, <k> still drafting" --body "<the brief-ready rows' names, one per line>\nStill drafting: <their names>\ngo all also starts each of those once its brief is drafted, unless it has a person-only step, needs criteria or has a `hold:` line\nOptions: go / go all / go except <items> / drop <item> / or say what to change"` |
+| a brief lists a person-only step | `loops.sh add --kind person --project <p> --item <i> --title "<the step>" --body "brief: <brief path>\nstep: <n>\nkind: <secret, account, screen, confirm-id or risky>\nOptions: done / can't now"` (a `risky` step: `Options: approve / no`; a `(value)` step: the kind line `kind: <kind> (value)` and `Options: <the value> / can't now`; a step that ends `(check: `<command>`)` adds the body line `check: <command>` before the `Options:` line, so the owner sees it before answering) |
 | a `verifying` row's brief has no grant (`grep -cE '^grant: [^ #]' <brief>` prints 0: a brief whose grant line was lost, since every go writes one) | `loops.sh add --kind go-merge --project <p> --item <i> --title "merge PR #<n> under a go?" --body "<pr url>\nOptions: go / not merging"` |
 | a report item's report is written | `loops.sh add --kind accept-report --project <p> --item <i> --title "accept report for <i>" --body "<report path>\nOptions: accept / drop / or say what to redo"` |
 | a worker escalated, or a row failed | `loops.sh add --kind escalation --project <p> --item <i> --title "<reason>" --body "<needs= text, or what failed>\nOptions: answer with your decision to run the stage again / drop"` |
@@ -472,8 +473,11 @@ batch carries it as `counters.batch`.
 Open items are repeated in every status line STAR prints, by id and title, until they are answered:
 silence means missed, not no.
 
-`loops.sh add` is safe to repeat: asked for an item that is already open with the same kind,
-project, item and title, it prints that item's id and adds nothing. It refuses (exit 64) a project
+`loops.sh add` is safe to repeat: asked for an item that is already open with the same kind, project, item, title and body, it prints
+that item's id and adds nothing. A `person` item is also matched across items: an open `person`
+item of the same project whose title is the same after collapsing whitespace and ignoring case is
+returned, and the line `also: <item> <brief path> #<n> <kind>` is added once to its body for the
+asking item (`<n>` and `<kind>` are that step's own), so one step several items share is asked once. It refuses (exit 64) a project
 or item with a line break or ` · ` in it, and it writes body lines that look like headings or
 `Answer:` lines as quotes, so text from a ticket or a worker can never forge an answer.
 
@@ -684,6 +688,8 @@ already happened, and must not stop STAR again.
 caffeinate (only when `ps -p <pid> -o comm=` still prints `caffeinate`), delete the heartbeat, `loops.sh resume --state stopped --next "run /juel:star to resume"`, set
 `"terminal": null` in `star.json` (the claim is released, so the session hook goes quiet and the
 next `/juel:star` in this project becomes the coordinator), and print the queue. Workers still running are left alone.
+When any `queued` row has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1), the printed queue starts with this line, so the owner sees what stops with the session:
+`Stopping leaves <n> approved items unbuilt until /juel:star runs again: <items>`
 
 ## The tick
 
@@ -710,16 +716,16 @@ item. Item names can repeat, so a name alone never selects a row. A message chan
 row, and is queued as `--kind held` with its first line, when its dispatch is in no row (or it
 carries no dispatch id: `--project - --item <the dispatch id, or unmatched>`), when its
 row is `done` or `dropped`, or when the row has moved on to a newer dispatch (a superseded attempt:
-a report from a worker that a restart replaced). Two exceptions change nothing and queue
-nothing: a message already applied (its id is the row's `last=`), and the `worker_done` of
+a report from a worker that a restart replaced). Three exceptions change nothing and queue
+nothing: a message already applied (its id is the row's `last=`), the `worker_done` of
 a dispatch STAR stopped itself (a drop, an early merge, a closed PR): write it to `processed.log`
-and move on.
+and move on, and a `worker_done` from a dispatch that `processed.log` lists as `released` is a duplicate report: write it to `processed.log`, ack, nothing else. That holds across deliveries and after a restart, when STAR no longer remembers releasing it.
 
 **One message, one order of effects:** queue items first (`loops.sh add` returns the open item's
 id when it is already there, so a replayed message adds nothing), then the `NOTE` and `SENT`
 appends (each line carries the time the message was sent, not the time of the append, so a
 replay writes the identical line: skip a line the file already has), then the row with its
-`last=`, then, for a settled `worker_done`, `worker-release`, then `processed.log`, then the ack
+`last=`, then, for a settled `worker_done`, `worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message's own line in `processed.log`, then the ack
 (releasing a worker that is already released is harmless, so it always comes before the line
 that ends the message). A question STAR answers itself follows the same order: the `## Decisions`
 line (skip it when the brief already has that line), the `reply`, then the row with
@@ -890,20 +896,25 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    An answer never starts a second worker for a row that has one.
    A `question` is always answered with `reply` (its worker is blocked waiting for exactly that),
    and `held` and `draft` answers never reach a worker.
+   A shared `person` step: every `person` row below applies the answer to the brief named in the item's
+   body and, the same way, to each brief named on an `also:` line of its body, each with its own step
+   number and kind (a check, when there is one, runs once). When a row closes the item and adds it
+   again, the new item keeps the `also:` lines. The `brief-ready` → `queued` exception (a brief with a
+   grant line and no other open `person` item) is checked for each brief the answer covered.
 
    | Kind | Answer | Action |
    |---|---|---|
-   | `go-batch` | exactly `go`, `yes` or `ok` (any case) | the go is for every row of the batch that is `brief-ready`, except a row whose brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more) or that has an open `person` item: those stay. Write the grant once, for the rows that start: `HOME_DIR/grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md`, a frontmatter block with `date: <iso>` and `items: [<names>]`, then the user's answer exactly as typed. In each started row's brief, in one write: stamp `approved: <iso>` and `grant: <grant path>`, and remove each ` (proposed)` suffix, so builders and the gate read plain criteria. Those rows → `queued`. When rows stayed, add the `go-batch` item again for them, titled "go for <items> once <what each waits for>". A brief with `NEEDS CRITERIA` asks for criteria in that title: an answer in words is feedback (criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A go is only ever this explicit answer from the user, never a default, a timeout or a blanket answer |
+   | `go-batch` | exactly `go`, `yes` or `ok` (any case) | the go is for every row of the batch that is `brief-ready`, except a row whose brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more) or whose brief has a `hold:` line, or that has an open `person` item (an open `person` item whose body has an `also:` line naming the row counts as that row's open item): those stay. Write the grant once, for the rows that start: `HOME_DIR/grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md`, a frontmatter block with `date: <iso>` and `items: [<names>]`, then the user's answer exactly as typed. In each started row's brief, in one write: stamp `approved: <iso>` and `grant: <grant path>`, and remove each ` (proposed)` suffix, so builders and the gate read plain criteria. Those rows → `queued`. When rows stayed, add the `go-batch` item again for them, titled "go for <items> once <what each waits for>". A row that stayed for its `hold:` line stays `brief-ready` with a `go-batch` item of its own titled `<item> is held: <words>; answer go when it may build`; that item's `go` removes the `hold:` line from the brief and starts the row as this row does. A brief with `NEEDS CRITERIA` asks for criteria in that title: an answer in words is feedback (criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A go is only ever this explicit answer from the user, never a default, a timeout or a blanket answer |
    | `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151), and the grant also covers the batch's rows that are still `inbox` or `briefing`: its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant's file name>`, so the `BRIEF` row starts it once its brief is drafted. With no row of the batch `inbox` or `briefing`, `go all` is `go` |
-   | `go-batch` | `go except <items>` | the same, for every row of the batch but the named ones; those stay `brief-ready` with a `go-batch` item of their own |
+   | `go-batch` | `go except <items>` | the same, for every row of the batch but the named ones; those stay `brief-ready` with a `go-batch` item of their own (a row with a `hold:` line is treated the same way, as in the `go` row) |
    | `go-batch` | `drop <item>` | that row → `dropped`; add the `go-batch` item again for the rest |
-   | `go-batch` | anything else, including "go, but …" | it is feedback for the item it names (it names none and the batch has more than one item: ask which, one question), never a conditional go: append it to that brief under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `go-batch` item again, showing the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line there, since the summary does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix until the go. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
+   | `go-batch` | anything else, including "go, but …" | it is feedback for the item it names (it names none and the batch has more than one item: ask which, one question), never a conditional go: append it to that brief under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line; "go, but <item> not before <date>" or after a weekday: set `notBefore` on the brief it names), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `go-batch` item again, showing the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line there, since the summary does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix until the go. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
    | `person`, a `(value)` step (the kind line of its body ends in `(value)`) | exactly `done` | no value came with it: close the answered item and add it again with the title "<the step> (answer with the value)" and the same body. The step stays open, so the row stays out of the go |
-   | `person`, a `(value)` step | anything but `done`, `can't now`, `no` or words that decline the step (the decline row below, which holds for a `(value)` step too) | the answer is the value (#86): append `- <date> person-only step #<n> (<kind>, value): <step> → value: <answer>` to the brief's `## Decisions` (the step is the title without a trailing " (answer with the value)", and the answer exactly as `loops.sh answers` printed it). The step is done. The row does not change, except a `brief-ready` row whose brief has a grant line (`grep -cE '^grant: [^ #]' <brief>` prints 1) and no other open `person` item: it → `queued` (a re-scope that waited for its person-only steps, #101) |
-   | `person` | `done` or `approve` | append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title); the row does not change, with the same exception as the row above. A `(value)` step never takes this row: `done` alone is asked again, and any other answer but `can't now`, `no` or words that decline the step is its value (the two rows above) |
-   | `person` | `can't now` or `no` | the same record, then close the answered item and add the same `person` item again (`loops.sh add` returns an item that is still in the queue, answered or not, and adds nothing): the open item keeps the row from starting on a go, and the next batch summary asks it again. A `risky` step answered `no`: append "risky call refused: <step>" under `## Feedback`, row → `inbox`, and do not add the item again: the brief stage plans without it |
-   | `person` | words that decline the step: it will not be done, is not wanted or is not needed (`can't now` or `no` with more words, "I don't want to install it", "3 accounts is enough") | it is feedback on the brief, not on the step (#150): append `- <date> person-only step #<n> (<kind>) declined: <step> → <answer>` under the brief's `## Feedback`, close the answered item and do not add it again, and close the row's other `person` items that `loops.sh answers` does not list (they have no answer yet): the new brief asks again for any step it still needs. A `brief-ready` row → `inbox`, so the brief stage plans without the step (`--feedback`); a row in any other state does not change |
-   | `person` | anything else | record it under `## Decisions` as feedback on that step (the same line, ending `→ feedback: <answer>`), then close the answered item and add the same `person` item again: the step is asked again, and the row stays out of the go |
+   | `person`, a `(value)` step | anything but `done`, `can't now`, `no` or words that decline the step (the decline row below, which holds for a `(value)` step too) | the answer is the value (#86): append `- <date> person-only step #<n> (<kind>, value): <step> → value: <answer>` to the brief's `## Decisions` (the step is the title without a trailing " (answer with the value)", and the answer exactly as `loops.sh answers` printed it). The step is done. The row does not change, except a `brief-ready` row whose brief has a grant line (`grep -cE '^grant: [^ #]' <brief>` prints 1) and no other open `person` item (one whose body has an `also:` line naming the row counts): it → `queued` (a re-scope that waited for its person-only steps, #101). A shared step follows the rule above the table |
+   | `person` | `done` or `approve` | when the item's body has a `check:` line, first run the check from the project root through a quoted heredoc, so a check holding single quotes works and nothing expands: `sh S/person-check.sh <<'CHECK'`, the command on the lines below it, `CHECK` alone on the last line. `pass`, or no `check:` line: append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title), ending ` (checked)` after a `pass`; the row does not change, with the same exception as the row above. `fail …` or `timeout`: append `- <date> person-only step #<n> (<kind>): <step> → done, but the check failed: <command>` to `## Decisions`, close the answered item and add it again with the title `<step> (the check still fails: <command>)` and the same body; the row stays out of the go, as for `can't now`. `refused <why>`: the record as above, ending ` (check refused: <why>)`; the step counts as done. A shared step follows the rule above the table. A `(value)` step never takes this row: `done` alone is asked again, and any other answer but `can't now`, `no` or words that decline the step is its value (the two rows above) |
+   | `person` | `can't now` or `no` | the same record, then close the answered item and add the same `person` item again (`loops.sh add` returns an item that is still in the queue, answered or not, and adds nothing): the open item keeps the row from starting on a go, and the next batch summary asks it again. A shared step follows the rule above the table. A `risky` step answered `no`: append "risky call refused: <step>" under `## Feedback`, row → `inbox`, and do not add the item again: the brief stage plans without it |
+   | `person` | words that decline the step: it will not be done, is not wanted or is not needed (`can't now` or `no` with more words, "I don't want to install it", "3 accounts is enough") | it is feedback on the brief, not on the step (#150): append `- <date> person-only step #<n> (<kind>) declined: <step> → <answer>` under the brief's `## Feedback`, close the answered item and do not add it again, and close the row's other `person` items that `loops.sh answers` does not list (they have no answer yet): the new brief asks again for any step it still needs. A `brief-ready` row → `inbox`, so the brief stage plans without the step (`--feedback`); a row in any other state does not change. A shared step follows the rule above the table |
+   | `person` | anything else | record it under `## Decisions` as feedback on that step (the same line, ending `→ feedback: <answer>`), then close the answered item and add the same `person` item again: the step is asked again, and the row stays out of the go. A shared step follows the rule above the table |
    | `go-merge` | exactly `go`, `yes` or `ok` | write a grant for that item as for `go-batch`, and stamp `grant:` in its brief; the row stays `verifying`, and the next merge-gate check may merge it |
    | `go-merge` | drop / not merging | row → `dropped`; its PR stays open for the user |
    | `go-merge` | anything else | nothing changes: add the same `go-merge` item again |
@@ -977,7 +988,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
    | First line of the report | Action |
    |---|---|
    | `BRIEF item=… path=… … rescoped=1 followup=<path>` (a re-scope's brief) | in every case: `counters.rescoped=1`, clear `counters.rescope`, add the follow-up spec as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`), and queue one `--kind person` per line of the brief's `## Person-only steps`, as the next row does. A brief with no grant line (`grep -cE '^grant: [^ #]' <brief>` prints 0): row → `brief-ready`, finished as the next row does. A brief that keeps its grant (it prints 1): row → `queued` when none of those steps is open, else `brief-ready`, with "<item>: re-scope waits for <n> person-only steps" in the status line; the grant still covers it |
-   | `BRIEF item=… path=… [asks=<n>] [followup=<path>]` | row → `brief-ready`; queue one `--kind person` per line of the brief's `## Person-only steps` section (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief). When the line carries `followup=<path>`, also add that path as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`), as the re-scope row does. A row with `counters.parent=` (a follow-up) and no person-only step, whose parent's brief has a grant (`grep -cE '^grant: [^ #]' <the parent's brief>` prints 1): stamp `approved: <iso>` and its parent's `grant:` in its brief, and `rescopedFrom: <parent>` when the parent was re-scoped (its `counters.rescoped=1`); row → `queued`, and say "covered by <parent>'s go" in the status line. A follow-up whose parent has no grant yet stays `brief-ready` and goes with its batch's go. A row with `counters.go=<file>` (the owner's `go all`, #151) whose brief has no line under `## Person-only steps` and no `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 0) starts under that grant, as a go starts a row: in one write, stamp `approved: <iso>` and `grant: HOME_DIR/grants/<file>` and remove each ` (proposed)` suffix; row → `queued`, and say "covered by your go all for <batch>" in the status line. Otherwise the row stays `brief-ready` and goes with its batch's `go-batch` item. Either way, clear `counters.go`. When no row of its batch is `inbox` or `briefing` any more, print the batch summary and queue the `go-batch` item ("The batch summary and go") |
+   | `BRIEF item=… path=… [asks=<n>] [followup=<path>]` | row → `brief-ready`; queue one `--kind person` per line of the brief's `## Person-only steps` section (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines, nothing else of the brief); a line that ends `(check: `<command>`)` adds the body line `check: <command>` to its item. When the line carries `followup=<path>`, also add that path as a new `inbox` row (its `ref` is the path, `counters.batch` the parent's, `counters.parent=<item>`), as the re-scope row does. A row with `counters.parent=` (a follow-up) and no person-only step and no `hold:` line (`grep -cE '^hold: [^ #]' <its brief>` prints 0), whose parent's brief has a grant (`grep -cE '^grant: [^ #]' <the parent's brief>` prints 1): stamp `approved: <iso>` and its parent's `grant:` in its brief, and `rescopedFrom: <parent>` when the parent was re-scoped (its `counters.rescoped=1`); row → `queued`, and say "covered by <parent>'s go" in the status line. A follow-up whose parent has no grant yet stays `brief-ready` and goes with its batch's go. A row with `counters.go=<file>` (the owner's `go all`, #151) whose brief has no line under `## Person-only steps`, no `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 0) and no `hold:` line (`grep -cE '^hold: [^ #]' <brief>` prints 0) starts under that grant, as a go starts a row: in one write, stamp `approved: <iso>` and `grant: HOME_DIR/grants/<file>` and remove each ` (proposed)` suffix; row → `queued`, and say "covered by your go all for <batch>" in the status line. Otherwise the row stays `brief-ready` and goes with its batch's `go-batch` item; a row held by its `hold:` line stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`. Either way, clear `counters.go`. When no row of its batch is `inbox` or `briefing` any more, print the batch summary and queue the `go-batch` item ("The batch summary and go") |
    | `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `counters.batch`); the row → `dropped`, and the status line says "split into <names>" |
    | `DONE item=… pr=<url> head=<sha> review=<path>` | first `sh S/done-check.sh <item> --pr <url> --head <sha>`. `OK` → record the PR and head, free the build slot, row → `babysit-queued`, clear `mismatch=`. When the brief carries another author's PR (#94: `sed -n 's/^Decision: carried as a new PR: \([^ ]*\) .*/\1/p' <brief>` prints its URL) and its `## Decisions` has no record of closing it (`grep -cF 'close <that url>: carried on' <brief>` prints 0), also `loops.sh add --kind person --project <p> --item <item> --title "close <that url>: carried on <pr url>" --body "brief: <brief path>\nstep: -\nkind: account\nOptions: done / can't now"`: the owner closes the original now that its new PR is open, and the `person` rows record the answer. `MISMATCH <what>` → record the PR and head; with no `mismatch=` yet: write `mismatch=1`, append to the brief's `## Decisions` "- <date> the report did not check out: <what>; resume the gate loop on the existing PR", row → `queued`. With `mismatch=1` already: → `escalated`, queue `--kind escalation` "the report did not check out twice: <what>" (`reason=mismatch`). `PENDING <why>`, no line, or a non-zero exit → process and ack the message as for any report, record the PR and head, and keep the row `building` with `verify` = `retry=<now + 2 min>`: it has reported, so neither the reconcile step nor Housekeeping's probe treats it as a lost worker, and Housekeeping runs `done-check.sh` again once that time has passed. Exit 64 (`done-check.sh` refused its arguments) also files an improvement issue |
    | `RESCOPE item=… reason=<gate or hosted-review> review=<path> [tooling=all]` | free the slot. A line that ends `tooling=all` (#160: every blocking finding left is in the paths the build marked tooling), on a row with a PR, no `counters.rescoped=1` and no `rescopedFrom:` in its brief → the hand-over ("Handing a PR to a follow-up") with that review, instead of a re-scope: those findings are safety findings by the gate's tooling rule, so they are fixed on the same PR with a fresh round budget, never deferred. When the row has `counters.rescoped=1` or its brief has `rescopedFrom:` → `escalated`, queue `--kind escalation` "NOT-SAFE again after a re-scope" with the review's path. Otherwise row → `inbox` with `counters.rescope=<the review file's name>`: its next brief stage narrows the item (`--rescope`) |
@@ -1110,6 +1121,10 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      "Claude login lost on all <n> workers at once: an account switch logged them out",
      and every held item this rule queues in that tick ends its title with
      ` (machine-wide login loss)`.
+     `stuck: usage limit` → the restart rule ("Checking in") with step `usage` and diagnosis
+     `hit a Claude usage limit`, not the stop and fail below: the worker's own Claude sits at a
+     usage-limit screen, and nothing in its worktree is in doubt. A stage restarts once on its
+     own, and one already restarted once is held; neither fails the row.
      `stuck: <what>` (any other) → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
      `--kind escalation` "<stage> worker stuck: <what>" (a prompt the probe would not answer reads
      `stuck: confirmation dialog: <its line>`, so the escalation names it). `settled failed agent_prompt_stalled` (the
@@ -1142,10 +1157,12 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      docs root STAR's home implies, `docs/superpowers` and `docs/.superpowers`) to
      `HOME_DIR/evidence/<item>/` and prints `kept-evidence <path>` first: name it in the status line
      too. A copy that fails keeps the worktree (`kept <path>: evidence copy failed: <why>`, below).
+     `reviews-gzipped <item> <n>` first means it gzipped the item's codex transcripts: it needs
+     nothing from you.
      `removed <path>` → name it in the status line. `kept <path>: <why>` → `--kind held` "<item>'s
      worktree <path> was kept: <why>", and `counters.kept=1`. `none` → nothing. `failed` and
      `escalated` rows keep their worktrees until the user answers.
-   - Away: `sh S/handoff.sh --home HOME_DIR due` printing `due` → `sh S/handoff.sh --home HOME_DIR summary`.
+   - Away: `sh S/handoff.sh --home HOME_DIR summary --if-due`. It prints `not-due` or `unchanged` and writes nothing, else it wrote a summary. Nothing more to do in any case.
 6. **Write.** `loops.sh resume …` with the current pools and the next step;
    `loops.sh waiting "<one line per PR in review, per blocked question>"`. Nothing is committed:
    the folder is plain files. Print one status line: counts per state, then every open queue item, `screen: <holder>, renewed <time>`
@@ -1170,6 +1187,10 @@ itself, and its notification runs one more tick. A `queued` row waiting for its 
 cannot start, so it is not active work: the heartbeat's next wake tries it again. While a question
 is open in STAR's terminal, each wake runs one tick, then STAR prints the open question again and
 ends the turn ("The batch summary and go").
+
+When STAR writes `state: idle` while any `queued` row has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1) and waits only on its blockers, its `notBefore` or the host gate, the status line ends with:
+`; <n> approved items wait (<item> on <blockers>, <item> until <date>): keep this session open or they wait until /juel:star runs again`
+Nothing ticks once the session is closed, so those rows stay as they are. A hold or a blocker never lapses by itself: the owner set it, so the fix is to show its age, not to override it.
 
 ## Stages
 
@@ -1214,7 +1235,7 @@ access, no credits), it falls back to `worker` once and says so in a `fallback` 
 `task-create` and `worker-start` carry `--retry-request` ids, so a replay never makes a second task.
 Every spec is one line: Orca echoes the spec inside its JSON, and a line break there once made the
 output unreadable and left an orphan task. A worker that starts and then sits on a usage-limit
-screen is the probe's `stuck: usage limit`.
+screen is the probe's `stuck: usage limit`, which takes the restart rule (step `usage`, "Housekeeping").
 
 **The codex gate.** Not a stage and not a worker: the build worker runs it on its own draft PR
 (`juel:ship-ticket`'s gate loop), and the babysit worker runs it again after every push it makes.
@@ -1371,6 +1392,7 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    deliverable: pr          # or report: see below
    blockedBy: [<item>, <item>]
    notBefore: <YYYY-MM-DD or ISO datetime>   # only when the item must not be built before then
+   hold: <the owner's words>   # only for an owner's hold that is no date and no other item
    approved:               # stamped by STAR on the owner's go
    grant:                  # stamped by STAR with the go: the grant file's path
    star:
@@ -1438,8 +1460,28 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    `<n>. [account] (value) <what to provide>`: the owner's answer is recorded as that value under
    `## Decisions` (`→ value: <answer>`), where the build reads it (#86). Never on a `secret` step:
    the queue and the brief are plain files, so a secret goes where its step says, never into an
-   answer. A product call is never a person-only step: take it as a decision record. Nothing the brief, its `## Decisions` or the
+   answer. A product call is never a person-only step: take it as a decision record. An owner's hold is never a person-only step either (see Holds). Nothing the brief, its `## Decisions` or the
    memory notes already answer goes here. Write `none` under the heading when there is nothing.
+
+   A `screen` step that changes the machine (an install, a driver, a permission a command can
+   read, a file put in place) or an `account` step that is a CLI login ends with
+   ` (check: `<command>`)`: one read-only shell command that exits 0 only when the step is done,
+   which STAR runs after the owner answers `done`. Examples:
+   `3. [screen] Install BlackHole 2ch with brew (check: `system_profiler SPAudioDataType | grep -q 'BlackHole 2ch'`)`,
+   `4. [account] Sign gh in to the org account (check: `gh auth status --hostname github.com`)`,
+   `5. [screen] Install jq with brew (check: `brew list jq`)`.
+   Never on a `secret`, `confirm-id` or `risky` step, never on an `account` step that is a paid
+   service, and never a command that writes, installs, uses `sudo` or prints a secret's value
+   (`person-check.sh` refuses the common write-shaped commands, such as installs, `sudo`, writes,
+   shells and wrappers and command substitution, as a guard against mistakes, not a sandbox: this
+   rule is still what keeps a check read-only).
+
+   Before adding a step, search `open-loops.md` and `open-loops-archive.md` for it
+   (`grep -iF` on the step's key words). A step answered `done`, or with a value, in the last 7 days
+   goes into the brief's `## Decisions` with that answer and its `N-<id>` (`- <date> person-only
+   step: <step> → <answer> (N-<id>, answered in the last 7 days)`) and is not asked again.
+   A step that carries a `(check: …)` is never taken from the archive: the brief keeps it, and STAR's
+   check settles it on the owner's next `done`.
 
    **Decisions are taken, not asked.** Every question the item leaves open that a builder would
    otherwise ask (a product call, a library, a name, a format, how an edge case behaves) is decided
@@ -1479,18 +1521,36 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    so the item's own sections never collide with the brief's. STAR and the workers read only the
    brief's own top-level sections.
 
-   **Blocked by** (#37). `blockedBy` lists the items this one needs merged first, `[]` when none:
-   from the item's own links (a Linear "blocked by" relation, a GitHub "depends on #n" or "blocked
-   by #n") and from items of the same batch whose changes this one builds on (the open rows of
-   `<HOME_DIR>/ledger.md`). Use each item's ledger name. A blocker STAR does not track goes under
+   **Blocked by** (#37). `blockedBy` lists the items this one needs merged first, `[]` when none. The line holds only the
+   list, never a comment: the queue reads it with `sed -n 's/^blockedBy: //p'`. An item goes on it
+   only when one of these holds, and each one listed has the decision record
+   `- <date> blocked by <item>: <reason>`:
+   - the item's own links say so (a Linear "blocked by" relation, a GitHub "depends on #n" or
+     "blocked by #n");
+   - the owner said so (a `## Feedback` entry, a rule note or the item text), quoted in the reason;
+   - this item needs code the other item adds, named in the reason as a path, a function or an
+     endpoint the other brief's Scope `In:` adds. Briefs of one batch are drafted in parallel, so
+     when the other item's brief does not exist yet, the reason quotes the other item's work-item text
+     that promises that code.
+
+   Use each item's ledger name (the open rows of `<HOME_DIR>/ledger.md`).
+   Sharing files is never a blocker: two items that only edit the same files build at the same
+   time, and the one that merges second syncs the base as it does today. A blocker STAR does not track goes under
    `## Approach` instead, with what the build does until it lands. Never a cycle: when two items
    would block each other, keep the link the code needs and take a decision record.
 
    **Not before** (#87). When the item's text, a memory note or a `## Feedback` entry says it may
    only be built after a date or time ("after Wednesday", "not before the 15th"), set `notBefore`
    to it: `YYYY-MM-DD` for a day, which starts at 00:00 in the machine's local
-   zone, or an ISO datetime with an offset or `Z`. Take a
+   zone, or an ISO datetime with an offset or `Z`. "After <day>" is the day after it ("after
+   Wednesday" is Thursday 00:00); "not before <day>", "from <day>" and "on <day>" are that day; a
+   weekday is the next one after today. Take a
    decision record that quotes the words it came from. Leave the key out otherwise.
+
+   **Holds.** An owner's hold is never a person-only step. A hold with a date, a weekday or a time
+   is `notBefore`, as above. A hold on another item ("after AB merges") is `blockedBy` with the
+   owner's words as its reason. Any other hold ("until I confirm the design") is the frontmatter
+   line `hold: <the owner's words>`: the row waits for its own go (see the go rows).
 
    `deliverable` is `report` when every acceptance criterion asks only for evidence, a
    disposition or a write-up (exercise flows and record what passed, map an impact, assess a PR,
@@ -1558,7 +1618,12 @@ is left to do and the findings that sent it there). When `<file>` is a codex gat
 finding of the review, in its order, `Disposition: moved to <follow-up path> (decision D<n>)` or
 `Disposition: kept, <why> (decision D<n>)`, citing the decision record that moved or kept it. The
 next gate round reads it as the dispositions of those findings, so it does not raise settled
-findings again. A hosted review file gets none: the gate never saw its findings. Report
+findings again. A hosted review file gets none: the gate never saw its findings. When every
+finding of `<file>` is moved to the follow-up or kept with a disposition, and no criterion left in
+the narrowed brief needs a code change, add
+`- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <branch head7>`
+to `## Decisions` (`<branch head7>` is the first 7 characters of the branch head in the
+`git diff` above); the next build then starts at the gate. Report
 `BRIEF item=<name> path=<--out> asks=<n> rescoped=1 followup=<path>` (`<n>` as in step 7). When
 narrowing cannot leave anything safe to ship, report
 `ESCALATION item=<name> phase=0 reason=rescope-impossible needs=<why>`.
@@ -1658,6 +1723,7 @@ When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, f
 | `FAIL head moved` | as the verdict `MOVED` |
 | `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push to the PR (#80): fence it ("A merge on a PR a worker is still working on", below), then run the gate again |
 | `FAIL ledger: <why>` | `merge.sh` found no ledger row for the item it was given: nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
+| `PENDING check <name> not reported` | GitHub refused the merge because a required check has not reported on the head: nothing on the PR is wrong, so no `mergefail=` and no babysit round: put `retry=<now + 2 min>` in `verify`; the gate and `merge.sh` run again after that |
 | `FAIL grant: …`, `FAIL merge methods: …` or `FAIL comment: …` | nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
 | `FAIL merge: …` | as the Otherwise branch of a merge-gate `FAIL <what>` (the `mergefail=` budget) |
 | exit 64 | `merge.sh` refused its arguments (a head that is not 40 hex characters, a URL that is not a PR, or missing arguments): queue `--kind held` "merge.sh refused its arguments for PR #<n>" and file an improvement issue; the row stays as it is |
@@ -2010,14 +2076,16 @@ batch then runs without them.
      Reused (1): D3 The hosted review comes after ready (L-0007)
      Blocked by: none
    ITEM-2 · ...
+     Blocked by: ITEM-1 (needs the export endpoint ITEM-1 adds)
      Not before: 2026-10-15
+     Held: until I confirm the design
      Person-only: sign in to <app> as <account> (2FA)
    ITEM-3 · stopped: <the escalation or failure, one line>
 
    Reply go, go except <items>, drop <item>, or tell me what to change.
    ```
 
-   A `Not before:` line appears only for a brief that has `notBefore`.
+   A `Not before:` line appears only for a brief that has `notBefore`. `Blocked by:` names each blocker with its reason, `Blocked by: <item> (<reason>)`, the reason from the brief's `blocked by` decision record. A `Held: <words>` line appears only for a brief that has a `hold:` line.
    The header gains ` · notes every worker reads: <n>`, the count of `sh S/notes.sh --shelf memory --project <project> list --always` (left out while `notes` is `legacy`). `Decisions STAR took` is two lines: `New decisions (<n>): D<n> <title> · …` and `Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>) · …`, split on `, reused ` in the heading; a line with nothing to list is left out.
    A summary with no row to show (every other row started under `go all`) is not printed and queues no `go-batch` item.
    The early item of "Going before every brief is drafted" is the one exception: it is added with no row briefed.
@@ -2132,9 +2200,11 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - A worker's question that is not STAR's to answer ("Looking after the workers") is answered "No
   answer from the user: escalate this." at once.
 - Only `escalation` items notify.
-- About every 4 hours (housekeeping's `handoff.sh due`), `handoff.sh summary` adds a dated summary
-  to the top of `handoff.md`: items per state, PRs waiting to merge, what merged, what stopped,
-  everything in `sent.log` since the last summary, free memory and running workers, and the full
+- About every 4 hours (housekeeping's `sh S/handoff.sh --home HOME_DIR summary --if-due`; `sh S/handoff.sh --home HOME_DIR due` stays for other callers), a dated summary is added
+  to the top of `handoff.md`, but only when something changed since the newest one (the heading,
+  the host line and the ages do not count; otherwise it prints `unchanged` and writes nothing): items per state, PRs waiting to merge, what merged, what stopped,
+  `- Approved, not started: <item> (<reason>, <age>)` for each `queued` row with a grant that waits
+  (on its blockers, its `notBefore` or a build slot; `none` when no row does), everything in `sent.log` since the last summary, free memory and running workers, and the full
   Needs-you list again. The heartbeat keeps this going while STAR is idle. It needs STAR's session
   to be open: with the session closed, workers continue but no summary is written.
 
@@ -2189,11 +2259,12 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - A chat message from the dashboard answers a queue item or a question only when it names the item
   (its id, or the batch) and states the answer; a bare `go` there is never a go. STAR answers it in
   the thread with `chat.sh`, never only in this terminal, and chat gives STAR no new powers.
+- STAR never writes a script or an executable into HOME_DIR or the project to run one of its steps. It runs the step as the skill writes it with the shipped scripts; a step that wants a script is an improvement issue (`star-issue.sh`), filed once.
 - Product calls are STAR's, decided from sourced options and kept as decision records the owner
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
   automatic restart of a stage: a brief, babysit or post worker that was lost or stalled at
-  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
+  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), any worker at a Claude usage-limit screen (`stuck: usage limit`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
   worktree).
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
@@ -2222,6 +2293,8 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go and passes `--match-head-commit` |
 | Deciding again what the library already answers | `recall.sh --kind decision` first; reuse it and cite it |
 | Keeping an owner's standing order as a new `star.json` key | A rule note: `notes.sh add --kind rule --source owner` |
+| Writing a helper script into HOME_DIR or the project to run a STAR step | Run the step as the skill writes it, with the shipped scripts; a step that wants a script is an improvement issue (`star-issue.sh`), filed once |
+| Keeping an item order as a `star.json` key (`blockers`, `startOrder`, any other) | An order the owner gives is a rule note (`notes.sh add --kind rule --source owner`); an order a brief needs is that brief's `blockedBy` with its reason |
 | Reading the notes folder or the old notes file to answer a worker | `recall.sh --kind note` finds them and `notes.sh show M-<nnnn>` prints one whole, one line each |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
 | Starting a build before its batch's go | Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent's grant, stamps `approved:` |
@@ -2230,6 +2303,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Starting `messages.sh --wait` while one is outstanding, or in the foreground | `messages.sh --waiting` first: start one only on `none`, with `run_in_background: true`, and end the turn; its notification runs the next tick |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
 | Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter. `stuck: login` is the other exception: the login rule restarts it once the login is back |
+| Failing a worker that hit a Claude usage limit | `stuck: usage limit` takes the restart rule with step `usage`: the stage restarts once, a second time it is held |
 | Failing every worker when an account switch logs them out | `stuck: login` is the login rule: check `claude auth status`, then restart the stage once |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
 | Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |

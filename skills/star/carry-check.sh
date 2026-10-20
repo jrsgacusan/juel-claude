@@ -5,6 +5,8 @@
 #   carry-check.sh --from <G> --head <M> [--base <ref>] [--repo-dir <dir>]
 # Prints one line:
 #   OK carried from <G full sha>: merge of <ref> brings no change to a file this branch changes   exit 0
+#   OK carried from <G full sha>: the merge brings no change to a file this branch changes, except
+#      lines both sides only added (<path>, <path>)                                               exit 0
 #   NO <why>                                                                                       exit 1
 # Exit 64 on bad usage: a missing or unknown flag, or a commit git does not know.
 # <G> must be on <M>'s first-parent line, and every commit on that line after <G> must be a merge
@@ -14,7 +16,12 @@
 # no change to a file this branch changes (#110): "own" is every path that differs between
 # git merge-base P1 P2 and P1, "incoming" every path that differs between P1 and the merge commit.
 # A path in both, or any path the merge conflicted on (both sides changed it, however it was
-# resolved), is NO, the first in byte order named:
+# resolved), carries only when both sides and the merge only added lines to it: git diff --numstat
+# against the merge base (no rename detection) shows a text file with no deleted line on the P1
+# side, the P2 side and the merge, the same mode throughout, and the merge adding exactly the sum of
+# the two sides' additions, and git diff --numstat from P1 to the merge and from P2 to the merge both
+# show no deleted line (a hand resolution that drops or reorders a side's line is NO). The second OK line above then names every such path of the chain, in
+# byte order. Any other such path is NO, the first in byte order named:
 #   NO <c7> brings base changes to <path>, a file this branch changes: the gate reviews the merge
 # A commit of its own is NO. With --base, every P2 must be on <ref> (git merge-base
 # --is-ancestor), so only the base branch is ever carried in.
@@ -68,6 +75,33 @@ def paths(*cmd):
     return {p for p in out.split("\0") if p}
 
 
+def added(a, b, path):
+    """(added lines, deleted lines) of one path between two commits, None for a binary file."""
+    _, out, _ = git("diff", "--numstat", "-z", "--no-renames", a, b, "--", path)
+    if not out:
+        return 0, 0
+    add, dele, _ = out.split("\t", 2)
+    return (None, None) if add == "-" or dele == "-" else (int(add), int(dele))
+
+
+def mode(rev, path):
+    _, out, _ = git("ls-tree", rev, "--", path)
+    return out.split(" ", 1)[0]
+
+
+def only_added(fork, p1, p2, m, path):
+    """True when both sides and the merge only added lines to the path, the merge adding exactly their sum
+    and deleting nothing of either parent's text."""
+    one, two, merged = added(fork, p1, path), added(fork, p2, path), added(fork, m, path)
+    if None in (one[0], two[0], merged[0]) or one[1] or two[1] or merged[1]:
+        return False
+    if len({mode(r, path) for r in (fork, p1, p2, m) if mode(r, path)}) > 1:
+        return False
+    if added(p1, m, path)[1] or added(p2, m, path)[1]:
+        return False
+    return merged[0] == one[0] + two[0]
+
+
 G, M = commit(o["from"], "from"), commit(o["head"], "head")
 BASE = commit(o["base"], "base") if o.get("base") else None
 if G == M:
@@ -75,7 +109,7 @@ if G == M:
 _, line, _ = git("rev-list", "--first-parent", M)
 if G not in line.split():
     no(f"{G[:7]} is not on {M[:7]}'s first-parent line")
-c, newest = M, None
+c, newest, added_only = M, None, set()
 while c != G:
     _, parents, _ = git("rev-list", "--parents", "-n", "1", c)
     parents = parents.split()[1:]
@@ -102,14 +136,19 @@ while c != G:
     _, fork, _ = git("merge-base", p1, p2)
     own = paths("diff", "-z", "--name-only", "--no-renames", fork.strip(), p1)
     incoming = paths("diff-tree", "-r", "-z", "--name-only", "--no-renames", p1, c)
-    both = sorted((own & incoming) | conflicted)
-    if both:
-        no(f"{c[:7]} brings base changes to {both[0]}, a file this branch changes: the gate reviews the merge")
+    for path in sorted((own & incoming) | conflicted):
+        if not only_added(fork.strip(), p1, p2, c, path):
+            no(f"{c[:7]} brings base changes to {path}, a file this branch changes: the gate reviews the merge")
+        added_only.add(path)
     c = p1
 _, named, _ = git("name-rev", "--name-only", "--refs=refs/remotes/*", "--exclude=refs/remotes/*/HEAD", newest)
 ref = re.sub(r"[~^].*$", "", named.strip())
 ref = ref[len("remotes/"):] if ref.startswith("remotes/") else ref
 if not ref or ref == "undefined":
     ref = newest[:7]
-print(f"OK carried from {G}: merge of {ref} brings no change to a file this branch changes")
+if added_only:
+    print(f"OK carried from {G}: the merge brings no change to a file this branch changes, "
+          f"except lines both sides only added ({', '.join(sorted(added_only))})")
+else:
+    print(f"OK carried from {G}: merge of {ref} brings no change to a file this branch changes")
 PY

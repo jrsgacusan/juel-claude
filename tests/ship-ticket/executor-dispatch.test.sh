@@ -22,7 +22,7 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
   F="$ROOT/skills/$s/SKILL.md"
   grep -E '^codex exec ' "$F" | grep -vqF '<add-dirs>' && fail "#57 $s: a dispatch line without <add-dirs>" || pass "#57 $s: every dispatch line takes <add-dirs>"
   grep -qF -- '`--add-dir <git-dir> --add-dir <common-dir>`' "$F" && grep -qF -- '--git-common-dir' "$F" && pass "#57 $s: a linked worktree adds its git dirs" || fail "#57 $s: a linked worktree adds its git dirs"
-  grep -qF 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md' "$F" && pass "#118 $s: checks that the executor skill is this plugin's own copy" || fail "#118 $s: checks that the executor skill is this plugin's own copy"
+  grep -qF 'sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>' "$F" && pass "#118 $s: checks the executor link with executor-check.sh" || fail "#118 $s: checks the executor link with executor-check.sh"
   grep -qF 'Right before the line, check that the skill is current' "$F" && pass "#118 $s: checks again right before each dispatch" || fail "#118 $s: checks again right before each dispatch"
 done
 for s in ship-ticket review-and-execute receive-review-and-execute; do
@@ -165,5 +165,19 @@ hasf "$ST" "C158e ship-ticket runs session-tasks.sh before and after each dispat
 hasf "$ST" "C158f the dispatch prompt ends with the stop sentence" ' Stop before task <N>: the session runs it.'
 hasf "$ST" "C158g a ran line escalates" 'ESCALATION item=<item> phase=<n> reason=codex-failed needs=the executor ran session task <N>'
 hasf "$ST" "C158h the gate loop fix plan runs with the session tasks" 'run it with the executor (Phase 4'"'"'s line, its session tasks, its capacity rule and its scope check)'
+
+# audit lane e: #164 every executor check runs executor-check.sh, and a usage limit runs the plan in the session
+for s in ship-ticket review-and-execute receive-review-and-execute execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF -- "(a link into an older version's copy fails it; a newer one passes)" "$F" && pass "#164 $s: an older copy fails the check, a newer one passes" || fail "#164 $s: an older copy fails the check, a newer one passes"
+  grep -qF 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md"' "$F" && fail "#164 $s: no cmp -s check of the executor is left" || pass "#164 $s: no cmp -s check of the executor is left"
+done
+grep -qF 'executor-check.sh' "$ROOT/skills/doctor/SKILL.md" && ! grep -qF 'cmp -s "${CODEX_HOME' "$ROOT/skills/doctor/SKILL.md" && pass "#164 doctor runs executor-check.sh" || fail "#164 doctor runs executor-check.sh"
+grep -qF 'for a reason other than capacity or a usage limit' "$ROOT/skills/ship-ticket/SKILL.md" && pass "#164 codex-failed excludes a usage limit" || fail "#164 codex-failed excludes a usage limit"
+for s in ship-ticket review-and-execute receive-review-and-execute execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF '**Out of usage.**' "$F" && grep -qF 'out of credits' "$F" && pass "#164 $s: an out-of-usage codex runs the plan in the session" || fail "#164 $s: an out-of-usage codex runs the plan in the session"
+  tr '\n' ' ' < "$F" | tr -s ' ' | grep -qF '`usage limit`, `hit your usage limit`, `try again at`, `out of credits` or `credit balance`' && pass "#164 $s: the usage phrases are listed" || fail "#164 $s: the usage phrases are listed"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

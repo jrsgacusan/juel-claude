@@ -267,5 +267,35 @@ grep -qxF '> kind: account (value)' "$V" && pass "a value step's kind line keeps
 sh "$SCRIPT" --file "$V" set-answer "$vid" 'db-1.staging.internal:5432' >/dev/null
 want=$(printf '%s\tperson\tp\tv\t%s' "$vid" 'db-1.staging.internal:5432')
 sh "$SCRIPT" --file "$V" answers | grep -qxF "$want" && pass "a value answer comes back whole" || fail "value answer"
+# audit lane a: a person step several items share is asked once
+mkdir -p "$TMP/pp"; PP="$TMP/pp/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$PP"
+LP() { sh "$SCRIPT" --file "$PP" "$@"; }
+pa=$(LP add --kind person --project P --item X --title "Install BlackHole 2ch" --body 'brief: /b/X.md\nstep: 2\nkind: screen\nOptions: done / can'"'"'t now')
+pb=$(LP add --kind person --project P --item Y --title "install  blackhole 2CH" --body 'brief: /b/Y.md\nstep: 4\nkind: screen\nOptions: done / can'"'"'t now')
+[ "$pb" = "$pa" ] && grep -qxF 'also: Y /b/Y.md #4 screen' "$PP" && pass "another item's same person step returns the open id and adds an also line" || fail "cross-item person match ($pa $pb)"
+pc=$(LP add --kind person --project P --item Y --title "install  blackhole 2CH" --body 'brief: /b/Y.md\nstep: 4\nkind: screen\nOptions: done / can'"'"'t now')
+[ "$pc" = "$pa" ] && [ "$(grep -c '^also: Y ' "$PP")" = 1 ] && pass "the same step again keeps one also line" || fail "also line repeated ($pc)"
+pa2=$(LP add --kind person --project P --item X --title "Install BlackHole 2ch" --body 'brief: /b/X.md\nstep: 2\nkind: screen\nOptions: done / can'"'"'t now')
+[ "$pa2" = "$pa" ] && [ "$(grep -c '^### N-' "$PP")" = 1 ] && pass "the first item's own replay still returns its id" || fail "own replay after also ($pa2)"
+pz=$(LP add --kind person --project Q --item Z --title "Install BlackHole 2ch" --body 'brief: /b/Z.md\nstep: 1\nkind: screen')
+[ "$pz" != "$pa" ] && pass "another project is a new item" || fail "project crossed ($pz)"
+ga=$(LP add --kind go-batch --project P --item X --title "same go title" --body 'a')
+gb=$(LP add --kind go-batch --project P --item Y --title "same go title" --body 'a')
+[ "$ga" != "$gb" ] && pass "only person items merge across items" || fail "go-batch merged"
+LP set-answer "$pa" 'done' >/dev/null
+pw=$(LP add --kind person --project P --item W --title "Install BlackHole 2ch" --body 'brief: /b/W.md\nstep: 3\nkind: screen')
+[ "$pw" = "$pa" ] && grep -qxF 'also: W /b/W.md #3 screen' "$PP" && LP answers | grep -q "^$pa	person	P	X	done$" && pass "an answer typed on the item is kept when another item's step joins" || fail "answered item ($pw)"
+
+# audit lane A2: a person item replayed with its also: lines is not a duplicate
+mkdir -p "$TMP/ra"; RA="$TMP/ra/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$RA"
+LR() { sh "$SCRIPT" --file "$RA" "$@"; }
+BODY='brief: /b/X.md\nstep: 2\nkind: screen\nalso: Y /b/Y.md #4 screen\nOptions: done / can'"'"'t now'
+ra=$(LR add --kind person --project R --item X --title "Pair the headset" --body 'brief: /b/X.md\nstep: 2\nkind: screen\nOptions: done / can'"'"'t now')
+LR add --kind person --project R --item Y --title "Pair the headset" --body 'brief: /b/Y.md\nstep: 4\nkind: screen' >/dev/null
+LR close "$ra" >/dev/null
+rb=$(LR add --kind person --project R --item X --title "Pair the headset" --body "$BODY")
+rc2=$(LR add --kind person --project R --item X --title "Pair the headset" --body "$BODY")
+[ "$rb" != "$ra" ] && [ "$rc2" = "$rb" ] && [ "$(grep -c '^### N-' "$RA")" = 1 ] && grep -qxF 'also: Y /b/Y.md #4 screen' "$RA" && pass "a replay carrying also lines returns the same id and keeps the line" || fail "also replay ($ra $rb $rc2)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

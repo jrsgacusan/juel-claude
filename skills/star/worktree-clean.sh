@@ -5,6 +5,9 @@
 #        with "kept-builds <H>/builds/<item>/" on its own line first when specs or plans were copied,
 #        then "kept-evidence <H>/evidence/<item>/" when evidence was copied, then
 #        "evidence-size <item> <x.x> GB" when that evidence is over 1 GiB
+# For a done or dropped row, whether or not a worktree is left, it first gzips the item's codex
+# transcripts <H>/reviews/<project>/<item>-r<k>.log and <item>-r<k>-error-<n>.log (nothing else there
+# changes) and prints "reviews-gzipped <item> <n>" as its first line when <n> is 1 or more.
 # It removes the worktree only when all of these hold: the row is done or dropped; the path is not
 # the project's main checkout and no other open row names it; `git status --porcelain` is empty;
 # and the work is safe elsewhere: after a fetch from the project's remote, HEAD is contained in a
@@ -24,8 +27,16 @@
 # The build's docs outlive it too: every specs/ and plans/ folder under those same docsRoots (the spec,
 # the plan, the review plan) is copied the same way, with the same size check, into
 # <H>/builds/<item>/specs/ and <H>/builds/<item>/plans/.
-# The evidence copy leaves out dependency and build folders (node_modules, .build, DerivedData, .venv,
-# venv, target, __pycache__, .gradle) and object files (*.o). Each skipped path is a line
+# The evidence copy leaves out, by class:
+#   folders named node_modules .build DerivedData .venv venv target __pycache__ .gradle tmp .tmp .git,
+#   and folders ending .app .mlmodelc .xcarchive;
+#   files ending .o .dmg .pkg .ipa .pack .idx .a .so .dylib .gguf .safetensors .onnx .pt .bin .parquet .npz;
+#   audio files (.wav .flac .aif .aiff .caf .mp3 .m4a .ogg) over 10 MB (10 * 1024 * 1024 bytes).
+# The copy alone also hardlinks a file whose sha256 equals one already copied for the item (never to a path a later
+# evidence root has since replaced), and, for
+# evidence folders that share a name but for a -v<N> suffix, keeps only the text files (.md .txt .json
+# .log .csv) of the older runs when the newest holds a report.md (with none, every run is copied whole).
+# --evidence-report and --evidence-prune apply the skip classes alone. Each skipped path is a line
 # "<path relative to the evidence folder>\t<bytes>" in <H>/evidence/<item>/skipped.txt (a folder's bytes
 # are its total). The size line counts what was copied, not what was skipped.
 # <why>: row is <state> | the main checkout | in use by <item> | not a git checkout |
@@ -47,6 +58,8 @@ STAR_HOME_DEFAULT=${JUEL_STAR_HOME:-$(sh "$(dirname "$0")/star-home.sh" path 2>/
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd)
 export STAR_HOME_DEFAULT STAR_SKILL_DIR
 exec python3 - "$@" <<'PY'
+import gzip
+import hashlib
 import json
 import os
 import re
@@ -80,12 +93,55 @@ def run(cmd, timeout=120):
         return 127, "", f"cannot run {cmd[0]}: {e.strerror}"
 
 
-SKIP_DIRS = ("node_modules", ".build", "DerivedData", ".venv", "venv", "target", "__pycache__", ".gradle")
+SKIP_DIRS = ("node_modules", ".build", "DerivedData", ".venv", "venv", "target", "__pycache__", ".gradle",
+             "tmp", ".tmp", ".git")
+SKIP_DIR_SUFFIXES = (".app", ".mlmodelc", ".xcarchive")
+SKIP_EXTS = (".o", ".dmg", ".pkg", ".ipa", ".pack", ".idx", ".a", ".so", ".dylib", ".gguf", ".safetensors",
+             ".onnx", ".pt", ".bin", ".parquet", ".npz")
+AUDIO_EXTS = (".wav", ".flac", ".aif", ".aiff", ".caf", ".mp3", ".m4a", ".ogg")
+AUDIO_LIMIT = 10 * 1024 * 1024
+TEXT_EXTS = (".md", ".txt", ".json", ".log", ".csv")
 GIB = 1024 ** 3
 
 
-def skip_listed(name, is_dir):
-    return name in SKIP_DIRS if is_dir else name.endswith(".o")
+def skip_listed(path, is_dir):
+    """True for a path the evidence copy leaves out: judged by its name, and for audio by its size."""
+    name = os.path.basename(path)
+    if is_dir:
+        return name in SKIP_DIRS or name.endswith(SKIP_DIR_SUFFIXES)
+    low = name.lower()
+    if low.endswith(SKIP_EXTS):
+        return True
+    if low.endswith(AUDIO_EXTS):
+        try:
+            return os.lstat(path).st_size > AUDIO_LIMIT
+        except OSError:
+            return False
+    return False
+
+
+def version_group(name):
+    """(name without a trailing -v<N>, N); N is 1 for a name with no suffix."""
+    m = re.match(r"^(.*)-v(\d+)$", name)
+    return (m.group(1), int(m.group(2))) if m else (name, 1)
+
+
+def superseded_runs(src):
+    """Names of the folders directly under src that a newer -v<N> run replaced, where that newest
+    run holds a report.md (a finished run). With no report.md in the newest, none are superseded."""
+    groups = {}
+    for name in os.listdir(src):
+        if os.path.isdir(os.path.join(src, name)) and not os.path.islink(os.path.join(src, name)):
+            base, n = version_group(name)
+            groups.setdefault(base, []).append((n, name))
+    old = set()
+    for members in groups.values():
+        if len(members) < 2:
+            continue
+        members.sort()
+        if os.path.isfile(os.path.join(src, members[-1][1], "report.md")):
+            old.update(name for _, name in members[:-1])
+    return old
 
 
 def tree_bytes(path):
@@ -146,13 +202,13 @@ if args[:1] in (["--evidence-report"], ["--evidence-prune"]):
                 continue
             for top, dirs, files in os.walk(root):
                 dirs.sort()
-                for d in [d for d in dirs if skip_listed(d, True)]:
+                for d in [d for d in dirs if skip_listed(os.path.join(top, d), True)]:
                     full = os.path.join(top, d)
                     found.append((name, os.path.relpath(full, root), tree_bytes(full), full))
-                dirs[:] = [d for d in dirs if not skip_listed(d, True)]
+                dirs[:] = [d for d in dirs if not skip_listed(os.path.join(top, d), True)]
                 for f in sorted(files):
-                    if skip_listed(f, False):
-                        full = os.path.join(top, f)
+                    full = os.path.join(top, f)
+                    if skip_listed(full, False):
                         found.append((name, os.path.relpath(full, root), tree_bytes(full), full))
         found.sort(key=lambda r: (r[0], r[1]))
         if mode == "--evidence-prune":
@@ -227,30 +283,71 @@ def evidence_dirs(worktree):
     return doc_folders(worktree, "evidence")
 
 
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def copy_checked(pairs, ignore=None):
     """Copy each (src, dest) folder, then check every file arrived at its size. Returns (files
-    copied, skipped rows [(path under src, bytes)], bytes copied). Raises OSError or ValueError."""
+    copied, skipped rows [(path under src, bytes)], bytes copied). Raises OSError or ValueError.
+    With ignore: the skip classes are left out, a file whose sha256 equals one already copied is
+    hardlinked to it, and the folders of superseded -v<N> runs keep only their text files."""
     skipped, copied, size = [], 0, 0
+    seen = {}  # sha256 -> the copy made first
+    old = {src: superseded_runs(src) if ignore else set() for src, _ in pairs}
+
+    def left_out(src, full, is_dir):
+        if skip_listed(full, is_dir):
+            return True
+        rel = os.path.relpath(full, src).split(os.sep)
+        return (not is_dir and rel[0] in old[src] and len(rel) > 1
+                and not full.lower().endswith(TEXT_EXTS))
 
     def ignorer(src):
         def ignore_fn(top, names):
             drop = []
             for n in names:
                 full = os.path.join(top, n)
-                if ignore and skip_listed(n, os.path.isdir(full) and not os.path.islink(full)):
+                is_dir = os.path.isdir(full) and not os.path.islink(full)
+                if ignore and left_out(src, full, is_dir):
                     drop.append(n)
-                    skipped.append((os.path.relpath(full, src), tree_bytes(full)))
+                    if skip_listed(full, is_dir):
+                        skipped.append((os.path.relpath(full, src), tree_bytes(full)))
             return drop
         return ignore_fn
 
+    def copy_file(a, b):
+        if ignore:
+            digest = sha256_of(a)
+            if os.path.lexists(b):
+                os.remove(b)  # never write through a link an earlier attempt made
+            # b is written anew below: no earlier copy may stand for what it held before
+            for d in [d for d, v in seen.items() if v == b]:
+                del seen[d]
+            first = seen.get(digest)
+            if first and os.path.exists(first):
+                try:
+                    os.link(first, b)
+                    return b
+                except OSError:
+                    pass
+            shutil.copy2(a, b)
+            seen.setdefault(digest, b)
+            return b
+        return shutil.copy2(a, b)
+
     for src, dest in pairs:
-        shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True, ignore=ignorer(src))
+        shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True, ignore=ignorer(src), copy_function=copy_file)
     missing = 0
     for src, dest in pairs:
         for top, dirs, files in os.walk(src):
             if ignore:
-                dirs[:] = [d for d in dirs if not (skip_listed(d, True) and not os.path.islink(os.path.join(top, d)))]
-                files = [f for f in files if not skip_listed(f, False)]
+                dirs[:] = [d for d in dirs if not (not os.path.islink(os.path.join(top, d)) and left_out(src, os.path.join(top, d), True))]
+                files = [f for f in files if not left_out(src, os.path.join(top, f), False)]
             for name in files + [d for d in dirs if os.path.islink(os.path.join(top, d))]:
                 copied += 1
                 orig = os.path.join(top, name)
@@ -297,8 +394,41 @@ def keep_evidence(worktree):
     return dest + "/", size
 
 
+def gzip_reviews(project_name):
+    """Gzip the item's codex transcripts (<item>-r<k>.log, <item>-r<k>-error-<n>.log) in
+    <H>/reviews/<project>/, leaving every other file and any .gz already there alone. Returns how many."""
+    if not project_name or re.search(r"[\x00-\x1f\x7f/\\]", project_name) or project_name.startswith("."):
+        return 0
+    folder = os.path.join(home, "reviews", project_name)
+    pattern = re.compile(re.escape(item) + r"-r\d+(-error-\d+)?\.log")
+    done = 0
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return 0
+    for name in names:
+        full = os.path.join(folder, name)
+        if not pattern.fullmatch(name) or os.path.islink(full) or not os.path.isfile(full):
+            continue
+        try:
+            with open(full, "rb") as f, gzip.open(full + ".gz", "wb") as g:
+                shutil.copyfileobj(f, g)
+            os.remove(full)
+            done += 1
+        except OSError:
+            try:
+                os.remove(full + ".gz")
+            except OSError:
+                pass
+    return done
+
+
 row = dict(l.split("=", 1) for l in ledger("get", item).splitlines() if "=" in l)
 path, state = row["worktree"], row["state"]
+if state in FINISHED:
+    n_gzipped = gzip_reviews(row.get("project", "").strip())
+    if n_gzipped:
+        print(f"reviews-gzipped {item} {n_gzipped}")
 if path in ("", "-"):
     out("none")
 if state not in FINISHED:

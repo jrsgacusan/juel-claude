@@ -3,9 +3,16 @@
 # while they are away. It only reads STAR's own small files (queue, ledger, sent.log, star.json).
 #   handoff.sh [--home <dir>] start      write handoff.md, mark away in star.json, print its path
 #   handoff.sh [--home <dir>] due [--hours N]   -> due | not-due | not-away   (default 4 hours)
-#   handoff.sh [--home <dir>] summary    add a dated summary at the top of handoff.md
+#   handoff.sh [--home <dir>] summary [--if-due [--hours N]]
+#                                        add a dated summary at the top of handoff.md, unless nothing changed
+#                                        since the newest one (prints "unchanged"); --if-due also needs the
+#                                        due test (default 4 hours) to pass, under one lock hold, and prints
+#                                        not-away | not-due | unchanged, else what summary prints (nothing)
 #   handoff.sh [--home <dir>] latest     print the newest summary
 #   handoff.sh [--home <dir>] end        clear away, stamp the file, print the newest summary
+# Each summary has a line "- Approved, not started: <item> (<reason>, <age>)[; ...]" or "... none": the
+# queued rows whose brief has a grant, with waits on <items> | waits until <date> | waits for a build slot.
+# "Changed" ignores a block's heading, its Host line and the ages in the Approved line.
 # Answers are never collected here: the queue (open-loops.md) is the one place to answer.
 # start while already away changes nothing (the summaries stay); end while not away prints
 # "not away". Every command holds handoff.lock, so runs never overwrite each other. A ledger
@@ -150,6 +157,66 @@ def summaries(lines):
     return s, [(h, (heads[n + 1] if n + 1 < len(heads) else e), lines[h][4:].strip()) for n, h in enumerate(heads)]
 
 
+def brief_fields(home, row):
+    """{key: value} of a brief's frontmatter-style 'key: value' lines, or None when it cannot be read."""
+    path = os.path.join(home, "briefs", row.get("project", ""), f"{row.get('item', '')}.md")
+    try:
+        text = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return None
+    return {m.group(1): m.group(2).strip() for m in re.finditer(r"^(approved|grant|blockedBy|notBefore):[ \t]*(.*)$", text, re.M)}
+
+
+def approved_line(home, rows, t_now):
+    """'- Approved, not started: ...' for queued rows that hold a grant."""
+    state = {r.get("item"): r.get("state") for r in rows}
+    out = []
+    for r in rows:
+        if r.get("state") != "queued":
+            continue
+        f = brief_fields(home, r)
+        if f is None:
+            out.append(f"{r.get('item')} (brief unreadable)")
+            continue
+        if not re.match(r"[^ #]", f.get("grant", "")):
+            continue
+        blocked_by = re.sub(r"\s+#.*$", "", f.get("blockedBy", "")).strip()  # a trailing comment is not a blocker
+        blockers = [b.strip() for b in blocked_by.strip("[]").split(",") if b.strip()]
+        waiting = [b for b in blockers if state.get(b) not in ("done", "dropped")]
+        nb = f.get("notBefore", "")
+        t_nb = parse(nb)
+        if waiting:
+            why = "waits on " + ", ".join(waiting)
+        elif t_nb and t_now and t_nb > t_now:
+            why = "waits until " + nb[:10]
+        else:
+            why = "waits for a build slot"
+        t_ap = parse(f.get("approved", ""))
+        if t_ap and t_now:
+            hours = max(0, int((t_now - t_ap).total_seconds() // 3600))
+            age = f"{hours} h" if hours < 48 else f"{hours // 24} d"
+            why += f", {age}"
+        out.append(f"{r.get('item')} ({why})")
+    return "- Approved, not started: " + ("; ".join(out) or "none")
+
+
+AGE_RE = re.compile(r", \d+ [hd]\)")
+
+
+def essence(block):
+    """A summary block without what changes by itself: heading, Host line, ages in the Approved line."""
+    keep = []
+    for l in block[1:]:
+        if l.startswith("- Host:"):
+            continue
+        if l.startswith("- Approved, not started:"):
+            l = AGE_RE.sub(")", l)
+        keep.append(l.rstrip())
+    while keep and not keep[-1]:
+        keep.pop()
+    return keep
+
+
 def mem_gb():
     if os.environ.get("STAR_MEM_GB"):
         return os.environ["STAR_MEM_GB"]
@@ -168,7 +235,7 @@ p.add_argument("--home", default=os.environ.get("STAR_HOME_DEFAULT") or None)
 sub = p.add_subparsers(dest="cmd", required=True)
 sub.add_parser("start")
 d = sub.add_parser("due"); d.add_argument("--hours", type=float, default=4)
-sub.add_parser("summary")
+sm = sub.add_parser("summary"); sm.add_argument("--if-due", action="store_true"); sm.add_argument("--hours", type=float, default=4)
 sub.add_parser("latest")
 sub.add_parser("end")
 try:
@@ -242,8 +309,14 @@ if a.cmd == "due":
 elif a.cmd == "latest":
     print("\n".join(lines[blocks[0][0]:blocks[0][1]]).rstrip() if blocks else "No summaries yet.")
 elif a.cmd == "summary":
+    if not away and a.if_due:
+        print("not-away")
+        sys.exit(0)
     if not away:
         die(1, "not away: run 'handoff.sh start' first")
+    if a.if_due and not (t_last is None or (t_now and t_now - t_last >= timedelta(hours=a.hours))):
+        print("not-due")
+        sys.exit(0)
     if start is None:  # the heading was deleted: put it back above the first other section
         at = next((i for i, l in enumerate(lines) if l.startswith("## ")), len(lines))
         lines[at:at] = ["## Summaries", ""]
@@ -277,6 +350,7 @@ elif a.cmd == "summary":
         "- PRs waiting to merge: " + ("; ".join(ready) or "none"),
         "- Merged since the last summary: " + ("; ".join(merged) or "none"),
         "- Stopped, waiting for your answer: " + ("; ".join(stopped) or "none"),
+        approved_line(home, rows, t_now),
         "- Sent since the last summary: " + ("; ".join(sent) or "nothing"),
         f"- Host: {mem_gb()} GB free + inactive; workers running: {running}",
         "- Needs you: " + ("; ".join(label(x) for x in queue(home)) or "nothing"),
@@ -284,6 +358,9 @@ elif a.cmd == "summary":
     if bad:
         block.append(f"- Ledger rows unreadable: {bad} (wrong number of cells; check ledger.md)")
     block.append("")
+    if blocks and essence(block) == essence(lines[blocks[0][0]:blocks[0][1]]):
+        print("unchanged")
+        sys.exit(0)
     at = blocks[0][0] if blocks else start + 1
     if not blocks and at < len(lines) and not lines[at].strip():
         at += 1

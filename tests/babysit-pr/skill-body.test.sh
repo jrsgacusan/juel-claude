@@ -97,7 +97,7 @@ grow "C1b each P0 and P1 finding is validated against the brief" 'superpowers:re
 grow "C1c a finding outside the brief's scope is the brief-violation escalation" 'reason=brief-violation'
 grow "C1d the fix is planned as a new -vN plan" '(`superpowers:writing-plans`, a new `-vN`)'
 grow "C1e the plan runs on the executor and its model script" 'executor-model.sh'
-grow "C1f with the capacity rule" 'capacity rule'
+grow "C1f with the capacity and out-of-usage rules" 'capacity and out-of-usage rules'
 grow "C1g the regression gate goes through the gate lock" 'through the gate lock'
 grow "C1h the round's -fix.md sits in the reviews folder" '<star.reviews>/<item>-r<k>-fix.md'
 grow "C1i the push waits for a SAFE round and is never forced" 'the push waits for a SAFE round and is never forced'
@@ -365,5 +365,19 @@ tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF "when that round's \`tooling=\` eq
 ! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh|quiet window' "$SKILL" && pass "Q157d babysit-pr has no quiet hours" || fail "Q157d quiet hours still in babysit-pr"
 ! grep -qF 'Nothing deferred is lost' "$SKILL" && pass "Q157e no deferred-command paragraph" || fail "Q157e deferred paragraph"
 g "Q157f away is not a reason to wait" 'nothing holds marking ready, replies, review requests or the `@greptileai` comment'
+# audit lane d: final sync
+has "D2a Phase 4 step 1 merges the base in only when" 'merges the base in only when'
+has "D2b step 1 reads review-rule.sh" 'review-rule.sh <repo> <base>'
+has "D2c step 1 names strict and unknown" 'prints `strict` or `unknown'
+has "D2d the hosted row's base merge takes the same condition" "Phase 4 step 1's condition holds"
+has "D2e the description says when the base is merged" 'merges the base branch in when the base requires it or the PR conflicts'
+has "D2f the behind paragraph says the merge gate still sends a strict base back" "STAR's merge gate still sends a strict base back"
+has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P2]\` and \`[P3]\` findings stay in its review: no commit and no push after a SAFE round for them alone."
+
+# audit integration: a merge another rule orders is never skipped by the final sync's condition
+grep -qF 'That condition is for the final sync alone: a' "$SKILL" && grep -qF 'the base moved") always fetches and merges the base as below.' "$SKILL" && pass "I1 a base-moved or conflict merge always merges" || fail "I1 a base-moved or conflict merge always merges"
+# audit fix 8: a codex usage limit in a gate fix round runs the plan in the session
+grow "F8 a usage limit runs the plan in the session" 'a codex usage limit runs the plan in this session'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

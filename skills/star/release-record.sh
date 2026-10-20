@@ -9,11 +9,14 @@
 # "- Evidence:" names <home>/evidence/<item>/, where worktree-clean.sh copies the worktree's
 # evidence before it removes the worktree, when the worktree holds an evidence folder (or the copy
 # is already there); else "none found". Over 1 GiB (JUEL_EVIDENCE_GB_LIMIT overrides, in GiB) the line
-# ends " (<x.x> GB)". Dependency and build folders and object files are not counted, as
-# worktree-clean.sh leaves them out of the copy.
+# ends " (<x.x> GB)". What worktree-clean.sh leaves out of the copy is not counted: dependency, build,
+# temp and git folders, app bundles, packages, models, object files, git objects and audio over 10 MB.
 # "- Build docs:" follows it and names <home>/builds/<item>/, where worktree-clean.sh copies the
 # worktree's specs and plans, when the worktree holds a specs/ or plans/ folder with a file in it (or
 # the copy is already there); else "none found".
+# When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
+JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
+export JUEL_SKILLS_DIR
 exec python3 - "$@" <<'PY'
 import argparse
 import fcntl
@@ -44,6 +47,24 @@ for flag, value in (("--project", a.project), ("--item", a.item)):
         print(f"release-record.sh: {flag} must be a plain name (got {value!r})", file=sys.stderr)
         sys.exit(64)
 
+def use_star_token(home):
+    """GH_TOKEN for the account star.json configures (#137), when this process has none."""
+    if os.environ.get("GH_TOKEN"):
+        return
+    cmd = ["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "gh-token.sh")]
+    if home:
+        cmd += ["--home", home]
+    try:
+        proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=40)
+        if proc.returncode == 0:
+            token = proc.stdout.strip()
+            if token and "\n" not in token and "\r" not in token:
+                os.environ["GH_TOKEN"] = token
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+use_star_token(a.home)
 cmd = ["gh", "pr", "view", a.pr, "--json",
        "number,title,url,state,mergeCommit,mergedAt,mergedBy,reviews,statusCheckRollup,baseRefName,headRefName"]
 if a.repo:
@@ -112,19 +133,32 @@ def evidence_dirs(worktree):
     return doc_folders(worktree, "evidence")
 
 
-SKIP_DIRS = ("node_modules", ".build", "DerivedData", ".venv", "venv", "target", "__pycache__", ".gradle")
+SKIP_DIRS = ("node_modules", ".build", "DerivedData", ".venv", "venv", "target", "__pycache__", ".gradle",
+             "tmp", ".tmp", ".git")
+SKIP_DIR_SUFFIXES = (".app", ".mlmodelc", ".xcarchive")
+SKIP_EXTS = (".o", ".dmg", ".pkg", ".ipa", ".pack", ".idx", ".a", ".so", ".dylib", ".gguf", ".safetensors",
+             ".onnx", ".pt", ".bin", ".parquet", ".npz")
+AUDIO_EXTS = (".wav", ".flac", ".aif", ".aiff", ".caf", ".mp3", ".m4a", ".ogg")
+AUDIO_LIMIT = 10 * 1024 * 1024
+
+
+def skipped_file(path, size):
+    """The same classes worktree-clean.sh leaves out of the evidence copy."""
+    low = os.path.basename(path).lower()
+    return low.endswith(SKIP_EXTS) or (low.endswith(AUDIO_EXTS) and size > AUDIO_LIMIT)
 
 
 def folder_bytes(folder):
     total = 0
     for top, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.endswith(SKIP_DIR_SUFFIXES)]
         for name in files:
-            if not name.endswith(".o"):
-                try:
-                    total += os.lstat(os.path.join(top, name)).st_size
-                except OSError:
-                    pass
+            try:
+                size = os.lstat(os.path.join(top, name)).st_size
+            except OSError:
+                continue
+            if not skipped_file(name, size):
+                total += size
     return total
 
 

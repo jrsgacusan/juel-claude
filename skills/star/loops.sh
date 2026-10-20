@@ -10,7 +10,9 @@
 # " · " separator, titles and answers are flattened to one line, and a body line that looks
 # like a heading, an item or an "Answer:" line is written as a "> " quote.
 # add returns the id of an open item with the same kind, project, item, title and body instead
-# of adding it twice. close writes the archive first, so a failed close never loses the item.
+# of adding it twice. A person step is also matched across items: an open person item of the
+# same project whose title is the same after collapsing whitespace and ignoring case is returned,
+# and "also: <item> <brief path> #<n> <kind>" is added once to its body for the new item. close writes the archive first, so a failed close never loses the item.
 # An id is never handed out twice: the highest one used is kept in <queue>.seq, so an editor
 # that saves an old copy over the queue cannot bring an id back for a different ask.
 # A file a person has broken stops every command instead of being guessed at: a STAR heading
@@ -272,11 +274,47 @@ def main():
                 rows = rows[:rows.index("", 1)]
             return [r for r in rows if r]
 
+        def own_body(it):
+            return [r for r in body_of(it) if not r.startswith("also: ")]
+
+        passed_also = [r for r in body if r.startswith("also: ")]
+        own = [r for r in body if not r.startswith("also: ")]
+
+        def keep_also(it):
+            """The also: lines the caller passed that the open item does not hold yet go under its body."""
+            for row in passed_also:
+                if row not in body_of(it):
+                    k = field_line(lines, it, "Answer")
+                    if k is None:
+                        k = next((j for j in range(it["start"] + 1, it["end"]) if not lines[j].strip()), it["end"])
+                    lines.insert(k, row)
+                    save(path, lines)
+                    it = find(lines, it["id"])
+
         same = next((it for it in items(lines) if (kind_of(lines, it), it["project"], it["item"], it["title"])
-                     == (args.kind, project, item, title) and body_of(it) == body), None)
+                     == (args.kind, project, item, title) and own_body(it) == own), None)
         if same:  # a replayed message asks again; the open item is still the one to answer
+            keep_also(same)
             print(same["id"])
             return
+        if args.kind == "person":
+            norm = title.lower()
+            twins = [it for it in items(lines) if kind_of(lines, it) == "person" and it["project"] == project
+                     and flat(it["title"]).lower() == norm]
+            twin = next(iter(twins), None) if not any(it["item"] == item for it in twins) else None
+            if twin:  # one ask for a step several items share; the other items ride along as "also:"
+                raw = {m.group(1): m.group(2).strip() for l in args.body.replace("\\n", "\n").split("\n")
+                       for m in [re.match(r"(brief|step|kind):\s*(.*)", l)] if m}
+                also = f"also: {item} {raw.get('brief') or '-'} #{raw.get('step') or '-'} {raw.get('kind') or '-'}"
+                if not any(r.startswith(f"also: {item} ") for r in body_of(twin)):
+                    k = field_line(lines, twin, "Answer")
+                    if k is None:
+                        k = next((j for j in range(twin["start"] + 1, twin["end"]) if not lines[j].strip()), twin["end"])
+                    lines.insert(k, also)
+                    save(path, lines)
+                keep_also(find(lines, twin["id"]))
+                print(twin["id"])
+                return
         try:
             new_id = f"N-{next_id(lines, archive, path + '.seq')}"
         except OSError as e:

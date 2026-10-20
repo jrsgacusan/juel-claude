@@ -310,6 +310,9 @@ that rule says). Run on its own, this skill creates that directory and writes `r
 any, lower-cased) and a short kebab-case summary of the diff's subject. Never overwrite an
 existing evidence directory; on a collision use `-v2`, then `-v3`.
 
+Inputs and build output are not evidence: keep them outside the evidence directory and name them in
+`report.md` with their path, size and sha256, as rule 5 of `references/local-e2e.md` says.
+
 When invoked from `juel:ship-ticket`, write into the evidence directory it passes instead of
 creating one.
 

@@ -68,7 +68,7 @@ Takes an existing implementation plan and dispatches Codex (sandboxed `workspace
 | Dep | Type | H/S | Check | If missing |
 |---|---|---|---|---|
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session via superpowers:executing-plans |
-| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs` |
+| claude-plan-executor | skill | HARD | `sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>` printing `ok` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link fails it) (a link into an older version's copy fails it; a newer one passes) | STOP → `node scripts/link-agent-skills.mjs` |
 | plan file | context | HARD | newest `${docsRoot}/plans/*.md` | STOP → no plan to execute |
 | writable workspace | context | HARD | `test -w .` | STOP |
 
@@ -184,10 +184,11 @@ Resolve the model and effort first: `sh <executor-model.sh> --model latest-luna 
 one line.
 
 **The executor skill.** Right before the line, check that the skill is current:
-`cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
-(`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
-copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
-is gone, and for a link into another version's copy, which would run an older executor.
+`sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>`,
+which must print `ok` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file).
+It compares the linked copy with this plugin's own (a link into an older version's copy fails it; a newer one passes),
+so it fails for a missing link, for a link into a plugin version that
+is gone, and for a link into an older version's copy, which would run an older executor.
 Failing: stop and tell the user to run `node <plugin root>/scripts/link-agent-skills.mjs`, then
 run this skill again. Never dispatch without it: Codex would execute something else.
 
@@ -224,6 +225,12 @@ fallback model (`latest-sol`, resolved the same way); then run the plan in this 
 `superpowers:executing-plans`. Say each step in one line. Each of them resumes from the plan's
 ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
 checked before it is edited, since the stop may have left it half applied.
+
+**Out of usage.** When codex exits non-zero and its last lines say `usage limit`, `hit your usage
+limit`, `try again at`, `out of credits` or `credit balance` (any case), the account is out of
+usage. The retry and the fallback model use the same account, so skip both: run the plan in this
+session with `superpowers:executing-plans`, resuming from the plan's ledger. One progress line,
+never a `NOTE`.
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for

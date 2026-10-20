@@ -9,10 +9,14 @@
 #                    callers keep today's approval rule (pr-verify.sh answers PENDING, never a pass)
 # then one line per status check the rules require:
 #   check <context>
+# then, last and once, when a rule requires branches to be up to date before merging:
+#   strict
 # Sources: the rulesets that apply to the branch (repos/<repo>/rules/branches/<base>, readable
 # with read access) and classic branch protection (repos/<repo>/branches/<base>/protection,
 # often admin-only: a 403 or 404 there means no classic rule; any other error there, such as a
-# 502 or a timeout, is unknown). The higher count wins. A review rule whose count is missing or
+# 502 or a timeout, is unknown). The strict line comes from a ruleset's required_status_checks
+# with strict_required_status_checks_policy true, or classic required_status_checks.strict true.
+# The higher count wins. A review rule whose count is missing or
 # malformed is read as 1: bad data never relaxes a check.
 # A 404 or "Could not resolve to a Repository" on the rulesets (gh signed in to an account that
 # cannot see a private repo) prints "unknown gh cannot see <repo>: export GH_TOKEN for this
@@ -70,7 +74,7 @@ if not isinstance(rules, list):
     print("unknown unreadable rules")
     sys.exit(0)
 
-counts, checks = [], []
+counts, checks, strict = [], [], False
 for rule in rules:
     if not isinstance(rule, dict):
         continue
@@ -78,6 +82,8 @@ for rule in rules:
     if rule.get("type") == "pull_request":
         counts.append(count(params.get("required_approving_review_count")))
     elif rule.get("type") == "required_status_checks":
+        if params.get("strict_required_status_checks_policy") is True:
+            strict = True
         for c in params.get("required_status_checks") or []:
             if isinstance(c, dict) and isinstance(c.get("context"), str):
                 checks.append(c["context"])
@@ -92,6 +98,8 @@ if isinstance(classic, dict):
         counts.append(count(reviews.get("required_approving_review_count")))
     status = classic.get("required_status_checks")
     if isinstance(status, dict):
+        if status.get("strict") is True:
+            strict = True
         checks += [c for c in status.get("contexts") or [] if isinstance(c, str)]
         checks += [c["context"] for c in status.get("checks") or []
                    if isinstance(c, dict) and isinstance(c.get("context"), str)]
@@ -99,4 +107,6 @@ if isinstance(classic, dict):
 print(f"required {max(counts)}" if counts else "none")
 for c in dict.fromkeys(checks):
     print(f"check {c}")
+if strict:
+    print("strict")
 PY

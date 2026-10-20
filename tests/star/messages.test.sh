@@ -202,5 +202,20 @@ for extra in --wait "--ack dl_1" "--timeout-ms 100"; do
   M --waiting $extra >/dev/null 2>&1; [ $? -eq 64 ] && pass "I-5 --waiting with $extra is 64" || fail "I-5 --waiting with $extra is 64"
 done
 
+# audit lane G: Orca keepalive frames are dropped before the JSON is read (#168)
+KA='{"_keepalive":true,"_heartbeat":true,"elapsedMs":15001,"deadlineMs":539999}'
+reset; printf '%s\n' "$KA" > "$TMP/r1.json"
+[ "$(M --wait --timeout-ms 1000)" = "none" ] && pass "G a wait that saw only a keepalive frame prints none" || fail "G keepalive only"
+reset; printf '%s\n%s\n{"ok":true,"result":{"deliveryId":"dl_k","messages":[%s]}}\n' "$KA" "$KA" "$(done_msg msg_k 'DONE item=K pr=https://x/pull/9' ctx_k)" > "$TMP/r1.json"
+out=$(M --wait --timeout-ms 1000)
+[ "$(printf '%s\n' "$out" | sed -n 1p)" = "delivery dl_k 1" ] && pass "G keepalive lines before the result are ignored" || fail "G keepalive then result ($out)"
+reset; { printf '%s\n' "$KA"; printf '{\n  "ok": true,\n  "result": {\n    "deliveryId": "dl_p",\n    "messages": [%s]\n  }\n}\n' "$(done_msg msg_p 'DONE item=P pr=https://x/pull/8' ctx_p)"; } > "$TMP/r1.json"
+out=$(M --wait --timeout-ms 1000)
+[ "$(printf '%s\n' "$out" | sed -n 1p)" = "delivery dl_p 1" ] && pass "G a keepalive line then pretty-printed JSON is read" || fail "G keepalive then pretty ($out)"
+reset; printf '%s\n{"ok":false,"error":{"code":"x","message":"y"}}\n' "$KA" > "$TMP/r1.json"
+[ "$(M --wait --timeout-ms 1000)" = "unknown x: y" ] && pass "G a JSON error line that is no keepalive is still unknown" || fail "G error after keepalive"
+reset; printf '{"ok":false,"error":{"code":"x","message":"y"}}\n' > "$TMP/r1.json"
+[ "$(M)" = "unknown x: y" ] && pass "G a lone JSON error is unknown" || fail "G lone error"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

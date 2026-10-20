@@ -121,7 +121,7 @@ g "V5 a lost build leaves its pool" 'and set the row to `failed`'
 g "V6 a stop or away request is written down at once" 'control: stop'
 g "V7 a command word counts only when it is the whole answer" 'the whole answer'
 g "V8 the reply goes out before the row is marked" 'the `reply`, then the row'
-g "V9 a worker is released before the message is marked done" '`worker-release`, then `processed.log`'
+g "V9 a worker is released before the message is marked done" '`worker-release`, then `<dispatch> released <iso>` appended to `processed.log`'
 g "V10 a resume does not spend the pending retry" 'its `retry=` time has passed'
 g "V11 an answer waits for the report that raised it" 'leave its answers for the next tick'
 g "V12 a draft is posted once" 'posted draft N-'
@@ -379,7 +379,7 @@ reconcile=$(sed -n '/^5\. \*\*Reconcile\*\*/,/^6\. `loops\.sh resume/p' "$SKILL"
 gatefail=$(grep -F '| `FAIL <what>` |' "$SKILL")
 [ -n "$start1" ] && [ -n "$reconcile" ] && [ -n "$gatefail" ] && pass "FS0 the parts of the skill that the FS lines look in are found" || fail "FS0 the parts of the skill that the FS lines look in are found"
 # FS1: a person step answered can't now is asked again
-g "FS1 a go leaves a row that has an open person item" 'or that has an open `person` item: those stay'
+g "FS1 a go leaves a row that has an open person item" 'or that has an open `person` item (an open `person` item whose body has an `also:` line naming the row counts as that row'"'"'s open item): those stay'
 grep -qF 'a `person` item still open, answered' "$SKILL" && fail "FS1 the go row no longer reads an answered item as open" || pass "FS1 the go row no longer reads an answered item as open"
 g "FS1 can't now closes the answered item, then asks the step again" 'then close the answered item and add the same `person` item again'
 g "FS1 add returns an item that is still in the queue" 'returns an item that is still in the queue, answered or not, and adds nothing'
@@ -576,7 +576,7 @@ g "LH1i the close is asked once (#94)" '(`grep -cF '"'"'close <that url>: carrie
 g "LH2a a re-scope queues its person-only steps (#101)" 'and queue one `--kind person` per line of the brief'"'"'s `## Person-only steps`, as the next row does'
 g "LH2b a granted re-scope waits while a step is open (#101)" 'row → `queued` when none of those steps is open, else `brief-ready`'
 g "LH2c the status line says what it waits for (#101)" '"<item>: re-scope waits for <n> person-only steps" in the status line; the grant still covers it'
-g "LH2d the last answered value step queues it (#101)" 'and no other open `person` item: it → `queued` (a re-scope that waited for its person-only steps, #101)'
+g "LH2d the last answered value step queues it (#101)" 'and no other open `person` item (one whose body has an `also:` line naming the row counts): it → `queued` (a re-scope that waited for its person-only steps, #101)'
 g "LH2e the last answered done step queues it too (#101)" 'the row does not change, with the same exception as the row above'
 g "LH2f re-scope mode keeps step 6's person-only rules (#101)" '`## Person-only steps` follows step 6'"'"'s rules, and leaves out a step its'
 grep -qF 'The brief keeps its `approved:` and `grant:`' "$SKILL" && fail "LH2g a granted re-scope no longer goes straight to queued (#101)" || pass "LH2g a granted re-scope no longer goes straight to queued (#101)"
@@ -722,7 +722,7 @@ g "LH123d the counter row names the API error (#123)" '| `capacity=<n>` | retry 
 g "LH123e looking after the workers names it (#123)" 'capacity, or a worker left at an empty prompt under an `API Error:` line (#123), is a third thing'
 g "LH123f the matching nudge, never both (#123)" 'capacity rule: below `capacity=3`, send the nudge that matches the line: for `stalled: model at capacity`'
 g "LH123g a stalled worker becomes a lost worker (#123)" '(`stalled:`): STAR nudges it to retry, three times at most, then treats it as a lost worker (the capacity rule in'
-g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
+g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), any worker at a Claude usage-limit screen (`stuck: usage limit`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
 
 R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
 S124="PASS self-approved under the owner's grant"
@@ -871,8 +871,8 @@ has "E150g the done row agrees" 'and any other answer but `can'"'"'t now`, `no` 
 has "E151a go all is a command word" 'compare all of it with `go`, `go all`, `yes`'
 has "E151b the go all row" '| `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151)'
 has "E151c the grant records the rest" 'its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant'"'"'s file name>`'
-has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps` and no `NEEDS CRITERIA`'
-has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item. Either way, clear `counters.go`.'
+has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps`, no `NEEDS CRITERIA`'
+has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item; a row held by its `hold:` line stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`. Either way, clear `counters.go`.'
 has "E151f the counter" '| `go=<file>` | not a count: the grant file'
 has "E151g the early item" '--title "go for batch <batch>: <n> of <m> briefed, <k> still drafting"'
 has "E151h its options" 'Options: go / go all / go except <items> / drop <item> / or say what to change'
@@ -951,5 +951,79 @@ has "RM3k batch header notes count" '· notes every worker reads: <n>'
 has "RM3l two decision lines" 'New decisions (<n>): D<n> <title>'
 g "RM3m reused line" 'Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>)'
 ! grep -qF 'trim memory/<project>.md' "$SKILL" && pass "RM3n the 80-line trim rule is gone" || fail "RM3n trim rule still there"
+# audit lane G: a required check that has not reported waits two minutes (#167)
+has "G merge.sh PENDING row" '| `PENDING check <name> not reported` |'
+has "G merge.sh PENDING retry" '| `PENDING check <name> not reported` | GitHub refused the merge because a required check has not reported on the head: nothing on the PR is wrong, so no `mergefail=`'
+has "G merge.sh PENDING no mergefail" 'so no `mergefail=` and no babysit round: put `retry=<now + 2 min>`'
+# audit lane G: a second worker_done from a released dispatch changes nothing (#166)
+has "G released line in the order of effects" '`worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message'"'"'s own line'
+has "G released dispatch is a duplicate report" 'a `worker_done` from a dispatch that `processed.log` lists as `released` is a duplicate report'
+has "G processed.log layout names released" '"<dispatch> released <iso>" lines'
+# audit lane G: a worker at a Claude usage-limit screen restarts (spec 10)
+has "G usage limit takes the restart rule" '`stuck: usage limit` → the restart rule ("Checking in") with step `usage` and diagnosis `hit a Claude usage limit`'
+has "G hard rule names the usage limit" 'any worker at a Claude usage-limit screen (`stuck: usage limit`)'
+has "G mistake row for a usage-limit worker" '| Failing a worker that hit a Claude usage limit |'
+# audit lane b: idle, stop and summaries
+g "LB1 idle line names approved work that waits" 'approved items wait (<item> on <blockers>, <item> until <date>): keep this session open or they wait until /juel:star runs again'
+g "LB2 Stop names approved work it leaves unbuilt" 'Stopping leaves <n> approved items unbuilt until /juel:star runs again: <items>'
+g "LB3 housekeeping calls summary --if-due" 'sh S/handoff.sh --home HOME_DIR summary --if-due'
+g "LB4 the Handoff section names the Approved line" '- Approved, not started:'
+g "LB5 a hold or blocker never lapses by itself" 'A hold or a blocker never lapses by itself'
+# audit lane a: person steps
+g "AP1 check suffix" '(check: `<command>`)'
+g "AP2 queue check line" 'check: <command>'
+g "AP3 person-check call" "sh S/person-check.sh <<'CHECK'"
+g "AP4 checked record" ' (checked)'
+g "AP5 failed check record" '→ done, but the check failed: <command>'
+g "AP6 asked again title" '(the check still fails: <command>)'
+g "AP7 refused record" ' (check refused: <why>)'
+g "AP8 also line" 'also: <item> <brief path> #<n> <kind>'
+g "AP9 corrected match sentence" 'same kind, project, item, title and body'
+g "AP10 seven day search" 'answered in the last 7 days'
+
+# audit lane a: blockers and holds
+g "AB1 blocker record" '- <date> blocked by <item>: <reason>'
+g "AB2 sharing files" 'Sharing files is never a blocker'
+g "AB3 promised code" "the other item's work-item text"
+g "AB4 summary reason" 'Blocked by: <item> (<reason>)'
+g "AB5 hold is no step" "An owner's hold is never a person-only step"
+g "AB6 hold line" "hold: <the owner's words>"
+g "AB7 after a day" '"After <day>" is the day after it'
+g "AB8 held go item" '<item> is held: <words>; answer go when it may build'
+g "AB9 held summary" 'Held: <words>'
+g "AB10 notBefore by STAR" 'set `notBefore` on the brief it names'
+g "AB11 order key row" '| Keeping an item order as a `star.json` key (`blockers`, `startOrder`, any other) |'
+
+# audit lane a: gate-only and no scripts
+g "AG1 gate-only line" '- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <branch head7>'
+g "AG2 no scripts rule" 'STAR never writes a script or an executable into HOME_DIR or the project'
+g "AG3 no scripts row" '| Writing a helper script into HOME_DIR or the project to run a STAR step |'
+
+# audit fix 3: an item go all covered while drafting waits when its brief has a hold
+has "F3 go all item names the hold" 'unless it has a person-only step, needs criteria or has a `hold:` line'
+has "F3 BRIEF row checks the hold" 'and no `hold:` line (`grep -cE '"'"'^hold: [^ #]'"'"' <brief>` prints 0)'
+has "F3 a held brief gets its own go-batch item" 'stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`'
+
+# audit fix 4: every person answer reaches each also: brief
+has "F4 one rule for a shared person step" 'A shared `person` step: every `person` row below applies the answer to the brief named in the item'"'"'s body and, the same way, to each brief named on an `also:` line of its body'
+has "F4 a re-added item keeps the also lines" 'the new item keeps the `also:` lines'
+has "F4 the queued exception is checked per brief" 'is checked for each brief the answer covered'
+has "F4 the done row points at the rule" 'A shared step follows the rule above the table.'
+
+# audit fix 6 and 9: the guard's limits are stated, and a check goes through a quoted heredoc
+g "F6 the guard is not a sandbox" 'as a guard against mistakes, not a sandbox: this'
+g "F6 brew list example" '(check: `brew list jq`)'
+! grep -qF 'person-check.sh` refuses those' "$SKILL" && pass "F6 no overclaim" || fail "F6 no overclaim"
+! grep -qF "sh S/person-check.sh '<command>'" "$SKILL" && pass "F9 no quoted-argument form" || fail "F9 no quoted-argument form"
+
+# audit fix 7: a checked person step is not reused from the archive
+has "F7 a checked step is never reused" 'A step that carries a `(check: …)` is never taken from the archive: the brief keeps it'
+
+# audit fix 12 and 14: blockedBy carries no comment, the last pass's base merge is conditional
+g "F12 blockedBy template line has no comment" '   blockedBy: [<item>, <item>]'
+! grep -qE '^ *blockedBy: \[<item>, <item>\] +#' "$SKILL" && pass "F12 no comment on the template line" || fail "F12 no comment on the template line"
+has "F12 the line holds only the list" 'The line holds only the list, never a comment'
+has "F14 the base merge before the last pass is conditional" 'babysit merges the base in when Phase 4 step 1'"'"'s condition holds'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
