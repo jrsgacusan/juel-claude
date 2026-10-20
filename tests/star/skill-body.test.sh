@@ -1019,5 +1019,11 @@ g "F6 brew list example" '(check: `brew list jq`)'
 # audit fix 7: a checked person step is not reused from the archive
 has "F7 a checked step is never reused" 'A step that carries a `(check: …)` is never taken from the archive: the brief keeps it'
 
+# audit fix 12 and 14: blockedBy carries no comment, the last pass's base merge is conditional
+g "F12 blockedBy template line has no comment" '   blockedBy: [<item>, <item>]'
+! grep -qE '^ *blockedBy: \[<item>, <item>\] +#' "$SKILL" && pass "F12 no comment on the template line" || fail "F12 no comment on the template line"
+has "F12 the line holds only the list" 'The line holds only the list, never a comment'
+has "F14 the base merge before the last pass is conditional" 'babysit merges the base in when Phase 4 step 1'"'"'s condition holds'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

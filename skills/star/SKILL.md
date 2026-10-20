@@ -434,8 +434,9 @@ alone. The command must be quick and must not ask anything. With `tokenCmd` null
 `hostedReviewer.refreshOutsideCap` (true when absent) says whether a status refresh after the
 last pass stays outside `maxPasses`. A project whose own rule counts every run the hosted reviewer
 starts sets it to false: babysit then never asks for a run past `maxPasses`, and a head that needs
-one comes to the owner as `reason=hosted-cap` (#93). Babysit also merges the base in before it asks
-for the last pass, so that pass reviews a current head.
+one comes to the owner as `reason=hosted-cap` (#93). Before it asks for the last pass, babysit merges the base in when Phase 4 step 1's condition holds
+(the base requires up-to-date branches, the PR conflicts or is behind, or the rule is unknown), so
+that pass reviews a current head.
 
 ### The queue: `open-loops.md`
 
@@ -1389,7 +1390,7 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    baseBranch: <base>
    existingPr: <url>       # only for an item that brings an open PR to mergeable: see below
    deliverable: pr          # or report: see below
-   blockedBy: [<item>, <item>]   # each with a decision record: - <date> blocked by <item>: <reason>
+   blockedBy: [<item>, <item>]
    notBefore: <YYYY-MM-DD or ISO datetime>   # only when the item must not be built before then
    hold: <the owner's words>   # only for an owner's hold that is no date and no other item
    approved:               # stamped by STAR on the owner's go
@@ -1520,8 +1521,9 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    so the item's own sections never collide with the brief's. STAR and the workers read only the
    brief's own top-level sections.
 
-   **Blocked by** (#37). `blockedBy` lists the items this one needs merged first, `[]` when none:
-   only when one of these holds, each with the decision record
+   **Blocked by** (#37). `blockedBy` lists the items this one needs merged first, `[]` when none. The line holds only the
+   list, never a comment: the queue reads it with `sed -n 's/^blockedBy: //p'`. An item goes on it
+   only when one of these holds, and each one listed has the decision record
    `- <date> blocked by <item>: <reason>`:
    - the item's own links say so (a Linear "blocked by" relation, a GitHub "depends on #n" or
      "blocked by #n");
