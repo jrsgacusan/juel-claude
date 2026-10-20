@@ -277,9 +277,24 @@ def main():
         def own_body(it):
             return [r for r in body_of(it) if not r.startswith("also: ")]
 
+        passed_also = [r for r in body if r.startswith("also: ")]
+        own = [r for r in body if not r.startswith("also: ")]
+
+        def keep_also(it):
+            """The also: lines the caller passed that the open item does not hold yet go under its body."""
+            for row in passed_also:
+                if row not in body_of(it):
+                    k = field_line(lines, it, "Answer")
+                    if k is None:
+                        k = next((j for j in range(it["start"] + 1, it["end"]) if not lines[j].strip()), it["end"])
+                    lines.insert(k, row)
+                    save(path, lines)
+                    it = find(lines, it["id"])
+
         same = next((it for it in items(lines) if (kind_of(lines, it), it["project"], it["item"], it["title"])
-                     == (args.kind, project, item, title) and own_body(it) == body), None)
+                     == (args.kind, project, item, title) and own_body(it) == own), None)
         if same:  # a replayed message asks again; the open item is still the one to answer
+            keep_also(same)
             print(same["id"])
             return
         if args.kind == "person":
@@ -297,6 +312,7 @@ def main():
                         k = next((j for j in range(twin["start"] + 1, twin["end"]) if not lines[j].strip()), twin["end"])
                     lines.insert(k, also)
                     save(path, lines)
+                keep_also(find(lines, twin["id"]))
                 print(twin["id"])
                 return
         try:
