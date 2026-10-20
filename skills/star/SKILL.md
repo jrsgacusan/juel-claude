@@ -1479,6 +1479,8 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    (`grep -iF` on the step's key words). A step answered `done`, or with a value, in the last 7 days
    goes into the brief's `## Decisions` with that answer and its `N-<id>` (`- <date> person-only
    step: <step> → <answer> (N-<id>, answered in the last 7 days)`) and is not asked again.
+   A step that carries a `(check: …)` is never taken from the archive: the brief keeps it, and STAR's
+   check settles it on the owner's next `done`.
 
    **Decisions are taken, not asked.** Every question the item leaves open that a builder would
    otherwise ask (a product call, a library, a name, a format, how an edge case behaves) is decided

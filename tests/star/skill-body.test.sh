@@ -1016,5 +1016,8 @@ g "F6 brew list example" '(check: `brew list jq`)'
 ! grep -qF 'person-check.sh` refuses those' "$SKILL" && pass "F6 no overclaim" || fail "F6 no overclaim"
 ! grep -qF "sh S/person-check.sh '<command>'" "$SKILL" && pass "F9 no quoted-argument form" || fail "F9 no quoted-argument form"
 
+# audit fix 7: a checked person step is not reused from the archive
+has "F7 a checked step is never reused" 'A step that carries a `(check: …)` is never taken from the archive: the brief keeps it'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
