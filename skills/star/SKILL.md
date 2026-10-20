@@ -331,7 +331,7 @@ open-loops.md.seq       the highest queue id ever used (so an id is never handed
 handoff.md              the summaries written while the user is away (handoff.sh)
 sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
 ledger.md               one row per item
-processed.log           <message id> <dispatch> <iso time>
+processed.log           <message id> <dispatch> <iso time>, plus "<dispatch> stopped <iso>" and "<dispatch> released <iso>" lines
 messages-wait           while a background message wait runs: "<pid> <iso start>" (messages.sh writes and removes it; --waiting reads it)
 inbox/                  one file per hand-over; deleted once ingested
 chat/                   the dashboard's chat thread: one file per message, never rewritten (<UTC>-me-<4 hex>.md the owner's, <UTC>-star-<4 hex>.md STAR's replies, written only by chat.sh)
@@ -710,16 +710,16 @@ item. Item names can repeat, so a name alone never selects a row. A message chan
 row, and is queued as `--kind held` with its first line, when its dispatch is in no row (or it
 carries no dispatch id: `--project - --item <the dispatch id, or unmatched>`), when its
 row is `done` or `dropped`, or when the row has moved on to a newer dispatch (a superseded attempt:
-a report from a worker that a restart replaced). Two exceptions change nothing and queue
-nothing: a message already applied (its id is the row's `last=`), and the `worker_done` of
+a report from a worker that a restart replaced). Three exceptions change nothing and queue
+nothing: a message already applied (its id is the row's `last=`), the `worker_done` of
 a dispatch STAR stopped itself (a drop, an early merge, a closed PR): write it to `processed.log`
-and move on.
+and move on, and a `worker_done` from a dispatch that `processed.log` lists as `released` is a duplicate report: write it to `processed.log`, ack, nothing else. That holds across deliveries and after a restart, when STAR no longer remembers releasing it.
 
 **One message, one order of effects:** queue items first (`loops.sh add` returns the open item's
 id when it is already there, so a replayed message adds nothing), then the `NOTE` and `SENT`
 appends (each line carries the time the message was sent, not the time of the append, so a
 replay writes the identical line: skip a line the file already has), then the row with its
-`last=`, then, for a settled `worker_done`, `worker-release`, then `processed.log`, then the ack
+`last=`, then, for a settled `worker_done`, `worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message's own line in `processed.log`, then the ack
 (releasing a worker that is already released is harmless, so it always comes before the line
 that ends the message). A question STAR answers itself follows the same order: the `## Decisions`
 line (skip it when the brief already has that line), the `reply`, then the row with

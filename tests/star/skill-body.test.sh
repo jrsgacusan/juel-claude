@@ -121,7 +121,7 @@ g "V5 a lost build leaves its pool" 'and set the row to `failed`'
 g "V6 a stop or away request is written down at once" 'control: stop'
 g "V7 a command word counts only when it is the whole answer" 'the whole answer'
 g "V8 the reply goes out before the row is marked" 'the `reply`, then the row'
-g "V9 a worker is released before the message is marked done" '`worker-release`, then `processed.log`'
+g "V9 a worker is released before the message is marked done" '`worker-release`, then `<dispatch> released <iso>` appended to `processed.log`'
 g "V10 a resume does not spend the pending retry" 'its `retry=` time has passed'
 g "V11 an answer waits for the report that raised it" 'leave its answers for the next tick'
 g "V12 a draft is posted once" 'posted draft N-'
@@ -955,5 +955,9 @@ g "RM3m reused line" 'Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>)'
 has "G merge.sh PENDING row" '| `PENDING check <name> not reported` |'
 has "G merge.sh PENDING retry" 'put `retry=<now + 2 min>` in `verify`'
 has "G merge.sh PENDING no mergefail" 'so no `mergefail=` and no babysit round: put `retry=<now + 2 min>`'
+# audit lane G: a second worker_done from a released dispatch changes nothing (#166)
+has "G released line in the order of effects" '`worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message'"'"'s own line'
+has "G released dispatch is a duplicate report" 'a `worker_done` from a dispatch that `processed.log` lists as `released` is a duplicate report'
+has "G processed.log layout names released" '"<dispatch> released <iso>" lines'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
