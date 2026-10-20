@@ -871,8 +871,8 @@ has "E150g the done row agrees" 'and any other answer but `can'"'"'t now`, `no` 
 has "E151a go all is a command word" 'compare all of it with `go`, `go all`, `yes`'
 has "E151b the go all row" '| `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151)'
 has "E151c the grant records the rest" 'its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant'"'"'s file name>`'
-has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps` and no `NEEDS CRITERIA`'
-has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item. Either way, clear `counters.go`.'
+has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps`, no `NEEDS CRITERIA`'
+has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item; a row held by its `hold:` line stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`. Either way, clear `counters.go`.'
 has "E151f the counter" '| `go=<file>` | not a count: the grant file'
 has "E151g the early item" '--title "go for batch <batch>: <n> of <m> briefed, <k> still drafting"'
 has "E151h its options" 'Options: go / go all / go except <items> / drop <item> / or say what to change'
@@ -953,7 +953,7 @@ g "RM3m reused line" 'Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>)'
 ! grep -qF 'trim memory/<project>.md' "$SKILL" && pass "RM3n the 80-line trim rule is gone" || fail "RM3n trim rule still there"
 # audit lane G: a required check that has not reported waits two minutes (#167)
 has "G merge.sh PENDING row" '| `PENDING check <name> not reported` |'
-has "G merge.sh PENDING retry" 'put `retry=<now + 2 min>` in `verify`'
+has "G merge.sh PENDING retry" '| `PENDING check <name> not reported` | GitHub refused the merge because a required check has not reported on the head: nothing on the PR is wrong, so no `mergefail=`'
 has "G merge.sh PENDING no mergefail" 'so no `mergefail=` and no babysit round: put `retry=<now + 2 min>`'
 # audit lane G: a second worker_done from a released dispatch changes nothing (#166)
 has "G released line in the order of effects" '`worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message'"'"'s own line'
@@ -998,6 +998,11 @@ g "AB11 order key row" '| Keeping an item order as a `star.json` key (`blockers`
 g "AG1 gate-only line" '- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <branch head7>'
 g "AG2 no scripts rule" 'STAR never writes a script or an executable into HOME_DIR or the project'
 g "AG3 no scripts row" '| Writing a helper script into HOME_DIR or the project to run a STAR step |'
+
+# audit fix 3: an item go all covered while drafting waits when its brief has a hold
+has "F3 go all item names the hold" 'unless it has a person-only step, needs criteria or has a `hold:` line'
+has "F3 BRIEF row checks the hold" 'and no `hold:` line (`grep -cE '"'"'^hold: [^ #]'"'"' <brief>` prints 0)'
+has "F3 a held brief gets its own go-batch item" 'stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
