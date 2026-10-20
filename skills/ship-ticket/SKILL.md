@@ -426,7 +426,8 @@ header carries the `**Base:**` line (Phase 3), naming the branch head it starts 
 
 When the brief's newest `## Decisions` record is a `gate-only` line
 (`- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <head7>`)
-whose head is the branch's head (`git rev-parse --short=7 HEAD`), the build skips Phases 2 to 7 and
+whose head is a prefix of the branch's full head sha (`git rev-parse HEAD`; a short sha can print
+more than 7 characters), the build skips Phases 2 to 7 and
 starts the codex gate loop at step 1 on the existing PR, with a fresh round budget and the round
 numbers carried on. A different head, or no such line: Phases 2 and 3 as above.
 

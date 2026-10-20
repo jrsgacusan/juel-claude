@@ -356,7 +356,7 @@ has "D4b it skips Phases 2 to 7" 'skips Phases 2 to 7'
 has "D4c it starts at step 1" 'starts the codex gate loop at step 1'
 has "D4d it gets a fresh round budget" 'a fresh round budget'
 has "D4e the round numbers carry on" 'the round numbers carried on'
-has "D4f the head is the branch head" 'git rev-parse --short=7 HEAD'
+has "D4f the head is a prefix of the branch head" 'a prefix of the branch'"'"'s full head sha (`git rev-parse HEAD`;'
 
 
 # audit lane e: #164 a usage limit is not a codex-failed escalation
