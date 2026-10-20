@@ -24,5 +24,10 @@ for id in playwright-package electron; do
   python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if sys.argv[2] in d['skills']['verify']['soft'] else 1)" \
     "$ROOT/.claude-plugin/requirements.json" "$id" && pass "EL12 requirements.json lists $id as soft" || fail "EL12 requirements.json lists $id as soft"
 done
+# audit lane f: the evidence write rule
+E2E="$ROOT/references/local-e2e.md"
+grep -qF 'Inputs and build output are not evidence' "$E2E" && pass "F5 local-e2e holds the write rule" || fail "F5 local-e2e write rule"
+grep -qF 'path, size and sha256' "$E2E" && pass "F5 local-e2e names path, size and sha256" || fail "F5 local-e2e path, size and sha256"
+grep -qF 'as rule 5 of `references/local-e2e.md` says' "$SKILL" && pass "F5 verify points to the write rule" || fail "F5 verify points to the write rule"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

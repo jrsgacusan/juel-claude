@@ -338,12 +338,12 @@ chat/                   the dashboard's chat thread: one file per message, never
 items/<project>/<name>.md            a spec item from a free-text brief, a split, or a re-scope's follow-up
 briefs/<project>/<item>.md
 grants/<UTC>-<4 hex>.md              the owner's go for a batch: their words, the time, the items
-reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log
+reviews/<project>/<item>-r<k>.md     the codex gate's review (first line the verdict), beside <item>-r<k>.raw.md and <item>-r<k>.log (`.log.gz` once the item is done or dropped and its worktree is cleaned)
 reviews/<project>/<item>-r<k>-fix.md the disposition of each finding a round left unfixed, or that a re-scope moved or kept
 reviews/<project>/<item>-r<k>-carried.md  the owner's decision to ship round k's head with its findings deferred (review-proof.sh carry writes it)
 reviews/<project>/<item>-hosted-p<n>.md  a hosted reviewer's findings that sent an item to a re-scope
 reviews/<project>/<item>-hosted.log      one line per hosted-reviewer run a babysit worker logged: `<iso> pass <n> head=<sha>` (at most one per head) or `<iso> refresh head=<sha>` (a status refresh, or a second run on a head that already has a `pass` line, #122); `<iso> skipped head=<sha> <reason>` for a run that reviewed nothing (#129), never a pass; when it is missing, babysit rebuilds it from the PR's reviews and the reviewer's summary comments (`pr-state.sh --hosted-passes`) before it counts a pass
-reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number
+reviews/<project>/<item>-r<k>-error-<n>.log  the transcript of a gate attempt that ended in ERROR; the round keeps its number (`.log.gz` once the item is finished)
 reviews/<project>/<item>-r<k>.run   while a gate round runs: its pids, agent, model and start (codex-gate.sh writes it, step-check.sh reads it)
 specs/<project>/<item>-gate-r<k>.md  the gate's prompt (codex-gate.sh writes it)
 progress/<item>.log                  one line per milestone, appended by the item's workers
@@ -1142,6 +1142,8 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      docs root STAR's home implies, `docs/superpowers` and `docs/.superpowers`) to
      `HOME_DIR/evidence/<item>/` and prints `kept-evidence <path>` first: name it in the status line
      too. A copy that fails keeps the worktree (`kept <path>: evidence copy failed: <why>`, below).
+     `reviews-gzipped <item> <n>` first means it gzipped the item's codex transcripts: it needs
+     nothing from you.
      `removed <path>` → name it in the status line. `kept <path>: <why>` → `--kind held` "<item>'s
      worktree <path> was kept: <why>", and `counters.kept=1`. `none` → nothing. `failed` and
      `escalated` rows keep their worktrees until the user answers.

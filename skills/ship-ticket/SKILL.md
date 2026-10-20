@@ -1041,7 +1041,9 @@ screenshots plus one end-to-end recording for UI changes, (5) evidence in `${doc
 
 **Create this phase's evidence directory now:** write it to
 `${docsRoot}/evidence/<YYYY-MM-DD>[-<ref-lower>]-<slug>/` (same date, ref and slug as the spec
-from Phase 2). Never overwrite an existing one; on a collision use `-v2`, then `-v3`. Pass this
+from Phase 2). Never overwrite an existing one; on a collision use `-v2`, then `-v3`. Evidence is
+proof only: inputs and build output stay outside it and are named in `report.md` with their path,
+size and sha256 (rule 5 of `references/local-e2e.md`). Pass this
 path to every `juel:verify` invocation below so all evidence lands in one place. Under
 `--unattended`, also add `"evidenceDir": "<the evidence directory>"` (its absolute path) to the
 gate manifest (`run-gates.sh` reads only the gate keys): the codex gate is given this folder, so a

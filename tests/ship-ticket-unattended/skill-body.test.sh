@@ -362,5 +362,7 @@ has "D4f the head is the branch head" 'git rev-parse --short=7 HEAD'
 # audit lane e: #164 a usage limit is not a codex-failed escalation
 has "E164a codex-failed is for a reason other than capacity or a usage limit" 'for a reason other than capacity or a usage limit'
 has "E164b an out-of-usage codex runs the plan in this session" '**Out of usage.**'
+# audit lane f: Phase 6's evidence is proof only
+has "F5 Phase 6 points to the evidence write rule" '(rule 5 of `references/local-e2e.md`)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
