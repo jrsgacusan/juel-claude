@@ -19,7 +19,8 @@
 # resolved), carries only when both sides and the merge only added lines to it: git diff --numstat
 # against the merge base (no rename detection) shows a text file with no deleted line on the P1
 # side, the P2 side and the merge, the same mode throughout, and the merge adding exactly the sum of
-# the two sides' additions. The second OK line above then names every such path of the chain, in
+# the two sides' additions, and git diff --numstat from P1 to the merge and from P2 to the merge both
+# show no deleted line (a hand resolution that drops or reorders a side's line is NO). The second OK line above then names every such path of the chain, in
 # byte order. Any other such path is NO, the first in byte order named:
 #   NO <c7> brings base changes to <path>, a file this branch changes: the gate reviews the merge
 # A commit of its own is NO. With --base, every P2 must be on <ref> (git merge-base
@@ -89,11 +90,14 @@ def mode(rev, path):
 
 
 def only_added(fork, p1, p2, m, path):
-    """True when both sides and the merge only added lines to the path, the merge adding exactly their sum."""
+    """True when both sides and the merge only added lines to the path, the merge adding exactly their sum
+    and deleting nothing of either parent's text."""
     one, two, merged = added(fork, p1, path), added(fork, p2, path), added(fork, m, path)
     if None in (one[0], two[0], merged[0]) or one[1] or two[1] or merged[1]:
         return False
     if len({mode(r, path) for r in (fork, p1, p2, m) if mode(r, path)}) > 1:
+        return False
+    if added(p1, m, path)[1] or added(p2, m, path)[1]:
         return False
     return merged[0] == one[0] + two[0]
 
