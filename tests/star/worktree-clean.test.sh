@@ -159,5 +159,76 @@ rm -rf "$H/evidence"
 [ "$(WC --evidence-report)" = "total 0 gb=0.0" ] && pass "a home with none prints total 0" || fail "empty report"
 WC --evidence-report X >/dev/null 2>&1; [ $? -eq 64 ] && pass "--evidence-report with an item is 64" || fail "report usage"
 
+# audit lane f: the new skip classes
+FC=$(wt FC); git -C "$FC" push -q origin feat/FC; row FC done "$FC"
+E="$FC/docs/superpowers/evidence/run"
+mkdir -p "$E/tmp" "$E/build.app" "$E/x.mlmodelc"
+for f in app.dmg pack-1.pack lib.a model.gguf w.safetensors data.parquet blob.bin; do printf 'abcde' > "$E/$f"; done
+printf 't' > "$E/tmp/t"; printf 'b' > "$E/build.app/b"; printf 'm' > "$E/x.mlmodelc/m"
+python3 -c "f=open('$E/take.wav','wb'); f.truncate(12*1024*1024)"; printf '1234567890' > "$E/beep.wav"
+echo report > "$E/report.md"; echo png > "$E/shot.png"; echo webm > "$E/recording.webm"
+WC FC >/dev/null
+D="$H/evidence/FC/run"
+[ "$(ls "$D" | sort | tr '\n' ' ')" = "beep.wav recording.webm report.md shot.png " ] && pass "only proof is copied: packages, models, build output, bundles and large audio stay out" || fail "copied set ($(ls "$D" | tr '\n' ' '))"
+want=$(printf 'run/app.dmg\t5\nrun/blob.bin\t5\nrun/build.app\t1\nrun/data.parquet\t5\nrun/lib.a\t5\nrun/model.gguf\t5\nrun/pack-1.pack\t5\nrun/take.wav\t12582912\nrun/tmp\t1\nrun/w.safetensors\t5\nrun/x.mlmodelc\t1\n')
+[ "$(sort "$H/evidence/FC/skipped.txt")" = "$(printf '%s' "$want" | sort)" ] && pass "skipped.txt lists each new class with its bytes" || fail "skipped.txt for new classes ($(sort "$H/evidence/FC/skipped.txt"))"
+# report and prune on a folder already under <H>/evidence/
+rm -rf "$H/evidence"; mkdir -p "$H/evidence/Q/run/tmp"
+Q="$H/evidence/Q/run"
+printf 'abcde' > "$Q/blob.bin"; printf 'x' > "$Q/tmp/t"; python3 -c "f=open('$Q/take.wav','wb'); f.truncate(12*1024*1024)"
+printf '1234567890' > "$Q/beep.wav"; echo png > "$Q/shot.png"; echo webm > "$Q/recording.webm"
+out=$(WC --evidence-report)
+[ "$(printf '%s\n' "$out" | grep -c '^Q')" = 3 ] && printf '%s\n' "$out" | grep -q "^Q.run/take.wav.12582912$" && printf '%s\n' "$out" | grep -q "^Q.run/blob.bin.5$" && printf '%s\n' "$out" | grep -q "^Q.run/tmp.1$" && pass "--evidence-report lists the new classes" || fail "report new classes ($out)"
+out=$(WC --evidence-prune)
+[ "$out" = "pruned 3 gb=0.0" ] && [ -f "$Q/beep.wav" ] && [ -f "$Q/shot.png" ] && [ -f "$Q/recording.webm" ] && [ ! -e "$Q/take.wav" ] && [ ! -e "$Q/blob.bin" ] && [ ! -e "$Q/tmp" ] && pass "--evidence-prune removes exactly those and never proof" || fail "prune new classes ($out)"
+# evidence-size counts only what was copied
+FZ=$(wt FZ); git -C "$FZ" push -q origin feat/FZ; row FZ done "$FZ"
+mkdir -p "$FZ/docs/superpowers/evidence/run"; python3 -c "f=open('$FZ/docs/superpowers/evidence/run/take.wav','wb'); f.truncate(12*1024*1024)"; echo r > "$FZ/docs/superpowers/evidence/run/report.md"
+out=$(JUEL_EVIDENCE_GB_LIMIT=0.005 WC FZ)
+case "$out" in *evidence-size*) fail "evidence-size counted a skipped file ($out)" ;; *) pass "the evidence-size line counts only what was copied" ;; esac
+
+# audit lane f: duplicates are hardlinked, older runs keep only text
+FD=$(wt FD); git -C "$FD" push -q origin feat/FD; row FD done "$FD"
+E="$FD/docs/superpowers/evidence"
+mkdir -p "$E/a" "$E/b"; head -c 2048 /dev/zero > "$E/a/fake-mic.wav"; head -c 2048 /dev/zero > "$E/b/fake-mic.wav"
+WC FD >/dev/null
+ia=$(python3 -c "import os;print(os.stat('$H/evidence/FD/a/fake-mic.wav').st_ino)"); ib=$(python3 -c "import os;print(os.stat('$H/evidence/FD/b/fake-mic.wav').st_ino)")
+[ -f "$H/evidence/FD/a/fake-mic.wav" ] && [ "$ia" = "$ib" ] && pass "the same file at two paths is hardlinked" || fail "hardlink ($ia $ib)"
+FV=$(wt FV); git -C "$FV" push -q origin feat/FV; row FV done "$FV"
+E="$FV/docs/superpowers/evidence"
+for d in 2026-10-12-x 2026-10-12-x-v2; do mkdir -p "$E/$d"; echo "r $d" > "$E/$d/report.md"; echo "p $d" > "$E/$d/shot.png"; echo "{\"$d\":1}" > "$E/$d/ledger.json"; done
+WC FV >/dev/null
+V="$H/evidence/FV"
+[ -f "$V/2026-10-12-x-v2/report.md" ] && [ -f "$V/2026-10-12-x-v2/shot.png" ] && [ -f "$V/2026-10-12-x-v2/ledger.json" ] && [ -f "$V/2026-10-12-x/report.md" ] && [ -f "$V/2026-10-12-x/ledger.json" ] && [ ! -e "$V/2026-10-12-x/shot.png" ] && pass "the newest run keeps everything, the older one only its text files" || fail "older runs ($(find "$V" -type f | sort | tr '\n' ' '))"
+FW=$(wt FW); git -C "$FW" push -q origin feat/FW; row FW done "$FW"
+E="$FW/docs/superpowers/evidence"
+for d in 2026-10-12-x 2026-10-12-x-v2; do mkdir -p "$E/$d"; echo "p $d" > "$E/$d/shot.png"; done
+echo r > "$E/2026-10-12-x/report.md"; echo j > "$E/2026-10-12-x-v2/ledger.json"
+WC FW >/dev/null
+[ -f "$H/evidence/FW/2026-10-12-x/shot.png" ] && [ -f "$H/evidence/FW/2026-10-12-x-v2/shot.png" ] && pass "with no report.md in the newest run, every run is copied whole" || fail "unfinished newest ($(find "$H/evidence/FW" -type f | sort | tr '\n' ' '))"
+mkdir -p "$H/evidence/FP/2026-10-12-x" "$H/evidence/FP/2026-10-12-x-v2"
+echo r > "$H/evidence/FP/2026-10-12-x/report.md"; echo png > "$H/evidence/FP/2026-10-12-x/shot.png"; echo r > "$H/evidence/FP/2026-10-12-x-v2/report.md"
+out=$(WC --evidence-prune)
+case "$out" in "pruned 0 "*) [ -f "$H/evidence/FP/2026-10-12-x/shot.png" ] && pass "--evidence-prune never applies the older-run rule" || fail "prune removed a screenshot" ;; *) fail "prune on a pair ($out)" ;; esac
+
+# audit lane f: a finished item's codex transcripts are gzipped
+RV="$H/reviews/app"; mkdir -p "$RV"
+mk_reviews() { for f in GZ-r1.log GZ-r2.log GZ-r2-error-1.log GZ-r1.md GZ-r1.raw.md GZ-r1-fix.md GZ-hosted.log GZ-gate.log other-r1.log; do echo "$f body" > "$RV/$f"; done; }
+mk_reviews
+GZ=$(wt GZ); git -C "$GZ" push -q origin feat/GZ; row GZ done "$GZ"
+out=$(WC GZ)
+[ "$(printf '%s\n' "$out" | head -1)" = "reviews-gzipped GZ 3" ] && [ "$(printf '%s\n' "$out" | tail -1)" = "removed $GZ" ] && pass "reviews-gzipped is printed before the final line" || fail "gzipped line ($out)"
+ok=1; for f in GZ-r1.log GZ-r2.log GZ-r2-error-1.log; do { [ -f "$RV/$f.gz" ] && [ ! -e "$RV/$f" ] && gzip -t "$RV/$f.gz"; } || ok=0; done
+for f in GZ-r1.md GZ-r1.raw.md GZ-r1-fix.md GZ-hosted.log GZ-gate.log other-r1.log; do [ "$(cat "$RV/$f")" = "$f body" ] || ok=0; done
+[ "$ok" = 1 ] && [ "$(gzip -dc "$RV/GZ-r1.log.gz")" = "GZ-r1.log body" ] && pass "the three transcripts are gzipped, every other file is untouched" || fail "gzip result"
+out=$(WC GZ)
+case "$out" in *reviews-gzipped*) fail "a second run printed reviews-gzipped ($out)" ;; *) pass "a second run prints no reviews-gzipped line" ;; esac
+row GN done "$TMP/no-such-folder"; echo x > "$RV/GN-r1.log"
+out=$(WC GN)
+[ "$out" = "reviews-gzipped GN 1
+none" ] && [ -f "$RV/GN-r1.log.gz" ] && pass "a folder that is already gone still gzips the transcripts" || fail "gone folder ($out)"
+row GB building "$TMP/no-such-folder"; echo x > "$RV/GB-r1.log"
+WC GB >/dev/null; [ -f "$RV/GB-r1.log" ] && [ ! -e "$RV/GB-r1.log.gz" ] && pass "a building row's transcripts are untouched" || fail "building row gzipped"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
