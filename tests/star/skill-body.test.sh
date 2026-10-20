@@ -1004,5 +1004,11 @@ has "F3 go all item names the hold" 'unless it has a person-only step, needs cri
 has "F3 BRIEF row checks the hold" 'and no `hold:` line (`grep -cE '"'"'^hold: [^ #]'"'"' <brief>` prints 0)'
 has "F3 a held brief gets its own go-batch item" 'stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`'
 
+# audit fix 4: every person answer reaches each also: brief
+has "F4 one rule for a shared person step" 'A shared `person` step: every `person` row below applies the answer to the brief named in the item'"'"'s body and, the same way, to each brief named on an `also:` line of its body'
+has "F4 a re-added item keeps the also lines" 'the new item keeps the `also:` lines'
+has "F4 the queued exception is checked per brief" 'is checked for each brief the answer covered'
+has "F4 the done row points at the rule" 'A shared step follows the rule above the table.'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
