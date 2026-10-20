@@ -59,8 +59,8 @@ refuse 'true && rm -rf marker'
 got=$(PC "echo 'x" 2>&1)
 [ "$got" = "refused unreadable command" ] && pass "an unclosed quote is refused as unreadable" || fail "unclosed quote ('$got')"
 
-out=$(PC 2>/dev/null); rc=$?
-[ "$rc" -eq 64 ] && [ -z "$out" ] && pass "no argument is 64 with nothing on stdout" || fail "no argument ($rc, '$out')"
+out=$(PC </dev/null 2>/dev/null); rc=$?
+[ "$rc" -eq 64 ] && [ -z "$out" ] && pass "no argument and empty stdin is 64 with nothing on stdout" || fail "no argument ($rc, '$out')"
 out=$(PC true true 2>/dev/null); rc=$?
 [ "$rc" -eq 64 ] && [ -z "$out" ] && pass "two arguments is 64" || fail "two arguments ($rc)"
 out=$(PC '' 2>/dev/null); rc=$?
@@ -125,6 +125,22 @@ want 'curl --output=/dev/null https://x' pass
 want 'wget -q -O /dev/null https://x' pass
 want 'curl -sS https://x' pass
 PATH=$OLDPATH
+
+# audit lane A2: with no argument the command is the whole of stdin
+got=$(PC <<'CHECK'
+printf 'BlackHole 2ch\n' | grep -q 'BlackHole 2ch'
+CHECK
+)
+[ "$got" = pass ] && pass "stdin form with single quotes -> pass" || fail "stdin form ('$got')"
+got=$(printf 'false' | PC)
+[ "$got" = "fail 1" ] && pass "stdin form without a trailing newline -> fail 1" || fail "stdin no newline ('$got')"
+rm -rf marker
+got=$(printf 'touch marker\n' | PC)
+case "$got" in "refused "*) [ ! -e marker ] && pass "stdin form is guarded too" || fail "stdin form ran a refused command" ;; *) fail "stdin refused ('$got')" ;; esac
+printf '  \n\n' | PC >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 64 ] && pass "whitespace-only stdin is 64" || fail "whitespace stdin ($rc)"
+got=$(printf 'cat\n' | PC)
+[ "$got" = pass ] && pass "the stdin form runs the command with stdin from /dev/null" || fail "stdin of the command ('$got')"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

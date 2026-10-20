@@ -1,6 +1,9 @@
 #!/bin/sh
 # Runs the read-only check that ends a person step (` (check: `<command>`)`) and says whether it passed.
 #   person-check.sh '<command>'
+#   person-check.sh <<'CHECK'      (no argument: the whole of stdin is the command, one trailing
+#   <command>                       newline stripped; use this form when the command holds single
+#   CHECK                           quotes. Empty stdin is a usage error.)
 #     -> one line: pass | fail <exit code> | timeout | refused <why>
 # The command runs from the current folder with `sh -c`, stdin and output from/to /dev/null, and a
 # limit of 60 seconds (PERSON_CHECK_TIMEOUT seconds overrides it, for tests): stock macOS has no
@@ -22,12 +25,26 @@
 #   - `curl` or `wget` with an output target (-o, -O, --output, --remote-name) other than /dev/null.
 # A command that cannot be split into words (an unclosed quote) is `refused unreadable command`.
 # The list is a guard against mistakes, not a sandbox.
-# Exit: 0 for every result above; 64 usage (no argument, more than one, or an empty one).
-if [ "$#" -ne 1 ] || [ -z "$(printf '%s' "$1" | tr -d '[:space:]')" ]; then
-  echo "usage: person-check.sh '<command>'" >&2
+# Exit: 0 for every result above; 64 usage (more than one argument, an empty argument, or empty stdin).
+if [ "$#" -gt 1 ]; then
+  echo "usage: person-check.sh '<command>'  (or the command on stdin)" >&2
   exit 64
 fi
-exec python3 - "$1" <<'PY'
+if [ "$#" -eq 1 ]; then
+  CMD=$1
+else
+  CMD=$(cat; printf x)
+  CMD=${CMD%x}
+  case $CMD in
+    *"
+") CMD=${CMD%?} ;;
+  esac
+fi
+if [ -z "$(printf '%s' "$CMD" | tr -d '[:space:]')" ]; then
+  echo "usage: person-check.sh '<command>'  (or the command on stdin)" >&2
+  exit 64
+fi
+exec python3 - "$CMD" <<'PY'
 import os
 import signal
 import subprocess
