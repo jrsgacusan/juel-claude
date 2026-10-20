@@ -74,7 +74,8 @@ continuous recording of the whole UI flow.
   `browser_start_video` with `size: {width: 1440, height: 900}` and `cursor: true`, then
   `browser_video_show_actions` so clicks and typing are annotated. Drive every UI item in order
   in that same browser session. Stop it once, after the last UI item: `browser_stop_video`, then
-  move the `.webm` it reports to `recording.webm` in the evidence directory.
+  move the `.webm` it reports to `recording.webm` in the evidence directory. That is the only
+  recording the evidence directory holds; scratch captures stay outside it (rule 5).
 - **Timestamps:** note the recording's elapsed time when each UI item starts (for example
   `02:14`) and write it next to that item in the report, so a reviewer can jump to it.
 - **Screenshots:** full page, taken during the recorded flow at each state that proves an item.
@@ -96,6 +97,12 @@ continuous recording of the whole UI flow.
 - Never overwrite an existing evidence directory. On a collision, use `-v2`, then `-v3`, and so on.
 - Ensure the repo's `.gitignore` has unanchored `superpowers/` and `.superpowers/` entries, as the
   other docsRoot writers do.
+- **Inputs and build output are not evidence.** Audio or video corpora, model files, app bundles
+  and DMGs, build and temp folders, git objects and object files stay outside the evidence
+  directory, in the system temp folder. Name each in `report.md` with its path, size and sha256.
+  The directory holds `report.md`, the `verify-*` files, screenshots, one recording per run, logs and
+  captured responses, and the small fixtures the report cites. STAR's `worktree-clean.sh` leaves
+  such files out of its copy, so anything kept here that is not proof is lost when the worktree goes.
 - Contents:
   - `report.md`: the per-item checklist (method, evidence, PASS/FAIL), the port map, and notes
     on any remote data used. Written only by the skill that owns the directory.

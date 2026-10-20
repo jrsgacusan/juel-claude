@@ -348,5 +348,7 @@ has "TL160i tooling=all when every blocking finding is in tooling" 'when that ro
 # lane b: #157 quiet hours are gone
 ! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh|quiet window' "$SKILL" && pass "Q157g ship-ticket has no quiet hours" || fail "Q157g quiet hours still in ship-ticket"
 g "Q157h a resumed build on a ready PR posts its PASS at once" 'A resumed build on a ready PR posts its PASS comment at once.'
+# audit lane f: Phase 6's evidence is proof only
+has "F5 Phase 6 points to the evidence write rule" '(rule 5 of `references/local-e2e.md`)'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
