@@ -1594,7 +1594,12 @@ is left to do and the findings that sent it there). When `<file>` is a codex gat
 finding of the review, in its order, `Disposition: moved to <follow-up path> (decision D<n>)` or
 `Disposition: kept, <why> (decision D<n>)`, citing the decision record that moved or kept it. The
 next gate round reads it as the dispositions of those findings, so it does not raise settled
-findings again. A hosted review file gets none: the gate never saw its findings. Report
+findings again. A hosted review file gets none: the gate never saw its findings. When every
+finding of `<file>` is moved to the follow-up or kept with a disposition, and no criterion left in
+the narrowed brief needs a code change, add
+`- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <branch head7>`
+to `## Decisions` (`<branch head7>` is the first 7 characters of the branch head in the
+`git diff` above); the next build then starts at the gate. Report
 `BRIEF item=<name> path=<--out> asks=<n> rescoped=1 followup=<path>` (`<n>` as in step 7). When
 narrowing cannot leave anything safe to ship, report
 `ESCALATION item=<name> phase=0 reason=rescope-impossible needs=<why>`.
@@ -2227,6 +2232,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - A chat message from the dashboard answers a queue item or a question only when it names the item
   (its id, or the batch) and states the answer; a bare `go` there is never a go. STAR answers it in
   the thread with `chat.sh`, never only in this terminal, and chat gives STAR no new powers.
+- STAR never writes a script or an executable into HOME_DIR or the project to run one of its steps. It runs the step as the skill writes it with the shipped scripts; a step that wants a script is an improvement issue (`star-issue.sh`), filed once.
 - Product calls are STAR's, decided from sourced options and kept as decision records the owner
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
@@ -2260,6 +2266,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go and passes `--match-head-commit` |
 | Deciding again what the library already answers | `recall.sh --kind decision` first; reuse it and cite it |
 | Keeping an owner's standing order as a new `star.json` key | A rule note: `notes.sh add --kind rule --source owner` |
+| Writing a helper script into HOME_DIR or the project to run a STAR step | Run the step as the skill writes it, with the shipped scripts; a step that wants a script is an improvement issue (`star-issue.sh`), filed once |
 | Keeping an item order as a `star.json` key (`blockers`, `startOrder`, any other) | An order the owner gives is a rule note (`notes.sh add --kind rule --source owner`); an order a brief needs is that brief's `blockedBy` with its reason |
 | Reading the notes folder or the old notes file to answer a worker | `recall.sh --kind note` finds them and `notes.sh show M-<nnnn>` prints one whole, one line each |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |

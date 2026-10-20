@@ -976,5 +976,10 @@ g "AB9 held summary" 'Held: <words>'
 g "AB10 notBefore by STAR" 'set `notBefore` on the brief it names'
 g "AB11 order key row" '| Keeping an item order as a `star.json` key (`blockers`, `startOrder`, any other) |'
 
+# audit lane a: gate-only and no scripts
+g "AG1 gate-only line" '- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <branch head7>'
+g "AG2 no scripts rule" 'STAR never writes a script or an executable into HOME_DIR or the project'
+g "AG3 no scripts row" '| Writing a helper script into HOME_DIR or the project to run a STAR step |'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
