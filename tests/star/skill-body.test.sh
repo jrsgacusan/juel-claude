@@ -379,7 +379,7 @@ reconcile=$(sed -n '/^5\. \*\*Reconcile\*\*/,/^6\. `loops\.sh resume/p' "$SKILL"
 gatefail=$(grep -F '| `FAIL <what>` |' "$SKILL")
 [ -n "$start1" ] && [ -n "$reconcile" ] && [ -n "$gatefail" ] && pass "FS0 the parts of the skill that the FS lines look in are found" || fail "FS0 the parts of the skill that the FS lines look in are found"
 # FS1: a person step answered can't now is asked again
-g "FS1 a go leaves a row that has an open person item" 'or that has an open `person` item: those stay'
+g "FS1 a go leaves a row that has an open person item" 'or that has an open `person` item (an open `person` item whose body has an `also:` line naming the row counts as that row'"'"'s open item): those stay'
 grep -qF 'a `person` item still open, answered' "$SKILL" && fail "FS1 the go row no longer reads an answered item as open" || pass "FS1 the go row no longer reads an answered item as open"
 g "FS1 can't now closes the answered item, then asks the step again" 'then close the answered item and add the same `person` item again'
 g "FS1 add returns an item that is still in the queue" 'returns an item that is still in the queue, answered or not, and adds nothing'
@@ -576,7 +576,7 @@ g "LH1i the close is asked once (#94)" '(`grep -cF '"'"'close <that url>: carrie
 g "LH2a a re-scope queues its person-only steps (#101)" 'and queue one `--kind person` per line of the brief'"'"'s `## Person-only steps`, as the next row does'
 g "LH2b a granted re-scope waits while a step is open (#101)" 'row → `queued` when none of those steps is open, else `brief-ready`'
 g "LH2c the status line says what it waits for (#101)" '"<item>: re-scope waits for <n> person-only steps" in the status line; the grant still covers it'
-g "LH2d the last answered value step queues it (#101)" 'and no other open `person` item: it → `queued` (a re-scope that waited for its person-only steps, #101)'
+g "LH2d the last answered value step queues it (#101)" 'and no other open `person` item (one whose body has an `also:` line naming the row counts): it → `queued` (a re-scope that waited for its person-only steps, #101)'
 g "LH2e the last answered done step queues it too (#101)" 'the row does not change, with the same exception as the row above'
 g "LH2f re-scope mode keeps step 6's person-only rules (#101)" '`## Person-only steps` follows step 6'"'"'s rules, and leaves out a step its'
 grep -qF 'The brief keeps its `approved:` and `grant:`' "$SKILL" && fail "LH2g a granted re-scope no longer goes straight to queued (#101)" || pass "LH2g a granted re-scope no longer goes straight to queued (#101)"
@@ -969,6 +969,35 @@ g "LB2 Stop names approved work it leaves unbuilt" 'Stopping leaves <n> approved
 g "LB3 housekeeping calls summary --if-due" 'sh S/handoff.sh --home HOME_DIR summary --if-due'
 g "LB4 the Handoff section names the Approved line" '- Approved, not started:'
 g "LB5 a hold or blocker never lapses by itself" 'A hold or a blocker never lapses by itself'
+# audit lane a: person steps
+g "AP1 check suffix" '(check: `<command>`)'
+g "AP2 queue check line" 'check: <command>'
+g "AP3 person-check call" "sh S/person-check.sh '<command>'"
+g "AP4 checked record" ' (checked)'
+g "AP5 failed check record" '→ done, but the check failed: <command>'
+g "AP6 asked again title" '(the check still fails: <command>)'
+g "AP7 refused record" ' (check refused: <why>)'
+g "AP8 also line" 'also: <item> <brief path> #<n> <kind>'
+g "AP9 corrected match sentence" 'same kind, project, item, title and body'
+g "AP10 seven day search" 'answered in the last 7 days'
+
+# audit lane a: blockers and holds
+g "AB1 blocker record" '- <date> blocked by <item>: <reason>'
+g "AB2 sharing files" 'Sharing files is never a blocker'
+g "AB3 promised code" "the other item's work-item text"
+g "AB4 summary reason" 'Blocked by: <item> (<reason>)'
+g "AB5 hold is no step" "An owner's hold is never a person-only step"
+g "AB6 hold line" "hold: <the owner's words>"
+g "AB7 after a day" '"After <day>" is the day after it'
+g "AB8 held go item" '<item> is held: <words>; answer go when it may build'
+g "AB9 held summary" 'Held: <words>'
+g "AB10 notBefore by STAR" 'set `notBefore` on the brief it names'
+g "AB11 order key row" '| Keeping an item order as a `star.json` key (`blockers`, `startOrder`, any other) |'
+
+# audit lane a: gate-only and no scripts
+g "AG1 gate-only line" '- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <branch head7>'
+g "AG2 no scripts rule" 'STAR never writes a script or an executable into HOME_DIR or the project'
+g "AG3 no scripts row" '| Writing a helper script into HOME_DIR or the project to run a STAR step |'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
