@@ -896,11 +896,11 @@ starts ("Fill slots"), so two sessions never work in one worktree.
 
    | Kind | Answer | Action |
    |---|---|---|
-   | `go-batch` | exactly `go`, `yes` or `ok` (any case) | the go is for every row of the batch that is `brief-ready`, except a row whose brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more) or that has an open `person` item (an open `person` item whose body has an `also:` line naming the row counts as that row's open item): those stay. Write the grant once, for the rows that start: `HOME_DIR/grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md`, a frontmatter block with `date: <iso>` and `items: [<names>]`, then the user's answer exactly as typed. In each started row's brief, in one write: stamp `approved: <iso>` and `grant: <grant path>`, and remove each ` (proposed)` suffix, so builders and the gate read plain criteria. Those rows → `queued`. When rows stayed, add the `go-batch` item again for them, titled "go for <items> once <what each waits for>". A brief with `NEEDS CRITERIA` asks for criteria in that title: an answer in words is feedback (criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A go is only ever this explicit answer from the user, never a default, a timeout or a blanket answer |
+   | `go-batch` | exactly `go`, `yes` or `ok` (any case) | the go is for every row of the batch that is `brief-ready`, except a row whose brief still says `NEEDS CRITERIA` (`grep -c 'NEEDS CRITERIA' <brief>` prints 1 or more) or whose brief has a `hold:` line, or that has an open `person` item (an open `person` item whose body has an `also:` line naming the row counts as that row's open item): those stay. Write the grant once, for the rows that start: `HOME_DIR/grants/<UTC YYYYMMDDTHHMMSSZ>-<4 hex>.md`, a frontmatter block with `date: <iso>` and `items: [<names>]`, then the user's answer exactly as typed. In each started row's brief, in one write: stamp `approved: <iso>` and `grant: <grant path>`, and remove each ` (proposed)` suffix, so builders and the gate read plain criteria. Those rows → `queued`. When rows stayed, add the `go-batch` item again for them, titled "go for <items> once <what each waits for>". A row that stayed for its `hold:` line stays `brief-ready` with a `go-batch` item of its own titled `<item> is held: <words>; answer go when it may build`; that item's `go` removes the `hold:` line from the brief and starts the row as this row does. A brief with `NEEDS CRITERIA` asks for criteria in that title: an answer in words is feedback (criteria stated in the user's own words STAR writes itself, as below; otherwise the brief worker writes them from it). A go is only ever this explicit answer from the user, never a default, a timeout or a blanket answer |
    | `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151), and the grant also covers the batch's rows that are still `inbox` or `briefing`: its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant's file name>`, so the `BRIEF` row starts it once its brief is drafted. With no row of the batch `inbox` or `briefing`, `go all` is `go` |
-   | `go-batch` | `go except <items>` | the same, for every row of the batch but the named ones; those stay `brief-ready` with a `go-batch` item of their own |
+   | `go-batch` | `go except <items>` | the same, for every row of the batch but the named ones; those stay `brief-ready` with a `go-batch` item of their own (a row with a `hold:` line is treated the same way, as in the `go` row) |
    | `go-batch` | `drop <item>` | that row → `dropped`; add the `go-batch` item again for the rest |
-   | `go-batch` | anything else, including "go, but …" | it is feedback for the item it names (it names none and the batch has more than one item: ask which, one question), never a conditional go: append it to that brief under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `go-batch` item again, showing the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line there, since the summary does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix until the go. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
+   | `go-batch` | anything else, including "go, but …" | it is feedback for the item it names (it names none and the batch has more than one item: ask which, one question), never a conditional go: append it to that brief under `## Feedback` with the date (so it survives a restart of STAR), except a `branch` or `baseBranch` change on a brief with `existingPr` (below). When it only edits the brief's own text (add, remove or reword an acceptance criterion it states in its own words; change `deliverable`, `branch` or `baseBranch`; add or remove a Scope `In:` or `Out:` line; "go, but <item> not before <date>" or after a weekday: set `notBefore` on the brief it names), STAR makes the edit itself, ends that Feedback entry with "(applied by STAR)", keeps the row `brief-ready` and adds the `go-batch` item again, showing the changed lines marked `(changed)`. That mark is only in the question STAR asks in chat, never in the brief file; a changed `branch` or `baseBranch` gets its own line there, since the summary does not otherwise show them. On a brief with `existingPr`, `branch` and `baseBranch` are not small edits: they must equal the PR's `headRefName` and `baseRefName`, so a change to either is answered in chat: the branches come from the PR, so the user changes the base on GitHub, and a different head branch needs a different PR. Nothing is recorded (no `## Feedback` entry), and STAR adds the `go-batch` item again, with that explanation in its title. A later reply saying the PR was changed is feedback, and the brief worker re-reads the PR (row → `inbox`, as below). A criterion STAR writes from the user's words (added, or reworded) carries no ` (proposed)` suffix, and STAR removes the `- [ ] NEEDS CRITERIA` line in the same write when the brief has one; every other proposed criterion keeps its suffix until the go. When STAR's edit leaves the brief with no acceptance criterion, it makes sure the brief has `- [ ] NEEDS CRITERIA` in the same write. Anything that needs the code or the work item read again (another approach, "also handle X", a question about the code, a criterion described rather than stated): row → `inbox`; the brief stage then runs with `--feedback` |
    | `person`, a `(value)` step (the kind line of its body ends in `(value)`) | exactly `done` | no value came with it: close the answered item and add it again with the title "<the step> (answer with the value)" and the same body. The step stays open, so the row stays out of the go |
    | `person`, a `(value)` step | anything but `done`, `can't now`, `no` or words that decline the step (the decline row below, which holds for a `(value)` step too) | the answer is the value (#86): append `- <date> person-only step #<n> (<kind>, value): <step> → value: <answer>` to the brief's `## Decisions` (the step is the title without a trailing " (answer with the value)", and the answer exactly as `loops.sh answers` printed it). The step is done. The row does not change, except a `brief-ready` row whose brief has a grant line (`grep -cE '^grant: [^ #]' <brief>` prints 1) and no other open `person` item (one whose body has an `also:` line naming the row counts): it → `queued` (a re-scope that waited for its person-only steps, #101) |
    | `person` | `done` or `approve` | when the item's body has a `check:` line, first run `sh S/person-check.sh '<command>'` from the project root. `pass`, or no `check:` line: append `- <date> person-only step #<n> (<kind>): <step> → <answer>` to the brief's `## Decisions` (`n` and `kind` from the item's body, the step from its title), ending ` (checked)` after a `pass`; the row does not change, with the same exception as the row above. `fail …` or `timeout`: append `- <date> person-only step #<n> (<kind>): <step> → done, but the check failed: <command>` to `## Decisions`, close the answered item and add it again with the title `<step> (the check still fails: <command>)` and the same body; the row stays out of the go, as for `can't now`. `refused <why>`: the record as above, ending ` (check refused: <why>)`; the step counts as done. An item whose body has `also:` lines applies the answer to the brief named in its body and to each `also:` brief, each with its own step number and kind (the check, when there is one, runs once).  A `(value)` step never takes this row: `done` alone is asked again, and any other answer but `can't now`, `no` or words that decline the step is its value (the two rows above) |
@@ -1372,8 +1372,9 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    baseBranch: <base>
    existingPr: <url>       # only for an item that brings an open PR to mergeable: see below
    deliverable: pr          # or report: see below
-   blockedBy: [<item>, <item>]
+   blockedBy: [<item>, <item>]   # each with a decision record: - <date> blocked by <item>: <reason>
    notBefore: <YYYY-MM-DD or ISO datetime>   # only when the item must not be built before then
+   hold: <the owner's words>   # only for an owner's hold that is no date and no other item
    approved:               # stamped by STAR on the owner's go
    grant:                  # stamped by STAR with the go: the grant file's path
    star:
@@ -1441,7 +1442,7 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    `<n>. [account] (value) <what to provide>`: the owner's answer is recorded as that value under
    `## Decisions` (`→ value: <answer>`), where the build reads it (#86). Never on a `secret` step:
    the queue and the brief are plain files, so a secret goes where its step says, never into an
-   answer. A product call is never a person-only step: take it as a decision record. Nothing the brief, its `## Decisions` or the
+   answer. A product call is never a person-only step: take it as a decision record. An owner's hold is never a person-only step either (see Holds). Nothing the brief, its `## Decisions` or the
    memory notes already answer goes here. Write `none` under the heading when there is nothing.
 
    A `screen` step that changes the machine (an install, a driver, a permission a command can
@@ -1498,17 +1499,34 @@ the brief (step 6): a brief another worker wrote meanwhile counts too.
    brief's own top-level sections.
 
    **Blocked by** (#37). `blockedBy` lists the items this one needs merged first, `[]` when none:
-   from the item's own links (a Linear "blocked by" relation, a GitHub "depends on #n" or "blocked
-   by #n") and from items of the same batch whose changes this one builds on (the open rows of
-   `<HOME_DIR>/ledger.md`). Use each item's ledger name. A blocker STAR does not track goes under
+   only when one of these holds, each with the decision record
+   `- <date> blocked by <item>: <reason>`:
+   - the item's own links say so (a Linear "blocked by" relation, a GitHub "depends on #n" or
+     "blocked by #n");
+   - the owner said so (a `## Feedback` entry, a rule note or the item text), quoted in the reason;
+   - this item needs code the other item adds, named in the reason as a path, a function or an
+     endpoint the other brief's Scope `In:` adds. Briefs of one batch are drafted in parallel, so
+     when the other item's brief does not exist yet, the reason quotes the other item's work-item text
+     that promises that code.
+
+   Use each item's ledger name (the open rows of `<HOME_DIR>/ledger.md`).
+   Sharing files is never a blocker: two items that only edit the same files build at the same
+   time, and the one that merges second syncs the base as it does today. A blocker STAR does not track goes under
    `## Approach` instead, with what the build does until it lands. Never a cycle: when two items
    would block each other, keep the link the code needs and take a decision record.
 
    **Not before** (#87). When the item's text, a memory note or a `## Feedback` entry says it may
    only be built after a date or time ("after Wednesday", "not before the 15th"), set `notBefore`
    to it: `YYYY-MM-DD` for a day, which starts at 00:00 in the machine's local
-   zone, or an ISO datetime with an offset or `Z`. Take a
+   zone, or an ISO datetime with an offset or `Z`. "After <day>" is the day after it ("after
+   Wednesday" is Thursday 00:00); "not before <day>", "from <day>" and "on <day>" are that day; a
+   weekday is the next one after today. Take a
    decision record that quotes the words it came from. Leave the key out otherwise.
+
+   **Holds.** An owner's hold is never a person-only step. A hold with a date, a weekday or a time
+   is `notBefore`, as above. A hold on another item ("after AB merges") is `blockedBy` with the
+   owner's words as its reason. Any other hold ("until I confirm the design") is the frontmatter
+   line `hold: <the owner's words>`: the row waits for its own go (see the go rows).
 
    `deliverable` is `report` when every acceptance criterion asks only for evidence, a
    disposition or a write-up (exercise flows and record what passed, map an impact, assess a PR,
@@ -2028,14 +2046,16 @@ batch then runs without them.
      Reused (1): D3 The hosted review comes after ready (L-0007)
      Blocked by: none
    ITEM-2 · ...
+     Blocked by: ITEM-1 (needs the export endpoint ITEM-1 adds)
      Not before: 2026-10-15
+     Held: until I confirm the design
      Person-only: sign in to <app> as <account> (2FA)
    ITEM-3 · stopped: <the escalation or failure, one line>
 
    Reply go, go except <items>, drop <item>, or tell me what to change.
    ```
 
-   A `Not before:` line appears only for a brief that has `notBefore`.
+   A `Not before:` line appears only for a brief that has `notBefore`. `Blocked by:` names each blocker with its reason, `Blocked by: <item> (<reason>)`, the reason from the brief's `blocked by` decision record. A `Held: <words>` line appears only for a brief that has a `hold:` line.
    The header gains ` · notes every worker reads: <n>`, the count of `sh S/notes.sh --shelf memory --project <project> list --always` (left out while `notes` is `legacy`). `Decisions STAR took` is two lines: `New decisions (<n>): D<n> <title> · …` and `Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>) · …`, split on `, reused ` in the heading; a line with nothing to list is left out.
    A summary with no row to show (every other row started under `go all`) is not printed and queues no `go-batch` item.
    The early item of "Going before every brief is drafted" is the one exception: it is added with no row briefed.
@@ -2240,6 +2260,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Merging with `gh pr merge` by hand | `merge.sh` only: it quotes the go and passes `--match-head-commit` |
 | Deciding again what the library already answers | `recall.sh --kind decision` first; reuse it and cite it |
 | Keeping an owner's standing order as a new `star.json` key | A rule note: `notes.sh add --kind rule --source owner` |
+| Keeping an item order as a `star.json` key (`blockers`, `startOrder`, any other) | An order the owner gives is a rule note (`notes.sh add --kind rule --source owner`); an order a brief needs is that brief's `blockedBy` with its reason |
 | Reading the notes folder or the old notes file to answer a worker | `recall.sh --kind note` finds them and `notes.sh show M-<nnnn>` prints one whole, one line each |
 | Asking the owner a product call | Decide it from the worker's sourced options and record it as a decision record |
 | Starting a build before its batch's go | Only a `go-batch` answer (`go all` included, for the rows it covered), or a parent's grant, stamps `approved:` |

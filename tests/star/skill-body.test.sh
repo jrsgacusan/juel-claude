@@ -963,5 +963,18 @@ g "AP8 also line" 'also: <item> <brief path> #<n> <kind>'
 g "AP9 corrected match sentence" 'same kind, project, item, title and body'
 g "AP10 seven day search" 'answered in the last 7 days'
 
+# audit lane a: blockers and holds
+g "AB1 blocker record" '- <date> blocked by <item>: <reason>'
+g "AB2 sharing files" 'Sharing files is never a blocker'
+g "AB3 promised code" "the other item's work-item text"
+g "AB4 summary reason" 'Blocked by: <item> (<reason>)'
+g "AB5 hold is no step" "An owner's hold is never a person-only step"
+g "AB6 hold line" "hold: <the owner's words>"
+g "AB7 after a day" '"After <day>" is the day after it'
+g "AB8 held go item" '<item> is held: <words>; answer go when it may build'
+g "AB9 held summary" 'Held: <words>'
+g "AB10 notBefore by STAR" 'set `notBefore` on the brief it names'
+g "AB11 order key row" '| Keeping an item order as a `star.json` key (`blockers`, `startOrder`, any other) |'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
