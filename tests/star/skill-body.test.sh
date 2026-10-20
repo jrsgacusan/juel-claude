@@ -871,8 +871,8 @@ has "E150g the done row agrees" 'and any other answer but `can'"'"'t now`, `no` 
 has "E151a go all is a command word" 'compare all of it with `go`, `go all`, `yes`'
 has "E151b the go all row" '| `go-batch` | exactly `go all` (any case) | the same as `go` for the rows it starts (#151)'
 has "E151c the grant records the rest" 'its frontmatter gains `rest: [<their names>]`, and each of them gets `counters.go=<the grant'"'"'s file name>`'
-has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps` and no `NEEDS CRITERIA`'
-has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item. Either way, clear `counters.go`.'
+has "E151d the BRIEF row starts a covered row" 'A row with `counters.go=<file>` (the owner'"'"'s `go all`, #151) whose brief has no line under `## Person-only steps`, no `NEEDS CRITERIA`'
+has "E151e otherwise the regular go, and go= is cleared" 'Otherwise the row stays `brief-ready` and goes with its batch'"'"'s `go-batch` item; a row held by its `hold:` line stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`. Either way, clear `counters.go`.'
 has "E151f the counter" '| `go=<file>` | not a count: the grant file'
 has "E151g the early item" '--title "go for batch <batch>: <n> of <m> briefed, <k> still drafting"'
 has "E151h its options" 'Options: go / go all / go except <items> / drop <item> / or say what to change'
@@ -953,7 +953,7 @@ g "RM3m reused line" 'Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>)'
 ! grep -qF 'trim memory/<project>.md' "$SKILL" && pass "RM3n the 80-line trim rule is gone" || fail "RM3n trim rule still there"
 # audit lane G: a required check that has not reported waits two minutes (#167)
 has "G merge.sh PENDING row" '| `PENDING check <name> not reported` |'
-has "G merge.sh PENDING retry" 'put `retry=<now + 2 min>` in `verify`'
+has "G merge.sh PENDING retry" '| `PENDING check <name> not reported` | GitHub refused the merge because a required check has not reported on the head: nothing on the PR is wrong, so no `mergefail=`'
 has "G merge.sh PENDING no mergefail" 'so no `mergefail=` and no babysit round: put `retry=<now + 2 min>`'
 # audit lane G: a second worker_done from a released dispatch changes nothing (#166)
 has "G released line in the order of effects" '`worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message'"'"'s own line'
@@ -972,7 +972,7 @@ g "LB5 a hold or blocker never lapses by itself" 'A hold or a blocker never laps
 # audit lane a: person steps
 g "AP1 check suffix" '(check: `<command>`)'
 g "AP2 queue check line" 'check: <command>'
-g "AP3 person-check call" "sh S/person-check.sh '<command>'"
+g "AP3 person-check call" "sh S/person-check.sh <<'CHECK'"
 g "AP4 checked record" ' (checked)'
 g "AP5 failed check record" '→ done, but the check failed: <command>'
 g "AP6 asked again title" '(the check still fails: <command>)'
@@ -998,6 +998,32 @@ g "AB11 order key row" '| Keeping an item order as a `star.json` key (`blockers`
 g "AG1 gate-only line" '- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <branch head7>'
 g "AG2 no scripts rule" 'STAR never writes a script or an executable into HOME_DIR or the project'
 g "AG3 no scripts row" '| Writing a helper script into HOME_DIR or the project to run a STAR step |'
+
+# audit fix 3: an item go all covered while drafting waits when its brief has a hold
+has "F3 go all item names the hold" 'unless it has a person-only step, needs criteria or has a `hold:` line'
+has "F3 BRIEF row checks the hold" 'and no `hold:` line (`grep -cE '"'"'^hold: [^ #]'"'"' <brief>` prints 0)'
+has "F3 a held brief gets its own go-batch item" 'stays `brief-ready` with a `go-batch` item titled `<item> is held: <words>; answer go when it may build`'
+
+# audit fix 4: every person answer reaches each also: brief
+has "F4 one rule for a shared person step" 'A shared `person` step: every `person` row below applies the answer to the brief named in the item'"'"'s body and, the same way, to each brief named on an `also:` line of its body'
+has "F4 a re-added item keeps the also lines" 'the new item keeps the `also:` lines'
+has "F4 the queued exception is checked per brief" 'is checked for each brief the answer covered'
+has "F4 the done row points at the rule" 'A shared step follows the rule above the table.'
+
+# audit fix 6 and 9: the guard's limits are stated, and a check goes through a quoted heredoc
+g "F6 the guard is not a sandbox" 'as a guard against mistakes, not a sandbox: this'
+g "F6 brew list example" '(check: `brew list jq`)'
+! grep -qF 'person-check.sh` refuses those' "$SKILL" && pass "F6 no overclaim" || fail "F6 no overclaim"
+! grep -qF "sh S/person-check.sh '<command>'" "$SKILL" && pass "F9 no quoted-argument form" || fail "F9 no quoted-argument form"
+
+# audit fix 7: a checked person step is not reused from the archive
+has "F7 a checked step is never reused" 'A step that carries a `(check: …)` is never taken from the archive: the brief keeps it'
+
+# audit fix 12 and 14: blockedBy carries no comment, the last pass's base merge is conditional
+g "F12 blockedBy template line has no comment" '   blockedBy: [<item>, <item>]'
+! grep -qE '^ *blockedBy: \[<item>, <item>\] +#' "$SKILL" && pass "F12 no comment on the template line" || fail "F12 no comment on the template line"
+has "F12 the line holds only the list" 'The line holds only the list, never a comment'
+has "F14 the base merge before the last pass is conditional" 'babysit merges the base in when Phase 4 step 1'"'"'s condition holds'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

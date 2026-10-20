@@ -97,7 +97,7 @@ grow "C1b each P0 and P1 finding is validated against the brief" 'superpowers:re
 grow "C1c a finding outside the brief's scope is the brief-violation escalation" 'reason=brief-violation'
 grow "C1d the fix is planned as a new -vN plan" '(`superpowers:writing-plans`, a new `-vN`)'
 grow "C1e the plan runs on the executor and its model script" 'executor-model.sh'
-grow "C1f with the capacity rule" 'capacity rule'
+grow "C1f with the capacity and out-of-usage rules" 'capacity and out-of-usage rules'
 grow "C1g the regression gate goes through the gate lock" 'through the gate lock'
 grow "C1h the round's -fix.md sits in the reviews folder" '<star.reviews>/<item>-r<k>-fix.md'
 grow "C1i the push waits for a SAFE round and is never forced" 'the push waits for a SAFE round and is never forced'
@@ -376,5 +376,8 @@ has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P
 
 # audit integration: a merge another rule orders is never skipped by the final sync's condition
 grep -qF 'That condition is for the final sync alone: a' "$SKILL" && grep -qF 'the base moved") always fetches and merges the base as below.' "$SKILL" && pass "I1 a base-moved or conflict merge always merges" || fail "I1 a base-moved or conflict merge always merges"
+# audit fix 8: a codex usage limit in a gate fix round runs the plan in the session
+grow "F8 a usage limit runs the plan in the session" 'a codex usage limit runs the plan in this session'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
