@@ -66,5 +66,65 @@ out=$(PC true true 2>/dev/null); rc=$?
 out=$(PC '' 2>/dev/null); rc=$?
 [ "$rc" -eq 64 ] && [ -z "$out" ] && pass "an empty argument is 64" || fail "empty argument ($rc)"
 
+# audit lane A2: the guard refuses substitution, shells and wrappers, and allows read-only brew, git -C and curl to /dev/null
+refuse 'test -n "$(brew install x)"'
+refuse 'echo "$(echo x > marker)"'
+refuse '[ "$(sudo -n true)" ]'
+refuse 'echo "`touch marker`"'
+refuse 'echo $(touch marker)'
+refuse 'echo sudo'
+refuse "echo 'sudo true'"
+refuse 'sh -c "touch marker"'
+refuse 'bash -c "touch marker"'
+refuse 'zsh -c "touch marker"'
+refuse 'dash -c "touch marker"'
+refuse 'env touch marker'
+refuse 'eval "touch marker"'
+refuse 'exec touch marker'
+refuse 'echo marker | xargs touch'
+refuse 'nohup touch marker'
+refuse 'command touch marker'
+refuse 'builtin eval x'
+refuse 'source marker'
+refuse '. marker'
+refuse 'pip3 install x'
+refuse 'pip3.12 install x'
+refuse '>/dev/null rm -rf marker'
+refuse '2>&1 touch marker'
+refuse '> marker true'
+refuse 'true >marker'
+refuse 'find . -delete'
+refuse 'find . -exec touch marker ;'
+refuse 'find . -execdir touch marker ;'
+refuse 'find . -ok touch marker ;'
+refuse 'brew install x'
+refuse 'brew upgrade'
+refuse 'git -c core.pager=x status'
+refuse 'git -C . push'
+refuse 'curl -o marker https://example.com'
+refuse 'curl -so marker https://example.com'
+refuse 'curl -o /dev/null -o marker https://example.com'
+want 'find . -name x >/dev/null' pass
+want 'brew list >/dev/null 2>&1; true' pass
+want 'brew info x >/dev/null 2>&1; true' pass
+want 'brew --prefix >/dev/null 2>&1; true' pass
+want 'brew config >/dev/null 2>&1; true' pass
+want 'git -C . status >/dev/null 2>&1; true' pass
+want 'git --no-pager log -1 >/dev/null 2>&1; true' pass
+want 'git -C . --no-pager rev-parse HEAD >/dev/null 2>&1; true' pass
+want 'true 2>&1 </dev/null' pass
+want 'echo "a $HOME b" >/dev/null' pass
+want "echo '\$(x)' >/dev/null" pass
+mkdir -p bin
+printf '#!/bin/sh\nexit 0\n' > bin/curl; cp bin/curl bin/wget; chmod +x bin/curl bin/wget
+OLDPATH=$PATH; PATH="$TMP/bin:$PATH"
+want "curl -so /dev/null -w '%{http_code}' https://x" pass
+want 'curl -o /dev/null https://x' pass
+want 'curl --output /dev/null https://x' pass
+want 'curl --output=/dev/null https://x' pass
+want 'wget -q -O /dev/null https://x' pass
+want 'curl -sS https://x' pass
+PATH=$OLDPATH
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
