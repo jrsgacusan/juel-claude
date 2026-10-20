@@ -685,6 +685,45 @@ out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 tooling=1 head=$HEAD review=$R1" ] && pass "TL160e an absolute place under the worktree counts" || fail "TL160e ($out)"
 rm -f "$H/gates/app/ITEM-1-tooling.md"
 
+# audit lane C: {{since}} and the out-of-credits phrases
+gc() { git -C "$APP" -c user.email=t@t -c user.name=t "$@"; }
+vline() { printf 'VERDICT item=ITEM-1 round=1 NOT-SAFE findings=1 p0=0 p1=1 head=%s\n1. [P1] x - /repo/a.py:1-1\n' "$1" > "$H/reviews/app/ITEM-1-r1.md"; }
+since_run() { reset; mkdir -p "$H/reviews/app"; plan "0 safe"; G --brief "$BRIEF" --item ITEM-1 --round "${1:-2}" --base main >/dev/null; }
+SP="$H/specs/app/ITEM-1-gate-r2.md"
+BASESHA=$(git -C "$APP" rev-parse main)
+since_run 1
+grep -qF 'Review the whole change.' "$H/specs/app/ITEM-1-gate-r1.md" && pass "since: round 1 reviews the whole change" || fail "since r1"
+reset; mkdir -p "$H/reviews/app"; vline "$HEAD"; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+grep -qF 'Round 1 reviewed this same head.' "$SP" && grep -qF '"(earlier code)"' "$SP" && pass "since: the same head" || fail "since same ($(cat "$SP"))"
+gc commit -q --allow-empty -m more; HEAD2=$(git -C "$APP" rev-parse HEAD)
+reset; mkdir -p "$H/reviews/app"; vline "$HEAD"; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+grep -qF "Round 1 reviewed $(printf %s "$HEAD" | cut -c1-7)." "$SP" && grep -qF "git log --oneline $HEAD..HEAD" "$SP" && grep -qF "git diff $HEAD..HEAD" "$SP" && grep -qF -- "git diff $BASESHA...HEAD --name-only" "$SP" && grep -qF '"(earlier code)"' "$SP" && grep -qF 'A [P0] anywhere still blocks.' "$SP" && pass "since: an ancestor head names the commits since" || fail "since ancestor ($(cat "$SP"))"
+reset; mkdir -p "$H/reviews/app"; vline "0123456789abcdef0123456789abcdef01234567"; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+grep -qF 'Review the whole change.' "$SP" && pass "since: an unknown head reviews the whole change" || fail "since unknown"
+reset; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+grep -qF 'Review the whole change.' "$SP" && pass "since: no previous review reviews the whole change" || fail "since none"
+# a merge of the base between the previous head and HEAD is an ordinary ancestor case
+gc checkout -q main; printf 'm\n' > g; gc add g; gc commit -qm basework; gc checkout -q feat/item-1; gc merge -q --no-edit main
+reset; mkdir -p "$H/reviews/app"; vline "$HEAD"; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+grep -qF "git log --oneline $HEAD..HEAD" "$SP" && grep -qF -- '--name-only' "$SP" && pass "since: a base merge among the commits keeps the since text" || fail "since merge ($(cat "$SP"))"
+# a head dropped by a rewritten history
+vline "$HEAD2"; gc reset -q --hard "$HEAD"; gc commit -q --allow-empty -m rewritten; gc gc -q --prune=now 2>/dev/null; gc reflog expire --expire=now --all; gc gc -q --prune=now 2>/dev/null
+reset; mkdir -p "$H/reviews/app"; vline "$HEAD2"; plan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+grep -qF 'Review the whole change.' "$SP" && pass "since: a head dropped by a rewrite reviews the whole change" || fail "since rewritten ($(cat "$SP"))"
+gc reset -q --hard "$HEAD"
+reset; plan "1 - You are out of credits for this workspace."; cplan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "out of credits goes to Claude at once" || fail "credits ($out)"
+reset; plan "1 - Your credit balance is too low"; cplan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "credit balance goes to Claude at once" || fail "balance ($out)"
+
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

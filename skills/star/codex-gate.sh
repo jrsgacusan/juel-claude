@@ -31,6 +31,10 @@
 # base in and runs the same round again. A base that moved only in files the branch does not change
 # is reviewed as it is.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
+# Its {{since}} line, from round 2, reads the head= of <item>-r<k-1>.md's VERDICT line: an earlier
+# commit of HEAD makes the round review the commits since and check the previous findings, HEAD itself
+# makes it judge the previous findings against their dispositions, and anything else (round 1, no
+# previous review, an unknown head, a rewritten history) is "Review the whole change.".
 # --evidence names the folder of the live checks' evidence (ship-ticket's Phase 6): the prompt
 # points the reviewer at its report.md and says a criterion with no change in the diff behind it
 # is judged on that evidence (#63); a folder that does not exist is a usage error. From round 2,
@@ -55,7 +59,8 @@
 # never gate-down.
 # A finding is a bullet (-, *, +, 1. or 1)) that starts with its tag, [P0] to [P3], bold or
 # not. Only a [P0] or [P1] finding makes it NOT-SAFE. A capacity, overload or rate-limit failure
-# is retried after 60 and 180 seconds; a usage-limit failure is not retried (#64). After those
+# is retried after 60 and 180 seconds; a usage-limit failure (the phrases usage limit, hit your usage
+# limit, try again at, out of credits and credit balance, matched without case) is not retried (#64). After those
 # tries, at once on a usage limit, or when the model does not resolve, the same prompt runs
 # through star.json's gate.fallback, {"agent": "claude", "model": "opus", "effort": "xhigh"} by
 # default (a string there, v2.0.0's codex fallback, means that default; "agent" must be claude):
@@ -141,7 +146,7 @@ FINDINGS_HEADER = re.compile(r"^\s*review comments?:\s*$", re.I)
 # The shape of a finding with its tag dropped: a bullet at the margin that ends with its place,
 # "<path>:<line>[-<line>]", set off by a hyphen, an en dash or an em dash, or put in parentheses
 PLACED = re.compile(r"^" + BULLET + r"\s+(?!(?:\*\*)?\[P[0-3]\]).*\S\s+(?:[-–—]\s+|\()\S.*:\d+(?:-\d+)?\)?\s*$")
-USAGE = re.compile(r"usage limit|hit your usage limit|try again at", re.I)
+USAGE = re.compile(r"usage limit|hit your usage limit|try again at|out of credits|credit balance", re.I)
 DEFAULT_FALLBACK = {"agent": "claude", "model": "opus", "effort": "xhigh"}
 SUBCOMMANDS = ("diff", "show", "log")
 # #100: the other read-only commands a review reaches for, and diff, show and log with the pager off. Never
@@ -598,6 +603,39 @@ except ValueError:
     LIMIT = 3600.0
 
 
+def since_text():
+    """{{since}}: what the previous round reviewed, from the head= of its VERDICT line. Any doubt is a whole review."""
+    whole = "Review the whole change."
+    if k < 2:
+        return whole
+    try:
+        first = open(os.path.join(reviews, f"{item}-r{k - 1}.md"), encoding="utf-8").readline()
+    except OSError:
+        return whole
+    m = re.search(r"\bhead=([0-9a-f]{7,40})\b", first)
+    if not m:
+        return whole
+    r = run(["git", "rev-parse", "--verify", "--quiet", m.group(1) + "^{commit}"], 30)
+    prev = r.stdout.strip().lower() if r.returncode == 0 else ""
+    cur = head()
+    if not prev or not cur:
+        return whole
+    if prev == cur:
+        return (f"Round {k - 1} reviewed this same head. Judge each of its [P0] and [P1] findings against the "
+                f"disposition in its -fix.md, or the brief's newest ## Decisions records when there is no -fix.md. "
+                f"A defect round {k - 1} did not raise is [P2] at most, marked \"(earlier code)\". "
+                "A [P0] anywhere still blocks.")
+    if run(["git", "merge-base", "--is-ancestor", prev, cur], 30).returncode != 0:
+        return whole
+    return (f"Round {k - 1} reviewed {prev[:7]}. The commits since: git log --oneline {prev}..HEAD; their change: "
+            f"git diff {prev}..HEAD. A merge among them brings the base's own changes: grade only the files "
+            f"git diff {base_sha}...HEAD --name-only lists. Check each [P0] and [P1] finding of round {k - 1}: "
+            "fixed, or a disposition in its -fix.md you accept. Raise a new [P1] only in code these commits "
+            "changed, or for a defect they cause elsewhere. A defect in code round "
+            f"{k - 1} already reviewed and these commits did not change is [P2] at most, marked \"(earlier code)\". "
+            "A [P0] anywhere still blocks.")
+
+
 def prompt_text():
     template = open(os.path.join(S, "template", "gate-prompt.md"), encoding="utf-8").read()
     if k >= 2:
@@ -625,7 +663,7 @@ def prompt_text():
                     "deliverable's runtime code imports is not tooling: grade it in full."
                     if tooling_prefixes else "No path is tooling: grade every file in full.")
     values = {"item": item, "round": str(k), "base": base_sha, "brief": brief, "notes": ", ".join(notes) or "none",
-              "previous": previous, "pending": pending_text, "evidence": evidence,
+              "previous": previous, "since": since_text(), "pending": pending_text, "evidence": evidence,
               "tooling": tooling_text}
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), template)
 

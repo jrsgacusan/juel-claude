@@ -65,14 +65,14 @@ g merge -q --no-edit origin/main >/dev/null 2>&1
 printf 'a\nb\nmain-line\nfeat-line\n' > "$R/list.txt"; g add list.txt; g commit -qm "Merge origin/main; mechanical conflicts resolved in list.txt"
 MC=$(g rev-parse HEAD)
 out=$(C --from "$G2" --head "$MC"); rc=$?
-[ "$rc" -eq 1 ] && [ "$out" = "NO $(s7 "$MC") brings base changes to list.txt, a file this branch changes: the gate reviews the merge" ] && pass "#110 a test-list conflict resolved by union never carries" || fail "#110 union-resolved conflict ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "OK carried from $G2: the merge brings no change to a file this branch changes, except lines both sides only added (list.txt)" ] && pass "#110 a test-list conflict where both sides only appended, resolved by union, carries" || fail "#110 union-resolved conflict ($rc $out)"
 
 # #110: a merge=union file git merged by itself, changed on both sides, never carries either
 g checkout -q main; printf 'start\nmain entry\n' > "$R/CHANGELOG.md"; g commit -qam "main changelog"; g update-ref refs/remotes/origin/main main
 g checkout -q -b unionside "$GATED"; printf 'start\nfeat entry\n' > "$R/CHANGELOG.md"; g commit -qam "feat changelog"; G3=$(g rev-parse HEAD)
 g merge -q --no-edit origin/main; MU=$(g rev-parse HEAD)
 out=$(C --from "$G3" --head "$MU"); rc=$?
-[ "$rc" -eq 1 ] && [ "$out" = "NO $(s7 "$MU") brings base changes to CHANGELOG.md, a file this branch changes: the gate reviews the merge" ] && pass "#110 a merge=union file both sides changed never carries" || fail "#110 union attribute ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "OK carried from $G3: the merge brings no change to a file this branch changes, except lines both sides only added (CHANGELOG.md)" ] && pass "#110 a merge=union file both sides only appended to carries" || fail "#110 union attribute ($rc $out)"
 
 # usage
 C --from "$GATED" >/dev/null 2>&1; [ $? -eq 64 ] && pass "no --head is 64" || fail "usage head"
@@ -114,6 +114,41 @@ g checkout -q -b ours "$G2"; g merge -q --no-edit origin/main >/dev/null 2>&1; g
 [ "$(g show "$MO:list.txt")" = "$(g show "$G2:list.txt")" ] && pass "#110 control: the conflict was settled as the branch's side" || fail "#110 control: ours"
 out=$(C --from "$G2" --head "$MO"); rc=$?
 [ "$rc" -eq 1 ] && [ "$out" = "NO $(s7 "$MO") brings base changes to list.txt, a file this branch changes: the gate reviews the merge" ] && pass "#110 a conflict settled as the branch's side never carries" || fail "#110 ours ($rc $out)"
+
+# audit lane C: lines both sides only added carry; any other change to a shared file does not
+NO7() { printf 'NO %s brings base changes to %s, a file this branch changes: the gate reviews the merge' "$(s7 "$1")" "$2"; }
+# two shared paths, both only appended to: the reason lists both, in path order
+g checkout -q main; printf 'p\nq\n' > "$R/reg1.txt"; printf 'p\nq\n' > "$R/reg2.txt"; g add reg1.txt reg2.txt; g commit -qm "registries"; g update-ref refs/remotes/origin/main main
+g checkout -q -b two main; printf 'p\nq\nfeat\n' > "$R/reg2.txt"; printf 'p\nq\nfeat\n' > "$R/reg1.txt"; g commit -qam "feat registries"; GT=$(g rev-parse HEAD)
+g checkout -q main; printf 'p\nq\nmain\n' > "$R/reg1.txt"; printf 'p\nq\nmain\n' > "$R/reg2.txt"; g commit -qam "main registries"; g update-ref refs/remotes/origin/main main
+g checkout -q two; g merge -q --no-edit origin/main >/dev/null 2>&1
+printf 'p\nq\nmain\nfeat\n' > "$R/reg1.txt"; printf 'p\nq\nmain\nfeat\n' > "$R/reg2.txt"; g add reg1.txt reg2.txt; g commit -qm "Merge origin/main"; MT=$(g rev-parse HEAD)
+t "lane C: two appended-to paths are listed in path order" "OK carried from $GT: the merge brings no change to a file this branch changes, except lines both sides only added (reg1.txt, reg2.txt)" "$(C --from "$GT" --head "$MT" --base origin/main)"
+# a clean merge where both sides appended far apart in the same file
+g checkout -q main; printf '1\n2\n3\n4\n5\n6\n7\n8\n9\n' > "$R/far.txt"; g add far.txt; g commit -qm "far"; g update-ref refs/remotes/origin/main main
+g checkout -q -b far main; printf 'top\n1\n2\n3\n4\n5\n6\n7\n8\n9\n' > "$R/far.txt"; g commit -qam "feat far"; GF1=$(g rev-parse HEAD)
+g checkout -q main; printf '1\n2\n3\n4\n5\n6\n7\n8\n9\nbottom\n' > "$R/far.txt"; g commit -qam "main far"; g update-ref refs/remotes/origin/main main
+g checkout -q far; g merge -q --no-edit origin/main; MF=$(g rev-parse HEAD)
+t "lane C: a clean merge of two far-apart appends carries" "OK carried from $GF1: the merge brings no change to a file this branch changes, except lines both sides only added (far.txt)" "$(C --from "$GF1" --head "$MF" --base origin/main)"
+# one side changes a line: refused as before
+g checkout -q main; printf 'k1\nk2\nk3\nk4\nk5\nk6\nk7\n' > "$R/chg.txt"; g add chg.txt; g commit -qm "chg"; g update-ref refs/remotes/origin/main main
+g checkout -q -b chg main; printf 'k1\nk2\nk3\nk4\nk5\nk6\nk7\nfeat\n' > "$R/chg.txt"; g commit -qam "feat chg"; GC1=$(g rev-parse HEAD)
+g checkout -q main; printf 'K1\nk2\nk3\nk4\nk5\nk6\nk7\n' > "$R/chg.txt"; g commit -qam "main chg"; g update-ref refs/remotes/origin/main main
+g checkout -q chg; g merge -q --no-edit origin/main; MCH=$(g rev-parse HEAD)
+t "lane C: a changed line on one side is refused" "$(NO7 "$MCH" chg.txt)" "$(C --from "$GC1" --head "$MCH" --base origin/main)"
+# a binary file changed on both sides
+g checkout -q main; printf '\0a\0' > "$R/b.bin"; g add b.bin; g commit -qm "bin"; g update-ref refs/remotes/origin/main main
+g checkout -q -b bin main; printf '\0a\0feat\0' > "$R/b.bin"; g commit -qam "feat bin"; GB1=$(g rev-parse HEAD)
+g checkout -q main; printf '\0a\0main\0' > "$R/b.bin"; g commit -qam "main bin"; g update-ref refs/remotes/origin/main main
+g checkout -q bin; g merge -q --no-edit origin/main >/dev/null 2>&1; printf '\0a\0main\0feat\0' > "$R/b.bin"; g add b.bin; g commit -qm "Merge origin/main"; MB=$(g rev-parse HEAD)
+t "lane C: a binary file in both is refused" "$(NO7 "$MB" b.bin)" "$(C --from "$GB1" --head "$MB" --base origin/main)"
+# a path one side renamed and the other side appended to
+g checkout -q main; printf 'r1\nr2\nr3\nr4\nr5\nr6\n' > "$R/old.txt"; g add old.txt; g commit -qm "old"; g update-ref refs/remotes/origin/main main
+g checkout -q -b ren main; g mv old.txt new.txt; g commit -qm "rename"; GR1=$(g rev-parse HEAD)
+g checkout -q main; printf 'r1\nr2\nr3\nr4\nr5\nr6\nmain\n' > "$R/old.txt"; g commit -qam "main append"; g update-ref refs/remotes/origin/main main
+g checkout -q ren; g merge -q --no-edit origin/main; MR=$(g rev-parse HEAD)
+out=$(C --from "$GR1" --head "$MR" --base origin/main); rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "$(NO7 "$MR" new.txt)" ] && pass "lane C: a renamed path with an append on the other side is refused" || fail "lane C rename ($rc $out)"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
