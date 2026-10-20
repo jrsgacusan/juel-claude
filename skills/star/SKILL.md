@@ -684,6 +684,8 @@ already happened, and must not stop STAR again.
 caffeinate (only when `ps -p <pid> -o comm=` still prints `caffeinate`), delete the heartbeat, `loops.sh resume --state stopped --next "run /juel:star to resume"`, set
 `"terminal": null` in `star.json` (the claim is released, so the session hook goes quiet and the
 next `/juel:star` in this project becomes the coordinator), and print the queue. Workers still running are left alone.
+When any `queued` row has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1), the printed queue starts with this line, so the owner sees what stops with the session:
+`Stopping leaves <n> approved items unbuilt until /juel:star runs again: <items>`
 
 ## The tick
 
@@ -1151,7 +1153,7 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      `removed <path>` → name it in the status line. `kept <path>: <why>` → `--kind held` "<item>'s
      worktree <path> was kept: <why>", and `counters.kept=1`. `none` → nothing. `failed` and
      `escalated` rows keep their worktrees until the user answers.
-   - Away: `sh S/handoff.sh --home HOME_DIR due` printing `due` → `sh S/handoff.sh --home HOME_DIR summary`.
+   - Away: `sh S/handoff.sh --home HOME_DIR summary --if-due`. It prints `not-due` or `unchanged` and writes nothing, else it wrote a summary. Nothing more to do in any case.
 6. **Write.** `loops.sh resume …` with the current pools and the next step;
    `loops.sh waiting "<one line per PR in review, per blocked question>"`. Nothing is committed:
    the folder is plain files. Print one status line: counts per state, then every open queue item, `screen: <holder>, renewed <time>`
@@ -1176,6 +1178,10 @@ itself, and its notification runs one more tick. A `queued` row waiting for its 
 cannot start, so it is not active work: the heartbeat's next wake tries it again. While a question
 is open in STAR's terminal, each wake runs one tick, then STAR prints the open question again and
 ends the turn ("The batch summary and go").
+
+When STAR writes `state: idle` while any `queued` row has a grant (`grep -cE '^grant: [^ #]' <brief>` prints 1) and waits only on its blockers, its `notBefore` or the host gate, the status line ends with:
+`; <n> approved items wait (<item> on <blockers>, <item> until <date>): keep this session open or they wait until /juel:star runs again`
+Nothing ticks once the session is closed, so those rows stay as they are. A hold or a blocker never lapses by itself: the owner set it, so the fix is to show its age, not to override it.
 
 ## Stages
 
@@ -2139,9 +2145,11 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 - A worker's question that is not STAR's to answer ("Looking after the workers") is answered "No
   answer from the user: escalate this." at once.
 - Only `escalation` items notify.
-- About every 4 hours (housekeeping's `handoff.sh due`), `handoff.sh summary` adds a dated summary
-  to the top of `handoff.md`: items per state, PRs waiting to merge, what merged, what stopped,
-  everything in `sent.log` since the last summary, free memory and running workers, and the full
+- About every 4 hours (housekeeping's `sh S/handoff.sh --home HOME_DIR summary --if-due`; `sh S/handoff.sh --home HOME_DIR due` stays for other callers), a dated summary is added
+  to the top of `handoff.md`, but only when something changed since the newest one (the heading,
+  the host line and the ages do not count; otherwise it prints `unchanged` and writes nothing): items per state, PRs waiting to merge, what merged, what stopped,
+  `- Approved, not started: <item> (<reason>, <age>)` for each `queued` row with a grant that waits
+  (on its blockers, its `notBefore` or a build slot; `none` when no row does), everything in `sent.log` since the last summary, free memory and running workers, and the full
   Needs-you list again. The heartbeat keeps this going while STAR is idle. It needs STAR's session
   to be open: with the session closed, workers continue but no summary is written.
 

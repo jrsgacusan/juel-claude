@@ -963,5 +963,12 @@ has "G processed.log layout names released" '"<dispatch> released <iso>" lines'
 has "G usage limit takes the restart rule" '`stuck: usage limit` → the restart rule ("Checking in") with step `usage` and diagnosis `hit a Claude usage limit`'
 has "G hard rule names the usage limit" 'any worker at a Claude usage-limit screen (`stuck: usage limit`)'
 has "G mistake row for a usage-limit worker" '| Failing a worker that hit a Claude usage limit |'
+# audit lane b: idle, stop and summaries
+g "LB1 idle line names approved work that waits" 'approved items wait (<item> on <blockers>, <item> until <date>): keep this session open or they wait until /juel:star runs again'
+g "LB2 Stop names approved work it leaves unbuilt" 'Stopping leaves <n> approved items unbuilt until /juel:star runs again: <items>'
+g "LB3 housekeeping calls summary --if-due" 'sh S/handoff.sh --home HOME_DIR summary --if-due'
+g "LB4 the Handoff section names the Approved line" '- Approved, not started:'
+g "LB5 a hold or blocker never lapses by itself" 'A hold or a blocker never lapses by itself'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
