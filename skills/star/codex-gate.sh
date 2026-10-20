@@ -59,7 +59,8 @@
 # never gate-down.
 # A finding is a bullet (-, *, +, 1. or 1)) that starts with its tag, [P0] to [P3], bold or
 # not. Only a [P0] or [P1] finding makes it NOT-SAFE. A capacity, overload or rate-limit failure
-# is retried after 60 and 180 seconds; a usage-limit failure is not retried (#64). After those
+# is retried after 60 and 180 seconds; a usage-limit failure (the phrases usage limit, hit your usage
+# limit, try again at, out of credits and credit balance, matched without case) is not retried (#64). After those
 # tries, at once on a usage limit, or when the model does not resolve, the same prompt runs
 # through star.json's gate.fallback, {"agent": "claude", "model": "opus", "effort": "xhigh"} by
 # default (a string there, v2.0.0's codex fallback, means that default; "agent" must be claude):
@@ -145,7 +146,7 @@ FINDINGS_HEADER = re.compile(r"^\s*review comments?:\s*$", re.I)
 # The shape of a finding with its tag dropped: a bullet at the margin that ends with its place,
 # "<path>:<line>[-<line>]", set off by a hyphen, an en dash or an em dash, or put in parentheses
 PLACED = re.compile(r"^" + BULLET + r"\s+(?!(?:\*\*)?\[P[0-3]\]).*\S\s+(?:[-–—]\s+|\()\S.*:\d+(?:-\d+)?\)?\s*$")
-USAGE = re.compile(r"usage limit|hit your usage limit|try again at", re.I)
+USAGE = re.compile(r"usage limit|hit your usage limit|try again at|out of credits|credit balance", re.I)
 DEFAULT_FALLBACK = {"agent": "claude", "model": "opus", "effort": "xhigh"}
 SUBCOMMANDS = ("diff", "show", "log")
 # #100: the other read-only commands a review reaches for, and diff, show and log with the pager off. Never
