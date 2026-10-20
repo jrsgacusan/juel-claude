@@ -219,7 +219,8 @@ printf '2026-10-08T05:00:00Z\tweb\tQ1\tsent after the last summary\n' > "$U/sent
 out=$(HU 2026-10-08T09:40:00Z summary --if-due)
 [ -z "$out" ] && grep -q '^### 2026-10-08T09:40:00Z' "$U/handoff.md" && pass "summary --if-due, due with a change, writes a block" || fail "if-due writes ($out)"
 HU 2026-10-08T05:00:00Z end >/dev/null
-HU 2026-10-08T06:00:00Z summary --if-due >/dev/null 2>&1; [ $? -eq 1 ] && pass "summary --if-due while not away exits as summary does" || fail "if-due while not away"
+out=$(HU 2026-10-08T06:00:00Z summary --if-due 2>&1); rc=$?
+[ "$out" = not-away ] && [ "$rc" -eq 0 ] && pass "summary --if-due while not away prints not-away and exits 0, as due does" || fail "if-due while not away ('$out', $rc)"
 # a newest block written before the Approved line existed
 O="$TMP/o"; mkdir -p "$O"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$O/"
 STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$O" start >/dev/null
