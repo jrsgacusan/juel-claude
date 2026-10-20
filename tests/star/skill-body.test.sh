@@ -972,7 +972,7 @@ g "LB5 a hold or blocker never lapses by itself" 'A hold or a blocker never laps
 # audit lane a: person steps
 g "AP1 check suffix" '(check: `<command>`)'
 g "AP2 queue check line" 'check: <command>'
-g "AP3 person-check call" "sh S/person-check.sh '<command>'"
+g "AP3 person-check call" "sh S/person-check.sh <<'CHECK'"
 g "AP4 checked record" ' (checked)'
 g "AP5 failed check record" '→ done, but the check failed: <command>'
 g "AP6 asked again title" '(the check still fails: <command>)'
@@ -1009,6 +1009,12 @@ has "F4 one rule for a shared person step" 'A shared `person` step: every `perso
 has "F4 a re-added item keeps the also lines" 'the new item keeps the `also:` lines'
 has "F4 the queued exception is checked per brief" 'is checked for each brief the answer covered'
 has "F4 the done row points at the rule" 'A shared step follows the rule above the table.'
+
+# audit fix 6 and 9: the guard's limits are stated, and a check goes through a quoted heredoc
+g "F6 the guard is not a sandbox" 'as a guard against mistakes, not a sandbox: this'
+g "F6 brew list example" '(check: `brew list jq`)'
+! grep -qF 'person-check.sh` refuses those' "$SKILL" && pass "F6 no overclaim" || fail "F6 no overclaim"
+! grep -qF "sh S/person-check.sh '<command>'" "$SKILL" && pass "F9 no quoted-argument form" || fail "F9 no quoted-argument form"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
