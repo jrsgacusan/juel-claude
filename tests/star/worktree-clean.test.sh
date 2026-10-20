@@ -230,5 +230,16 @@ none" ] && [ -f "$RV/GN-r1.log.gz" ] && pass "a folder that is already gone stil
 row GB building "$TMP/no-such-folder"; echo x > "$RV/GB-r1.log"
 WC GB >/dev/null; [ -f "$RV/GB-r1.log" ] && [ ! -e "$RV/GB-r1.log.gz" ] && pass "a building row's transcripts are untouched" || fail "building row gzipped"
 
+# audit lane D: a later evidence root replacing a file never leaves the dedupe map pointing at the new content
+# (the folder is read in no fixed order, so twelve copies of A make sure some come after the replaced a.txt)
+XR=$(wt XR); git -C "$XR" push -q origin feat/XR; row XR done "$XR"
+mkdir -p "$XR/docs/superpowers/evidence/run" "$XR/docs/.superpowers/evidence/run"
+echo AAA > "$XR/docs/superpowers/evidence/run/a.txt"
+echo BBB > "$XR/docs/.superpowers/evidence/run/a.txt"; echo AAA > "$XR/docs/.superpowers/evidence/run/c.txt"
+for n in 1 2 3 4 5 6 7 8 9 10 11; do echo AAA > "$XR/docs/.superpowers/evidence/run/d$n.txt"; done
+WC XR >/dev/null
+bad=0; for f in c d1 d2 d3 d4 d5 d6 d7 d8 d9 d10 d11; do [ "$(cat "$H/evidence/XR/run/$f.txt")" = AAA ] || bad=$((bad + 1)); done
+[ "$(cat "$H/evidence/XR/run/a.txt")" = BBB ] && [ "$bad" -eq 0 ] && pass "an identical file is never hardlinked to a path a later root replaced" || fail "dedupe after overwrite (a=$(cat "$H/evidence/XR/run/a.txt" 2>&1), $bad copies of A hold other content)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

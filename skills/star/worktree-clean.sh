@@ -32,7 +32,8 @@
 #   and folders ending .app .mlmodelc .xcarchive;
 #   files ending .o .dmg .pkg .ipa .pack .idx .a .so .dylib .gguf .safetensors .onnx .pt .bin .parquet .npz;
 #   audio files (.wav .flac .aif .aiff .caf .mp3 .m4a .ogg) over 10 MB (10 * 1024 * 1024 bytes).
-# The copy alone also hardlinks a file whose sha256 equals one already copied for the item, and, for
+# The copy alone also hardlinks a file whose sha256 equals one already copied for the item (never to a path a later
+# evidence root has since replaced), and, for
 # evidence folders that share a name but for a -v<N> suffix, keeps only the text files (.md .txt .json
 # .log .csv) of the older runs when the newest holds a report.md (with none, every run is copied whole).
 # --evidence-report and --evidence-prune apply the skip classes alone. Each skipped path is a line
@@ -322,9 +323,12 @@ def copy_checked(pairs, ignore=None):
     def copy_file(a, b):
         if ignore:
             digest = sha256_of(a)
-            first = seen.get(digest)
             if os.path.lexists(b):
                 os.remove(b)  # never write through a link an earlier attempt made
+            # b is written anew below: no earlier copy may stand for what it held before
+            for d in [d for d, v in seen.items() if v == b]:
+                del seen[d]
+            first = seen.get(digest)
             if first and os.path.exists(first):
                 try:
                     os.link(first, b)
