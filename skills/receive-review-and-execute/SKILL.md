@@ -97,7 +97,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | open PR + number | context | HARD | `gh pr view <N> --json number` | STOP → this skill consumes an existing PR |
 | GitHub remote | context | HARD | `git remote get-url <remote>` matches github.com | STOP → non-GitHub remotes are unsupported here |
 | superpowers | skill | HARD | ships as a plugin dependency | STOP |
-| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
+| claude-plan-executor | skill | HARD | `sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>` printing `ok` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link fails it) (a link into an older version's copy fails it; a newer one passes) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Step 4) |
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
 | python3 | cli | SOFT | `command -v python3` | an interactive run does not need it; an unattended run prints STOPPED |
 | orca | cli | SOFT | `command -v orca` | an interactive run does not need it |
@@ -426,10 +426,11 @@ Resolve the model and effort first: `sh <executor-model.sh> --model <--executor-
 one line.
 
 **The executor skill.** Right before the line, check that the skill is current:
-`cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
-(`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
-copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
-is gone, and for a link into another version's copy, which would run an older executor.
+`sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>`,
+which must print `ok` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file).
+It compares the linked copy with this plugin's own (a link into an older version's copy fails it; a newer one passes),
+so it fails for a missing link, for a link into a plugin version that
+is gone, and for a link into an older version's copy, which would run an older executor.
 Failing under `--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs`
 and check again. Still failing: do not dispatch. Run the plan in this session with
 `superpowers:executing-plans`, and end your output with the line
@@ -481,6 +482,12 @@ fallback model (`latest-sol`, resolved the same way); then run the plan in this 
 `superpowers:executing-plans`. Say each step in one line. Each of them resumes from the plan's
 ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
 checked before it is edited, since the stop may have left it half applied.
+
+**Out of usage.** When codex exits non-zero and its last lines say `usage limit`, `hit your usage
+limit`, `try again at`, `out of credits` or `credit balance` (any case), the account is out of
+usage. The retry and the fallback model use the same account, so skip both: run the plan in this
+session with `superpowers:executing-plans`, resuming from the plan's ledger. One progress line,
+never a `NOTE`.
 
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for

@@ -134,7 +134,7 @@ End-to-end orchestration that replaces the manual sequence `/juel:start` → `/j
 | pr-review-toolkit | skill | SOFT | ships as a plugin dependency | phase 5 falls back to `/review` |
 | run | skill | SOFT | built-in | phase 6 executes the resolved `commands.run` directly and observes |
 | juel:verify | skill | SOFT | ships with this plugin | phase 6 asks the user to drive the browser themselves and confirm each affected item, recording which items were not verified by Claude directly |
-| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link, or a link into another version's copy, fails it) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
+| claude-plan-executor | skill | HARD | `sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>` printing `ok` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file) (a missing or broken link fails it) (a link into an older version's copy fails it; a newer one passes) | STOP → `node scripts/link-agent-skills.mjs`; under `--unattended` not a STOP: relink once, then the plan runs in this session if it is still missing (Phase 4) |
 | juel:babysit-pr | skill | HARD | ships with this plugin | STOP |
 | codex | cli | SOFT | `command -v codex` | phase 4 executes the plan in-session |
 | gh | cli | SOFT | `command -v gh` | phase 7 prints a compare URL instead of opening the PR, and phase 8 is skipped |
@@ -537,7 +537,7 @@ silently: after the preflight block, print
 Nothing else stops an unattended run, and nothing on this list is ever worked around:
 
 1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
-2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity
+2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity or a usage limit
    (capacity retries, then the fallback model, then this session runs the plan; see Phase 4), or
    a task fails on a planned file git ignores, whoever ran the plan (Phase 4, "A planned file git
    ignores"), or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks").
@@ -887,11 +887,12 @@ not survive between Bash calls: write the sha and the `$BEFORE` path in literall
 commands.
 
 **The executor skill.** Right before the line, check that the skill is current:
-`cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`
-(`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file). It compares the linked
-copy with this plugin's own, so it fails for a missing link, for a link into a plugin version that
+`sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>`,
+which must print `ok` (`<plugin root>` is `${CLAUDE_PLUGIN_ROOT}`, or two levels above this file).
+It compares the linked copy with this plugin's own (a link into an older version's copy fails it; a newer one passes),
+so it fails for a missing link, for a link into a plugin version that
 is gone (a plugin update removes its old cache folder), even in the middle of a run, and for a
-link into another version's copy, which would run an older executor. `CODEX_HOME` is the
+link into an older version's copy, which would run an older executor. `CODEX_HOME` is the
 Codex home this shell's `codex exec` reads, so the check and the relink look where the executor
 will. Failing under
 `--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check
@@ -922,6 +923,12 @@ from the plan's ledger (above), so the same line continues at the first task not
 never write a resume prompt by hand. Each step is one
 line to the user (under `--unattended`, a progress line and a terminal line, never a `NOTE`). Any
 other non-zero exit is the `codex-failed` escalation under `--unattended`.
+
+**Out of usage.** When codex exits non-zero and its last lines say `usage limit`, `hit your usage
+limit`, `try again at`, `out of credits` or `credit balance` (any case), the account is out of
+usage. The retry and the fallback model use the same account, so skip both: run the plan in this
+session with `superpowers:executing-plans`, resuming from the plan's ledger. One progress line,
+never a `NOTE`.
 
 **A fix-round plan.** A plan whose header has a `**Base:**` line changes a spec that is already
 implemented: the executor applies its tasks and never stops because the spec is done. When this
