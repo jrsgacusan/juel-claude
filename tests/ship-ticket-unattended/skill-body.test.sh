@@ -273,11 +273,11 @@ g "L113c then the same round runs again, not as an ERROR retry" 'the same round 
 g "L113d it casts no maxRounds vote" 'it casts no vote toward `gate.maxRounds`.'
 g "L113e any other ERROR still waits 10 minutes" 'Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more'
 g "L113f review-unavailable never counts a base-moved round" 'An `ERROR base-moved` never counts: the gate loop'"'"'s step 6 merges the base and runs the round again.'
-g "L118a the executor check compares the link with this plugin's copy" 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md'
+g "L118a the executor check runs executor-check.sh" 'sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>'
 g "L118b right before each dispatch it checks that the skill is current" 'Right before the line, check that the skill is current:'
-g "L118c a link into another version's copy fails it" 'link into another version'"'"'s copy, which would run an older executor.'
+g "L118c a link into an older version's copy fails it, a newer one passes" '(a link into an older version'"'"'s copy fails it; a newer one passes)'
 grep -qF 'test -f "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md"' "$SKILL" && fail "L118d no test -f check of the executor is left" || pass "L118d no test -f check of the executor is left"
-g "L118e the Preflight row runs the same check" '| claude-plan-executor | skill | HARD | `cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md" <plugin root>/assets/codex-skills/claude-plan-executor/SKILL.md`'
+g "L118e the Preflight row runs the same check" '| claude-plan-executor | skill | HARD | `sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>` printing `ok`'
 g "L118f a failing check under --unattended relinks once" '`--unattended`: relink once with `node <plugin root>/scripts/link-agent-skills.mjs` and check'
 # #122: the build never pings the hosted reviewer; the ready mark starts its run
 g "L122a the build never pings or comments to the hosted reviewer (#122)" 'The build never pings or comments to the hosted reviewer on the PR at any point (no'
@@ -348,5 +348,7 @@ has "TL160i tooling=all when every blocking finding is in tooling" 'when that ro
 # lane b: #157 quiet hours are gone
 ! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh|quiet window' "$SKILL" && pass "Q157g ship-ticket has no quiet hours" || fail "Q157g quiet hours still in ship-ticket"
 g "Q157h a resumed build on a ready PR posts its PASS at once" 'A resumed build on a ready PR posts its PASS comment at once.'
+
+# audit lane e: #164 a usage limit is not a codex-failed escalation
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
