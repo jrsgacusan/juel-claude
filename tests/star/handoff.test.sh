@@ -231,5 +231,16 @@ PY3
 STAR_NOW=2026-10-07T14:30:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$O" summary --if-due >/dev/null
 [ "$(grep -c '^### 2026-' "$O/handoff.md")" = 2 ] && grep -q 'Approved, not started: none' "$O/handoff.md" && pass "a newest block without the Approved line is not equal: the next due summary is written" || fail "old-format block"
 
+# audit lane A2: a blockedBy line may carry a trailing comment
+W="$TMP/w"; mkdir -p "$W/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$W/"
+Qs="$Q"; Q="$W"; qrow Q1 queued
+brief Q1 'blockedBy: []   # each with a decision record: - <date> blocked by <item>: <reason>
+approved: 2026-10-07T10:00:00Z
+grant: /g/1.md'
+Q="$Qs"
+STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$W" start >/dev/null
+STAR_NOW=2026-10-07T23:00:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$W" summary >/dev/null
+grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 13 h)' "$W/handoff.md" && pass "a blockedBy line with a comment waits for a build slot" || fail "blockedBy comment: $(grep Approved "$W/handoff.md")"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

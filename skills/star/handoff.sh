@@ -180,7 +180,8 @@ def approved_line(home, rows, t_now):
             continue
         if not re.match(r"[^ #]", f.get("grant", "")):
             continue
-        blockers = [b.strip() for b in f.get("blockedBy", "").strip("[]").split(",") if b.strip()]
+        blocked_by = re.sub(r"\s+#.*$", "", f.get("blockedBy", "")).strip()  # a trailing comment is not a blocker
+        blockers = [b.strip() for b in blocked_by.strip("[]").split(",") if b.strip()]
         waiting = [b for b in blockers if state.get(b) not in ("done", "dropped")]
         nb = f.get("notBefore", "")
         t_nb = parse(nb)
