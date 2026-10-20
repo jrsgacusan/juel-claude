@@ -725,6 +725,12 @@ reset; plan "1 - Your credit balance is too low"; cplan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "credit balance goes to Claude at once" || fail "balance ($out)"
 
+# audit lane C: usage-limit words count only in codex's last lines, not in quoted diff content
+{ printf '+ the credit balance is shown here\n'; i=1; while [ "$i" -le 30 ]; do printf 'reviewing line %s\n' "$i"; i=$((i + 1)); done; } > "$TMP/fix/quoted-usage.txt"
+reset; plan "1 quoted-usage error: 401 Unauthorized"; cplan "0 safe"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review failed: error: 401 Unauthorized" ] && [ ! -f "$TMP/claude-calls" ] && pass "a usage word in quoted diff content is a plain failure, with no fallback" || fail "quoted usage ($rc $out)"
+
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
