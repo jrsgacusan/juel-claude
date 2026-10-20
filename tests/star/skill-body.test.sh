@@ -722,7 +722,7 @@ g "LH123d the counter row names the API error (#123)" '| `capacity=<n>` | retry 
 g "LH123e looking after the workers names it (#123)" 'capacity, or a worker left at an empty prompt under an `API Error:` line (#123), is a third thing'
 g "LH123f the matching nudge, never both (#123)" 'capacity rule: below `capacity=3`, send the nudge that matches the line: for `stalled: model at capacity`'
 g "LH123g a stalled worker becomes a lost worker (#123)" '(`stalled:`): STAR nudges it to retry, three times at most, then treats it as a lost worker (the capacity rule in'
-g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
+g "LH123h the automatic restart covers an API error (#123)" '  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), any worker at a Claude usage-limit screen (`stuck: usage limit`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean'
 
 R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
 S124="PASS self-approved under the owner's grant"
@@ -959,5 +959,9 @@ has "G merge.sh PENDING no mergefail" 'so no `mergefail=` and no babysit round: 
 has "G released line in the order of effects" '`worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message'"'"'s own line'
 has "G released dispatch is a duplicate report" 'a `worker_done` from a dispatch that `processed.log` lists as `released` is a duplicate report'
 has "G processed.log layout names released" '"<dispatch> released <iso>" lines'
+# audit lane G: a worker at a Claude usage-limit screen restarts (spec 10)
+has "G usage limit takes the restart rule" '`stuck: usage limit` → the restart rule ("Checking in") with step `usage` and diagnosis `hit a Claude usage limit`'
+has "G hard rule names the usage limit" 'any worker at a Claude usage-limit screen (`stuck: usage limit`)'
+has "G mistake row for a usage-limit worker" '| Failing a worker that hit a Claude usage limit |'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

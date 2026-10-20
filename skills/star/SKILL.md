@@ -1110,6 +1110,10 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      "Claude login lost on all <n> workers at once: an account switch logged them out",
      and every held item this rule queues in that tick ends its title with
      ` (machine-wide login loss)`.
+     `stuck: usage limit` → the restart rule ("Checking in") with step `usage` and diagnosis
+     `hit a Claude usage limit`, not the stop and fail below: the worker's own Claude sits at a
+     usage-limit screen, and nothing in its worktree is in doubt. A stage restarts once on its
+     own, and one already restarted once is held; neither fails the row.
      `stuck: <what>` (any other) → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
      `--kind escalation` "<stage> worker stuck: <what>" (a prompt the probe would not answer reads
      `stuck: confirmation dialog: <its line>`, so the escalation names it). `settled failed agent_prompt_stalled` (the
@@ -1214,7 +1218,7 @@ access, no credits), it falls back to `worker` once and says so in a `fallback` 
 `task-create` and `worker-start` carry `--retry-request` ids, so a replay never makes a second task.
 Every spec is one line: Orca echoes the spec inside its JSON, and a line break there once made the
 output unreadable and left an orphan task. A worker that starts and then sits on a usage-limit
-screen is the probe's `stuck: usage limit`.
+screen is the probe's `stuck: usage limit`, which takes the restart rule (step `usage`, "Housekeeping").
 
 **The codex gate.** Not a stage and not a worker: the build worker runs it on its own draft PR
 (`juel:ship-ticket`'s gate loop), and the babysit worker runs it again after every push it makes.
@@ -2194,7 +2198,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
   automatic restart of a stage: a brief, babysit or post worker that was lost or stalled at
-  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
+  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), any worker at a Claude usage-limit screen (`stuck: usage limit`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
   worktree).
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
@@ -2231,6 +2235,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Starting `messages.sh --wait` while one is outstanding, or in the foreground | `messages.sh --waiting` first: start one only on `none`, with `run_in_background: true`, and end the turn; its notification runs the next tick |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
 | Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter. `stuck: login` is the other exception: the login rule restarts it once the login is back |
+| Failing a worker that hit a Claude usage limit | `stuck: usage limit` takes the restart rule with step `usage`: the stage restarts once, a second time it is held |
 | Failing every worker when an account switch logs them out | `stuck: login` is the login rule: check `claude auth status`, then restart the stage once |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
 | Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |
