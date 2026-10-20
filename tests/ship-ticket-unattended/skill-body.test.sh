@@ -348,5 +348,15 @@ has "TL160i tooling=all when every blocking finding is in tooling" 'when that ro
 # lane b: #157 quiet hours are gone
 ! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh|quiet window' "$SKILL" && pass "Q157g ship-ticket has no quiet hours" || fail "Q157g quiet hours still in ship-ticket"
 g "Q157h a resumed build on a ready PR posts its PASS at once" 'A resumed build on a ready PR posts its PASS comment at once.'
+# audit lane d: a SAFE round's P2 and P3 get no push, and a gate-only re-scope resumes at the gate
+has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P2]\` and \`[P3]\` findings stay in its review: no commit and no push after a SAFE round for them alone."
+
+has "D4a a gate-only record resumes at the gate" '`gate-only` line'
+has "D4b it skips Phases 2 to 7" 'skips Phases 2 to 7'
+has "D4c it starts at step 1" 'starts the codex gate loop at step 1'
+has "D4d it gets a fresh round budget" 'a fresh round budget'
+has "D4e the round numbers carry on" 'the round numbers carried on'
+has "D4f the head is the branch head" 'git rev-parse --short=7 HEAD'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

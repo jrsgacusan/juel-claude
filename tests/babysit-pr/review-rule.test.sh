@@ -73,5 +73,24 @@ mkdir -p "$TMP/nogh"; ln -s "$(command -v python3)" "$TMP/nogh/python3"
 R o/r >/dev/null 2>&1; [ $? -eq 64 ] && pass "a missing base is 64" || fail "usage base"
 R norepo main >/dev/null 2>&1; [ $? -eq 64 ] && pass "a repo without its owner is 64" || fail "usage repo"
 
+# audit lane d: strict line when the base requires up-to-date branches
+reset; printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]\n' > "$TMP/rules.json"
+[ "$(R o/r main | tr '\n' ' ')" = "none check ci strict " ] && pass "a strict ruleset prints strict after the checks" || fail "strict ruleset ($(R o/r main))"
+
+reset; printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":false,"required_status_checks":[{"context":"ci"}]}}]\n' > "$TMP/rules.json"
+R o/r main | grep -qx strict && fail "a non-strict ruleset printed strict" || pass "a non-strict ruleset prints no strict"
+
+reset; rm -f "$TMP/protection.err"
+printf '{"required_status_checks":{"strict":true,"contexts":["build"]}}\n' > "$TMP/protection.json"
+[ "$(R o/r main | tr '\n' ' ')" = "none check build strict " ] && pass "strict classic protection prints strict" || fail "strict classic ($(R o/r main))"
+
+reset; rm -f "$TMP/protection.err"
+printf '{"required_status_checks":{"strict":true,"contexts":["build"]}}\n' > "$TMP/protection.json"
+printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]\n' > "$TMP/rules.json"
+[ "$(R o/r main | grep -cx strict)" = "1" ] && pass "both strict prints strict once" || fail "both strict ($(R o/r main))"
+
+reset; printf 'HTTP 502: Bad gateway\n' > "$TMP/rules.err"
+[ "$(R o/r main | grep -c .)" = "1" ] && ! R o/r main | grep -qx strict && pass "an unknown result stays the only line" || fail "unknown only ($(R o/r main))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

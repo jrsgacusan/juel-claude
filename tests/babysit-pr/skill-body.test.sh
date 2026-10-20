@@ -365,5 +365,14 @@ tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF "when that round's \`tooling=\` eq
 ! grep -qiE 'quiet[ -]hours|quietHours|--quiet-hours|quiet-hours\.sh|quiet window' "$SKILL" && pass "Q157d babysit-pr has no quiet hours" || fail "Q157d quiet hours still in babysit-pr"
 ! grep -qF 'Nothing deferred is lost' "$SKILL" && pass "Q157e no deferred-command paragraph" || fail "Q157e deferred paragraph"
 g "Q157f away is not a reason to wait" 'nothing holds marking ready, replies, review requests or the `@greptileai` comment'
+# audit lane d: final sync
+has "D2a Phase 4 step 1 merges the base in only when" 'merges the base in only when'
+has "D2b step 1 reads review-rule.sh" 'review-rule.sh <repo> <base>'
+has "D2c step 1 names strict and unknown" 'prints `strict` or `unknown'
+has "D2d the hosted row's base merge takes the same condition" "Phase 4 step 1's condition holds"
+has "D2e the description says when the base is merged" 'merges the base branch in when the base requires it or the PR conflicts'
+has "D2f the behind paragraph says the merge gate still sends a strict base back" "STAR's merge gate still sends a strict base back"
+has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P2]\` and \`[P3]\` findings stay in its review: no commit and no push after a SAFE round for them alone."
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

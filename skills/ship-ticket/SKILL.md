@@ -424,6 +424,12 @@ still needs; Phase 4 runs only that plan; Phase 7 updates the PR the way it upda
 `PR item=<item> url=<url> existing`. Never reset the branch or rewrite its history. The new plan's
 header carries the `**Base:**` line (Phase 3), naming the branch head it starts from.
 
+When the brief's newest `## Decisions` record is a `gate-only` line
+(`- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <head7>`)
+whose head is the branch's head (`git rev-parse --short=7 HEAD`), the build skips Phases 2 to 7 and
+starts the codex gate loop at step 1 on the existing PR, with a fresh round budget and the round
+numbers carried on. A different head, or no such line: Phases 2 and 3 as above.
+
 **Settings from STAR.** Under a brief with a `star:` block, read `<star.home>/star.json` once,
 before Phase 1: its `executor` (`model`, `effort`, `fallback`) and `gate` (`model`, `effort`,
 `fallback`, `maxRounds`) blocks, and its `mcps`. A flag on the command line wins over it.
@@ -1255,7 +1261,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    criteria whose runtime code the fix touched run again, recorded in the same `report.md`. Commit,
    push (never force), read the PR's merge state as "Gate once per PR" says, write the `-fix.md`,
    then run the next round from step 1. `[P2]` and `[P3]`
-   findings never block: fix them when cheap, otherwise leave them in the review.
+   findings never block. A NOT-SAFE round's fix plan fixes them when cheap. A SAFE round's `[P2]` and `[P3]` findings stay in its review: no commit and no push after a SAFE round for them alone.
 5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
    item. The line ends with ` tooling=all` when that round's `tooling=` equals `p0 + p1` (every
