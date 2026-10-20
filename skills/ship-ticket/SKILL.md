@@ -531,7 +531,7 @@ silently: after the preflight block, print
 Nothing else stops an unattended run, and nothing on this list is ever worked around:
 
 1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
-2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity
+2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity or a usage limit
    (capacity retries, then the fallback model, then this session runs the plan; see Phase 4), or
    a task fails on a planned file git ignores, whoever ran the plan (Phase 4, "A planned file git
    ignores"), or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks").
@@ -917,6 +917,12 @@ from the plan's ledger (above), so the same line continues at the first task not
 never write a resume prompt by hand. Each step is one
 line to the user (under `--unattended`, a progress line and a terminal line, never a `NOTE`). Any
 other non-zero exit is the `codex-failed` escalation under `--unattended`.
+
+**Out of usage.** When codex exits non-zero and its last lines say `usage limit`, `hit your usage
+limit`, `try again at`, `out of credits` or `credit balance` (any case), the account is out of
+usage. The retry and the fallback model use the same account, so skip both: run the plan in this
+session with `superpowers:executing-plans`, resuming from the plan's ledger. One progress line,
+never a `NOTE`.
 
 **A fix-round plan.** A plan whose header has a `**Base:**` line changes a spec that is already
 implemented: the executor applies its tasks and never stops because the spec is done. When this

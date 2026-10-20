@@ -173,5 +173,11 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
   grep -qF 'cmp -s "${CODEX_HOME:-$HOME/.codex}/skills/claude-plan-executor/SKILL.md"' "$F" && fail "#164 $s: no cmp -s check of the executor is left" || pass "#164 $s: no cmp -s check of the executor is left"
 done
 grep -qF 'executor-check.sh' "$ROOT/skills/doctor/SKILL.md" && ! grep -qF 'cmp -s "${CODEX_HOME' "$ROOT/skills/doctor/SKILL.md" && pass "#164 doctor runs executor-check.sh" || fail "#164 doctor runs executor-check.sh"
+grep -qF 'for a reason other than capacity or a usage limit' "$ROOT/skills/ship-ticket/SKILL.md" && pass "#164 codex-failed excludes a usage limit" || fail "#164 codex-failed excludes a usage limit"
+for s in ship-ticket review-and-execute receive-review-and-execute execute; do
+  F="$ROOT/skills/$s/SKILL.md"
+  grep -qF '**Out of usage.**' "$F" && grep -qF 'out of credits' "$F" && pass "#164 $s: an out-of-usage codex runs the plan in the session" || fail "#164 $s: an out-of-usage codex runs the plan in the session"
+  tr '\n' ' ' < "$F" | tr -s ' ' | grep -qF '`usage limit`, `hit your usage limit`, `try again at`, `out of credits` or `credit balance`' && pass "#164 $s: the usage phrases are listed" || fail "#164 $s: the usage phrases are listed"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

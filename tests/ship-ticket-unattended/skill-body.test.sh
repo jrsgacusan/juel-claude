@@ -350,5 +350,7 @@ has "TL160i tooling=all when every blocking finding is in tooling" 'when that ro
 g "Q157h a resumed build on a ready PR posts its PASS at once" 'A resumed build on a ready PR posts its PASS comment at once.'
 
 # audit lane e: #164 a usage limit is not a codex-failed escalation
+has "E164a codex-failed is for a reason other than capacity or a usage limit" 'for a reason other than capacity or a usage limit'
+has "E164b an out-of-usage codex runs the plan in this session" '**Out of usage.**'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

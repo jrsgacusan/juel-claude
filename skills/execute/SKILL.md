@@ -226,6 +226,12 @@ fallback model (`latest-sol`, resolved the same way); then run the plan in this 
 ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
 checked before it is edited, since the stop may have left it half applied.
 
+**Out of usage.** When codex exits non-zero and its last lines say `usage limit`, `hit your usage
+limit`, `try again at`, `out of credits` or `credit balance` (any case), the account is out of
+usage. The retry and the fallback model use the same account, so skip both: run the plan in this
+session with `superpowers:executing-plans`, resuming from the plan's ledger. One progress line,
+never a `NOTE`.
+
 **Under Codex (rule 0 applies).** Do not run the command above — it would spawn a second Codex
 session inside this one. Instead `spawn_agent` with the plan path as the task, then `wait` for
 it. Report the same outcome the Claude path reports: exit status and files changed, never a
