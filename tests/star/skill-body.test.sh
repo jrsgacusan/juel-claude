@@ -951,5 +951,9 @@ has "RM3k batch header notes count" '· notes every worker reads: <n>'
 has "RM3l two decision lines" 'New decisions (<n>): D<n> <title>'
 g "RM3m reused line" 'Reused (<n>): D<n> <title> (<L-nnnn or item D<m>>)'
 ! grep -qF 'trim memory/<project>.md' "$SKILL" && pass "RM3n the 80-line trim rule is gone" || fail "RM3n trim rule still there"
+# audit lane G: a required check that has not reported waits two minutes (#167)
+has "G merge.sh PENDING row" '| `PENDING check <name> not reported` |'
+has "G merge.sh PENDING retry" 'put `retry=<now + 2 min>` in `verify`'
+has "G merge.sh PENDING no mergefail" 'so no `mergefail=` and no babysit round: put `retry=<now + 2 min>`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

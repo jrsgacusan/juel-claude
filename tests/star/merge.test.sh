@@ -151,5 +151,14 @@ out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE"
 reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set "$GRANTED"; prv "{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}},{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"DISMISSED\",\"submittedAt\":\"2026-10-03T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}}"
 out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 only a reviewer's latest review counts" || fail "#124 latest review ($out / $(cat "$TMP/posted" 2>/dev/null))"
 
+# audit lane G: a required check that has not reported is PENDING, not a FAIL (#167)
+reset; printf 'GraphQL: Required status check "ci" is expected. (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN
+out=$(M); rc=$?
+[ "$out" = "PENDING check ci not reported" ] && [ "$rc" -eq 0 ] && pass "G a required check not reported is PENDING, exit 0" || fail "G pending ($out, rc=$rc)"
+reset; printf 'GraphQL: Required status check "ci" is expected. (mergePullRequest)\n' > "$TMP/merge-err"; state MERGED
+out=$(M); [ "$out" = "MERGED 9e8d7c6b5a49382716051423324150617e8f9a0b" ] && pass "G the same error on a merged PR is MERGED" || fail "G pending but merged ($out)"
+reset; printf 'GraphQL: Pull request is not mergeable (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN
+out=$(M); case "$out" in "FAIL merge: "*) pass "G any other merge error is still FAIL merge" ;; *) fail "G other error ($out)" ;; esac
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -272,11 +272,29 @@ mh "the hosted reviewer's required status missing on the head is named (#59)" "P
 mh "a login without [bot] finds it too" "PENDING hosted-status Greptile Review missing on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps"
 mh "with the hosted status on the head, it passes" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$WITHG,\"comments\":[$PASSC]" "greptile-apps[bot]"
 mh "checks still running come first: ask again later" "PENDING checks: ci" "$OK,$BASE,$AUTHOR,$NOAPP,$RUNNING,\"comments\":[$PASSC]" "greptile-apps[bot]"
-mh "a bare --hosted never names it" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" ""
+mh "a bare --hosted never names it as a hosted status; the missing check is named (#167)" "PENDING check Greptile Review not reported on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" ""
 printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"build"}]}}]\n' > "$HRULES"
-mh "a missing required check that is not the hosted reviewer's stays a blocked merge state (Review Focus)" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+mh "a missing required check that is not the hosted reviewer's is named as a check (#167)" "PENDING check build not reported on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
 printf '{"x":1}\n' > "$HRULES"
 mh "rules that cannot be read never name a hosted status" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+
+# audit lane G: a required check that has not reported is named (#167)
+GR="$TMP/g-rules.json"
+BUILDONLY='"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"}],"mergeStateStatus":"BLOCKED"'
+BOTH='"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"ci","state":"SUCCESS"}],"mergeStateStatus":"CLEAN"'
+mr() { # mr <name> <expected> <json body> <--hosted value or nothing>
+  printf '{%s}\n' "$3" > "$TMP/pr.json"
+  out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" STUB_RULES="$GR" sh "$SCRIPT" 5 --head abc1234 --merge-gate --hosted $4)
+  if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi
+}
+printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"build"}]}}]\n' > "$GR"
+mr "G a required check with no entry on the head is named" "PENDING check ci not reported on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$BUILDONLY,\"comments\":[$PASSC]" ""
+printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"build"},{"context":"Greptile Review"}]}}]\n' > "$GR"
+mr "G the hosted status line still wins" "PENDING hosted-status Greptile Review missing on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$BUILDONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+printf '{"x":1}\n' > "$GR"
+mr "G unreadable rules add no check line" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$BUILDONLY,\"comments\":[$PASSC]" ""
+printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"build"}]}}]\n' > "$GR"
+mr "G every required check reported: the gate goes on" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$BOTH,\"comments\":[$PASSC]" "greptile-apps[bot]"
 
 # #124: ownerApproval in STAR's star.json lets the owner's own PR merge where no rule asks for an approval
 OWN="$TMP/own"; OTHER="$TMP/other"; OFF="$TMP/off"; ABSENT="$TMP/absent"; mkdir -p "$OWN" "$OTHER" "$OFF" "$ABSENT"

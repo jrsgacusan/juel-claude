@@ -37,6 +37,9 @@
 # other rule or no matching grant is "PENDING approval: …".
 # The review threads are never guessed: a gh call that exits non-zero, or an answer whose threads
 # are not a list, is "PENDING gh: review threads unreadable", not "no findings".
+# --merge-gate also prints "PENDING check <context> not reported on <head7>" when the base branch's
+# review-rule.sh lists a required check the head has no entry for (#167); the hosted reviewer's
+# "PENDING hosted-status ..." line comes first. Unreadable rules add no such line.
 # --hosted says the project has a hosted reviewer (Greptile): it stands in for that
 # approval, and its review text is never read here: the babysit worker judges it from guidelines
 # and reports READY only on a head it judged clean. Logins are compared without a "[bot]" suffix.
@@ -396,6 +399,13 @@ def main():
         missing = hosted_missing(d, checks)
         if missing:
             out(f"PENDING hosted-status {missing} missing on {head[:7]}")
+    if a.merge_gate:
+        lines = rule_lines(d)
+        if not lines[0].startswith("unknown"):
+            reported = {c.get("name") or c.get("context") for c in checks}
+            absent = next((l[len("check "):] for l in lines[1:] if l.startswith("check ") and l[len("check "):] not in reported), None)
+            if absent:
+                out(f"PENDING check {absent} not reported on {head[:7]}")
     if d.get("mergeable") != "MERGEABLE":
         out("PENDING mergeable")
     merge_state = str(d.get("mergeStateStatus") or "").upper()

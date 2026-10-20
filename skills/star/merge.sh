@@ -4,6 +4,10 @@
 # Prints one line and exits 0:
 #   MERGED <merge commit sha>
 #   DRY-RUN <method> <sha>   with --dry-run: everything checked, nothing posted or merged
+#   PENDING check <name> not reported
+#                            GitHub refused the merge because the required check <name> has not
+#                            reported on the head, and the PR is not merged: nothing is wrong, ask
+#                            again later (#167)
 #   FAIL <what>              live worker <dispatch>, ledger: …, grant: …, merge methods: …,
 #                            comment: …, head moved, or merge: …
 # With --home and --item (STAR passes both), before anything else it reads the item's ledger row
@@ -21,7 +25,7 @@
 # by another writer remains. Anything unreadable leaves the sentence off and the merge goes ahead.
 # After the merge call, whatever it said, it reads the PR's state once. MERGED when GitHub says
 # merged, even if the call errored (gh can fail after the merge went through). A call that errored
-# on a PR that is not merged is the FAIL it names. A call that worked, followed by a state that
+# on a PR that is not merged is the FAIL it names, or PENDING when GitHub waits for a required check. A call that worked, followed by a state that
 # cannot be read, prints nothing and exits 69: the merge may or may not have happened, and the
 # next run of the merge gate says which.
 # Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, or missing
@@ -224,6 +228,9 @@ state = str(s.get("state") or "").upper()
 if state == "MERGED":
     out("MERGED " + ((s.get("mergeCommit") or {}).get("oid") or "unknown"))
 if mg.returncode != 0:
+    pending = re.search(r'Required status check "([^"]+)" is expected', (mg.stderr or "") + (mg.stdout or ""))
+    if pending and state:
+        out(f"PENDING check {pending.group(1)} not reported")
     if re.search(r"head (branch|commit|ref)|match-head-commit|was modified", (mg.stderr or "") + (mg.stdout or ""), re.I):
         out("FAIL head moved")
     out("FAIL merge: " + first(mg))
