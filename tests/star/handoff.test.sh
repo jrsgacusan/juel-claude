@@ -100,8 +100,8 @@ p = sys.argv[1]; s = open(p).read().replace("## Summaries\n", "## Summaries\n\n#
 open(p, "w").write(s)
 PY2
 [ "$(HN 2026-10-08T06:00:00Z due)" = due ] && pass "a note dated in the future does not stop the summaries" || fail "future-dated note stopped summaries"
-for m in 01 02 03 04 05 06 07 08 09 10; do HN "2026-10-08T06:$m:00Z" summary >/dev/null 2>&1 & done; wait
-[ "$(grep -c '^### 2026-10-08T06:' "$N/handoff.md")" = 10 ] && pass "ten summaries at once all land" || fail "concurrent summaries lost ($(grep -c '^### 2026-10-08T06:' "$N/handoff.md") of 10)"
+for m in 01 02 03 04 05 06 07 08 09 10; do HN "2026-10-08T06:$m:00Z" summary --if-due >/dev/null 2>&1 & done; wait
+[ "$(grep -c '^### 2026-10-08T06:' "$N/handoff.md")" = 1 ] && pass "ten summary --if-due calls at once on a due, unchanged state leave exactly one new block" || fail "concurrent --if-due summaries ($(grep -c '^### 2026-10-08T06:' "$N/handoff.md") blocks, want 1)"
 HN 2026-10-08T07:00:00Z end >/dev/null
 out=$(HN 2026-10-08T07:05:00Z end 2>&1)
 [ "$out" = "not away" ] && [ "$(grep -c '^back: ' "$N/handoff.md")" = 1 ] && pass "back while not away says so and stamps nothing" || fail "second end ($out)"
@@ -157,6 +157,79 @@ STAR_NOW=2026-10-07T17:01:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$R" summary >/d
 sed -n '/^### 2026-10-07T17:01:00Z/,/^### /p' "$R/handoff.md" | grep -q 'workers running: 2' && pass "babysitting and posting count as running workers" || fail "running workers miss babysitting/posting"
 
 grep -q 'everything keeps running' "$H/handoff.md" && grep -q 'merges under your go' "$H/handoff.md" && ! grep -q 'Nothing is merged' "$H/handoff.md" && pass "the handoff says the loop runs while you are away" || fail "away text"
+
+# audit lane b: approved work that has not started, and a summary only when something changed
+Q="$TMP/q"; mkdir -p "$Q/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$Q/"
+qrow() { printf '| %s | %s | web | /w/%s | %s | - | 1 | t | d | 0 | %s | abc1234 | - | - | - | %s |\n' "$1" "$1" "$1" "$2" "-" "${3:-2026-10-07T12:00:00Z}" >> "$Q/ledger.md"; }
+brief() { printf -- '---\nitem: %s\n%s\n---\n# brief\n' "$1" "$2" > "$Q/briefs/web/$1.md"; }
+HQ() { STAR_NOW="$1" STAR_MEM_GB="${MEM:-5}" sh "$SCRIPT" --home "$Q" "$2" ${3:-} ${4:-}; }
+qrow Q1 queued; qrow B1 building
+brief Q1 'blockedBy: [B1]
+approved: 2026-10-07T10:00:00Z
+grant: /g/1.md'
+HQ 2026-10-07T09:00:00Z start >/dev/null
+HQ 2026-10-07T13:00:00Z summary >/dev/null
+sq() { sed -n "/^### $1/,/^### /p" "$Q/handoff.md"; }
+sq 2026-10-07T13:00:00Z | grep -qxF -- '- Approved, not started: Q1 (waits on B1, 3 h)' && pass "approved line: waits on its blocker" || fail "approved blocker line: $(sq 2026-10-07T13:00:00Z | grep Approved)"
+sed -i.bak 's/| B1 | \(.*\)| building |/| B1 | \1| done |/' "$Q/ledger.md"; rm -f "$Q/ledger.md.bak"
+brief Q1 'blockedBy: [B1]
+notBefore: 2026-10-09T00:00:00+08:00
+approved: 2026-10-07T10:00:00Z
+grant: /g/1.md'
+HQ 2026-10-07T17:30:00Z summary >/dev/null
+sq 2026-10-07T17:30:00Z | grep -qxF -- '- Approved, not started: Q1 (waits until 2026-10-09, 7 h)' && pass "approved line: waits until notBefore" || fail "approved notBefore line: $(sq 2026-10-07T17:30:00Z | grep Approved)"
+brief Q1 'approved: 2026-10-07T10:00:00Z
+grant: /g/1.md'
+HQ 2026-10-07T22:00:00Z summary >/dev/null
+sq 2026-10-07T22:00:00Z | grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 12 h)' && pass "approved line: waits for a build slot" || fail "approved slot line"
+V="$TMP/v"; mkdir -p "$V/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$V/"
+Qs="$Q"; Q="$V"; qrow Q1 queued; brief Q1 'approved: 2026-10-07T10:00:00Z
+grant: /g/1.md'; Q="$Qs"
+STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$V" start >/dev/null
+STAR_NOW=2026-10-09T13:00:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$V" summary >/dev/null
+grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 2 d)' "$V/handoff.md" && pass "approved line: age in days from 48 h" || fail "approved age: $(grep Approved "$V/handoff.md")"
+brief Q1 'approved:'
+qrow Q2 brief-ready; brief Q2 'grant: /g/2.md'
+HQ 2026-10-10T13:00:00Z summary >/dev/null
+sq 2026-10-10T13:00:00Z | grep -qxF -- '- Approved, not started: none' && pass "approved line: no grant and brief-ready rows are not listed" || fail "approved none: $(sq 2026-10-10T13:00:00Z | grep Approved)"
+qrow Q3 queued; qrow Q4 queued
+brief Q1 'approved: 2026-10-10T12:00:00Z
+grant: /g/1.md'; brief Q3 'approved: 2026-10-10T11:00:00Z
+grant: /g/3.md'; rm -f "$Q/briefs/web/Q4.md"
+HQ 2026-10-10T18:00:00Z summary >/dev/null
+sq 2026-10-10T18:00:00Z | grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 6 h); Q3 (waits for a build slot, 7 h); Q4 (brief unreadable)' && pass "approved line: several rows in ledger order, an unreadable brief named" || fail "approved several: $(sq 2026-10-10T18:00:00Z | grep Approved)"
+
+# unchanged: host memory and ages do not count; a merge does
+U="$TMP/u"; mkdir -p "$U/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$U/"
+Q="$U"; qrow Q1 queued; brief Q1 'approved: 2026-10-07T10:00:00Z
+grant: /g/1.md'
+HU() { STAR_NOW="$1" STAR_MEM_GB="${MEM:-5}" sh "$SCRIPT" --home "$U" "$2" ${3:-} ${4:-}; }
+HU 2026-10-07T09:00:00Z start >/dev/null
+HU 2026-10-07T13:00:00Z summary >/dev/null
+out=$(MEM=9 HU 2026-10-07T17:00:00Z summary)
+[ "$out" = unchanged ] && [ "$(grep -c '^### 2026-' "$U/handoff.md")" = 1 ] && pass "summary: a different host reading and a later age are not a change" || fail "unchanged ($out)"
+qrow M1 done 2026-10-07T15:00:00Z
+out=$(HU 2026-10-07T21:00:00Z summary)
+[ -z "$out" ] && [ "$(grep -c '^### 2026-' "$U/handoff.md")" = 2 ] && pass "summary: a merge between two summaries is written" || fail "merge summary ($out)"
+[ "$(HU 2026-10-07T21:30:00Z summary --if-due)" = not-due ] && pass "summary --if-due right after a summary prints not-due" || fail "if-due not-due"
+HU 2026-10-08T01:30:00Z summary --if-due >/dev/null
+out=$(HU 2026-10-08T05:40:00Z summary --if-due)
+[ "$out" = unchanged ] && [ "$(grep -c '^### 2026-' "$U/handoff.md")" = 3 ] && pass "summary --if-due, due and nothing changed, prints unchanged" || fail "if-due unchanged ($out)"
+printf '2026-10-08T05:00:00Z\tweb\tQ1\tsent after the last summary\n' > "$U/sent.log"
+out=$(HU 2026-10-08T09:40:00Z summary --if-due)
+[ -z "$out" ] && grep -q '^### 2026-10-08T09:40:00Z' "$U/handoff.md" && pass "summary --if-due, due with a change, writes a block" || fail "if-due writes ($out)"
+HU 2026-10-08T05:00:00Z end >/dev/null
+HU 2026-10-08T06:00:00Z summary --if-due >/dev/null 2>&1; [ $? -eq 1 ] && pass "summary --if-due while not away exits as summary does" || fail "if-due while not away"
+# a newest block written before the Approved line existed
+O="$TMP/o"; mkdir -p "$O"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$O/"
+STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$O" start >/dev/null
+python3 - "$O/handoff.md" <<'PY3'
+import sys
+p = sys.argv[1]; s = open(p).read().replace("## Summaries\n", "## Summaries\n\n### 2026-10-07T10:00:00Z\n- Items: none open\n- PRs waiting to merge: none\n- Merged since the last summary: none\n- Stopped, waiting for your answer: none\n- Sent since the last summary: nothing\n- Host: 5 GB free + inactive; workers running: 0\n- Needs you: nothing\n", 1)
+open(p, "w").write(s)
+PY3
+STAR_NOW=2026-10-07T14:30:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$O" summary --if-due >/dev/null
+[ "$(grep -c '^### 2026-' "$O/handoff.md")" = 2 ] && grep -q 'Approved, not started: none' "$O/handoff.md" && pass "a newest block without the Approved line is not equal: the next due summary is written" || fail "old-format block"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
