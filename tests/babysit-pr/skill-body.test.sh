@@ -374,5 +374,7 @@ has "D2e the description says when the base is merged" 'merges the base branch i
 has "D2f the behind paragraph says the merge gate still sends a strict base back" "STAR's merge gate still sends a strict base back"
 has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P2]\` and \`[P3]\` findings stay in its review: no commit and no push after a SAFE round for them alone."
 
+# audit integration: a merge another rule orders is never skipped by the final sync's condition
+grep -qF 'That condition is for the final sync alone: a' "$SKILL" && grep -qF 'the base moved") always fetches and merges the base as below.' "$SKILL" && pass "I1 a base-moved or conflict merge always merges" || fail "I1 a base-moved or conflict merge always merges"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

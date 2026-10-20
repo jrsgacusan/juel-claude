@@ -349,7 +349,9 @@ In reviewer mode, this phase is the re-review in "Reviewer mode"; the steps belo
 
 1. Phase 4 merges the base in only when the last snapshot's `merge` is `dirty` or `behind`, or
    `review-rule.sh <repo> <base>` (next to this file) prints `strict` or `unknown …`; otherwise it
-   goes on as step 2's "Already up to date" path. `<base>` is the snapshot's `base` from the last `pr-state.sh` output, not the one resolved in
+   goes on as step 2's "Already up to date" path. That condition is for the final sync alone: a
+   merge another rule orders (a `conflict` wake, an `ERROR base-moved` round, STAR's "Sync after
+   the base moved") always fetches and merges the base as below. `<base>` is the snapshot's `base` from the last `pr-state.sh` output, not the one resolved in
    Phase 1: someone may have retargeted the PR. `git fetch <remote> <base>` then `git merge --no-edit <remote>/<base>`.
    Note `git rev-parse HEAD` before the merge. Conflicts: first run `sh <merge-union.sh>`
    (next to this file; `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/merge-union.sh` when that is set).
