@@ -219,7 +219,8 @@ printf '2026-10-08T05:00:00Z\tweb\tQ1\tsent after the last summary\n' > "$U/sent
 out=$(HU 2026-10-08T09:40:00Z summary --if-due)
 [ -z "$out" ] && grep -q '^### 2026-10-08T09:40:00Z' "$U/handoff.md" && pass "summary --if-due, due with a change, writes a block" || fail "if-due writes ($out)"
 HU 2026-10-08T05:00:00Z end >/dev/null
-HU 2026-10-08T06:00:00Z summary --if-due >/dev/null 2>&1; [ $? -eq 1 ] && pass "summary --if-due while not away exits as summary does" || fail "if-due while not away"
+out=$(HU 2026-10-08T06:00:00Z summary --if-due 2>&1); rc=$?
+[ "$out" = not-away ] && [ "$rc" -eq 0 ] && pass "summary --if-due while not away prints not-away and exits 0, as due does" || fail "if-due while not away ('$out', $rc)"
 # a newest block written before the Approved line existed
 O="$TMP/o"; mkdir -p "$O"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$O/"
 STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$O" start >/dev/null
@@ -230,6 +231,17 @@ open(p, "w").write(s)
 PY3
 STAR_NOW=2026-10-07T14:30:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$O" summary --if-due >/dev/null
 [ "$(grep -c '^### 2026-' "$O/handoff.md")" = 2 ] && grep -q 'Approved, not started: none' "$O/handoff.md" && pass "a newest block without the Approved line is not equal: the next due summary is written" || fail "old-format block"
+
+# audit lane A2: a blockedBy line may carry a trailing comment
+W="$TMP/w"; mkdir -p "$W/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$W/"
+Qs="$Q"; Q="$W"; qrow Q1 queued
+brief Q1 'blockedBy: []   # each with a decision record: - <date> blocked by <item>: <reason>
+approved: 2026-10-07T10:00:00Z
+grant: /g/1.md'
+Q="$Qs"
+STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$W" start >/dev/null
+STAR_NOW=2026-10-07T23:00:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$W" summary >/dev/null
+grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 13 h)' "$W/handoff.md" && pass "a blockedBy line with a comment waits for a build slot" || fail "blockedBy comment: $(grep Approved "$W/handoff.md")"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

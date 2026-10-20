@@ -286,5 +286,16 @@ LP set-answer "$pa" 'done' >/dev/null
 pw=$(LP add --kind person --project P --item W --title "Install BlackHole 2ch" --body 'brief: /b/W.md\nstep: 3\nkind: screen')
 [ "$pw" = "$pa" ] && grep -qxF 'also: W /b/W.md #3 screen' "$PP" && LP answers | grep -q "^$pa	person	P	X	done$" && pass "an answer typed on the item is kept when another item's step joins" || fail "answered item ($pw)"
 
+# audit lane A2: a person item replayed with its also: lines is not a duplicate
+mkdir -p "$TMP/ra"; RA="$TMP/ra/open-loops.md"; cp "$ROOT/skills/star/template/open-loops.md" "$RA"
+LR() { sh "$SCRIPT" --file "$RA" "$@"; }
+BODY='brief: /b/X.md\nstep: 2\nkind: screen\nalso: Y /b/Y.md #4 screen\nOptions: done / can'"'"'t now'
+ra=$(LR add --kind person --project R --item X --title "Pair the headset" --body 'brief: /b/X.md\nstep: 2\nkind: screen\nOptions: done / can'"'"'t now')
+LR add --kind person --project R --item Y --title "Pair the headset" --body 'brief: /b/Y.md\nstep: 4\nkind: screen' >/dev/null
+LR close "$ra" >/dev/null
+rb=$(LR add --kind person --project R --item X --title "Pair the headset" --body "$BODY")
+rc2=$(LR add --kind person --project R --item X --title "Pair the headset" --body "$BODY")
+[ "$rb" != "$ra" ] && [ "$rc2" = "$rb" ] && [ "$(grep -c '^### N-' "$RA")" = 1 ] && grep -qxF 'also: Y /b/Y.md #4 screen' "$RA" && pass "a replay carrying also lines returns the same id and keeps the line" || fail "also replay ($ra $rb $rc2)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

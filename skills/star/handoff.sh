@@ -7,7 +7,7 @@
 #                                        add a dated summary at the top of handoff.md, unless nothing changed
 #                                        since the newest one (prints "unchanged"); --if-due also needs the
 #                                        due test (default 4 hours) to pass, under one lock hold, and prints
-#                                        not-due | unchanged, else what summary prints (nothing)
+#                                        not-away | not-due | unchanged, else what summary prints (nothing)
 #   handoff.sh [--home <dir>] latest     print the newest summary
 #   handoff.sh [--home <dir>] end        clear away, stamp the file, print the newest summary
 # Each summary has a line "- Approved, not started: <item> (<reason>, <age>)[; ...]" or "... none": the
@@ -180,7 +180,8 @@ def approved_line(home, rows, t_now):
             continue
         if not re.match(r"[^ #]", f.get("grant", "")):
             continue
-        blockers = [b.strip() for b in f.get("blockedBy", "").strip("[]").split(",") if b.strip()]
+        blocked_by = re.sub(r"\s+#.*$", "", f.get("blockedBy", "")).strip()  # a trailing comment is not a blocker
+        blockers = [b.strip() for b in blocked_by.strip("[]").split(",") if b.strip()]
         waiting = [b for b in blockers if state.get(b) not in ("done", "dropped")]
         nb = f.get("notBefore", "")
         t_nb = parse(nb)
@@ -308,6 +309,9 @@ if a.cmd == "due":
 elif a.cmd == "latest":
     print("\n".join(lines[blocks[0][0]:blocks[0][1]]).rstrip() if blocks else "No summaries yet.")
 elif a.cmd == "summary":
+    if not away and a.if_due:
+        print("not-away")
+        sys.exit(0)
     if not away:
         die(1, "not away: run 'handoff.sh start' first")
     if a.if_due and not (t_last is None or (t_now and t_now - t_last >= timedelta(hours=a.hours))):
