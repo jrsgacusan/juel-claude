@@ -119,5 +119,39 @@ grep -q '^- Evidence: .* GB)$' "$out20" && fail "a small evidence folder got a s
 rm -f "$out20"; out20c=$(JUEL_EVIDENCE_GB_LIMIT=0 PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged20.json" sh "$SCRIPT" --home "$H" --project lstn --item ev --pr 20)
 grep -qx -- "- Evidence: $H/evidence/ev/ (0.0 GB)" "$out20c" && pass "evidence over the limit ends with its size" || fail "size suffix ($(grep Evidence "$out20c"))"
 
+# audit lane f: evidence size leaves out the skip classes
+mkdir -p "$TMP/wt3/docs/superpowers/evidence/run/tmp" "$TMP/wt3/docs/superpowers/evidence/run/b.app"
+EV3="$TMP/wt3/docs/superpowers/evidence/run"
+echo r > "$EV3/report.md"; head -c 2000 /dev/zero > "$EV3/app.dmg"; head -c 2000 /dev/zero > "$EV3/m.gguf"
+head -c 2000 /dev/zero > "$EV3/tmp/x"; head -c 2000 /dev/zero > "$EV3/b.app/y"
+python3 -c "f=open('$EV3/take.wav','wb'); f.truncate(12*1024*1024)"; head -c 100 /dev/zero > "$EV3/beep.wav"
+printf '| sz | sz | lstn | %s | ready | - | 1 | t | d | 0 | https://github.com/o/lstn/pull/23 | abc1234 | - | - | - | now |\n' "$TMP/wt3" >> "$H/ledger.md"
+sed -e 's/"number":12/"number":23/' -e 's#pull/12#pull/23#' "$TMP/merged.json" > "$TMP/merged23.json"
+# what counts is report.md (2 bytes) and beep.wav (100 bytes)
+lim=$(python3 -c "print(50/1024**3)")
+o=$(JUEL_EVIDENCE_GB_LIMIT=$lim PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged23.json" sh "$SCRIPT" --home "$H" --project lstn --item sz --pr 23)
+grep -q '^- Evidence: .* GB)$' "$o" && pass "a limit under the proof bytes adds a size note" || fail "size note ($(grep Evidence "$o"))"
+rm -f "$o"
+lim=$(python3 -c "print(500/1024**3)")
+o=$(JUEL_EVIDENCE_GB_LIMIT=$lim PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged23.json" sh "$SCRIPT" --home "$H" --project lstn --item sz --pr 23)
+grep -q '^- Evidence: .* GB)$' "$o" && fail "skipped classes were counted ($(grep Evidence "$o"))" || pass "packages, models, temp, bundles and large audio are left out of the size count"
+
+# audit lane f: #165 gh runs as the account star.json configures
+mkdir -p "$TMP/tokbin"
+cat > "$TMP/tokbin/gh" <<'GHEOF'
+#!/bin/sh
+printf '%s\n' "${GH_TOKEN:-none}" >> "$STUB_SEEN"
+case "${GH_TOKEN:-}" in tok-star|already) cat "$STUB_JSON" ;; *) echo "GraphQL: Could not resolve to a Repository" >&2; exit 1 ;; esac
+GHEOF
+chmod +x "$TMP/tokbin/gh"; ln -s "$(command -v python3)" "$TMP/tokbin/python3"
+printf '{"tokenCmd":"echo tok-star"}\n' > "$H/star.json"
+sed -e 's/"number":12/"number":24/' -e 's#pull/12#pull/24#' "$TMP/merged.json" > "$TMP/merged24.json"
+rc=0; o=$(env -u GH_TOKEN PATH="$TMP/tokbin:/usr/bin:/bin" STUB_SEEN="$TMP/seen" STUB_JSON="$TMP/merged24.json" sh "$SCRIPT" --home "$H" --project lstn --item tk --pr 24 2>&1) || rc=$?
+[ "$rc" -eq 0 ] && [ -f "$o" ] && [ "$(cat "$TMP/seen")" = tok-star ] && pass "#165 with no GH_TOKEN the record is written under star.json's account" || fail "#165 token (rc=$rc: $o; $(cat "$TMP/seen" 2>/dev/null))"
+rm -f "$TMP/seen" "$o"
+o=$(GH_TOKEN=already PATH="$TMP/tokbin:/usr/bin:/bin" STUB_SEEN="$TMP/seen" STUB_JSON="$TMP/merged24.json" sh "$SCRIPT" --home "$H" --project lstn --item tk --pr 24 2>&1)
+[ "$(cat "$TMP/seen")" = already ] && pass "#165 a GH_TOKEN already set is kept" || fail "#165 existing token ($(cat "$TMP/seen" 2>/dev/null))"
+rm -f "$H/star.json"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
