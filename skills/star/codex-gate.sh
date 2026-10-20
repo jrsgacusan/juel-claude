@@ -31,6 +31,10 @@
 # base in and runs the same round again. A base that moved only in files the branch does not change
 # is reviewed as it is.
 # The prompt is template/gate-prompt.md, kept as <home>/specs/<project>/<item>-gate-r<k>.md.
+# Its {{since}} line, from round 2, reads the head= of <item>-r<k-1>.md's VERDICT line: an earlier
+# commit of HEAD makes the round review the commits since and check the previous findings, HEAD itself
+# makes it judge the previous findings against their dispositions, and anything else (round 1, no
+# previous review, an unknown head, a rewritten history) is "Review the whole change.".
 # --evidence names the folder of the live checks' evidence (ship-ticket's Phase 6): the prompt
 # points the reviewer at its report.md and says a criterion with no change in the diff behind it
 # is judged on that evidence (#63); a folder that does not exist is a usage error. From round 2,
@@ -598,6 +602,39 @@ except ValueError:
     LIMIT = 3600.0
 
 
+def since_text():
+    """{{since}}: what the previous round reviewed, from the head= of its VERDICT line. Any doubt is a whole review."""
+    whole = "Review the whole change."
+    if k < 2:
+        return whole
+    try:
+        first = open(os.path.join(reviews, f"{item}-r{k - 1}.md"), encoding="utf-8").readline()
+    except OSError:
+        return whole
+    m = re.search(r"\bhead=([0-9a-f]{7,40})\b", first)
+    if not m:
+        return whole
+    r = run(["git", "rev-parse", "--verify", "--quiet", m.group(1) + "^{commit}"], 30)
+    prev = r.stdout.strip().lower() if r.returncode == 0 else ""
+    cur = head()
+    if not prev or not cur:
+        return whole
+    if prev == cur:
+        return (f"Round {k - 1} reviewed this same head. Judge each of its [P0] and [P1] findings against the "
+                f"disposition in its -fix.md, or the brief's newest ## Decisions records when there is no -fix.md. "
+                f"A defect round {k - 1} did not raise is [P2] at most, marked \"(earlier code)\". "
+                "A [P0] anywhere still blocks.")
+    if run(["git", "merge-base", "--is-ancestor", prev, cur], 30).returncode != 0:
+        return whole
+    return (f"Round {k - 1} reviewed {prev[:7]}. The commits since: git log --oneline {prev}..HEAD; their change: "
+            f"git diff {prev}..HEAD. A merge among them brings the base's own changes: grade only the files "
+            f"git diff {base_sha}...HEAD --name-only lists. Check each [P0] and [P1] finding of round {k - 1}: "
+            "fixed, or a disposition in its -fix.md you accept. Raise a new [P1] only in code these commits "
+            "changed, or for a defect they cause elsewhere. A defect in code round "
+            f"{k - 1} already reviewed and these commits did not change is [P2] at most, marked \"(earlier code)\". "
+            "A [P0] anywhere still blocks.")
+
+
 def prompt_text():
     template = open(os.path.join(S, "template", "gate-prompt.md"), encoding="utf-8").read()
     if k >= 2:
@@ -625,7 +662,7 @@ def prompt_text():
                     "deliverable's runtime code imports is not tooling: grade it in full."
                     if tooling_prefixes else "No path is tooling: grade every file in full.")
     values = {"item": item, "round": str(k), "base": base_sha, "brief": brief, "notes": ", ".join(notes) or "none",
-              "previous": previous, "pending": pending_text, "evidence": evidence,
+              "previous": previous, "since": since_text(), "pending": pending_text, "evidence": evidence,
               "tooling": tooling_text}
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), template)
 
