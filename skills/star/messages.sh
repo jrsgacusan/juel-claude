@@ -5,7 +5,8 @@
 #   messages.sh [--home H] --waiting
 # Runs `orca orchestration check [--ack D] [--wait] --types worker_done,escalation,question
 # [--timeout-ms N] --json`. Keeps worker_done, escalation and question messages. Drops heartbeats
-# (Orca returns them whatever --types says), "Rejected heartbeat" notices, every other type, and
+# (Orca returns them whatever --types says), keepalive frames (JSON lines with _keepalive or
+# _heartbeat true; a wait that saw only those is a timed-out wait), "Rejected heartbeat" notices, every other type, and
 # any message whose id is already in <home>/processed.log. A batch with nothing left is
 # acknowledged here and the wait goes on for the rest of the timeout, so STAR is never woken for
 # nothing; after 50 such rounds it gives up with "none".
@@ -197,6 +198,19 @@ def stale_waiters():
     return ",".join(p for p in found if p.isdigit() and int(p) != os.getpid()) or "-"
 
 
+def drop_keepalives(text):
+    kept = []
+    for line in (text or "").splitlines():
+        try:
+            frame = json.loads(line, strict=False)
+        except ValueError:
+            frame = None
+        if isinstance(frame, dict) and (frame.get("_keepalive") is True or frame.get("_heartbeat") is True):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def check(ack_id, wait_ms):
     global child
     cmd = [orca, "orchestration", "check"]
@@ -228,6 +242,10 @@ def check(ack_id, wait_ms):
                 child.communicate()
                 out("unknown " + ("orphaned: the session that started this wait is gone" if orphaned else "TimeoutExpired"))
     returncode, child = child.returncode, None
+    kept = drop_keepalives(stdout)
+    if stdout.strip() and not kept.strip():
+        return {}
+    stdout = kept
     try:
         data = json.loads(stdout, strict=False)
     except ValueError:

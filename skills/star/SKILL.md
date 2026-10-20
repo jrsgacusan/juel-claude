@@ -331,7 +331,7 @@ open-loops.md.seq       the highest queue id ever used (so an id is never handed
 handoff.md              the summaries written while the user is away (handoff.sh)
 sent.log                <iso>\t<project>\t<item>\t<what was sent>: every message a worker or STAR posted
 ledger.md               one row per item
-processed.log           <message id> <dispatch> <iso time>
+processed.log           <message id> <dispatch> <iso time>, plus "<dispatch> stopped <iso>" and "<dispatch> released <iso>" lines
 messages-wait           while a background message wait runs: "<pid> <iso start>" (messages.sh writes and removes it; --waiting reads it)
 inbox/                  one file per hand-over; deleted once ingested
 chat/                   the dashboard's chat thread: one file per message, never rewritten (<UTC>-me-<4 hex>.md the owner's, <UTC>-star-<4 hex>.md STAR's replies, written only by chat.sh)
@@ -710,16 +710,16 @@ item. Item names can repeat, so a name alone never selects a row. A message chan
 row, and is queued as `--kind held` with its first line, when its dispatch is in no row (or it
 carries no dispatch id: `--project - --item <the dispatch id, or unmatched>`), when its
 row is `done` or `dropped`, or when the row has moved on to a newer dispatch (a superseded attempt:
-a report from a worker that a restart replaced). Two exceptions change nothing and queue
-nothing: a message already applied (its id is the row's `last=`), and the `worker_done` of
+a report from a worker that a restart replaced). Three exceptions change nothing and queue
+nothing: a message already applied (its id is the row's `last=`), the `worker_done` of
 a dispatch STAR stopped itself (a drop, an early merge, a closed PR): write it to `processed.log`
-and move on.
+and move on, and a `worker_done` from a dispatch that `processed.log` lists as `released` is a duplicate report: write it to `processed.log`, ack, nothing else. That holds across deliveries and after a restart, when STAR no longer remembers releasing it.
 
 **One message, one order of effects:** queue items first (`loops.sh add` returns the open item's
 id when it is already there, so a replayed message adds nothing), then the `NOTE` and `SENT`
 appends (each line carries the time the message was sent, not the time of the append, so a
 replay writes the identical line: skip a line the file already has), then the row with its
-`last=`, then, for a settled `worker_done`, `worker-release`, then `processed.log`, then the ack
+`last=`, then, for a settled `worker_done`, `worker-release`, then `<dispatch> released <iso>` appended to `processed.log`, then the message's own line in `processed.log`, then the ack
 (releasing a worker that is already released is harmless, so it always comes before the line
 that ends the message). A question STAR answers itself follows the same order: the `## Decisions`
 line (skip it when the brief already has that line), the `reply`, then the row with
@@ -1110,6 +1110,10 @@ starts ("Fill slots"), so two sessions never work in one worktree.
      "Claude login lost on all <n> workers at once: an account switch logged them out",
      and every held item this rule queues in that tick ends its title with
      ` (machine-wide login loss)`.
+     `stuck: usage limit` → the restart rule ("Checking in") with step `usage` and diagnosis
+     `hit a Claude usage limit`, not the stop and fail below: the worker's own Claude sits at a
+     usage-limit screen, and nothing in its worktree is in doubt. A stage restarts once on its
+     own, and one already restarted once is held; neither fails the row.
      `stuck: <what>` (any other) → `orca orchestration worker-stop`, then `worker-release` and the gone check, row → `failed`, queue
      `--kind escalation` "<stage> worker stuck: <what>" (a prompt the probe would not answer reads
      `stuck: confirmation dialog: <its line>`, so the escalation names it). `settled failed agent_prompt_stalled` (the
@@ -1216,7 +1220,7 @@ access, no credits), it falls back to `worker` once and says so in a `fallback` 
 `task-create` and `worker-start` carry `--retry-request` ids, so a replay never makes a second task.
 Every spec is one line: Orca echoes the spec inside its JSON, and a line break there once made the
 output unreadable and left an orphan task. A worker that starts and then sits on a usage-limit
-screen is the probe's `stuck: usage limit`.
+screen is the probe's `stuck: usage limit`, which takes the restart rule (step `usage`, "Housekeeping").
 
 **The codex gate.** Not a stage and not a worker: the build worker runs it on its own draft PR
 (`juel:ship-ticket`'s gate loop), and the babysit worker runs it again after every push it makes.
@@ -1660,6 +1664,7 @@ When `merge.sh` prints `MERGED`, run the merge gate at once, in the same tick, f
 | `FAIL head moved` | as the verdict `MOVED` |
 | `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push to the PR (#80): fence it ("A merge on a PR a worker is still working on", below), then run the gate again |
 | `FAIL ledger: <why>` | `merge.sh` found no ledger row for the item it was given: nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
+| `PENDING check <name> not reported` | GitHub refused the merge because a required check has not reported on the head: nothing on the PR is wrong, so no `mergefail=` and no babysit round: put `retry=<now + 2 min>` in `verify`; the gate and `merge.sh` run again after that |
 | `FAIL grant: …`, `FAIL merge methods: …` or `FAIL comment: …` | nothing on the PR is wrong, so no `mergefail=` and no babysit round: queue `--kind held` "merge.sh could not merge PR #<n>: <the line>" and put `retry=<now + 10 min>` in `verify`; the gate and `merge.sh` run again after that |
 | `FAIL merge: …` | as the Otherwise branch of a merge-gate `FAIL <what>` (the `mergefail=` budget) |
 | exit 64 | `merge.sh` refused its arguments (a head that is not 40 hex characters, a URL that is not a PR, or missing arguments): queue `--kind held` "merge.sh refused its arguments for PR #<n>" and file an improvement issue; the row stays as it is |
@@ -2195,7 +2200,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
   can overrule.
 - A `failed` or `escalated` row is never re-run without the user's answer, except the single
   automatic restart of a stage: a brief, babysit or post worker that was lost or stalled at
-  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
+  capacity or on an API error (`stalled:`), any worker that lost its Claude login (`stuck: login`, #156), any worker at a Claude usage-limit screen (`stuck: usage limit`), or any worker `step-check.sh` found stuck ("Checking in"; a build only with a clean
   worktree).
 - Workers are started only through `orca orchestration worker-start`, and only by "Fill slots".
 - One STAR per home, one worker per row, one row per worktree.
@@ -2232,6 +2237,7 @@ away changes nothing: `handoff.sh start` keeps the file and its summaries and sa
 | Starting `messages.sh --wait` while one is outstanding, or in the foreground | `messages.sh --waiting` first: start one only on `none`, with `run_in_background: true`, and end the turn; its notification runs the next tick |
 | Batching ledger writes to the end of a tick | Write after every message, before `processed.log` and the ack |
 | Answering a worker's TUI prompt | `worker-probe.sh` says stuck → stop it, fail the row, queue it. The one exception is `prompt bounded` (#114): the digit `1`, never Enter. `stuck: login` is the other exception: the login rule restarts it once the login is back |
+| Failing a worker that hit a Claude usage limit | `stuck: usage limit` takes the restart rule with step `usage`: the stage restarts once, a second time it is held |
 | Failing every worker when an account switch logs them out | `stuck: login` is the login rule: check `claude auth status`, then restart the stage once |
 | Restarting a worker because a probe came back empty or `unknown` | Only `gone` means lost. `unknown` three ticks in a row goes to the user |
 | Sending a stuck worker the same "where are you" again and again | `step-check.sh` names the step and the instruction; two ignored instructions restart the stage once |
