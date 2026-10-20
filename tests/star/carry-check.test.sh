@@ -150,5 +150,19 @@ g checkout -q ren; g merge -q --no-edit origin/main; MR=$(g rev-parse HEAD)
 out=$(C --from "$GR1" --head "$MR" --base origin/main); rc=$?
 [ "$rc" -eq 1 ] && [ "$out" = "$(NO7 "$MR" new.txt)" ] && pass "lane C: a renamed path with an append on the other side is refused" || fail "lane C rename ($rc $out)"
 
+# audit lane C: a hand resolution carries only when it keeps every line both sides added
+g checkout -q main; printf 'a\nb\n' > "$R/hand1.txt"; printf 'a\nb\n' > "$R/hand2.txt"; g add hand1.txt hand2.txt; g commit -qm "hand files"; g update-ref refs/remotes/origin/main main
+g checkout -q -b handres main; printf 'a\nb\nX\n' > "$R/hand1.txt"; printf 'a\nb\nX1\nX2\n' > "$R/hand2.txt"; g commit -qam "feat hand"; GH=$(g rev-parse HEAD)
+g checkout -q main; printf 'a\nb\nY\n' > "$R/hand1.txt"; printf 'a\nb\nY\n' > "$R/hand2.txt"; g commit -qam "main hand"; g update-ref refs/remotes/origin/main main
+g checkout -q handres; g merge -q --no-edit origin/main >/dev/null 2>&1
+printf 'a\nb\nZ\nY\n' > "$R/hand1.txt"; printf 'a\nb\nY\nX1\nX2\n' > "$R/hand2.txt"; g add hand1.txt hand2.txt; g commit -qm "Merge origin/main"; MH=$(g rev-parse HEAD)
+t "audit lane C: a resolution that replaces the branch's line is refused" "$(NO7 "$MH" hand1.txt)" "$(C --from "$GH" --head "$MH" --base origin/main)"
+g checkout -q -b handord "$GH"; g merge -q --no-edit origin/main >/dev/null 2>&1
+printf 'a\nb\nX\nY\n' > "$R/hand1.txt"; printf 'a\nb\nX2\nX1\nY\n' > "$R/hand2.txt"; g add hand1.txt hand2.txt; g commit -qm "Merge origin/main"; MHO=$(g rev-parse HEAD)
+t "audit lane C: a resolution that reorders the branch's appended lines is refused" "$(NO7 "$MHO" hand2.txt)" "$(C --from "$GH" --head "$MHO" --base origin/main)"
+g checkout -q -b handok "$GH"; g merge -q --no-edit origin/main >/dev/null 2>&1
+printf 'a\nb\nX\nY\n' > "$R/hand1.txt"; printf 'a\nb\nX1\nX2\nY\n' > "$R/hand2.txt"; g add hand1.txt hand2.txt; g commit -qm "Merge origin/main"; MHK=$(g rev-parse HEAD)
+t "audit lane C: a resolution that keeps every added line carries" "OK carried from $GH: the merge brings no change to a file this branch changes, except lines both sides only added (hand1.txt, hand2.txt)" "$(C --from "$GH" --head "$MHK" --base origin/main)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

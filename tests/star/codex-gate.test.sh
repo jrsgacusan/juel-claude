@@ -706,8 +706,9 @@ grep -qF 'Review the whole change.' "$SP" && pass "since: an unknown head review
 reset; plan "0 safe"
 G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
 grep -qF 'Review the whole change.' "$SP" && pass "since: no previous review reviews the whole change" || fail "since none"
-# a merge of the base between the previous head and HEAD is an ordinary ancestor case
-gc checkout -q main; printf 'm\n' > g; gc add g; gc commit -qm basework; gc checkout -q feat/item-1; gc merge -q --no-edit main
+# a merge of the base between the previous head and HEAD keeps the since text
+gc checkout -q main; printf 'm\n' > "$APP/basework.txt"; gc add basework.txt; gc commit -qm basework; gc checkout -q feat/item-1; gc merge -q --no-ff --no-edit main
+[ -n "$(gc rev-list --merges "$HEAD..HEAD")" ] && pass "since: the base merge commit exists between the previous head and HEAD" || fail "since merge commit missing"
 reset; mkdir -p "$H/reviews/app"; vline "$HEAD"; plan "0 safe"
 G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
 grep -qF "git log --oneline $HEAD..HEAD" "$SP" && grep -qF -- '--name-only' "$SP" && pass "since: a base merge among the commits keeps the since text" || fail "since merge ($(cat "$SP"))"
@@ -723,6 +724,12 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 reset; plan "1 - Your credit balance is too low"; cplan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "credit balance goes to Claude at once" || fail "balance ($out)"
+
+# audit lane C: usage-limit words count only in codex's last lines, not in quoted diff content
+{ printf '+ the credit balance is shown here\n'; i=1; while [ "$i" -le 30 ]; do printf 'reviewing line %s\n' "$i"; i=$((i + 1)); done; } > "$TMP/fix/quoted-usage.txt"
+reset; plan "1 quoted-usage error: 401 Unauthorized"; cplan "0 safe"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review failed: error: 401 Unauthorized" ] && [ ! -f "$TMP/claude-calls" ] && pass "a usage word in quoted diff content is a plain failure, with no fallback" || fail "quoted usage ($rc $out)"
 
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

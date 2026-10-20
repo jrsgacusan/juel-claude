@@ -160,5 +160,15 @@ out=$(M); [ "$out" = "MERGED 9e8d7c6b5a49382716051423324150617e8f9a0b" ] && pass
 reset; printf 'GraphQL: Pull request is not mergeable (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN
 out=$(M); case "$out" in "FAIL merge: "*) pass "G any other merge error is still FAIL merge" ;; *) fail "G other error ($out)" ;; esac
 
+# audit lane D: any missing-required-check refusal is PENDING, even when the state cannot be read
+reset; printf 'GraphQL: 2 of 3 required status checks are expected. (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN
+out=$(M); rc=$?
+[ "$out" = "PENDING check required checks not reported" ] && [ "$rc" -eq 0 ] && pass "D '2 of 3 required status checks are expected' is PENDING with no name" || fail "D plural ($out, rc=$rc)"
+reset; printf 'GraphQL: Required status check "ci/build" is expected, 2 of 3 required status checks are expected.\n' > "$TMP/merge-err"; state OPEN
+out=$(M); [ "$out" = "PENDING check ci/build not reported" ] && pass "D the first quoted name is used" || fail "D named ($out)"
+reset; printf 'GraphQL: Required status check "ci" is expected. (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN; touch "$TMP/state-fail"
+out=$(M); rc=$?
+[ "$out" = "PENDING check ci not reported" ] && [ "$rc" -eq 0 ] && pass "D a missing-check refusal whose state cannot be read is PENDING" || fail "D unreadable ($out, rc=$rc)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

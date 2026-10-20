@@ -60,7 +60,7 @@
 # A finding is a bullet (-, *, +, 1. or 1)) that starts with its tag, [P0] to [P3], bold or
 # not. Only a [P0] or [P1] finding makes it NOT-SAFE. A capacity, overload or rate-limit failure
 # is retried after 60 and 180 seconds; a usage-limit failure (the phrases usage limit, hit your usage
-# limit, try again at, out of credits and credit balance, matched without case) is not retried (#64). After those
+# limit, try again at, out of credits and credit balance, matched without case, and only in the last 20 non-empty lines of codex's output) is not retried (#64). After those
 # tries, at once on a usage limit, or when the model does not resolve, the same prompt runs
 # through star.json's gate.fallback, {"agent": "claude", "model": "opus", "effort": "xhigh"} by
 # default (a string there, v2.0.0's codex fallback, means that default; "agent" must be claude):
@@ -260,6 +260,11 @@ def run(cmd, timeout=120):
 def last_line(text):
     lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
     return lines[-1][:160] if lines else ""
+
+
+def last_lines(text, n):
+    """The last n non-empty lines of a text, so words a diff quotes earlier in it are not read."""
+    return "\n".join([l for l in (text or "").splitlines() if l.strip()][-n:])
 
 
 def resolve(name, effort_):
@@ -895,7 +900,7 @@ if model is not None:
             error("empty review")
         if rc == 127:
             error("codex not found on PATH")
-        if USAGE.search(tail) or USAGE.search(text):
+        if USAGE.search(last_lines(tail, 20)) or USAGE.search(last_lines(text, 20)):
             short, why = "sol usage limit", last_line(tail or text)
             break
         if not CAPACITY.search(tail):
