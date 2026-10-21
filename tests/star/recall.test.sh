@@ -155,5 +155,9 @@ printf -- '---\napproved: 2026-10-16T00:00:00Z\n---\n## Decisions\n### D1 Rebuil
 R --kind decision rebuild | grep -q '^decision r#D1 · active · Rebuild the cache nightly · ' && pass "rebuild with --kind is a search" || fail "rebuild as a word ($(R --kind decision rebuild))"
 R --json --limit 20 rebuild | grep -q '"ref": "r#D1"' && pass "rebuild with --json is a search" || fail "rebuild json ($(R --json --limit 20 rebuild))"
 R --kind decision hosted review | grep -q ' $' && fail "a line ends with a space" || pass "no trailing space"
+printf -- '---\nstatus: merged\n---\n# app · fm · Ship PDF export\n\nMerged. The export is PDF.\n' > "$H/releases/2026-10-16-app-fm.md"
+fmout=$(R --json --kind release pdf export)
+printf '%s\n' "$fmout" | grep -q '"title": "Ship PDF export"' && printf '%s\n' "$fmout" | grep -q '"project": "app"' && printf '%s\n' "$fmout" | grep -q '"item": "fm"' && pass "a release record with frontmatter reads title, project and item from the heading" || fail "frontmatter release ($fmout)"
+R --project app --kind release pdf export | grep -q 'release' && pass "a frontmatter release is found with --project" || fail "frontmatter release with --project"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
