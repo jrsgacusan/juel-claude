@@ -5,8 +5,12 @@
 #   worker-probe.sh <dispatch> [--item <item> --home <H> [--worktree <path>] [--deadline <minutes>]]
 #     ->   ok | quiet <m> <terminal> | stale <m> <terminal> | settled <state> [<reason>]
 #          | stuck: <label>[: <line>] | prompt bounded <terminal> <path>...
-#          | stalled: model at capacity | stalled: api error | gone | unknown <why>
+#          | stalled: model at capacity | stalled: api error | gate-gone r<k> | gone | unknown <why>
 #     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39).
+# "gate-gone r<k>" (with --item and --home, for a worker that is not settled) means the newest gate
+# round's <H>/reviews/<project>/<item>-r<k>.run names a pid (and gate pid) that is not alive while
+# no verdict file <item>-r<k>.md exists: the codex gate died. It replaces step-check.sh's "restart
+# gate-r<k> gate process gone". The project is star.json's project.name, else every folder under reviews.
 # <reason> follows only a failed settlement, when Orca gives one (agent_prompt_stalled: the agent
 # never took its prompt, most often because Claude Code's trust dialog was on screen).
 # "stuck" labels: usage limit, login, trust dialog, model switch, confirmation dialog, waiting for
@@ -219,6 +223,62 @@ if worker.get("stage") == "settled" or worker.get("state") in TERMINAL:
     out("settled " + state + reason(state))
 if dispatch_record.get("status") in ("completed", "failed"):
     out("settled " + dispatch_record["status"] + reason(dispatch_record["status"]))
+
+
+def alive(pid):
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # it exists; it belongs to someone else
+    except OSError:
+        return False
+    return True
+
+
+def gate_gone():
+    """With --item and --home: "gate-gone r<k>" when the newest gate round's run file names a process
+    that is not alive and the round has no verdict file (I-9); None otherwise."""
+    if "item" not in opts:
+        return None
+    base = os.path.join(opts["home"], "reviews")
+    try:
+        name = json.load(open(os.path.join(opts["home"], "star.json"), encoding="utf-8"))["project"]["name"]
+        folders = [os.path.join(base, name)]
+    except (OSError, ValueError, KeyError, TypeError):
+        try:
+            folders = [os.path.join(base, d) for d in sorted(os.listdir(base))]
+        except OSError:
+            return None
+    runs = []
+    for folder in folders:
+        try:
+            for entry in os.listdir(folder):
+                m = re.fullmatch(re.escape(opts["item"]) + r"-r(\d+)\.run", entry)
+                if m:
+                    runs.append((int(m.group(1)), folder))
+        except OSError:
+            continue
+    if not runs:
+        return None
+    k, folder = max(runs)
+    try:
+        run = json.load(open(os.path.join(folder, f"{opts['item']}-r{k}.run"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(run, dict) or alive(run.get("pid")) or alive(run.get("gate")):
+        return None
+    if os.path.exists(os.path.join(folder, f"{opts['item']}-r{k}.md")):
+        return None
+    return f"gate-gone r{k}"
+
+
+_gone = gate_gone()
+if _gone:
+    out(_gone)
 
 
 def screen_tail(handle):
