@@ -34,13 +34,13 @@ grep -q 'gate.lock' "$SKILL" && pass "unattended gates take the lock" || fail "g
 grep -q 'fleet' "$SKILL" && fail "no fleet wording" || pass "no fleet wording"
 grep -q 'gate-lock.sh' "$SKILL" && pass "S2 babysit gates use gate-lock.sh" || fail "S2 gate-lock.sh"
 grep -q '| `--brief <path>` |' "$SKILL" && pass "S5 brief accepted" || fail "S5 --brief"
-grep -q 'add-reviewer <each reviewer' "$SKILL" && pass "S13 dismissed approval re-requested" || fail "S13 re-request"
+grep -q 'add-reviewer <each reviewer' "$SKILL" && fail "S13 unattended requests no reviewer for a dismissed approval" || pass "S13 unattended requests no reviewer for a dismissed approval"
 grep -q -- '--only <ids>' "$SKILL" && pass "S14 only this round's feedback" || fail "S14 --only"
 grep -q '`cancel`' "$SKILL" && pass "S21 cancelled checks rejected" || fail "S21 cancel bucket"
 grep -q 'empty string' "$SKILL" && pass "S20 empty decision normalized" || fail "S20 empty decision"
 grep -qF 'decide the question yourself from sources' "$SKILL" && pass "S4 an unanswered question is decided from sources" || fail "S4 unanswered question decided"
 grep -q '| `--gates-file <path>` |' "$SKILL" && pass "T11 gate manifest accepted" || fail "T11 --gates-file"
-grep -q 'whose approval is for an older commit' "$SKILL" && ! grep -q 'submitted after the last commit' "$SKILL" && pass "T8 stale approval judged by commit, re-requested" || fail "T8 stale approval"
+grep -q 'whose approval is for an older commit' "$SKILL" && fail "T8 no re-request for a stale approval" || { ! grep -q 'submitted after the last commit' "$SKILL" && pass "T8 no re-request for a stale approval" || fail "T8 stale approval"; }
 grep -q 'background, like `codex exec`' "$SKILL" && pass "T1 gates run backgrounded" || fail "T1 backgrounded gates"
 grep -q 'at most 12 lines' "$SKILL" && pass "report capped at 12 lines" || fail "12-line cap"
 ! grep -qF 'DRAFT <path>' "$SKILL" && ! grep -q 'candidate decisions' "$SKILL" && pass "an ambiguous review is decided, not drafted" || fail "an ambiguous review is decided, not drafted"
@@ -60,7 +60,7 @@ grep -q 'taken from the repo root' "$SKILL" && ! grep -q '(cd <cwd> && <cmd>)' "
 grep -q 'at least 7 characters' "$SKILL" && grep -q 'newest review file' "$SKILL" && pass "T5 the SAFE proof must be exact and current" || fail "T5 SAFE proof"
 grep -q '| `draft` |' "$SKILL" && grep -qF 'reason=out-of-tries step=pr-draft' "$SKILL" && grep -q "the snapshot's \`base\`" "$SKILL" && pass "T6 a PR made draft again or retargeted is not reported ready" || fail "T6 draft and base"
 has "T13 a PR blocked only on a required approval is READY, not an escalation" 'a PR blocked only on a required approval is reported `READY`'
-has "T13b a PR blocked on anything else for 24 h is step=gh" 'otherwise `ESCALATION item=<item> phase=8 reason=out-of-tries step=gh`'
+has "T13b a PR blocked on anything else for 24 h is step=gh" 'for 24 h: `ESCALATION item=<item> phase=8 reason=out-of-tries step=gh`'
 grep -qF 'needs=approval' "$SKILL" && fail "T13c babysit never raises an approval item" || pass "T13c babysit never raises an approval item"
 grep -q 'ask the coordinator' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
 # Final pass
@@ -126,7 +126,7 @@ grow "G66c babysit counts verdict files only" 'error logs, raw files and run fil
 grow "G66d babysit reruns the same round after an ERROR" 'run the same round once more'
 grow "G63c babysit passes the evidence folder" '--evidence <its "evidenceDir">'
 grow "G71b babysit reads only the verdict line" 'read only the last line of its output'
-grow "G64b babysit ends an ERROR gate-down as its own step" 'an `ERROR gate-down …` line that `codex-gate.sh` itself printed ends as `reason=out-of-tries step=gate-down review=<the file holding its ERROR line>`'
+grow "G64b babysit ends an ERROR gate-down as its own step" '`ERROR gate-down …` line that `codex-gate.sh` itself printed ends as `ESCALATION item=<item> phase=8 reason=out-of-tries step=gate-down review=<the file holding its ERROR line>`'
 grow "G64c any other ERROR stays review-tool" 'any other `ERROR` → `ESCALATION item=<item> phase=8 reason=out-of-tries step=review-tool'
 # Issue #69: the build marks ready; babysit marks ready only a PR the build left a draft
 g "Y69f mark-ready does nothing on a ready PR" 'A PR the build already marked ready is left as it is'
