@@ -133,9 +133,22 @@ out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "B1f a PR on another base merges"
 cfg '{"ownerBranches":[]}'
 HOSTED='{"login":"greptile-apps[bot]","minScore":4,"maxPasses":2,"refreshOutsideCap":true,"paused":false}'
 reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg "{\"hostedReviewer\":$HOSTED}"
-out=$(MW); [ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green, greptile-apps[bot] passed." ] && pass "B1h the comment names the hosted reviewer" || fail "B1h ($(cat "$TMP/posted" 2>/dev/null))"
-reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg "{\"hostedReviewer\":$(printf '%s' "$HOSTED" | sed 's/"paused":false/"paused":true/')}"
-out=$(MW); [ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green." ] && pass "B1i a paused hosted reviewer is not named" || fail "B1i ($(cat "$TMP/posted" 2>/dev/null))"
+out=$(MW --hosted 'greptile-apps[bot]'); [ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green, greptile-apps[bot] passed." ] && pass "B1h R4 --hosted <login> names the hosted reviewer" || fail "B1h ($(cat "$TMP/posted" 2>/dev/null))"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(MW); [ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green." ] && pass "B1i R4 star.json's hostedReviewer is not read: no clause without --hosted" || fail "B1i ($(cat "$TMP/posted" 2>/dev/null))"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg '{"hostedReviewer":null}'
+out=$(MW --hosted 2>/dev/null); rc=$?; [ "$rc" -eq 64 ] && [ ! -f "$TMP/calls" ] && pass "R4 --hosted without a login is 64" || fail "R4 bare --hosted ($rc, $out)"
+# R-4: a home whose star.json exists but cannot be parsed is a FAIL, never a merge
+cp "$SH/star.json" "$TMP/star.json.keep"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; printf '{not json' > "$SH/star.json"
+out=$(MW); rc=$?
+case "$out" in "FAIL settings: "*) [ "$rc" -eq 0 ] && [ ! -f "$TMP/posted" ] && ! grep -q 'pr merge' "$TMP/calls" 2>/dev/null && pass "R4 an unparsable star.json is FAIL settings, no comment, no merge" || fail "R4 side effects ($out, rc=$rc)" ;; *) fail "R4 unparsable ($out)" ;; esac
+out=$(MW --dry-run); case "$out" in "FAIL settings: "*) pass "R4 the same on a dry run" ;; *) fail "R4 dry ($out)" ;; esac
+printf '[1]\n' > "$SH/star.json"
+out=$(MW); case "$out" in "FAIL settings: "*) pass "R4 a star.json that is not an object is FAIL settings" ;; *) fail "R4 non-object ($out)" ;; esac
+rm -f "$SH/star.json"; reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "R4 a missing star.json is still no settings" || fail "R4 missing ($out)"
+cp "$TMP/star.json.keep" "$SH/star.json"
 cfg '{"hostedReviewer":null}'
 reset; cfg '{"mergeMethod":"rebase"}'
 out=$(JUEL_STAR_HOME="$SH" PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD"); grep -q -- "pr merge $PR --rebase" "$TMP/calls" && pass "B1k with no --home, JUEL_STAR_HOME names the home" || fail "B1k ($out)"

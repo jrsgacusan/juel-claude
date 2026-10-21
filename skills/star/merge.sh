@@ -1,6 +1,6 @@
 #!/bin/sh
 # STAR's merge, the only place a PR is merged: on the exact head, once the merge gate has passed.
-#   merge.sh <pr url> --head <sha> [--home <dir> --item <item>] [--dry-run]
+#   merge.sh <pr url> --head <sha> [--home <dir> --item <item>] [--hosted <login>] [--dry-run]
 # Prints one line and exits 0:
 #   MERGED <merge commit sha>
 #   DRY-RUN <method> <sha>   with --dry-run: everything checked, nothing posted or merged
@@ -12,11 +12,12 @@
 #                            error, else "required checks". It is printed even when the PR state
 #                            cannot be read afterwards, since GitHub refused the merge
 #   FAIL <what>              live worker <dispatch>, ledger: …, merge methods: …, owner branch <base>,
-#                            comment: …, head moved, or merge: …
+#                            comment: …, settings: …, head moved, or merge: …
 # There is no grant: the merge gate (pr-verify.sh --merge-gate) is what lets STAR merge.
 # The home is --home, else $JUEL_STAR_HOME, else star-home.sh path. From its star.json it reads
-# mergeMethod, ownerBranches and hostedReviewer; a missing or unreadable star.json means all three
-# are absent.
+# mergeMethod and ownerBranches; a missing star.json means both are absent. A star.json that exists
+# but cannot be parsed (or is not a JSON object) is "FAIL settings: <why>": nothing posted, nothing
+# merged, exit 0.
 # With --home and --item (STAR passes both), before anything else it reads the item's ledger row
 # (#80). A row in a worker stage (briefing, building, babysitting, posting) is
 # "FAIL live worker <dispatch>": its worker may still push to the PR. The dispatch cell alone
@@ -27,8 +28,9 @@
 # null it is the first of squash, merge and rebase the repository allows. A PR whose base branch is
 # in ownerBranches is "FAIL owner branch <base>", before any comment or merge.
 # Before merging it posts, once per head, "Merging head <sha>: codex PASS, required checks green."
-# (", <hostedReviewer.login> passed." in place of the full stop when a hosted reviewer is set and
-# not paused; sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
+# (", <login> passed." in place of the full stop only when --hosted <login> is given, which STAR
+# does exactly when it passed --hosted to the merge gate; star.json's hostedReviewer is not read
+# here; sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
 # so GitHub itself refuses when the head moved. The comment is skipped when the PR's author
 # already has one starting "Merging head <sha>:".
 # After the merge call, whatever it said, it reads the PR's state once. MERGED when GitHub says
@@ -114,10 +116,10 @@ def live_worker(home, item):
     return (row.get("dispatch") or "-") if row.get("state") in WORKER_STATES else None
 
 
-args, pr, head, dry, home, item = sys.argv[1:], None, None, False, None, None
+args, pr, head, dry, home, item, hosted = sys.argv[1:], None, None, False, None, None, None
 while args:
     arg = args.pop(0)
-    if arg in ("--head", "--home", "--item"):
+    if arg in ("--head", "--home", "--item", "--hosted"):
         if not args:
             die(f"{arg} needs a value")
         value = args.pop(0)
@@ -125,6 +127,8 @@ while args:
             head = value.strip().lower()
         elif arg == "--home":
             home = value
+        elif arg == "--hosted":
+            hosted = value.strip() or None
         else:
             item = value
     elif arg == "--dry-run":
@@ -136,7 +140,7 @@ while args:
     else:
         die(f"unexpected argument: {arg}")
 if not pr or not head:
-    die("usage: merge.sh <pr url> --head <sha> [--home <dir> --item <item>] [--dry-run]")
+    die("usage: merge.sh <pr url> --head <sha> [--home <dir> --item <item>] [--hosted <login>] [--dry-run]")
 if (home is None) != (item is None):
     die("--home and --item go together")
 if not re.fullmatch(r"[0-9a-f]{40}", head):
@@ -152,7 +156,8 @@ use_star_token(home)
 
 
 def star_config():
-    """mergeMethod, ownerBranches and hostedReviewer from the home's star.json; absent when it cannot be read."""
+    """mergeMethod and ownerBranches from the home's star.json; absent when there is no star.json,
+    "FAIL settings" when there is one that cannot be parsed."""
     cfg = home or os.environ.get("JUEL_STAR_HOME")
     if not cfg:
         script = os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "star-home.sh")
@@ -161,18 +166,21 @@ def star_config():
             cfg = (proc.stdout or "").splitlines()[0].strip() if proc.returncode == 0 else ""
         except (OSError, subprocess.TimeoutExpired, IndexError):
             cfg = ""
-    try:
-        data = json.load(open(os.path.join(cfg, "star.json"), encoding="utf-8")) if cfg else {}
-    except (OSError, ValueError):
-        data = {}
-    data = data if isinstance(data, dict) else {}
+    path = os.path.join(cfg, "star.json") if cfg else ""
+    data = {}
+    if path and os.path.exists(path):
+        try:
+            data = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            out("FAIL settings: " + (str(e).splitlines() or ["unreadable"])[0][:120])
+        if not isinstance(data, dict):
+            out("FAIL settings: star.json is not a JSON object")
     method = data.get("mergeMethod") if isinstance(data.get("mergeMethod"), str) and data.get("mergeMethod") else None
     owners = [b for b in data.get("ownerBranches") or [] if isinstance(b, str)] if isinstance(data.get("ownerBranches"), list) else []
-    hosted = data.get("hostedReviewer") if isinstance(data.get("hostedReviewer"), dict) else None
-    return method, owners, hosted
+    return method, owners
 
 
-want, owner_branches, hosted = star_config()
+want, owner_branches = star_config()
 r = run(["gh", "repo", "view", url.group(1), "--json", ",".join(k for k, _ in METHODS)], 60)
 allowed = as_json(r)
 if allowed is None:
@@ -198,8 +206,7 @@ author = (d.get("author") or {}).get("login") or ""
 prefix = f"Merging head {head}:"
 if not any(isinstance(c, dict) and (c.get("author") or {}).get("login") == author
            and str(c.get("body") or "").startswith(prefix) for c in d.get("comments") or []):
-    reviewer = hosted.get("login") if hosted and not hosted.get("paused") and isinstance(hosted.get("login"), str) and hosted.get("login") else None
-    text = f"{prefix} codex PASS, required checks green" + (f", {reviewer} passed." if reviewer else ".")
+    text = f"{prefix} codex PASS, required checks green" + (f", {hosted} passed." if hosted else ".")
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(text + "\n")
         body = f.name
