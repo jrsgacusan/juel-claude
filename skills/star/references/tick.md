@@ -80,7 +80,7 @@ not yet applied: leave the answer for the next tick.
 | Kind | Answer | Action |
 |---|---|---|
 | `person` | `done`, `yes`, `ok`, `approve`, or words that supply what was asked | append `- <date> person-only step (<kind>): <title> → <answer>` to the row's brief `## Decisions` (and to each brief named on an `also:` line), write a note (`notes.sh add --kind fact --source owner`) so the question never comes back, close the item. When the row is `needs-you` and none of its `person` items is open, it goes to the waiting state of its `stage` |
-| `person` | `can't now` or `no` | append the same line ending `→ can't now`, close the item. The row stays `needs-you`. STAR adds the item once more on the first tick 24 hours after that line |
+| `person` | `can't now` or `no` | append the same line ending `→ can't now (<N-id>)` unless the brief has it, and leave the item open with the answer on it. The row stays `needs-you`. STAR never asks it again, and skips this item's answer on later ticks |
 | `person` | words that decline the step ("I don't want to install it") | it is feedback on the brief: append `- <date> person-only step declined: <title> → <answer>` under `## Feedback`, close the item, close the row's other open `person` items, row `inbox`: the brief stage plans without the step (`--feedback`) |
 | `set-aside` | `try again` | the row goes to the waiting state of its `stage` with `tries` and `rescoped` cleared, `restarts` set to 0 |
 | `set-aside` | `drop` | stop any worker (stop, release, close check), row `dropped` |
@@ -148,7 +148,6 @@ checks both and prints `wait until <iso>` before then. A row waiting on a blocke
   head, acted on as the `DONE` row says.
 - **`gateDown`** set and its `checked` 30 minutes old: `sh S/codex-gate.sh check`. **`hostedDown`** set for 30
   minutes: set it to null; "Fill slots" starts the parked babysits.
-- **A `person` item answered `can't now` 24 hours ago**: add it again.
 - **A tracker status** that differs from `counters.tracker`: write it (`references/stages.md`).
 - **Notifications**, below. **Improvement issues**, below.
 - **Finished worktrees.** Each `done` or `dropped` row that still has a worktree gets `sh S/worktree-clean.sh

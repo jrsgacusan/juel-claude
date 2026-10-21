@@ -99,7 +99,7 @@ bad_kinds=$(grep -oE -- '--kind [a-z-]+' "$tmp/text" | sed 's/--kind //' | sort 
 [ -z "$bad_kinds" ] && pass "A10 queue kinds" || fail "A10 queue kinds: $bad_kinds"
 a11=ok
 for w in BRIEF SPLIT DONE RESCOPE REPORTED HELD READY MERGED POSTED reason=needs-person reason=out-of-tries \
-         verify regression gate ci hosted-review conflict executor stack screen worker gh pr-draft hosted-wait ci-wait review-tool gate-lock; do
+         verify regression gate ci hosted-review conflict executor stack screen worker gh pr-draft hosted-wait ci-wait review-tool gate-lock gate-down; do
   grep -qF -- "$w" "$tmp/text" || { a11="$w"; break; }
 done
 [ "$a11" = ok ] && pass "A11 report words and steps (I-5)" || fail "A11 report words: $a11"
@@ -141,6 +141,14 @@ hasT "A18 CLAUDE.md and AGENTS.md (#169)" 'CLAUDE.md'
 hasT "A18 AGENTS.md" 'AGENTS.md'
 has "A19 look before asking, note after" "Before STAR asks the owner anything, it checks its notes and the project's \`CLAUDE.md\` and \`AGENTS.md\`. After an answer, it writes a note."
 grep -qF '<!-- juel:protocol v9 -->' "$SKILL" && pass "A20 protocol block" || fail "A20 protocol block"
+hasT "A21 review-tool is infra (R-1)" '| infra | `executor`, `stack`, `screen`, `worker`, `gh`, `pr-draft`, `hosted-wait`, `ci-wait`, `review-tool` |'
+hasT "A21 gate-down is outside (R-1)" '| outside | `gate-lock`, `gate-down` |'
+hasT "A22 merge.sh gets --hosted (R-4)" 'merge.sh <pr url> --head <head> --home HOME_DIR --item <item> [--hosted <login>]'
+hasT "A22 FAIL settings (R-4)" 'FAIL settings:'
+hasT "A23 follow-up for a proven red check is STAR's, after MERGED, once per check and base (R-3)" '<check name> fails on <base branch>'
+hasT "A24 a note that did not work (R-6)" 'the note did not work'
+hasT "A25 can't now stays open (R-7)" "stays open"
+if grep -qF "STAR adds the item once more" "$tmp/text"; then fail "A25 can't now is never asked again"; else pass "A25 can't now is never asked again"; fi
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
