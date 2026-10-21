@@ -28,19 +28,21 @@
 # --merge-gate is STAR's merge gate. A receipt by another login is named when the author has no
 # receipt (#137). It also needs: a comment by the PR's author that starts
 # "Codex gate: PASS (head <the PR's head>"; a reply from the PR's author on every unresolved
-# review thread someone else opened (a hosted reviewer's included); and, without --hosted, either
-# an APPROVED review on the head by someone other than the PR's author whose authorAssociation is
-# OWNER, MEMBER or COLLABORATOR (write access) ("PASS approved"), or a base branch whose review
-# rule asks for no approval (review-rule.sh prints none or required 0): "PASS no approval
-# required". Any rule that requires approvals and no such approval is "PENDING approval: …". An
-# unreadable rule is "PENDING review rule: <why>" or "PENDING gh cannot see …".
+# review thread someone else opened (a hosted reviewer's included); and either an APPROVED review
+# on the head by someone other than the PR's author whose authorAssociation is OWNER, MEMBER or
+# COLLABORATOR (write access) ("PASS approved", "PASS hosted" with --hosted), or a base branch whose
+# review rule asks for no approval (review-rule.sh prints none or required 0): "PASS no approval
+# required" ("PASS hosted" with --hosted). Any rule that requires approvals and no such approval
+# on the head is "PENDING approval: …", with or without --hosted (R-5). An unreadable rule is
+# "PENDING review rule: <why>" or "PENDING gh cannot see …".
 # --brief <path> (valid only with --merge-gate, otherwise 64) is the item's brief. A check that
 # failed and that the base branch's rules do not require passes only on a proof line in the
 # brief's "## Decisions" section:
 #   - <date> red-check-proof check=<name> head=<40-hex sha> cause=base|infra base=<40-hex sha> url=<url>
-# for that check on this exact head, which the script confirms itself with gh: cause=base needs
-# base= to be an ancestor of the PR's base head (compare status ahead or identical) and a run of
-# that name on base= that concluded failure; cause=infra needs the head's own run of that name to
+# (a <name> with a space or = is in double quotes: check="test (ubuntu-latest)") for that check on
+# this exact head, which the script confirms itself with gh: cause=base needs base= to equal the
+# PR's current base head (baseRefOid; a base that moved needs a fresh line) and a run of that name
+# on base= that concluded failure; cause=infra needs the head's own run of that name to
 # have concluded cancelled, startup_failure, timed_out or stale. A confirmed check is set aside and
 # the PASS note ends " (proven not the PR's: <name> <cause>[, …])". A required check, a rule that
 # cannot be read, or a proof that does not hold leaves the check failed: "FAIL checks: …". A brief
@@ -50,9 +52,9 @@
 # --merge-gate also prints "PENDING check <context> not reported on <head7>" when the base branch's
 # review-rule.sh lists a required check the head has no entry for (#167); the hosted reviewer's
 # "PENDING hosted-status ..." line comes first. Unreadable rules add no such line.
-# --hosted says the project has a hosted reviewer (Greptile): it stands in for that
-# approval, and its review text is never read here: the babysit worker judges it from guidelines
-# and reports READY only on a head it judged clean. Logins are compared without a "[bot]" suffix.
+# --hosted says the project has a hosted reviewer (Greptile): its review text is never read here
+# (the babysit worker judges it from guidelines and reports READY only on a head it judged clean),
+# and it does not stand in for a required human approval (R-5). Logins are compared without a "[bot]" suffix.
 # Its PASS notes are "hosted" and "approved". --hosted <login> (star.json's hostedReviewer.login)
 # also finds the hosted reviewer's own status: a check the base branch's rules require whose
 # name holds the first word of that login (greptile-apps[bot] -> greptile, any case). When the
@@ -195,7 +197,8 @@ def proofs_of(path):
             continue
         m = re.match(r"\s*-\s+\S+\s+red-check-proof\s+(.*)$", line) if inside else None
         if m:
-            found.append(dict(re.findall(r"(\w+)=(\S+)", m.group(1))))
+            found.append({k: v[1:-1] if v.startswith('"') else v
+                          for k, v in re.findall(r'(\w+)=("[^"]*"|\S+)', m.group(1))})
     return found
 
 
@@ -229,10 +232,9 @@ def proven_cause(d, head, name, proofs):
         if cause == "infra" and run_conclusion(repo, head, name) in ("cancelled", "startup_failure", "timed_out", "stale"):
             return "infra"
         base, tip = str(proof.get("base", "")).lower(), str(d.get("baseRefOid") or "").lower()
-        if cause == "base" and re.fullmatch(r"[0-9a-f]{40}", base) and tip:
-            status = (gh_json(f"repos/{repo}/compare/{base}...{tip}") or {}).get("status")
-            if status in ("ahead", "identical") and run_conclusion(repo, base, name) == "failure":
-                return "base"
+        if cause == "base" and re.fullmatch(r"[0-9a-f]{40}", base) and base == tip \
+                and run_conclusion(repo, base, name) == "failure":
+            return "base"
     return None
 
 
@@ -395,10 +397,8 @@ def main():
         approved = any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
                        and bare((r.get("author") or {}).get("login")) != author
                        and str(r.get("authorAssociation") or "").upper() in WRITERS for r in latest.values())
-        if a.hosted:
-            note = "hosted"
-        elif approved:
-            note = "approved"
+        if approved:
+            note = "hosted" if a.hosted else "approved"
         else:
             rule = review_rule(d)
             if rule == "unknown" or rule.startswith("unknown "):
@@ -406,7 +406,7 @@ def main():
                 out("PENDING " + why if why.startswith("gh cannot see ") else "PENDING review rule: " + why)
             if rule not in ("none", "required 0"):
                 out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
-            note = "no approval required"
+            note = "hosted" if a.hosted else "no approval required"
     elif decision is None:
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))
