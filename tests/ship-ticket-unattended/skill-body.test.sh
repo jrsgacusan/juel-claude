@@ -157,7 +157,10 @@ g "G63a the gate gets the evidence folder" '--evidence <the Phase 6 evidence dir
 g "G63b the manifest names the evidence folder" '"evidenceDir": "<the evidence directory>"'
 g "G63d a resumed run reads the folder from the manifest and drops a missing one" 'leave `--evidence` out: a missing'
 g "G71a the round streams and only the verdict line is read" 'read only the last line of its output'
-g "G64a a gate-down line is quoted whole" 'quoted whole: an `ERROR gate-down'
+has "G64a an ERROR gate-down line is its own step" '`ERROR gate-down …` line that `codex-gate.sh` itself printed ends as `reason=out-of-tries step=gate-down`'
+has "G64a2 the step list names gate-down, class outside" 'reason=out-of-tries step=gate-down review=<the file holding its ERROR line>'
+has "G64a3 any other gate or post-pass ERROR stays review-tool" 'other `ERROR` from `codex-gate.sh` or `post-pass` is `step=review-tool` too'
+
 # Issue #61: a criterion accepted with a residual
 g "R61a the verdict exists" '`ACCEPTED-RESIDUAL`'
 g "R61b it needs a decision record that names a follow-up" 'accepts the residual and names a follow-up spec item'
@@ -376,7 +379,11 @@ has "AU7 a brief violation is a RESCOPE" 'RESCOPE item=<item> reason=brief revie
 has "AU8 the gate cap runs tries.perStep rounds" 'after `tries.perStep` rounds in this run'
 has "AU9 a conflict is resolved, recorded and gated" 'resolve them yourself, keeping both changes'"'"' intent'
 has "AU10 By hand a conflict that is not mechanical is still shown" 'By hand, a conflict `merge-union.sh` cannot resolve still stops the merge for the user.'
-has "AU11 red CI proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<sha> url=<url>'
+has "AU11 red CI proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<base head> url=<url>'
+has "AU11b a name with a space or = is quoted" 'check="test (ubuntu-latest)"'
+has "AU11c base is the PR base branch's current head" '`baseRefOid`'
+tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF 'file a follow-up for the failure' && fail "AU11d a worker files no follow-up for a proven red check" || pass "AU11d a worker files no follow-up for a proven red check"
+has "AU11e STAR files the follow-up, the worker writes the proof only" 'STAR files any follow-up after the merge'
 has "AU12 the fallback equal to the executor is no fallback" 'there is no fallback: skip straight to running the plan in this session'
 has "AU13 the fallback resolves through executor-model.sh" 'resolves, through `executor-model.sh`, to the same model id as the executor'
 for r in 'reason=merge-conflict' 'reason=unanswered-question' 'reason=gate-red' 'reason=no-review' 'reason=hosted-cap' 'ownerApproval' 'reason=brief-violation' 'reason=codex-failed' 'reason=needs-human-input' 'reason=verification-failed' 'reason=stack-unavailable' 'reason=gate-busy' 'reason=gate-unavailable' 'reason=screen-busy' 'reason=review-unavailable' 'reason=preflight' 'reason=no-brief'; do

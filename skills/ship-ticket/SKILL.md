@@ -584,11 +584,17 @@ with `<step>` one of:
    was stopped), or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and
    was stopped), or the dependency install failed (Phase 4's "Dependencies"); or `codex-gate.sh`
    printed `ERROR` twice, 10 minutes apart, or `post-pass` printed `ERROR` twice, a minute apart.
+   Any other `ERROR` from `codex-gate.sh` or `post-pass` is `step=review-tool` too: only an
+   `ERROR gate-down` is not (the next step).
    None of these is a red gate: do not start fixing code. The file `review=` names quotes the
    message: for a stalled gate, `stalled gate: <the stalled line>`; for a failed install,
-   `dependencies did not install: <one line>`; for a review, its `ERROR` line, whole (an
-   `ERROR gate-down …` line tells STAR the gate itself is down).
+   `dependencies did not install: <one line>`; for a review, its `ERROR` line, whole.
    An `ERROR base-moved` never counts: the gate loop's step 6 merges the base and runs the round again.
+   An `ERROR gate-down …` line that `codex-gate.sh` itself printed ends as
+   `reason=out-of-tries step=gate-down`, reported as
+   `ESCALATION item=<item> phase=<n> reason=out-of-tries step=gate-down review=<the file holding its ERROR line>`:
+   the gate itself is down, and STAR waits for it without spending a try. A stalled or timed-out
+   regression gate, a failed install and every other `ERROR` are never `gate-down`.
 8. `reason=out-of-tries step=screen`: `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries.
    The file `review=` names quotes its "busy, held by …" line.
 9. `reason=out-of-tries step=worker`: the run cannot start or go on: a preflight check fails, there is no
@@ -612,10 +618,12 @@ stops the merge for the user.
 2. If it is still red, find out whether the base branch's head fails the same check name, or
    whether the run's conclusion is `cancelled`, `startup_failure`, `timed_out` or `stale`.
 3. When either holds, write the proof line to the brief's `## Decisions`:
-   `- <date> red-check-proof check=<name> head=<head> cause=base|infra base=<sha> url=<url>`
-   (`<head>` and `<sha>` full 40-character shas; `base=` only for `cause=base`). Then file a
-   follow-up for the failure through `references/work-source.md` `create`, with the defaults the
-   brief's tracker gives, unless the brief already lists one for that check.
+   `- <date> red-check-proof check=<name> head=<head> cause=base|infra base=<base head> url=<url>`
+   (`<head>` and `<base head>` full 40-character shas. `<base head>` is the PR base branch's
+   current head, `baseRefOid` from `gh pr view <pr> --json baseRefOid`, read when the line is
+   written: a base that moved needs a fresh line. A `<name>` holding a space or `=` is written in
+   double quotes: `check="test (ubuntu-latest)"`). Write the proof line and nothing else: STAR
+   files any follow-up after the merge, once per check name per base branch.
 4. Otherwise it is the PR's fault: fix it, up to `tries.perStep` attempts, then
    `RESCOPE item=<item> reason=ci review=<path>`.
 
@@ -1335,8 +1343,10 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
    (an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move); a second `ERROR` is
    `ESCALATION item=<item> phase=7 reason=out-of-tries step=review-tool review=<the file holding its ERROR line>`, the line
-   quoted whole: an `ERROR gate-down …` line tells STAR that the gate itself is down (Sol and its
-   Claude fallback both failed), and STAR parks the item instead of handing it to the owner.
+   quoted whole. The one exception is an `ERROR gate-down …` line that `codex-gate.sh` itself
+   printed (Sol and its Claude fallback both failed): it ends as
+   `ESCALATION item=<item> phase=7 reason=out-of-tries step=gate-down review=<the file holding its ERROR line>`,
+   and STAR parks the item instead of handing it to the owner.
 
 Outside babysit's Phase 4 sync before `READY` and STAR's "Sync after the base moved", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with `ERROR base-moved`, never otherwise. An `existingPr` brief's first merge ("An existing PR") is the build's start, not a later sync.
 
