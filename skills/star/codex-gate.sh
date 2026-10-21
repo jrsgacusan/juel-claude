@@ -53,7 +53,7 @@
 # review text, then "--- ERROR <why>", move to <item>-r<k>-error-<n>.log (n counts up from 1), and
 # <item>-r<k>.raw.md, .log and .md are left absent, so the caller runs the same round again. While
 # an agent reviews, <item>-r<k>.run holds one JSON object, {"pid": the agent, "gate": this script,
-# "agent": "codex" or "claude", "model", "attempt", "started", "log"}, for step-check.sh; it is
+# "agent": "codex" or "claude", "model", "attempt", "started", "log"}, for worker-probe.sh; it is
 # removed on every exit. TERM, INT or HUP stops the agent and prints "ERROR stopped by SIG<NAME>";
 # an agent ended by a signal from outside is "ERROR <codex|claude> review stopped by signal <n>",
 # never gate-down.
@@ -849,7 +849,7 @@ def claude_review(rc, text, tail):
 
 
 def write_run(pid, agent, model_):
-    """<item>-r<k>.run says which process reviews this round, for step-check.sh (#70)."""
+    """<item>-r<k>.run says which process reviews this round, for worker-probe.sh (#70)."""
     tmp = f"{run_path}.tmp.{os.getpid()}"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"pid": pid, "gate": os.getpid(), "agent": agent, "model": model_, "attempt": ROUND["attempt"],

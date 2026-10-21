@@ -446,5 +446,26 @@ python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["  ⎿ 
 out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 2>&1)
 [ "$out" = "ok" ] && echo "ok   #123 a worker-read tail is never stalled: api error" || { echo "FAIL #123 worker-read tail ($out)"; fails=$((fails + 1)); }
 
+# D2: a gate process that died shows as "gate-gone r<k>" (I-9): the run file names a pid that is not
+# alive and no verdict file exists
+HD2="$TMP/home-d2"; mkdir -p "$HD2/reviews/p"
+printf '{"project":{"name":"p"}}\n' > "$HD2/star.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running"}}}\n' > "$TMP/show.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["working on it"]}}}))' > "$TMP/read.json"
+d2() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 --item ITEM-D2 --home "$HD2" 2>&1; }
+sleep 0 & DEAD=$!; wait "$DEAD" 2>/dev/null
+sleep 30 & LIVE=$!
+trap '{ kill "$LIVE"; wait "$LIVE"; } 2>/dev/null; rm -rf "$TMP"' EXIT
+mkdir -p "$HD2/progress"; : > "$HD2/progress/ITEM-D2.log"
+printf '{"pid":%s,"gate":%s,"started":"2026-10-07T11:00:00Z"}\n' "$DEAD" "$DEAD" > "$HD2/reviews/p/ITEM-D2-r2.run"
+out=$(d2); [ "$out" = "gate-gone r2" ] && echo "ok   D2a a dead gate pid with no verdict is gate-gone" || { echo "FAIL D2a ($out)"; fails=$((fails + 1)); }
+printf '{"pid":%s,"gate":%s,"started":"2026-10-07T11:00:00Z"}\n' "$LIVE" "$LIVE" > "$HD2/reviews/p/ITEM-D2-r2.run"
+out=$(d2); case "$out" in gate-gone*) echo "FAIL D2b ($out)"; fails=$((fails + 1)) ;; *) echo "ok   D2b a live gate pid is not gate-gone" ;; esac
+printf '{"pid":%s,"gate":%s,"started":"2026-10-07T11:00:00Z"}\n' "$DEAD" "$DEAD" > "$HD2/reviews/p/ITEM-D2-r2.run"
+printf 'VERDICT item=ITEM-D2 round=2 SAFE findings=0 head=abc1234\n' > "$HD2/reviews/p/ITEM-D2-r2.md"
+out=$(d2); case "$out" in gate-gone*) echo "FAIL D2c ($out)"; fails=$((fails + 1)) ;; *) echo "ok   D2c a verdict file means no gate-gone, even with a dead pid" ;; esac
+rm -f "$HD2/reviews/p/ITEM-D2-r2.run" "$HD2/reviews/p/ITEM-D2-r2.md"
+out=$(d2); case "$out" in gate-gone*) echo "FAIL D2d ($out)"; fails=$((fails + 1)) ;; *) echo "ok   D2d no run file means no gate-gone" ;; esac
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
