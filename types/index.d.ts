@@ -28,7 +28,7 @@ export type StarOption = {
 export type StarNeed = {
   /** N-12 */
   id: string
-  /** go-batch, person, question, escalation, ... (loops.sh --kind) */
+  /** person, set-aside, slack-reply, draft, ... (loops.sh --kind) */
   kind: string
   item: string
   title: string

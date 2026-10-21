@@ -36,17 +36,12 @@ export type BandView = {
 // Each kind of ask has a color of its own: a chip on the card being answered, a colored word on
 // the rows after it, so the queue reads at a glance without shouting.
 const KINDS: Readonly<Record<string, { label: string; color: string }>> = {
-  'go-batch': { label: 'go', color: 'success' },
-  'go-merge': { label: 'merge', color: 'merged' },
-  person: { label: 'step', color: 'warning' },
-  question: { label: 'ask', color: 'permission' },
-  escalation: { label: 'blocked', color: 'error' },
-  'accept-report': { label: 'report', color: 'suggestion' },
-  'restart-or-drop': { label: 'restart', color: 'warning' },
-  draft: { label: 'draft', color: 'ide' },
-  held: { label: 'held', color: 'subtle' },
+  person: { label: 'Your step', color: 'warning' },
+  'set-aside': { label: 'Set aside', color: 'error' },
+  'slack-reply': { label: 'Slack reply', color: 'permission' },
+  draft: { label: 'Draft', color: 'ide' },
 }
-const KIND_WIDTH = 8 // 'restart' and 'blocked', plus a space
+const KIND_WIDTH = 12 // 'Slack reply', plus a space
 /** The items the band shows at once: the one being answered, then the next ones, in queue order. */
 const MAX_ROWS = 3
 
@@ -230,11 +225,7 @@ function card(ui: Ui, need: StarNeed, draft: string, columns: number, actions: B
   const { Box, Button, Input, Text } = ui
   const k = kindOf(need.kind)
   const title = short(need.title)
-  // A batch's body is its item names: one line of them reads better than a column.
-  const names =
-    need.kind === 'go-batch' && need.names.length
-      ? [{ key: 'items', value: need.names.join(', ') }]
-      : need.names.map(text => ({ key: '', value: text }))
+  const names = need.names.map(text => ({ key: '', value: text }))
   const lines = [...names, ...need.details]
   const shown = lines.slice(0, 4)
   const keyWidth = Math.min(10, Math.max(0, ...shown.map(l => l.key.length)))

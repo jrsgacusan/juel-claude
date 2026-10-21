@@ -52,7 +52,7 @@ if handle and home and star.get("terminal") == handle:
             "open-loops.md and the ledger, reconciles the workers and continues. Do not wait to be asked. "
             "You coordinate; you do not build: never write product code, and never read review, evidence or log "
             "files into this session. Merge only through merge.sh, when pr-verify.sh --merge-gate passes on the "
-            "exact head and the item has the owner's go. Everything that matters is in those files, never "
+            "exact head. Everything that matters is in those files, never "
             "only in chat: write the row before you act.")
     project = star.get("project")
     name = project.get("name") if isinstance(project, dict) else None

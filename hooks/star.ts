@@ -12,10 +12,10 @@ export const LEDGER_COLS = [
   'restarts', 'pr', 'head', 'cursor', 'verify', 'counters', 'updated',
 ] as const
 
-// merge.sh / step-check.sh WORKER_STATES: a live worker owns the row.
+// merge.sh / worker-probe.sh WORKER_STATES: a live worker owns the row.
 export const WORKER_STATES = ['briefing', 'building', 'babysitting', 'posting'] as const
 // Each stage's waiting state (SKILL.md "Each stage has a waiting state").
-export const WAITING_STATES = ['inbox', 'brief-ready', 'queued', 'babysit-queued', 'post-queued'] as const
+export const WAITING_STATES = ['inbox', 'needs-you', 'queued', 'babysit-queued', 'post-queued'] as const
 
 export type LedgerRow = {
   item: string
@@ -309,7 +309,7 @@ export function needOf(n: NeedItem, nowMs: number): StarNeed {
   }
 }
 
-const ORDER = ['briefing', 'building', 'posting', 'babysitting', 'verifying', 'reported', 'escalated', 'failed'] as const
+const ORDER = ['briefing', 'building', 'posting', 'babysitting', 'verifying', 'set-aside'] as const
 
 /**
  * The band, from what the three files held. A file that did not parse names itself on the line
