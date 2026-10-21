@@ -26,8 +26,9 @@
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
 # close <dispatch> (#175) prints exactly one line and starts nothing. It closes the terminal a finished
 # dispatch of STAR's own left open, whatever Orca's retainedReason (user_takeover, identity_unproven):
-#   closed <terminal>                  Orca reports the dispatch released and its terminal owned by
-#                                      that dispatch: closed
+#   closed <terminal>                  Orca reports the dispatch settled (completed, failed,
+#                                      cancelled or released) and its terminal owned by that
+#                                      dispatch: closed
 #   kept <terminal> (<state>)          not closed: the dispatch is still running ("running"), the
 #                                      terminal's owner is another dispatch or a person (<state> is its
 #                                      retainedReason or ownershipState), or the close failed
@@ -45,7 +46,7 @@
 #                                     session" was printed (a live session may be the one running it);
 #                                     one line per slot so held, in slot order
 #   ended previous session <terminal> the previous dispatch's own terminal was open: closed. A
-#                                     dispatch Orca reports released (releaseState or ownershipState
+#                                     dispatch Orca reports settled (completed, failed, cancelled, or
 #                                     "released") whose terminal it owns is gone (#95, #175), whatever
 #                                     the retainedReason: its terminal is closed the same way,
 #                                     best-effort, and a failed close is ignored
@@ -214,11 +215,16 @@ def orca_lists(handle):
     return any(isinstance(t, dict) and t.get("handle") == handle for t in terminals)
 
 
+SETTLED_DISPATCH = ("completed", "failed", "cancelled", "canceled")
+
+
 def settled_own_terminal(dispatch):
     """Orca's view of a dispatch's terminal (#175): (handle, settled_own, result). handle is None when
     Orca no longer knows the dispatch or it has no terminal. settled_own is True when Orca reports the
-    dispatch released (releaseState or ownershipState "released") and the terminal's owner is that
-    dispatch: its terminal is STAR's to close, whatever its retainedReason or exactWorker say."""
+    dispatch settled (its own status completed, failed or cancelled, or releaseState or ownershipState
+    "released") and the terminal's owner is that dispatch: its terminal is STAR's to close, whatever
+    its retainedReason or exactWorker say. After worker-release, a terminal a person clicked into stays
+    releaseState "retained", ownershipState "user_owned", while the dispatch says completed (#175)."""
     shown = run([orca, "orchestration", "worker-show", "--dispatch", dispatch, "--json"], 60)
     data = lenient(shown.stdout)
     result = data.get("result") if isinstance(data, dict) else None
@@ -230,7 +236,9 @@ def settled_own_terminal(dispatch):
         return None, False, result
     res = result.get("terminalResource") if isinstance(result.get("terminalResource"), dict) else {}
     released = "released" in (res.get("releaseState"), res.get("ownershipState"))
-    return handle, released and res.get("ownerDispatchId") == dispatch, result
+    status = (result.get("dispatch") or {}).get("status") if isinstance(result.get("dispatch"), dict) else None
+    settled = released or status in SETTLED_DISPATCH
+    return handle, settled and res.get("ownerDispatchId") == dispatch, result
 
 
 def close_command(dispatch):
