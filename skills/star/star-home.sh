@@ -29,12 +29,17 @@
 # ownerBranches, hostedReviewer.paused false when a reviewer is set, and loses ownerApproval and gate.maxRounds;
 # every open queue item of a removed kind (go-batch, go-merge, accept-report, restart-or-drop, question,
 # escalation, held, and a person item whose "kind:" is not secret, account, screen, approval or access) is closed
-# with the answer "closed by the schema-3 migration", and one that names a need only a person can meet comes
-# back as a person item through loops.sh (keywords: "approval from someone other than" approval; "cannot see",
-# "tokenCmd" access; "login", "trust" screen; "secret", "token", "api key", "password" secret; "account", "sign up",
-# "sign in", "paid", "credit" account; the first match wins); ledger rows then move through ledger.sh
-# (brief-ready to needs-you when an open person item names the row's item, else queued; escalated and failed to
-# set-aside; reported to post-queued; counters keep only schema 3's keys and gain tries=0). Grant files are left alone.
+# with the answer "closed by the schema-3 migration"; an answer it already held is first appended to its row's
+# brief under ## Decisions ("- <date> answered before the schema-3 migration (<kind> <N-id>): <answer>"; no
+# brief, no line). An escalation, question or held item that names, as whole words, a need only a person can
+# meet comes back as a person item through loops.sh (keywords: "approval from someone other than" approval;
+# "cannot see", "tokenCmd" access; "login", "trust" screen; "secret", "token", "api key", "password" secret;
+# "account", "sign up", "sign in", "paid", "credit" account; the first match wins). Ledger rows then move through
+# ledger.sh (brief-ready to needs-you when an open person item names the row's item, else queued; escalated and
+# failed to needs-you, keeping the stage, when a person item came back for them, else to set-aside with a
+# set-aside queue item "<item> set aside: <old item's title, or stopped before the schema-3 migration>", body
+# "step: migration", options "try again / drop"; reported to post-queued; counters keep only schema 3's keys,
+# live among them, and gain tries=0). Grant files are left alone.
 #   star-home.sh [--cwd <dir>] import <spec path>
 #                                        copy a spec from outside the folder, with each file under the spec's folder that its text
 #                                        names, into items/<project>/<kebab name>[-<n>]/ and print the copy's path; a spec already
@@ -119,8 +124,9 @@ NEED_WORDS = (("approval", ("approval from someone other than",)),
               ("screen", ("login", "trust")),
               ("secret", ("secret", "token", "api key", "password")),
               ("account", ("account", "sign up", "sign in", "paid", "credit")))
+NEED_KINDS = ("escalation", "question", "held")
 KEEP_COUNTERS = ("tries", "rescoped", "depth", "hold", "start", "reached", "parent", "trackerRef", "batch",
-                 "last", "tracker", "rescope")
+                 "last", "tracker", "rescope", "live")
 CLOSE_ANSWER = "closed by the schema-3 migration"
 MOVES = {"pr-draft": ("queued", "build", "resume"), "reviewing": ("queued", "build", "resume"),
          "fix-queued": ("queued", "build", "resume"), "fixing": ("queued", "build", "resume"),
@@ -233,20 +239,13 @@ def write_json(path, data):
     os.replace(tmp, path)
 
 
-def record(project, item, old, kind):
-    """Append a decision record to the item's brief, inside ## Decisions (made when missing)."""
+def add_to_decisions(project, item, make_block):
+    """Append make_block(text) to the item's brief, inside ## Decisions (made when missing); a missing brief is skipped."""
     path = os.path.join(home, "briefs", project, f"{item}.md")
     if not os.path.isfile(path):
         return
     text = open(path, encoding="utf-8").read()
-    title, context, decision, consequences = RECORDS[kind]
-    n = len(re.findall(r"^### D\d+ ", text, re.M)) + 1
-    pending = os.path.join(home, "gates", project, f"{item}-screen.md")
-    block = (f"### D{n} {title} ({datetime.now(timezone.utc).strftime('%Y-%m-%d')}, decided by STAR)\n"
-             f"Context: {context.format(old=old)}\n"
-             f"Decision: {decision.format(pending=pending)}\n"
-             f"Consequences: {consequences}\n"
-             f"Source: star-home.sh migrate\n")
+    block = make_block(text)
     heading = re.search(r"^## Decisions[ \t]*$", text, re.M)
     if not heading:
         text = text.rstrip("\n") + "\n\n## Decisions\n" + block
@@ -258,6 +257,21 @@ def record(project, item, old, kind):
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(text)
     os.replace(tmp, path)
+
+
+def record(project, item, old, kind):
+    """Append a decision record to the item's brief, inside ## Decisions."""
+    title, context, decision, consequences = RECORDS[kind]
+    pending = os.path.join(home, "gates", project, f"{item}-screen.md")
+
+    def block(text):
+        n = len(re.findall(r"^### D\d+ ", text, re.M)) + 1
+        return (f"### D{n} {title} ({datetime.now(timezone.utc).strftime('%Y-%m-%d')}, decided by STAR)\n"
+                f"Context: {context.format(old=old)}\n"
+                f"Decision: {decision.format(pending=pending)}\n"
+                f"Consequences: {consequences}\n"
+                f"Source: star-home.sh migrate\n")
+    add_to_decisions(project, item, block)
 
 
 def forget(path):
@@ -422,18 +436,28 @@ def queue_items(queue):
 
 
 def person_need(entry):
+    """Only an escalation, question or held item can name a need; a word counts whole ("token" is not "tokens")."""
+    if entry["kind"] not in NEED_KINDS:
+        return None
     for need, words in NEED_WORDS:
-        if any(w in entry["text"] for w in words):
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", entry["text"]) for w in words):
             return need
     return None
 
 
 def migrate_queue(skill):
     """Close the open items of a removed kind (and person items of a removed sub-kind); a person-only need
-    among them comes back as a person item. Returns how many it closed."""
+    among them comes back as a person item, and an answer one of them already holds is kept in its row's brief.
+    Returns (how many it closed, the items a person item came back for, {item: the first old title})."""
     queue, loops = os.path.join(home, "open-loops.md"), os.path.join(skill, "loops.sh")
-    closed = 0
-    for entry in queue_items(queue):
+    closed, readded, titles = 0, set(), {}
+    entries = queue_items(queue)  # first, so a queue loops.sh cannot read fails on "list"
+    answered = subprocess.run(["sh", loops, "--file", queue, "answers"], capture_output=True, text=True)
+    if answered.returncode != 0:
+        die(1, "loops.sh answers: " + (answered.stderr.strip() or f"exit {answered.returncode}"))
+    answers = {c[0]: c[4] for c in (l.split("\t") for l in answered.stdout.splitlines()) if len(c) >= 5}
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    for entry in entries:
         removed = entry["kind"] in REMOVED_KINDS or (entry["kind"] == "person" and entry["sub"] not in PERSON_KINDS)
         if not removed:
             continue
@@ -444,12 +468,17 @@ def migrate_queue(skill):
                                     "--body", f"kind: {need}\n{entry['title']}"], capture_output=True, text=True)
             if added.returncode != 0:
                 die(1, f"loops.sh add {entry['id']}: " + (added.stderr.strip() or f"exit {added.returncode}"))
+            readded.add(entry["item"])
+        titles.setdefault(entry["item"], entry["title"])
+        if entry["id"] in answers:
+            line = f"- {today} answered before the schema-3 migration ({entry['kind']} {entry['id']}): {answers[entry['id']]}\n"
+            add_to_decisions(entry["project"], entry["item"], lambda text: line)
         for args in (("set-answer", entry["id"], CLOSE_ANSWER), ("close", entry["id"])):
             done = subprocess.run(["sh", loops, "--file", queue, *args], capture_output=True, text=True)
             if done.returncode not in (0, 4):  # 4: already closed
                 die(1, f"loops.sh {args[0]} {entry['id']}: " + (done.stderr.strip() or f"exit {done.returncode}"))
         closed += 1
-    return closed
+    return closed, readded, titles
 
 
 def ledger_rows(skill):
@@ -467,14 +496,24 @@ def ledger_run(skill, *args):
     return done.stdout.strip()
 
 
-def migrate_ledger(skill, queue_entries):
-    """Schema-3 states and counters. Returns the items whose row changed."""
+def migrate_ledger(skill, queue_entries, readded, titles, project):
+    """Schema-3 states and counters. A row that goes to set-aside gets a set-aside queue item, unless a person
+    item came back for it: then it is needs-you and keeps its stage. Returns the items whose row changed."""
+    queue, loops = os.path.join(home, "open-loops.md"), os.path.join(skill, "loops.sh")
     waiting = {e["item"] for e in queue_entries if e["kind"] == "person" and e["state"] == "open" and e["sub"] in PERSON_KINDS}
     changed = []
     for cells in ledger_rows(skill):
         item, state = cells[0], cells[1]
-        new = {"escalated": "set-aside", "failed": "set-aside", "reported": "post-queued",
+        new = {"escalated": "needs-you" if item in readded else "set-aside",
+               "failed": "needs-you" if item in readded else "set-aside", "reported": "post-queued",
                "brief-ready": "needs-you" if item in waiting else "queued"}.get(state)
+        if new == "set-aside":  # the item first, so a stop half way leaves the row where a rerun finds it
+            why = titles.get(item) or "stopped before the schema-3 migration"
+            added = subprocess.run(["sh", loops, "--file", queue, "add", "--kind", "set-aside", "--project", project,
+                                    "--item", item, "--title", f"{item} set aside: {why}",
+                                    "--body", "step: migration\noptions: try again / drop"], capture_output=True, text=True)
+            if added.returncode != 0:
+                die(1, f"loops.sh add set-aside {item}: " + (added.stderr.strip() or f"exit {added.returncode}"))
         have = ledger_run(skill, "get", item, "counters")
         kept = [p.split("=", 1)[0] for p in have.split() if "=" in p]
         fields = [f"state={new}"] if new else []
@@ -594,8 +633,8 @@ def migrate():
     for item in restage:
         ledger_run(skill, "set", item, "stage=build")
         touched.add(item)
-    loops = migrate_queue(skill)
-    touched.update(migrate_ledger(skill, queue_items(os.path.join(home, "open-loops.md"))))
+    loops, readded, titles = migrate_queue(skill)
+    touched.update(migrate_ledger(skill, queue_items(os.path.join(home, "open-loops.md")), readded, titles, project))
     data["schema"] = 3
     write_json(star_path, data)
     forget(stops_path)

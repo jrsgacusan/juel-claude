@@ -506,7 +506,7 @@ assert "ownerApproval" not in d and "maxRounds" not in d["gate"], d
 assert d["notes"] == "legacy"
 PY
 LG2() { sh "$ROOT/skills/star/ledger.sh" --home "$H2" get "$@"; }
-[ "$(LG2 NY state)" = "needs-you" ] && [ "$(LG2 NN state)" = "queued" ] && [ "$(LG2 ES state)" = "set-aside" ] && [ "$(LG2 FA state)" = "set-aside" ] && [ "$(LG2 RE state)" = "post-queued" ] && [ "$(LG2 VE state)/$(LG2 VE stage)" = "verifying/babysit" ] && pass "C2c: the rows land in the schema-3 states and verifying keeps its stage" || fail "C2c ($(sh "$ROOT/skills/star/ledger.sh" --home "$H2" list))"
+[ "$(LG2 NY state)" = "needs-you" ] && [ "$(LG2 NN state)" = "queued" ] && [ "$(LG2 ES state)/$(LG2 ES stage)" = "needs-you/build" ] && [ "$(LG2 FA state)/$(LG2 FA stage)" = "needs-you/build" ] && [ "$(LG2 RE state)" = "post-queued" ] && [ "$(LG2 VE state)/$(LG2 VE stage)" = "verifying/babysit" ] && pass "C2c: the rows land in the schema-3 states (an escalated or failed row with a re-added person item is needs-you, keeping its stage) and verifying keeps its stage" || fail "C2c ($(sh "$ROOT/skills/star/ledger.sh" --home "$H2" list))"
 [ "$(LG2 VE counters.tries)" = "0" ] && [ "$(LG2 VE counters.batch)" = "B-1" ] && [ "$(LG2 VE counters.parent)" = "X" ] && [ "$(LG2 VE counters.moved)" = "-" ] && [ "$(LG2 VE counters.mergefail)" = "-" ] && [ "$(LG2 ES counters.rescoped)" = "1" ] && [ "$(LG2 ES counters.miss)" = "-" ] && pass "C2c: counters fold to tries=0 and keep batch and parent" || fail "C2c counters ($(LG2 VE counters))"
 open=$(sh "$LS2" --file "$Q2" list)
 for k in go-batch go-merge accept-report restart-or-drop question escalation held; do
@@ -518,6 +518,35 @@ printf '%s\n' "$open" | grep -q 'Confirm the id' && fail "C2d: the confirm-id pe
 [ -f "$H2/grants/s2/go-1.md" ] && pass "C2g: grant files are still there" || fail "C2g"
 sum1=$(cat "$H2/star.json" "$H2/ledger.md" "$Q2" "$H2/open-loops-archive.md" | cksum)
 [ "$(sh "$SCRIPT" --cwd "$S2" migrate)" = "current" ] && [ "$sum1" = "$(cat "$H2/star.json" "$H2/ledger.md" "$Q2" "$H2/open-loops-archive.md" | cksum)" ] && pass "C2e: a second migrate prints current and changes no file" || fail "C2e"
+
+# Review fixes (lane 2): set-aside rows get a queue item, answers reach the brief, live survives, whole words only
+mkrepo "$TMP/s3"; S3=$(real "$TMP/s3"); H3b=$(sh "$SCRIPT" --cwd "$S3" init)
+python3 - "$H3b/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["schema"] = 2; d["gate"]["maxRounds"] = 3
+for k in ("tries", "mergeMethod", "baseBranch", "ownerBranches"):
+    d.pop(k)
+json.dump(d, open(p, "w"), indent=2)
+PY
+PJ=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["project"]["name"])' "$H3b/star.json")
+row3() { printf '| %s | %s | s3 | - | %s | %s | 1 | - | - | 0 | - | - | - | - | %s | 2026-10-08T12:00:00Z |\n' "$1" "$1" "$2" "$3" "$4" >> "$H3b/ledger.md"; }
+row3 SA escalated build -; row3 SB failed build -; row3 SC escalated build -; row3 SD queued build "live=ctx_9 miss=1"; row3 SE queued build -
+Q3="$H3b/open-loops.md"; LS3="$ROOT/skills/star/loops.sh"
+qb() { sh "$LS3" --file "$Q3" add --kind "$1" --project "$PJ" --item "$2" --title "$3" --body "$4"; }
+qb escalation SA "tests keep timing out" "x" >/dev/null
+qb escalation SC "tokens ran out twice" "the run used too many tokens" >/dev/null
+id=$(qb question SE "Which format?" "CSV or XLSX"); sh "$LS3" --file "$Q3" set-answer "$id" "CSV, 10,000 rows" >/dev/null
+id=$(qb go-merge SE "Merge it" "x"); sh "$LS3" --file "$Q3" set-answer "$id" "go" >/dev/null
+mkdir -p "$H3b/briefs/$PJ"; printf -- '---\napproved: 2026-10-01T00:00:00Z\n---\n# Brief SE\n\n## Decisions\n\n### D1 Earlier (2026-10-01, decided by STAR)\nDecision: x\n\n## Notes\nkeep\n' > "$H3b/briefs/$PJ/SE.md"
+out=$(sh "$SCRIPT" --cwd "$S3" migrate)
+LG3() { sh "$ROOT/skills/star/ledger.sh" --home "$H3b" get "$@"; }
+open3=$(sh "$LS3" --file "$Q3" list)
+[ "$(LG3 SA state)" = "set-aside" ] && [ "$(LG3 SB state)" = "set-aside" ] && [ "$(LG3 SC state)" = "set-aside" ] && pass "R: rows with no person need are set-aside" || fail "R set-aside rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$H3b" list))"
+printf '%s\n' "$open3" | grep -q "$(printf 'set-aside\t%s\tSA\topen\tSA set aside: tests keep timing out' "$PJ")" && printf '%s\n' "$open3" | grep -q "SB set aside: stopped before the schema-3 migration" && printf '%s\n' "$open3" | grep -q "SC set aside: tokens ran out twice" && grep -q 'step: migration' "$Q3" && grep -q 'try again / drop' "$Q3" && pass "R: every row moved to set-aside gets a set-aside item with the old title or the fallback" || fail "R set-aside items ($open3)"
+printf '%s\n' "$open3" | grep -q "$(printf '\tperson\t')" && fail "R: a person item came back for tokens (whole-word match)" || pass "R: token does not match tokens"
+[ "$(LG3 SD counters.live)" = "ctx_9" ] && [ "$(LG3 SD counters.miss)" = "-" ] && pass "R: the live counter is kept" || fail "R live ($(LG3 SD counters))"
+grep -q "^- [0-9-]* answered before the schema-3 migration (question N-[0-9]*): CSV, 10,000 rows$" "$H3b/briefs/$PJ/SE.md" && grep -q "(go-merge N-[0-9]*): go$" "$H3b/briefs/$PJ/SE.md" && [ "$(grep -c '^## ' "$H3b/briefs/$PJ/SE.md")" -eq 2 ] && pass "R: an answered removed item's answer lands in the brief's Decisions" || fail "R answers ($(cat "$H3b/briefs/$PJ/SE.md"))"
 
 # C2f (#173): a fallback equal to the model is named after the main line, on every path
 mkrepo "$TMP/s2w"; S2W=$(real "$TMP/s2w"); H2W=$(sh "$SCRIPT" --cwd "$S2W" init)
