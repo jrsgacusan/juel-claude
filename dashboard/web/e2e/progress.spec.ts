@@ -11,7 +11,7 @@ test("opens a row's step log and goes to Needs you", async ({ page }) => {
     "Asked: widen the scope to the public API?"
   )
   await dialog.getByRole("link", { name: "Answer in Needs you" }).click()
-  await expect(page).toHaveURL(/\/sphere-app\/needs\?loop=N-43$/)
+  await expect(page).toHaveURL(/\/needs\?project=sphere-app&loop=N-43$/)
   await expect(
     page.getByRole("heading", {
       name: "Removing the old export needs a public API change. Widen the scope?",

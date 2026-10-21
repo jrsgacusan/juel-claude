@@ -9,7 +9,6 @@ branch: feat/audit-log
 baseBranch: main
 deliverable: pr
 approved: 2026-10-15T09:00:00Z
-grant: grants/20261015T090000Z-e2e0.md
 ---
 ## Work item
 Keep an audit log of admin actions.

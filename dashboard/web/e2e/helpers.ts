@@ -9,10 +9,10 @@ export type Scenario =
   | "stopped"
   | "slack-off"
 
-/** Sets the mock scenario before load, opens /?t=test-token like the launcher, checks the redirect to /sphere-app/needs, then moves to `path` inside the app (goInApp). */
+/** Sets the mock scenario before load, opens /?t=test-token like the launcher, checks the redirect to the combined /needs, then moves to `path` inside the app (goInApp). */
 export async function openApp(
   page: Page,
-  path = "/sphere-app/needs",
+  path = "/sphere-app/progress",
   scenario: Scenario = "default"
 ) {
   await page.addInitScript((s) => {
@@ -24,8 +24,8 @@ export async function openApp(
     }
   }, scenario)
   await page.goto("/?t=test-token")
-  await expect(page).toHaveURL(/\/sphere-app\/needs$/)
-  if (path !== "/sphere-app/needs") await goInApp(page, path)
+  await expect(page).toHaveURL(/\/needs$/)
+  if (path !== "/needs") await goInApp(page, path)
 }
 
 /**

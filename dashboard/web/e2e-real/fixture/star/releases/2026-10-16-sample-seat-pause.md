@@ -1,3 +1,6 @@
+---
+gate: "Merging head 4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39: codex PASS, required checks green."
+---
 # sample · seat-pause · feat(seats): pause a member's seat
 
 - PR: https://github.com/acme/sample/pull/41 (#41), feat/seat-pause → main
