@@ -449,7 +449,7 @@ footer { border-top: 1px solid var(--rule); padding-top: 18px; color: var(--mute
         <ul>
           <li><code>mergeMethod</code>: merge, squash, rebase, or the first the repository allows. A method the repository forbids is a person item of kind access</li>
           <li><code>baseBranch</code> is where every STAR PR goes. <code>ownerBranches</code> lists branches only you merge into: STAR never opens a PR into one or merges into one. sphere-os-browser merges to <code>dev</code> and you do <code>dev</code> to <code>main</code>. An item whose whole point is a merge into an owner branch is set aside with a note, and nobody is asked</li>
-          <li>A red check that is not required passes only on a red-check-proof the gate confirms with <code>gh</code> (the base fails the same check, an infrastructure failure, or a rerun passes), and STAR files a follow-up. A PR's own red check is never merged</li>
+          <li>A red check that is not required passes only on a red-check-proof the gate confirms with <code>gh</code> (the base fails the same check, an infrastructure failure, or a rerun passes), and STAR files a follow-up after the merge, once per check and base branch. A PR's own red check is never merged</li>
         </ul>
       </div>
     </div>

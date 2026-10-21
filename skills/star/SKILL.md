@@ -340,12 +340,12 @@ The gate is `sh S/pr-verify.sh <pr url> --head <head> --merge-gate --brief <brie
 or by the project's `CLAUDE.md` or `AGENTS.md`). A project with a hosted reviewer also needs its passes. A project
 with none, or a paused one, needs nothing more: green CI plus the codex PASS merges it. No second person's
 approval by default: when the base branch's protection requires one, the row waits on a `person` item of kind
-`approval` ("approve PR #n"), because only a person can meet a GitHub rule.
+`approval` ("approve PR #n"), because only a person can meet a GitHub rule. This holds with a hosted reviewer too.
 
 - **Red CI.** The babysit worker (or the build before its PR is ready) works out why. If the PR caused it, it
   fixes within the tries budget, then re-scopes: STAR never merges a PR whose own change is red. If it is not
   the PR's fault (the base head fails the same check, an infrastructure failure, or one rerun passes), the PR
-  merges only when the red check is not a required one, and STAR files a follow-up. A script checks the proof,
+  merges only when the red check is not a required one, and STAR files a follow-up after the merge. A script checks the proof,
   not trust: the worker records `red-check-proof check=<name> head=<sha> cause=base|infra base=<sha> url=<url>`
   in the brief's `## Decisions`, and `pr-verify.sh --merge-gate --brief` confirms it with `gh`. A proof never
   carries over to another head or check.
@@ -357,10 +357,11 @@ approval by default: when the base branch's protection requires one, the row wai
   branch>` is yours", and nobody is asked: a merge to the owner's branch can be a release to every user.
 - **One merge per base at a time**, since two merges on one base race and GitHub refuses the second.
 - **A hosted reviewer that is down** is waited on, never merged past, because it is that project's own bar.
-- **`merge.sh <pr url> --head <sha> --home HOME_DIR --item <item>`** is the only merge. It posts `Merging head
+- **`merge.sh <pr url> --head <sha> --home HOME_DIR --item <item> [--hosted <login>]`** is the only merge, with
+  `--hosted` exactly when the gate got it. It posts `Merging head
   <sha>: codex PASS, required checks green[, <login> passed].` first and merges with `--match-head-commit`, so a
   head that moved is GitHub's refusal. `FAIL owner branch <base>` → `set-aside`. `FAIL merge methods: <method>
-  not allowed` → a `person` item of kind `access`. `PENDING approval` → a `person` item of kind `approval`.
+  not allowed` and `FAIL settings: <why>` → a `person` item of kind `access`. `PENDING approval` → a `person` item of kind `approval`.
   Every other verdict and line, and what each costs, is in `references/stages.md`.
 
 ## Conflicts

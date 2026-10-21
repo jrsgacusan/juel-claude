@@ -87,8 +87,9 @@ xhigh), read-only and with no MCP server. Facts STAR relies on:
   its NOT-SAFE rounds since the newest SAFE round or its last push, and reports the same at the
   `tries.perStep`-th.
 
-**Gate down.** `ERROR gate-down <why>` means Sol and its Claude fallback both failed. A worker reports it as
-`ESCALATION … reason=out-of-tries step=review-tool`. STAR spends no try: it puts the row in its stage's
+**Gate down.** `ERROR gate-down <why>` printed by `codex-gate.sh` itself (or its `check` printing `down`) means Sol and its
+Claude fallback both failed. A worker reports it as `ESCALATION … reason=out-of-tries step=gate-down`; any other
+gate or `post-pass` `ERROR` is `review-tool`, an infra step. STAR spends no try: it puts the row in its stage's
 waiting state (babysit resumes with `--since <cursor>`), sets `gateDown` to `{"since", "why", "checked"}` when
 it is null, and starts no build or babysit while it is set (brief and post stages need no gate and still
 start). Housekeeping runs `sh S/codex-gate.sh check` every 30 minutes: `up <agent:model>` clears `gateDown`
@@ -140,7 +141,8 @@ issue (tick.md); `HELD item=… action=…` becomes a `draft` item titled `by ha
   with its `stage` as it was, free the slot, stop and release the worker. When the
   item is done the row goes to that stage's waiting state. STAR first checks its notes and the project's
   `CLAUDE.md` and `AGENTS.md`: when the answer is there, it records the decision and puts the row straight
-  back in its waiting state. A need that is not one of the five kinds is not a person's: decide it
+  back in its waiting state. When the same need comes back for the same item, the note did not work: add the `person`
+  item, naming the note (`M-…`) so the owner can correct it. At most one note retry per need per item. A need that is not one of the five kinds is not a person's: decide it
   (SKILL.md, "When STAR asks you") and reply to the worker or run the stage again.
 - `ESCALATION item=<item> phase=<n> reason=out-of-tries step=<step>[ review=<path>]`. Free the slot and apply "What a failure costs" to `<step>`.
 
@@ -163,14 +165,15 @@ decides what happens next:
 | Class | Steps | STAR's response |
 |---|---|---|
 | quality | `verify`, `regression`, `gate`, `ci`, `hosted-review`, `conflict` | re-scope while `tries.rescopes` is left, else `set-aside` |
-| infra | `executor`, `stack`, `screen`, `worker`, `gh`, `pr-draft`, `hosted-wait`, `ci-wait` | spend one try, then run the stage again; after `tries.perStep` → `set-aside` |
-| outside | `review-tool`, `gate-lock` | no try spent: set `gateDown` and recheck every 30 minutes |
+| infra | `executor`, `stack`, `screen`, `worker`, `gh`, `pr-draft`, `hosted-wait`, `ci-wait`, `review-tool` | spend one try, then run the stage again; after `tries.perStep` → `set-aside` |
+| outside | `gate-lock`, `gate-down` | no try spent: set `gateDown` and recheck every 30 minutes |
 
 - A worker reports `out-of-tries` after its own loop used `tries.perStep` attempts, so a quality step goes
   straight to re-scope or `set-aside`: shrinking the item is what is left.
-- When the cause text matters the worker writes it to `reviews/<project>/<item>-tool.log` and names it in `review=`; STAR never reads that file. `review-tool` and `gate-lock` need only the step.
+- When the cause text matters the worker writes it to `reviews/<project>/<item>-tool.log` and names it in `review=`; STAR never reads that file. `review-tool`, `gate-lock` and `gate-down` need only the step.
 - An infra step spends one try per report. A stage that could not start (`stage-start.sh failed …`), a
-  lost or stalled worker, a report of the wrong shape, an executor that is down: all infra.
+  lost or stalled worker, a report of the wrong shape, an executor that is down, a regression gate that stalled
+  or timed out, a failed dependency install: all infra.
 - `hosted-wait` with the reviewer silent: set `hostedDown` to `{"since", "why"}` when it is null and park the
   row in `babysit-queued`; Housekeeping clears `hostedDown` after 30 minutes and the parked babysits start
   again. Each report spends a try, so a reviewer down past the tries sets the row aside with the note
@@ -204,6 +207,10 @@ re-scope.
 accepted residual, or an owner's overrule after a merge. It is the owner's own ask ("merge it and create a
 follow up ticket"), so under `--unattended` filing it, writing the tracker status and posting a report
 to the ticket STAR was handed need no confirmation (work-source.md §5 stays as it is by hand).
+
+**A proven red check** is filed by STAR alone, after `MERGED`, once per check name per base branch: skip it when an
+open ledger row or tracker item already covers `<check name> fails on <base branch>`. Workers write the proof line
+and never file for it.
 
 1. A ticket in the project's tracker through `references/work-source.md` (`create`): the same team and
    project as the parent item (the same repo for GitHub Issues), assigned to the account STAR acts as
@@ -239,7 +246,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 
 | Verdict | Then |
 |---|---|
-| `PASS …` | `sh S/merge.sh <pr url> --head <head> --home HOME_DIR --item <item>`, in the background like `stage-start.sh`. A note ending ` (proven not the PR's: <check> <cause>[, …])` means a red check that is not the PR's fault: after the merge, file a follow-up for each named failure |
+| `PASS …` | `sh S/merge.sh <pr url> --head <head> --home HOME_DIR --item <item> [--hosted <login>]`, in the background like `stage-start.sh`, with `--hosted` exactly when it went to the gate. A note ending ` (proven not the PR's: <check> <cause>[, …])` means a red check that is not the PR's fault: remember it, and after `MERGED` file the follow-up below |
 | no line, or an exit that is not 0 | as `PENDING script gave no verdict` |
 | `PENDING approval: …` | add a `person` item of kind `approval` titled "approve PR #<n>" (GitHub never lets a PR's author approve their own PR); skip it while one is open for this head; `verify=retry=<now + 10 min>`. No try |
 | `PENDING merge state: behind the base branch` | the sync rule below. No try |
@@ -260,6 +267,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | `MERGED <sha>` | as the verdict `MERGED`; print it and push one notification, "merged <item>: PR #<n>". Run the gate at once, in this tick, for every other `verifying` row on that base |
 | `FAIL head moved` | as the verdict `MOVED` |
 | `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push (#80): append `<dispatch> stopped <iso>` to `processed.log`, `worker-stop`, `worker-release`, the close check, then row `babysit-queued` and run the gate again from a fresh READY |
+| `FAIL settings: <why>` | add a `person` item of kind `access`: "star.json cannot be read: <why>". No comment was posted and nothing merged; the row stays `verifying` with `verify=retry=<now + 10 min>` |
 | `FAIL owner branch <base>` | the PR targets a branch only the owner merges into: row `set-aside`, "<base> is an owner branch" |
 | `FAIL merge methods: <method> not allowed` | add a `person` item of kind `access`: "allow <method> merges on <repo>, or change mergeMethod". The row stays `verifying` with `verify=retry=<now + 10 min>`; the gate and `merge.sh` run again after that |
 | `PENDING check <name> not reported` | a required check has not reported on the head; nothing is wrong. `verify=retry=<now + 2 min>`. No try |
