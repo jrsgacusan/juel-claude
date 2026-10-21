@@ -62,15 +62,15 @@ grep -q '## Decisions' "$SKILL" && pass "brief decisions are binding" || fail "D
 grep -q 'batch-dir' "$SKILL" && fail "no stale batch-dir paths" || pass "no stale batch-dir paths"
 # Stress test pass fixes
 grep -q 'Nothing is asked at the terminal' "$SKILL" && pass "S4 no prompt survives unattended" || fail "S4 catch-all for prompts"
-grep -q 'needs=verification steps' "$SKILL" && pass "S4 an empty checklist escalates" || fail "S4 empty checklist"
-grep -q 'needs=browser verification of' "$SKILL" && pass "S4 no browser tool escalates" || fail "S4 browser fallback"
+has "S4 an empty checklist is built from the brief, not asked" 'build the checklist from the brief'"'"'s approach and the diff'"'"'s edge cases'
+grep -qF 'needs=screen: browser verification of' "$SKILL" && pass "S4 no browser tool escalates" || fail "S4 browser fallback"
 grep -qF 'reason=out-of-tries step=gate-lock' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-lock"
 grep -q 'the later one wins' "$SKILL" && pass "S12 contradictory decisions have an order" || fail "S12 decision precedence"
 grep -q 'more than two `HELD` lines' "$SKILL" && pass "S11 held lines are aggregated" || fail "S11 HELD aggregate"
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && grep -q '/tmp/juel.gate.<uid>.lock' "$SKILL" && pass "T1 one gate lock per user, no path to pass" || fail "T1 gate lock path"
 grep -q 'A gate inside an invoked skill' "$SKILL" && pass "T8 gates inside invoked skills are covered" || fail "T8 nested gates"
 grep -q 'ask the coordinator' "$SKILL" && grep -q 'three times' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
-grep -qF 'an action at the screen (including a browser check no tool can run)' "$SKILL" && pass "R9 needs-person covers what it is used for" || fail "R9 needs-person definition"
+has "R9 needs-person covers what it is used for" 'an action at the screen (including a browser check no tool can run)'
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
 g "W1 gates run from the manifest, never from a hand-quoted string" 'run-gates.sh'
@@ -133,7 +133,7 @@ g "F6a the screen lock is for the visible screen" 'Before launching an app you w
 g "F6b a lapsed lock is handled like exit 65" 'printing `free` (the lock lapsed)'
 g "F7a a failing executor-model.sh counts as default" 'counts as `default <why>`'
 g "F7b Phase 5 passes on what ran" 'or `--executor session` when this session ran the plan'
-g "F8 a person: check runs its automated part" 'citing the person-only step the owner did before go'
+g "F8 a person: check runs its automated part" 'citing the person-only step the owner did.'
 g "F9 without a star block the run ends with a plain DONE" 'then ends with `DONE item=<item> pr=<url> head=<sha>`'
 g "F10 the progress folder is created first" 'mkdir -p <star.home>/progress'
 g "F11 a question with no answer is decided, then the run goes on" '`## Decisions` with its `Source:`, and go on. A step that needs a person'
@@ -200,7 +200,7 @@ g "L83b through orca's unread messages" 'orca orchestration check --unread --jso
 g "L89a the gate lock line takes the progress log" '[--progress <star.home>/progress/<item>.log]'
 g "L89b never inside a plan the executor runs" 'Never put `--progress` in a plan the executor runs'
 g "L89c the progress row says gate-lock writes the wait" '`gate-lock.sh --progress` writes this step itself every 10 minutes'
-g "L90a a red fixed outside runtime does not count" 'A red does not count toward the two when the fix'
+g "L90a a red fixed outside runtime does not count" 'A red does not count toward the budget when the fix'
 g "L90b at most two refunds between green gates" 'At most two such reds are refunded between two green gates'
 # fix-1: R4 the gate lock is one file per user, so under a star: brief the holder names the project (#76)
 g "R4a a star: brief's gate-lock holder carries the project" '--holder "<star.project>/<item>"'
@@ -304,7 +304,7 @@ has "#141 the Codex prompt runs only the plan's commands" 'Run only the commands
 has "C143a exit 125 is a stalled gate, with its line" 'Exit 125 is a stalled gate, with this line on stderr: `gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`.'
 has "C143b a stalled gate is not red and not run again" 'It is not red and it is not run again: it is the `step=review-tool` escalation at once, with `stalled gate: <the stalled line>` in the file `review=` names.'
 has "C143c the escalation list names a stalled gate" 'or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and was stopped)'
-has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.'
+has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`;'
 grep -qF 'stalled, the command printed nothing for' "$ROOT/skills/ship-ticket/gate-lock.sh" && pass "C143e gate-lock.sh prints the line the skill quotes" || fail "C143e gate-lock.sh prints the line the skill quotes"
 has "C145a the ignore entries are anchored to the repo root" 'For each one that fails, the entry is anchored to the repo root, so no other folder of the same name is ignored'
 has "C145b the entries it names" '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`.'
@@ -374,7 +374,7 @@ has "AU5 settings read tries in place of gate.maxRounds" 'its `tries` (`perStep`
 has "AU6 missing acceptance criteria are not a stop" 'Missing acceptance criteria are not a stop: STAR writes them into the brief.'
 has "AU7 a brief violation is a RESCOPE" 'RESCOPE item=<item> reason=brief review=<a file naming what the work needs and why the brief excludes it>'
 has "AU8 the gate cap runs tries.perStep rounds" 'after `tries.perStep` rounds in this run'
-has "AU9 a conflict is resolved, recorded and gated" 'resolve it yourself, keeping both changes'"'"' intent'
+has "AU9 a conflict is resolved, recorded and gated" 'resolve them yourself, keeping both changes'"'"' intent'
 has "AU10 By hand a conflict that is not mechanical is still shown" 'By hand, a conflict `merge-union.sh` cannot resolve still stops the merge for the user.'
 has "AU11 red CI proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<sha> url=<url>'
 has "AU12 the fallback equal to the executor is no fallback" 'there is no fallback: skip straight to running the plan in this session'
