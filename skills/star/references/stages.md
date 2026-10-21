@@ -109,7 +109,7 @@ issue (tick.md); `HELD item=… action=…` becomes a `draft` item titled `by ha
 
 | First line | Action |
 |---|---|
-| `BRIEF item=… path=… asks=<n> [followup=<path>] [rescoped=1]` | queue one `person` item per line of the brief's `## Person-only steps` (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines), after a search of the queue and its archive: a step answered `done` in the last 7 days goes into `## Decisions` instead. The row goes to `queued`, or `needs-you` (its `stage` set to build) while any of those items is open. `followup=<path>` adds the follow-up row (below). `rescoped=1`: clear `counters.rescope` (the count went up when the row was sent to be re-scoped). When the brief's `baseBranch` is one of `ownerBranches`, its point is a merge into that branch, which is the owner's: the row goes `set-aside` with "<branch> → <baseBranch> is yours", nothing is built |
+| `BRIEF item=… path=… asks=<n> [followup=<path>] [rescoped=1]` | queue one `person` item per line of the brief's `## Person-only steps` (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines), but look first, because the owner is never asked the same thing twice: STAR's notes (`sh S/recall.sh --kind note <the step's words>`), the project's `CLAUDE.md` and `AGENTS.md`, and the queue and its archive. A step one of them already answers, or one answered `done` in the last 7 days, goes into `## Decisions` instead (naming where the answer lives, never a secret's value), and no item is added. The row goes to `queued`, or `needs-you` (its `stage` set to build) while any of those items is open. `followup=<path>` adds the follow-up row (below). `rescoped=1`: clear `counters.rescope` (the count went up when the row was sent to be re-scoped). When the brief's `baseBranch` is one of `ownerBranches`, its point is a merge into that branch, which is the owner's: the row goes `set-aside` with "<branch> → <baseBranch> is yours", nothing is built |
 | `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `batch`, `parent=<item>`); when the parent's `ref` is a tracker item every part also carries `counters.trackerRef=<parent ref>` (#172); the parent row goes to `dropped`; say "split into <names>" |
 | `ESCALATION …` | below |
 
@@ -177,8 +177,11 @@ decides what happens next:
   "<reviewer> unavailable since <time>". STAR never merges past a configured reviewer, and never asks.
 - The merge gate's own repeating `FAIL`, `MOVED` or `PENDING` spend a try each (below) and set the row aside
   at `tries.perStep`; shrinking the item fixes nothing there.
-- Not a try: a base sync because a sibling merged or the base moved, and a wait on something outside STAR (the
-  hosted reviewer, CI that has not reported, the host gate, the codex gate being down).
+- Not a try: a base sync because a sibling merged or the base moved, and each recheck of a wait on something
+  outside STAR (the hosted reviewer, CI that has not reported, the host gate, the codex gate being down). A wait
+  that outlasts its window does spend one: a babysit run that ends `out-of-tries step=hosted-wait` or
+  `step=ci-wait`, and a merge-gate `PENDING` older than 60 minutes. So a reviewer or CI that never comes ends
+  `set-aside` after `tries.perStep` windows, and is never merged past.
 - `tries` resets only when the row first reaches a state further along than `reached`, on a re-scope, and
   on the owner's `try again`.
 

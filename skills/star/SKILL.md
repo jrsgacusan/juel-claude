@@ -321,9 +321,11 @@ settle and only the owner can make (money, a policy, a legal question) is an `ac
 How the count works, and why: `tries` resets only when the row first reaches a state further along than
 `reached` (the stage order `briefing`, `building`, `babysitting`, `verifying`, `done`), so a `verifying` to
 `babysit-queued` to `verifying` loop can never run forever. Only quality failures re-scope, because shrinking
-the item fixes nothing for an infrastructure failure. A base sync because a sibling merged, and a wait on
-something outside STAR (the hosted reviewer, CI that has not reported, the host gate, the codex gate being down),
-spend nothing: this item did nothing wrong, and those recheck on their own timers. The class of each step and
+the item fixes nothing for an infrastructure failure. A base sync because a sibling merged, and each recheck of a wait
+on something outside STAR (the hosted reviewer, CI that has not reported, the host gate, the codex gate being
+down), spend nothing: this item did nothing wrong, and those recheck on their own timers. A wait that outlasts
+its window (a babysit `step=hosted-wait` or `step=ci-wait`, a merge-gate `PENDING` past 60 minutes) spends one
+try, so a reviewer or CI that never comes ends set aside, never merged past. The class of each step and
 what STAR does about it is the table in `references/stages.md`. A worker that runs out of its own loop reports
 `ESCALATION … reason=out-of-tries step=<step>`, which spends one try on the row. Follow-ups are filed as tickets
 or spec files with the defaults in `references/stages.md`; a follow-up past `tries.followUpDepth` is set aside
