@@ -3,10 +3,10 @@ import { type KeyboardEvent, useRef, useState } from "react"
 import { Link } from "react-router"
 import { toast } from "sonner"
 import { isConflictMarkers } from "@/api/client"
-import { useAnswer, useItems, useSlack } from "@/api/queries"
-import type { Loop } from "@/api/types"
+import { useAnswer, useSlack } from "@/api/queries"
+import type { ProjectLoop } from "@/api/types"
 import { SlackText } from "@/components/slack-text"
-import { StarMark, StateBadge } from "@/components/status"
+import { StarMark } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -15,7 +15,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import { agoText } from "@/lib/format"
-import { itemLabel } from "@/lib/items"
 import { kindOf, visibleBody } from "@/lib/loops"
 import { projectPath } from "@/lib/routes"
 
@@ -28,14 +27,13 @@ export function LoopDetail({
   onSent,
 }: {
   project: string
-  loop: Loop
+  loop: ProjectLoop
   sentText: string | null
   sentNudged?: boolean
   serverAnswer: string | null
   onSent: (text: string, nudged: boolean) => void
 }) {
   const answer = useAnswer(project)
-  const items = useItems(project)
   const slack = useSlack()
   const [reply, setReply] = useState("")
   const sending = useRef(false)
@@ -88,6 +86,30 @@ export function LoopDetail({
     }
   }
 
+  if (loop.kind === "error")
+    return (
+      <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-6 lg:p-8">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">
+            <Icon className="size-3" />
+            {label}
+          </Badge>
+          <Badge variant="secondary">{loop.project}</Badge>
+        </div>
+        <h2 className="text-xl font-semibold tracking-tight break-words sm:text-2xl">
+          {loop.title}
+        </h2>
+        {body.map((line) => (
+          <p key={line} className="text-sm leading-6 break-words">
+            {line}
+          </p>
+        ))}
+        <p className="text-xs text-muted-foreground">
+          The other projects still list. Fix the file, and this clears.
+        </p>
+      </div>
+    )
+
   return (
     <div
       onKeyDown={onKeyDown}
@@ -99,6 +121,7 @@ export function LoopDetail({
             <Icon className="size-3" />
             {label}
           </Badge>
+          <Badge variant="secondary">{loop.project}</Badge>
           <span className="min-w-0 font-mono text-xs break-all text-muted-foreground">
             {loop.item}
           </span>
@@ -113,29 +136,7 @@ export function LoopDetail({
         </h2>
       </div>
 
-      {loop.kind === "go-batch" && body.length > 0 ? (
-        <ul className="divide-y overflow-hidden rounded-xl border">
-          {body.map((line) => {
-            const row = items.data?.find(
-              (r) => r.item === line.trim() || r.ref === line.trim()
-            )
-            return (
-              <li
-                key={line}
-                className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3"
-              >
-                <span className="min-w-16 font-mono text-xs text-muted-foreground">
-                  {row ? itemLabel(row) : line}
-                </span>
-                <span className="min-w-0 flex-1 text-sm font-medium break-words">
-                  {row?.title ?? (row ? "" : line)}
-                </span>
-                {row && <StateBadge status={row.status} />}
-              </li>
-            )
-          })}
-        </ul>
-      ) : loop.kind === "slack-reply" ? (
+      {loop.kind === "slack-reply" ? (
         <div className="rounded-xl border bg-muted px-4 py-3 text-sm leading-6">
           {message && (
             <span className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -213,11 +214,6 @@ export function LoopDetail({
         <p className="text-xs text-muted-foreground">
           Goes into STAR's queue, the same one as open-loops.md.
         </p>
-        {items.isError && (
-          <p className="text-xs text-muted-foreground">
-            Couldn't load the items&apos; status.
-          </p>
-        )}
         <div className="flex items-center gap-2">
           {loop.kind === "slack-reply" && (
             <Button variant="outline" asChild className="pointer-coarse:h-11">

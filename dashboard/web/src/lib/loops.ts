@@ -3,45 +3,26 @@ import {
   CircleAlert,
   CircleDot,
   CirclePause,
-  FileCheck,
   FilePen,
-  GitMerge,
-  Hourglass,
   KeyRound,
-  MessageCircleQuestion,
   MessageSquare,
-  Play,
-  RotateCcw,
 } from "lucide-react"
 import type { Loop } from "@/api/types"
 
 export type LoopGroup = "blocked" | "slack" | "others"
 
 // The kinds the server lists first. The page keeps the server's order; these only pick the tab.
-const BLOCKED = new Set([
-  "go-batch",
-  "question",
-  "person",
-  "escalation",
-  "restart-or-drop",
-  "go-merge",
-])
+const BLOCKED = new Set(["person"])
 
 export const groupOf = (kind: string): LoopGroup =>
   BLOCKED.has(kind) ? "blocked" : kind === "slack-reply" ? "slack" : "others"
 
 const KINDS: Record<string, { label: string; icon: LucideIcon }> = {
-  "go-batch": { label: "Go for a batch", icon: Play },
-  question: { label: "Question", icon: MessageCircleQuestion },
   person: { label: "Your step", icon: KeyRound },
-  escalation: { label: "Stopped", icon: CircleAlert },
-  "restart-or-drop": { label: "Restart or drop", icon: RotateCcw },
-  "go-merge": { label: "Go to merge", icon: GitMerge },
+  "set-aside": { label: "Set aside", icon: CirclePause },
   "slack-reply": { label: "Slack reply", icon: MessageSquare },
-  "accept-report": { label: "Report to accept", icon: FileCheck },
-  held: { label: "Held until later", icon: CirclePause },
   draft: { label: "Draft to check", icon: FilePen },
-  waiting: { label: "Waiting on others", icon: Hourglass },
+  error: { label: "Unreadable", icon: CircleAlert },
 }
 
 export function kindOf(kind: string): { label: string; icon: LucideIcon } {

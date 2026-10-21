@@ -135,7 +135,7 @@ describe("Progress", () => {
     await waitFor(() =>
       expect(
         router.state.location.pathname + router.state.location.search
-      ).toBe("/sphere-app/needs?loop=N-43")
+      ).toBe("/needs?project=sphere-app&loop=N-43")
     )
   })
 
@@ -181,7 +181,7 @@ describe("Progress", () => {
     expect(await within(sheet).findByText("SPH-12 · #41")).toBeInTheDocument()
   })
 
-  it("links an item waiting in a go-batch to that batch", async () => {
+  it("links an item with no loop of its own to its project's Needs you", async () => {
     const row = getDb().items["sphere-app"]?.find(
       (d) => d.row.item === "SPH-12"
     )?.row
@@ -194,11 +194,11 @@ describe("Progress", () => {
     await waitFor(() =>
       expect(
         router.state.location.pathname + router.state.location.search
-      ).toBe("/sphere-app/needs?loop=N-41")
+      ).toBe("/needs?project=sphere-app")
     )
   })
 
-  it("links an item with its own open loop to that loop, not its batch", async () => {
+  it("links an item with its own open loop to that loop", async () => {
     const row = getDb().items["sphere-app"]?.find(
       (d) => d.row.item === "SPH-14"
     )?.row
@@ -211,7 +211,7 @@ describe("Progress", () => {
     await waitFor(() =>
       expect(
         router.state.location.pathname + router.state.location.search
-      ).toBe("/sphere-app/needs?loop=N-44")
+      ).toBe("/needs?project=sphere-app&loop=N-44")
     )
   })
 
@@ -219,7 +219,7 @@ describe("Progress", () => {
     const { user, router } = renderApp("/sphere-app/progress?item=SPH-8")
     const sheet = await screen.findByRole("dialog")
     expect(
-      await within(sheet).findByText("Merged under your go of Oct 15")
+      await within(sheet).findByText("Merged after the merge gate passed")
     ).toBeInTheDocument()
     expect(
       within(sheet).queryByRole("link", { name: "Answer in Needs you" })

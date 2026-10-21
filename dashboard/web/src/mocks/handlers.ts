@@ -105,6 +105,26 @@ export const handlers = [
         : getDb().overview[p]
     )
   }),
+  http.get(`${API}/loops`, async () => {
+    const gate = await pageGate()
+    if (gate) return gate
+    const rank = (kind: string) =>
+      kind === "person" ? 0 : kind === "set-aside" ? 1 : kind === "slack-reply" ? 2 : 3
+    const num = (id: string) => Number(id.slice(2)) || 0
+    const db = getDb()
+    const rows = isEmpty()
+      ? []
+      : db.projects.flatMap((p) =>
+          (db.loops[p.name] ?? []).map((l) => ({ ...l, project: p.name }))
+        )
+    rows.sort(
+      (a, b) =>
+        rank(a.kind) - rank(b.kind) ||
+        a.project.localeCompare(b.project) ||
+        num(a.id) - num(b.id)
+    )
+    return json(rows)
+  }),
   http.get(`${API}/projects/:p/loops`, async ({ params }) => {
     const gate = await pageGate()
     if (gate) return gate

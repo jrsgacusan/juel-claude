@@ -27,3 +27,12 @@ export function projectPath(
   const query = search ? new URLSearchParams(search).toString() : ""
   return `/${encodeURIComponent(project)}/${page}${query ? `?${query}` : ""}`
 }
+
+/** The combined Needs you page, filtered to one project when given, and opened on one loop. */
+export function needsPath(project?: string, loop?: string): string {
+  const q = new URLSearchParams()
+  if (project) q.set("project", project)
+  if (loop) q.set("loop", loop)
+  const query = q.toString()
+  return `/needs${query ? `?${query}` : ""}`
+}

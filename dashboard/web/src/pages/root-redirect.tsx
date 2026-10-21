@@ -2,9 +2,8 @@ import type { ReactNode } from "react"
 import { Navigate } from "react-router"
 import { useProjects } from "@/api/queries"
 import { EmptyState, ErrorState, LoadingState } from "@/components/page-state"
-import { projectPath } from "@/lib/routes"
 
-/** "/": the first running project's Needs you, else the first listed (brief D1). */
+/** "/": the combined Needs you, once there is a project to show. */
 export function RootRedirect() {
   const projects = useProjects()
   const frame = (child: ReactNode) => (
@@ -21,8 +20,7 @@ export function RootRedirect() {
         onRetry={() => void projects.refetch()}
       />
     )
-  const first =
-    projects.data.find((p) => p.state === "running") ?? projects.data[0]
+  const first = projects.data[0]
   if (!first)
     return frame(
       <EmptyState
@@ -30,5 +28,5 @@ export function RootRedirect() {
         body="Run /juel:star in a project, and it shows here."
       />
     )
-  return <Navigate to={projectPath(first.name, "needs")} replace />
+  return <Navigate to="/needs" replace />
 }

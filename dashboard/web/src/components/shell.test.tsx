@@ -14,18 +14,50 @@ const STOPPED =
   "STAR is stopped for juel-claude. Start it with /juel:star in that project. Your answers wait in its queue."
 
 describe("the app shell", () => {
-  it("sends / to the first running project's Needs you", async () => {
+  it("sends / to the combined Needs you", async () => {
     const { router } = renderApp("/")
+    await waitFor(() => expect(router.state.location.pathname).toBe("/needs"))
+  })
+
+  it("redirects a project root to its Progress", async () => {
+    const { router } = renderApp("/sphere-app")
     await waitFor(() =>
-      expect(router.state.location.pathname).toBe("/sphere-app/needs")
+      expect(router.state.location.pathname).toBe("/sphere-app/progress"),
     )
   })
 
-  it("redirects a project root to Needs you", async () => {
-    const { router } = renderApp("/sphere-app")
+  it("redirects a project's Needs page to the combined one, filtered to it", async () => {
+    const { router } = renderApp("/sphere-app/needs?loop=N-41")
     await waitFor(() =>
-      expect(router.state.location.pathname).toBe("/sphere-app/needs"),
+      expect(router.state.location.pathname).toBe("/needs"),
     )
+    expect(router.state.location.search).toBe("?project=sphere-app&loop=N-41")
+  })
+
+  it("shows Needs you above the project's pages, with the total, and a count per project", async () => {
+    renderApp("/sphere-app/progress")
+    const needs = await screen.findByRole("list", { name: "Needs you" })
+    expect(within(needs).getByRole("link", { name: /Needs you/ })).toHaveAttribute(
+      "href",
+      "/needs"
+    )
+    expect(await within(needs).findByText("10")).toBeInTheDocument()
+    const sections = screen.getByRole("list", { name: "Sections" })
+    expect(within(sections).queryByText("Needs you")).not.toBeInTheDocument()
+    expect(
+      needs.compareDocumentPosition(sections) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    const projects = screen.getByRole("list", { name: "Projects" })
+    expect(await within(projects).findByLabelText("9 need you")).toBeInTheDocument()
+    expect(within(projects).getByLabelText("1 need you")).toBeInTheDocument()
+    expect(within(projects).queryByLabelText("0 need you")).not.toBeInTheDocument()
+  })
+
+  it("on the combined page the sidebar says All projects and has no project pages", async () => {
+    renderApp("/needs")
+    expect((await screen.findAllByText("All projects")).length).toBeGreaterThan(0)
+    expect(screen.queryByRole("list", { name: "Sections" })).not.toBeInTheDocument()
+    expect(await screen.findByRole("list", { name: "Projects" })).toBeInTheDocument()
   })
 
   it("uses the first listed project when none are running", async () => {
@@ -40,7 +72,7 @@ describe("the app shell", () => {
       ),
     )
     const { router } = renderApp("/")
-    await waitFor(() => expect(router.state.location.pathname).toBe("/first/needs"))
+    await waitFor(() => expect(router.state.location.pathname).toBe("/needs"))
   })
 
   it("lists every project with its state, and switches project on the same page", async () => {
@@ -63,13 +95,13 @@ describe("the app shell", () => {
     })
     expect(within(crumbs).getByText("sphere-app")).toBeInTheDocument()
     expect(within(crumbs).getByText("Progress")).toBeInTheDocument()
-    const sections = screen.getByRole("list", { name: "Sections" })
-    expect(await within(sections).findByText("9")).toBeInTheDocument()
+    const needs = screen.getByRole("list", { name: "Needs you" })
+    expect(await within(needs).findByText("10")).toBeInTheDocument()
   })
 
   it("keeps the theme in localStorage, and System follows the OS", async () => {
     const os = mockColorScheme(false)
-    const { user } = renderApp("/sphere-app/needs")
+    const { user } = renderApp("/sphere-app/progress")
     await user.click(await screen.findByLabelText("Dark theme"))
     expect(document.documentElement).toHaveClass("dark")
     expect(localStorage.getItem("star-theme")).toBe("dark")
@@ -84,7 +116,7 @@ describe("the app shell", () => {
 
   it("marks the selected theme", async () => {
     mockColorScheme(false)
-    const { user } = renderApp("/sphere-app/needs")
+    const { user } = renderApp("/sphere-app/progress")
     const dark = await screen.findByLabelText("Dark theme")
     await user.click(dark)
     expect(dark).toHaveAttribute("aria-checked", "true")
@@ -96,7 +128,7 @@ describe("the app shell", () => {
   })
 
   it("opens search with Ctrl+K and ⌘K from any page", async () => {
-    const { user, router } = renderApp("/sphere-app/needs")
+    const { user, router } = renderApp("/sphere-app/progress")
     await screen.findByRole("list", { name: "Projects" })
     await user.keyboard("{Control>}k{/Control}")
     expect(
@@ -115,7 +147,7 @@ describe("the app shell", () => {
   })
 
   it("shows the lost-connection banner while the stream is down", async () => {
-    renderApp("/sphere-app/needs")
+    renderApp("/sphere-app/progress")
     await screen.findByRole("list", { name: "Projects" })
     act(() => setConnection("lost"))
     expect(
@@ -128,7 +160,7 @@ describe("the app shell", () => {
   })
 
   it("shows the refused-token banner and does not promise a reconnect", async () => {
-    renderApp("/sphere-app/needs")
+    renderApp("/sphere-app/progress")
     await screen.findByRole("list", { name: "Projects" })
     act(() => setConnection("refused"))
     expect(
@@ -141,7 +173,7 @@ describe("the app shell", () => {
 
   it("a 401 says the token was refused", async () => {
     sessionStorage.clear()
-    renderApp("/sphere-app/needs")
+    renderApp("/sphere-app/progress")
     expect(
       (await screen.findAllByText(/refused the token/)).length
     ).toBeGreaterThan(0)
@@ -156,7 +188,7 @@ describe("the app shell", () => {
   })
 
   it("names a project that is not on this Mac", async () => {
-    renderApp("/nope/needs")
+    renderApp("/nope/progress")
     expect(
       await screen.findByText("No project named nope on this Mac.")
     ).toBeInTheDocument()
@@ -195,11 +227,12 @@ describe("the app shell", () => {
 
   it("shows a page crash inside the shell", async () => {
     server.use(
-      http.get("*/api/projects/:p/loops", () =>
+      http.get("*/api/loops", () =>
         HttpResponse.json([
           {
             id: "N-1",
-            kind: "go-batch",
+            kind: "person",
+            project: "sphere-app",
             item: "x",
             title: "t",
             body: null,
@@ -212,14 +245,14 @@ describe("the app shell", () => {
       )
     )
     vi.spyOn(console, "error").mockImplementation(() => {})
-    renderApp("/sphere-app/needs")
+    renderApp("/needs")
     expect(
       await screen.findByText(/This page hit an error/)
     ).toBeInTheDocument()
     expect(screen.getByRole("list", { name: "Projects" })).toBeInTheDocument()
   })
   it("shows the Workers card's squares in the sidebar, without STAR's next note", async () => {
-    renderApp("/sphere-app/needs")
+    renderApp("/sphere-app/progress")
     expect(await screen.findByRole("meter", { name: "Building" })).toHaveAttribute("aria-valuetext", "3 of 3 busy")
     expect(screen.getByText("5 busy")).toBeInTheDocument()
     expect(screen.queryByText("Next tick in 3 min")).not.toBeInTheDocument()
@@ -229,7 +262,7 @@ describe("the app shell", () => {
     renderApp("/sphere-app/chat")
     const sections = await screen.findByRole("list", { name: "Sections" })
     expect(within(sections).getAllByRole("link").map((link) => link.textContent))
-      .toEqual(["Needs you", "Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
+      .toEqual(["Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
     const chat = within(sections).getByRole("link", { name: "Chat" })
     expect(chat).toHaveAttribute("href", "/sphere-app/chat")
     expect(chat).toHaveAttribute("aria-current", "page")
@@ -242,7 +275,7 @@ describe("the app shell", () => {
   })
 
   it("keeps the header on screen on a phone, below the safe area", async () => {
-    const { container } = renderApp("/sphere-app/needs")
+    const { container } = renderApp("/sphere-app/progress")
     await screen.findByRole("list", { name: "Projects" })
     expect(container.querySelector("header"))
       .toHaveClass("sticky", "top-0", "z-20", "box-content", "bg-background", "pt-[env(safe-area-inset-top)]", "md:static")
