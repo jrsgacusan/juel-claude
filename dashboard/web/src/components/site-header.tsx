@@ -36,7 +36,11 @@ export function SiteHeader({
         <BreadcrumbList className="flex-nowrap">
           <BreadcrumbItem className="hidden sm:inline-flex">
             <BreadcrumbLink asChild>
-              <Link to={projectPath(project, "needs")}>{project}</Link>
+              {project ? (
+                <Link to={projectPath(project, "progress")}>{project}</Link>
+              ) : (
+                <Link to="/needs">All projects</Link>
+              )}
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator className="hidden sm:inline-flex" />

@@ -226,10 +226,10 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
       },
       counts: {
         building: 1,
-        "brief-ready": 1,
+        "needs-you": 1,
         babysitting: 1,
         done: 1,
-        failed: 1,
+        "set-aside": 1,
         queued: 1,
       },
       workers: { brief: [0, 4], build: [1, 3], babysit: [1, 3] },
@@ -269,7 +269,7 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
   }
 });
 
-test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest, oldest first, picks parsed", async () => {
+test("GET /api/projects/:p/loops: person first, then set-aside, Slack, the rest, oldest first, picks parsed", async () => {
   const env = await setup();
   try {
     const loops = (await (
@@ -277,20 +277,19 @@ test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest,
     ).json()) as Record<string, unknown>[];
     assert.deepEqual(
       loops.map((l) => l["id"]),
-      ["N-5", "N-6", "N-7", "N-4", "N-3"],
+      ["N-5", "N-6", "N-3", "N-4", "N-7"],
     );
     assert.deepEqual(loops[0], {
       id: "N-5",
-      kind: "go-batch",
-      item: "B-2",
-      title: "go for batch B-2: 1 items",
-      body: ["issue-2"],
+      kind: "person",
+      item: "issue-2",
+      title: "add the Stripe webhook secret to .env.local",
+      body: ["kind: secret"],
       options: [
-        { label: "go", answer: "go", recommended: true },
-        { label: "go except …", answer: "go except ", recommended: false },
-        { label: "drop …", answer: "drop ", recommended: false },
+        { label: "done", answer: "done", recommended: false },
+        { label: "can't now", answer: "can't now", recommended: false },
       ],
-      suggestion: "go: the brief is small and every check is automated",
+      suggestion: null,
       answer: "",
       askedAt: null,
     });
@@ -307,7 +306,7 @@ test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest,
       "step: 1",
       "> kind: secret",
     ]);
-    assert.equal(loops[2]?.["answer"], "ISO 8601");
+    assert.equal(loops[4]?.["answer"], "ISO 8601");
     const slack = loops[3] as Record<string, unknown>;
     assert.equal(slack["suggestion"], "Not today. It's in final review now.");
     assert.deepEqual(slack["options"], [
@@ -324,12 +323,12 @@ test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest,
           "## Waiting on others",
           [
             "### N-12 · app · issue-3 · q",
-            "kind: question",
-            "msg: m-3",
+            "kind: person",
+            "kind: account",
             "Answer:",
             "",
             "### N-10 · app · issue-6 · h",
-            "kind: held",
+            "kind: weird",
             "Options: done",
             "Answer:",
             "",
@@ -342,7 +341,7 @@ test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest,
     ).json()) as { id: string }[];
     assert.deepEqual(
       ordered.map((l) => l.id),
-      ["N-5", "N-6", "N-7", "N-12", "N-4", "N-3", "N-10"],
+      ["N-5", "N-6", "N-12", "N-3", "N-4", "N-7", "N-10"],
     );
     fs.appendFileSync(path.join(env.star, "open-loops.md"), "<<<<<<< HEAD\n");
     const broken = await env.api("/api/projects/app/loops");
@@ -351,6 +350,75 @@ test("GET /api/projects/:p/loops: blocked work first, then Slack, then the rest,
       ((await broken.json()) as { error: string }).error,
       /open-loops\.md: unresolved git conflict markers/,
     );
+  } finally {
+    await env.close();
+  }
+});
+
+test("GET /api/loops lists every project's items by rank, then project, then number", async () => {
+  const env = await setup();
+  try {
+    await env.addProject("beta");
+    const loops = (await (await env.api("/api/loops")).json()) as {
+      project: string;
+      id: string;
+      kind: string;
+    }[];
+    assert.deepEqual(
+      loops.map((l) => `${l.project}/${l.id}`),
+      [
+        "app/N-5",
+        "app/N-6",
+        "beta/N-5",
+        "beta/N-6",
+        "app/N-3",
+        "beta/N-3",
+        "app/N-4",
+        "beta/N-4",
+        "app/N-7",
+        "beta/N-7",
+      ],
+    );
+    assert.equal(loops[0]?.kind, "person");
+    const answered = loops.find((l) => l.project === "beta" && l.id === "N-7");
+    assert.equal((answered as Record<string, unknown>)["answer"], "ISO 8601");
+  } finally {
+    await env.close();
+  }
+});
+
+test("GET /api/loops: one unreadable queue is one error entry and the other project still lists", async () => {
+  const env = await setup();
+  try {
+    await env.addProject("beta", (home) =>
+      fs.appendFileSync(path.join(home, "open-loops.md"), "<<<<<<< HEAD\n"),
+    );
+    const res = await env.api("/api/loops");
+    assert.equal(res.status, 200);
+    const loops = (await res.json()) as {
+      project: string;
+      kind: string;
+      title: string;
+      id?: string;
+    }[];
+    assert.equal(loops.filter((l) => l.project === "app").length, 5);
+    const broken = loops.filter((l) => l.project === "beta");
+    assert.equal(broken.length, 1);
+    assert.equal(broken[0]?.kind, "error");
+    assert.equal(broken[0]?.title, "beta's queue could not be read");
+  } finally {
+    await env.close();
+  }
+});
+
+test("the overview counts use the schema-3 states", async () => {
+  const env = await setup();
+  try {
+    const o = (await (await env.api("/api/projects/app/overview")).json()) as {
+      counts: Record<string, number>;
+    };
+    assert.equal(o.counts["needs-you"], 1);
+    assert.equal("brief-ready" in o.counts, false);
   } finally {
     await env.close();
   }

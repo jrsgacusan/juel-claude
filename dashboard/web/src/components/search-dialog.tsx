@@ -53,7 +53,9 @@ export function SearchDialog({
   project: string
 }) {
   const [query, setQuery] = useState("")
-  const [all, setAll] = useState(false)
+  const [every, setEvery] = useState(false)
+  // The combined Needs you has no project, so it searches every one.
+  const all = every || project === ""
   const q = useDebounced(query, 150).trim()
   const search = useSearch(q, all, project)
   const navigate = useNavigate()
@@ -85,7 +87,8 @@ export function SearchDialog({
               Every project
               <Switch
                 checked={all}
-                onCheckedChange={setAll}
+                onCheckedChange={setEvery}
+                disabled={project === ""}
                 aria-label="Search every project"
               />
             </label>

@@ -7,7 +7,20 @@ export type Release = {
   pr: string | null;
   sha: string | null;
   mergedAt: string | null;
+  /** The PR author's "Merging head <sha>:" comment (release-record.sh `gate:`), null when none. */
+  gate: string | null;
   fields: Record<string, string>;
+};
+
+/** release-record.sh writes `gate:` as a JSON string, or null. A bare value is read as it stands. */
+const gateOf = (v: string): string | null => {
+  const t = v.trim();
+  try {
+    const parsed: unknown = JSON.parse(t);
+    return typeof parsed === "string" && parsed ? parsed : null;
+  } catch {
+    return t && t !== "~" ? t : null;
+  }
 };
 
 const slugOf = (item: string): string =>
@@ -30,6 +43,7 @@ export function readRelease(
     pr: null,
     sha: null,
     mergedAt: null,
+    gate: null,
     fields: {},
   };
   let names: string[];
@@ -50,7 +64,18 @@ export function readRelease(
     } catch (err) {
       throw new Unreadable(`releases/${name}`, whyOf(err));
     }
-    const lines = text.split("\n");
+    let lines = text.split("\n");
+    let gate: string | null = null;
+    if ((lines[0] ?? "").trim() === "---") {
+      const end = lines.findIndex((l, i) => i > 0 && l.trim() === "---");
+      if (end > 0) {
+        for (const l of lines.slice(1, end)) {
+          const g = /^gate:\s*(.*)$/.exec(l);
+          if (g) gate = gateOf(g[1] ?? "");
+        }
+        lines = lines.slice(end + 1);
+      }
+    }
     const head = /^# (.*?) · (.*?) · (.*)$/.exec(lines[0] ?? "");
     if (!head || head[1] !== project || head[2] !== item) continue;
     const fields: Record<string, string> = {};
@@ -63,9 +88,10 @@ export function readRelease(
       pr: null,
       sha: null,
       mergedAt: null,
+      gate,
       fields,
     };
-    const pr = /^- PR: (\S+)/m.exec(text);
+    const pr = /^- PR: (\S+)/m.exec(lines.join("\n"));
     if (pr) rec.pr = pr[1] ?? null;
     const merged = /^- Merged: (\S+) by .*?, merge commit (\S+)/m.exec(text);
     if (merged) {

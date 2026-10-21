@@ -10,6 +10,7 @@ import {
   problemText,
   useAccounts,
 } from "@/api/accounts"
+import { useProjects } from "@/api/queries"
 import type { AccountWindow } from "@/api/types"
 import { agoText } from "@/lib/format"
 import { projectPath } from "@/lib/routes"
@@ -76,6 +77,9 @@ function Ring({ usedPct, hot }: { usedPct: number | null; hot: boolean }) {
 export function AccountsChip({ project }: { project: string }) {
   const [open, setOpen] = useState(false)
   const accounts = useAccounts().data
+  const projects = useProjects()
+  // The accounts page is the same for every project; on the combined Needs you, link through the first.
+  const linkProject = project || projects.data?.[0]?.name || ""
   if (!accounts || !accounts.installed || accounts.accounts.length === 0)
     return null
   const active = activeOf(accounts)
@@ -180,7 +184,7 @@ export function AccountsChip({ project }: { project: string }) {
             })}
           </ul>
           <Link
-            to={projectPath(project, "accounts")}
+            to={projectPath(linkProject, "accounts")}
             onClick={() => setOpen(false)}
             className="inline-flex items-center text-xs font-medium underline-offset-4 hover:underline pointer-coarse:min-h-11"
           >

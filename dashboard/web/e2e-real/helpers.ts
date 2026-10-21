@@ -52,10 +52,10 @@ export function fakeLog(name: string): string {
 
 export async function openApp(
   page: Page,
-  path = "/sample/needs"
+  path = "/needs"
 ): Promise<void> {
   // The first load hands ?t= to localStorage (src/api/token.ts captureToken); later loads and new pages in this browser read it there.
   await page.goto(e2e().url)
-  await expect(page).toHaveURL(/\/sample\/needs$/)
-  if (path !== "/sample/needs") await page.goto(e2e().origin + path)
+  await expect(page).toHaveURL(/\/needs$/)
+  if (path !== "/needs") await page.goto(e2e().origin + path)
 }

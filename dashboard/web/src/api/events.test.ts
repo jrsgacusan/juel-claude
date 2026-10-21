@@ -57,6 +57,7 @@ describe("the event stream", () => {
     const p = "sphere-app"
     expect(keysFor({ type: "change", project: p, what: "loops" })).toEqual([
       ["loops", p],
+      ["loops", "*"],
       ["projects"],
       ["slack"],
     ])

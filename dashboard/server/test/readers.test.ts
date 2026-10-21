@@ -61,7 +61,6 @@ test("a brief gives its title, go time, criteria and decision headings", () => {
   assert.deepEqual(b, {
     title: "Export reports as CSV",
     approved: "2026-10-15T07:00:00Z",
-    grant: null,
     criteria: [
       "The reports page has an Export CSV button",
       "The file opens in a spreadsheet",
@@ -85,7 +84,6 @@ test("a brief gives its title, go time, criteria and decision headings", () => {
   assert.deepEqual(parseBrief("no frontmatter\n"), {
     title: null,
     approved: null,
-    grant: null,
     criteria: [],
     decisions: [],
   });
@@ -106,6 +104,7 @@ test("progress lines, release records, evidence kinds, drafts and briefings", ()
     pr: "https://github.com/o/r/pull/7",
     sha: "0b8e4c3d2a1f",
     mergedAt: "2026-10-15T11:40:00Z",
+    gate: "Merging head 0b8e4c3d2a1f: codex PASS, required checks green.",
     fields: {
       PR: "https://github.com/o/r/pull/7 (#7), fix/rounding → main",
       Merged: "2026-10-15T11:40:00Z by someone, merge commit 0b8e4c3d2a1f",
@@ -120,8 +119,23 @@ test("progress lines, release records, evidence kinds, drafts and briefings", ()
     pr: null,
     sha: null,
     mergedAt: null,
+    gate: null,
     fields: {},
   });
+  const box = fs.mkdtempSync(path.join(os.tmpdir(), "star-rel-"));
+  fs.mkdirSync(path.join(box, "releases"));
+  const rec = (name: string, text: string) =>
+    fs.writeFileSync(path.join(box, "releases", name), text);
+  rec("2026-10-16-app-old-1.md", "# app · old-1 · Old shape\n\n- PR: https://x/pull/1 (#1), a → main\n");
+  rec("2026-10-16-app-new-1.md", '---\ngate: null\n---\n# app · new-1 · Null gate\n');
+  rec("2026-10-16-app-new-2.md", '---\ngate: "Merging head abc: codex PASS, required checks green."\n---\n# app · new-2 · With gate\n- PR: https://x/pull/2 (#2), a → main\n');
+  assert.equal(readRelease(box, "app", "old-1").title, "Old shape");
+  assert.equal(readRelease(box, "app", "old-1").gate, null);
+  assert.equal(readRelease(box, "app", "new-1").title, "Null gate");
+  assert.equal(readRelease(box, "app", "new-1").gate, null);
+  assert.equal(readRelease(box, "app", "new-2").gate, "Merging head abc: codex PASS, required checks green.");
+  assert.equal(readRelease(box, "app", "new-2").pr, "https://x/pull/2");
+  fs.rmSync(box, { recursive: true, force: true });
   assert.deepEqual(listFiles(path.join(FIXTURE, "evidence", "issue-4")), [
     "2026-10-15-fix-rounding/recording.webm",
     "2026-10-15-fix-rounding/report.md",

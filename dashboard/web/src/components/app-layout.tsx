@@ -20,8 +20,11 @@ import { SiteHeader } from "./site-header"
 
 export function AppLayout() {
   const { project = "" } = useParams()
-  const segment = useLocation().pathname.split("/")[2] ?? ""
-  const page = isPage(segment) ? segment : "needs"
+  const pathname = useLocation().pathname
+  // /needs has no project: the combined Needs you across every project.
+  const combined = project === ""
+  const segment = combined ? "needs" : (pathname.split("/")[2] ?? "")
+  const page = isPage(segment) ? segment : "progress"
   const [searchOpen, setSearchOpen] = useState(false)
   const queryClient = useQueryClient()
   const projects = useProjects()
@@ -43,6 +46,7 @@ export function AppLayout() {
   const fills = segment === "chat" || segment === "briefing"
 
   const unknown =
+    !combined &&
     projects.isSuccess && !projects.data.some((p) => p.name === project)
 
   return (
@@ -86,7 +90,7 @@ export function AppLayout() {
                     <li key={p.name}>
                       <Link
                         className="underline underline-offset-4"
-                        to={projectPath(p.name, "needs")}
+                        to={projectPath(p.name, "progress")}
                       >
                         {p.name}
                       </Link>

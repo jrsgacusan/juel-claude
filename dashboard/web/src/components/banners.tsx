@@ -48,7 +48,9 @@ export function StoppedBanner({ project }: { project: string }) {
 }
 
 export function ConflictBanner({ project }: { project: string }) {
-  if (useConflict() !== project) return null
+  const conflict = useConflict()
+  // On the combined Needs you (no project), a conflict in any project shows.
+  if (conflict === null || (project !== "" && conflict !== project)) return null
   return (
     <Banner
       tone="wait"
@@ -65,7 +67,9 @@ export function ConflictBanner({ project }: { project: string }) {
         </Button>
       }
     >
-      open-loops.md has conflict markers. Resolve them, then answer here.
+      {project === ""
+        ? `open-loops.md in ${conflict} has conflict markers. Resolve them, then answer here.`
+        : "open-loops.md has conflict markers. Resolve them, then answer here."}
     </Banner>
   )
 }
