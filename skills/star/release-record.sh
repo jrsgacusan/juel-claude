@@ -6,6 +6,8 @@
 # One record per PR: asked again for the same PR it prints the existing record's path, so a
 # replayed "merged" message is harmless. Another PR for the same item gets -v2, -v3; nothing
 # is ever overwritten.
+# The record opens with a frontmatter block holding one key, gate: the text of the PR author's last
+# comment that starts "Merging head " (merge.sh's comment, on one line, JSON-quoted), or null.
 # "- Evidence:" names <home>/evidence/<item>/, where worktree-clean.sh copies the worktree's
 # evidence before it removes the worktree, when the worktree holds an evidence folder (or the copy
 # is already there); else "none found". Over 1 GiB (JUEL_EVIDENCE_GB_LIMIT overrides, in GiB) the line
@@ -66,7 +68,7 @@ def use_star_token(home):
 
 use_star_token(a.home)
 cmd = ["gh", "pr", "view", a.pr, "--json",
-       "number,title,url,state,mergeCommit,mergedAt,mergedBy,reviews,statusCheckRollup,baseRefName,headRefName"]
+       "number,title,url,state,mergeCommit,mergedAt,mergedBy,reviews,statusCheckRollup,baseRefName,headRefName,author,comments"]
 if a.repo:
     cmd += ["-R", a.repo]
 try:
@@ -212,7 +214,16 @@ while os.path.exists(path):
     path = f"{base}-v{n}.md"
 
 brief = os.path.join("briefs", a.project, a.item + ".md")
+gate = None
+author = (d.get("author") or {}).get("login") if isinstance(d.get("author"), dict) else None
+for c in d.get("comments") if isinstance(d.get("comments"), list) else []:
+    if (isinstance(c, dict) and author and (c.get("author") or {}).get("login") == author
+            and str(c.get("body") or "").startswith("Merging head ")):
+        gate = " ".join(str(c["body"]).split())  # the last such comment, on one line
 body = [
+    "---",
+    "gate: " + json.dumps(gate, ensure_ascii=False),
+    "---",
     f"# {a.project} · {a.item} · {d.get('title') or ''}",
     "",
     f"{pr_line}{d.get('headRefName')} → {d.get('baseRefName')}",

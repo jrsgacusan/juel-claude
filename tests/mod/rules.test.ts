@@ -32,7 +32,7 @@ describe('merge guard', () => {
 
   test('lets merge.sh, other gh calls and text that only mentions a merge through', () => {
     for (const c of [
-      `sh /p/skills/star/merge.sh https://github.com/o/r/pull/12 --head ${SHA} --grant g.md --home ${HOME} --item issue-1`,
+      `sh /p/skills/star/merge.sh https://github.com/o/r/pull/12 --head ${SHA} --home ${HOME} --item issue-1`,
       'gh pr view 12 --json state,mergeable',
       'gh pr merge 12 --disable-auto',
       'echo "never run gh pr merge by hand"',
@@ -150,12 +150,12 @@ describe('band text', () => {
 
   test('counts the pools and the open queue items, and lists the open ones only', () => {
     const band = bandOf(star.value, parseLedger(LEDGER), parseQueue(QUEUE), at('2026-10-15T08:05:00Z'))
-    expect(band.line).toBe('STAR · 2 building · 1 babysitting · 1 verifying · 1 escalated · 2 waiting · 2 need you')
+    expect(band.line).toBe('STAR · 2 building · 1 babysitting · 1 verifying · 1 set-aside · 2 waiting · 2 need you')
     expect(band.tone).toBe('attention')
     expect(band.open).toBe(2)
     // N-13 is answered: STAR acts on it at its next tick, so the band leaves it out
     expect(band.needs.map(n => [n.id, n.kind, n.item])).toEqual([
-      ['N-12', 'go-batch', 'B-1'],
+      ['N-12', 'person', 'B-1'],
       ['N-14', 'escalation', 'issue-5'],
     ])
     expect(band.project).toBe('app')
@@ -179,7 +179,7 @@ describe('band text', () => {
   test('says a stale tick and gate down', () => {
     const down = { ...star.value, isGateDown: true }
     const band = bandOf(down, parseLedger(LEDGER), parseQueue(QUEUE), at('2026-10-15T08:45:00Z'))
-    expect(band.line).toBe('STAR · 2 building · 1 babysitting · 1 verifying · 1 escalated · 2 waiting · 2 need you · gate down · last tick 45m ago')
+    expect(band.line).toBe('STAR · 2 building · 1 babysitting · 1 verifying · 1 set-aside · 2 waiting · 2 need you · gate down · last tick 45m ago')
     expect(band.tone).toBe('warn')
     expect(band.flags).toEqual(['gate down', 'last tick 45m ago'])
   })
@@ -321,7 +321,7 @@ describe('the queue as the band reads it', () => {
     expect(step.names).toEqual([])
     expect(step.hint).toBe('or type an answer in words')
     const batch = needOf(
-      { id: 'N-22', kind: 'go-batch', project: 'app', item: 'B-1', title: 'go for batch B-1: 2 items', body: ['issue-1', 'issue-2', 'Options: go / drop <item>'], answer: '' },
+      { id: 'N-22', kind: 'person', project: 'app', item: 'B-1', title: 'the Stripe account for B-1', body: ['issue-1', 'issue-2', 'Options: go / drop <item>'], answer: '' },
       at('2026-10-15T08:07:00Z'),
     )
     expect(batch.names).toEqual(['issue-1', 'issue-2'])

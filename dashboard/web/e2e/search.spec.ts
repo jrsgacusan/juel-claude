@@ -30,7 +30,7 @@ test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
   )
   await page.keyboard.press("ArrowDown")
   await page.keyboard.press("Enter")
-  await expect(page).toHaveURL(/\/sphere-app\/needs\?loop=N-41$/)
+  await expect(page).toHaveURL(/\/needs\?project=sphere-app&loop=N-41$/)
   await noHorizontalScroll(page)
 })
 test("Ctrl+K from Progress with Every project on", async ({ page }) => {

@@ -14,14 +14,14 @@ const awaySwitch = () => screen.findByRole("switch", { name: "Away" })
 
 describe("the away switch", () => {
   it("shows the state STAR recorded, and reads you're away in the wait colour", async () => {
-    const first = renderApp("/sphere-app/needs")
+    const first = renderApp("/sphere-app/progress")
     const sw = await awaySwitch()
     expect(sw).toHaveAttribute("aria-checked", "false")
     expect(sw).toHaveAccessibleDescription("STAR keeps going and saves a summary")
     expect(screen.getByText("STAR running")).toHaveClass("text-muted-foreground")
     first.unmount()
     overviewOf("sphere-app").away = "2026-10-17T01:00:00Z"
-    renderApp("/sphere-app/needs")
+    renderApp("/sphere-app/progress")
     expect(await awaySwitch()).toHaveAttribute("aria-checked", "true")
     expect(screen.getByText("STAR running · you're away")).toHaveClass("text-wait-fg")
   })
@@ -36,7 +36,7 @@ describe("the away switch", () => {
         return HttpResponse.json({ recorded: true, nudged: true })
       })
     )
-    const { user, client } = renderApp("/sphere-app/needs")
+    const { user, client } = renderApp("/sphere-app/progress")
     await user.click(await awaySwitch())
     expect(
       await screen.findByRole("switch", { name: "Away", description: "Waiting for STAR to mark you away" })
@@ -51,21 +51,21 @@ describe("the away switch", () => {
 
   it("shows a change STAR has not applied yet, and none when it changes nothing", async () => {
     const overview = Object.assign(overviewOf("sphere-app"), { away: "2026-10-17T01:00:00Z", awayPending: "back" as const })
-    const first = renderApp("/sphere-app/needs")
+    const first = renderApp("/sphere-app/progress")
     const sw = await awaySwitch()
     expect(sw).toHaveAttribute("aria-checked", "false")
     expect(sw).toHaveAccessibleDescription("Waiting for STAR to mark you back")
     expect(screen.getByText("STAR running · you're away")).toBeInTheDocument()
     first.unmount()
     Object.assign(overview, { awayPending: "away" as const })
-    renderApp("/sphere-app/needs")
+    renderApp("/sphere-app/progress")
     const again = await awaySwitch()
     expect(again).toHaveAttribute("aria-checked", "true")
     expect(again).toHaveAccessibleDescription("STAR keeps going and saves a summary")
   })
 
   it("says the change waits for STAR's next start when STAR is not running", async () => {
-    const { user } = renderApp("/juel-claude/needs")
+    const { user } = renderApp("/juel-claude/progress")
     const sw = await awaySwitch()
     expect(sw).toHaveAccessibleDescription("Waits for STAR's next start")
     await user.click(sw)
@@ -79,7 +79,7 @@ describe("the away switch", () => {
     const project = getDb().projects.find((p) => p.name === "sphere-app")
     if (!project) throw new Error("no sphere-app project")
     project.state = "idle"
-    renderApp("/sphere-app/needs")
+    renderApp("/sphere-app/progress")
     await screen.findByRole("list", { name: "Projects" })
     await waitFor(() =>
       expect(screen.getByRole("switch", { name: "Away" })).toHaveAccessibleDescription("STAR keeps going and saves a summary")
@@ -90,7 +90,7 @@ describe("the away switch", () => {
   it("says why when the dashboard could not record it", async () => {
     const why = "Could not write inbox/20261017T020000Z-control-ab12.md: read-only file system"
     server.use(http.post("*/api/projects/:p/away", () => HttpResponse.json({ error: why }, { status: 500 })))
-    const { user } = renderApp("/sphere-app/needs")
+    const { user } = renderApp("/sphere-app/progress")
     await user.click(await awaySwitch())
     expect(await screen.findByText(`Couldn't tell STAR: ${why}`)).toHaveClass("text-stop-fg")
     expect(screen.getByRole("switch", { name: "Away" })).toHaveAttribute("aria-checked", "false")

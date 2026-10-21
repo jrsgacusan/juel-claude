@@ -307,10 +307,10 @@ reset; review SPH-11 4; L set SPH-11 state=babysit-queued >/dev/null; ST babysit
 grep -q -- "--reviewed $H/reviews/app/SPH-11-r4.md --item SPH-11" "$TMP/calls" && pass "a carry of an older round never stands for a newer one" || fail "older carry ($(grep task-create "$TMP/calls"))"
 # a previous session must be gone, or provably idle, before a stage starts (#76)
 ms_ago() { python3 -c 'import sys, time; print(int((time.time() - float(sys.argv[1]) * 60) * 1000))' "$1"; }
-show() { # show <dispatch> <handle> <ownershipState> <retainedReason or -> <exactWorker> [<minutes since it wrote>] [<worktree>] [<releaseState>]
+show() { # show <dispatch> <handle> <ownershipState> <retainedReason or -> <exactWorker> [<minutes since it wrote>] [<worktree>] [<releaseState>] [<dispatch status>]
   reason=null; [ "$4" = - ] || reason="\"$4\""
-  printf '{"ok":true,"result":{"dispatch":{"id":"%s","status":"dispatched"},"terminal":{"handle":"%s","connected":true,"agentIdentity":"claude","lastOutputAt":%s,"worktreePath":"%s"},"observation":{"status":"live","exactWorker":%s},"terminalResource":{"ownershipState":"%s","releaseState":"%s","retainedReason":%s,"ownerDispatchId":"%s","terminalHandle":"%s"}}}\n' \
-    "$1" "$2" "$(ms_ago "${6:-0}")" "${7:-$APP}" "$5" "$3" "${8:-not_requested}" "$reason" "$1" "$2" > "$TMP/show-$1.json"
+  printf '{"ok":true,"result":{"dispatch":{"id":"%s","status":"%s"},"terminal":{"handle":"%s","connected":true,"agentIdentity":"claude","lastOutputAt":%s,"worktreePath":"%s"},"observation":{"status":"live","exactWorker":%s},"terminalResource":{"ownershipState":"%s","releaseState":"%s","retainedReason":%s,"ownerDispatchId":"%s","terminalHandle":"%s"}}}\n' \
+    "$1" "${9:-dispatched}" "$2" "$(ms_ago "${6:-0}")" "${7:-$APP}" "$5" "$3" "${8:-not_requested}" "$reason" "$1" "$2" > "$TMP/show-$1.json"
 }
 line() { printf '%s\n' "$1" | sed -n "${2}p"; }
 L add SPH-40 ref=SPH-40 project=app state=inbox dispatch=ctx_old40 >/dev/null
@@ -432,11 +432,45 @@ out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_rel8
 reset; L set SPH-40 state=inbox dispatch=ctx_rel83 >/dev/null; show ctx_rel83 term_rel83 released - false 1
 out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_rel83" ] && pass "ownershipState released alone ends it" || fail "ownershipState only ($out)"
 reset; L set SPH-40 state=inbox dispatch=ctx_rel84 >/dev/null; show ctx_rel84 term_rel84 user_owned user_takeover false 1 "$APP" released
-out=$(ST brief SPH-40); [ "$out" = "hold session term_rel84 (user_takeover)" ] && ! grep -q 'terminal close' "$TMP/calls" && pass "a released dispatch whose terminal a person took over still holds, and is not closed" || fail "released takeover ($out)"
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_rel84" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && grep -q 'terminal close --terminal term_rel84 --json' "$TMP/calls" && pass "D1g a released dispatch's own terminal is closed even when Orca marks it user_takeover (#175)" || fail "D1g released takeover ($out)"
 reset; L set SPH-50 state=babysit-queued dispatch=ctx_rel85 >/dev/null; show ctx_rel85 term_rel85 released - false 0 "$WT50" released; terms term_rel85 claude 0
 out=$(ST babysit SPH-50)
 [ "$(line "$out" 1)" = "ended previous session term_rel85" ] && case "$(line "$out" 2)" in "started "*) true ;; *) false ;; esac && pass "a released terminal still listed in the worktree does not hold" || fail "released then listed ($out)"
 
+# #175: stage-start.sh close <dispatch> closes only the settled dispatch's own terminal
+CL() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" --home "$H" close "$@"; }
+reset; show ctx_d1a term_d1a user_owned user_takeover false 1 "$APP" released
+out=$(CL ctx_d1a); [ "$out" = "closed term_d1a" ] && grep -q 'terminal close --terminal term_d1a --json' "$TMP/calls" && pass "D1a a released dispatch's own terminal is closed despite user_takeover" || fail "D1a ($out)"
+reset; show ctx_d1b term_d1b owned identity_unproven false 1 "$APP" released
+out=$(CL ctx_d1b); [ "$out" = "closed term_d1b" ] && pass "D1b identity_unproven is closed too" || fail "D1b ($out)"
+reset; show ctx_d1c term_d1c user_owned user_takeover false 1 "$APP" released
+sed 's/"ownerDispatchId":"ctx_d1c"/"ownerDispatchId":"ctx_other"/' "$TMP/show-ctx_d1c.json" > "$TMP/x" && mv "$TMP/x" "$TMP/show-ctx_d1c.json"
+out=$(CL ctx_d1c); [ "$out" = "kept term_d1c (user_takeover)" ] && ! grep -q 'terminal close' "$TMP/calls" && pass "D1c a terminal owned by another dispatch is kept" || fail "D1c ($out)"
+reset; show ctx_d1d term_d1d owned - true 1 "$APP" not_requested
+out=$(CL ctx_d1d); [ "$out" = "kept term_d1d (running)" ] && ! grep -q 'terminal close' "$TMP/calls" && pass "D1d a running dispatch's terminal is kept" || fail "D1d ($out)"
+# I2 (#175, the shape Orca really reports): after worker-release a taken-over terminal stays
+# releaseState retained, ownershipState user_owned, while the dispatch itself says completed
+reset; show ctx_d1r term_d1r user_owned user_takeover false 1 "$APP" retained completed
+out=$(CL ctx_d1r); [ "$out" = "closed term_d1r" ] && grep -q 'terminal close --terminal term_d1r --json' "$TMP/calls" && pass "I2a a completed dispatch's own retained takeover terminal is closed" || fail "I2a ($out)"
+reset; show ctx_d1s term_d1s owned identity_unproven false 1 "$APP" retained failed
+out=$(CL ctx_d1s); [ "$out" = "closed term_d1s" ] && pass "I2b a failed dispatch's own unproven terminal is closed" || fail "I2b ($out)"
+reset; show ctx_d1t term_d1t user_owned user_takeover false 1 "$APP" retained dispatched
+out=$(CL ctx_d1t); case "$out" in "kept term_d1t "*) ! grep -q 'terminal close' "$TMP/calls" ;; *) false ;; esac && pass "I2c a dispatch still out keeps its taken-over terminal" || fail "I2c ($out)"
+reset; L set SPH-40 state=inbox dispatch=ctx_d1u >/dev/null; show ctx_d1u term_d1u user_owned user_takeover false 1 "$APP" retained completed
+out=$(ST brief SPH-40); [ "$(line "$out" 1)" = "ended previous session term_d1u" ] && pass "I2d the previous completed dispatch's taken-over terminal is closed before the stage starts" || fail "I2d ($out)"
+reset
+out=$(CL ctx_d1e); [ "$out" = "none" ] && pass "D1e a dispatch with no terminal gives none" || fail "D1e ($out)"
+reset; show ctx_d1e2 term_d1e2 released - false 1 "$APP" released
+printf '{"ok":true,"result":{"terminals":[{"handle":"term_other","lastOutputAt":1}],"totalCount":1,"truncated":false}}\n' > "$TMP/list-all.json"
+out=$(CL ctx_d1e2); [ "$out" = "none" ] && ! grep -q 'terminal close' "$TMP/calls" && pass "D1e a terminal Orca no longer lists gives none" || fail "D1e2 ($out)"
+reset; show ctx_d1f term_d1f user_owned user_takeover false 1 "$APP" released; touch "$TMP/close-fail"
+printf '{"ok":true,"result":{"terminals":[{"handle":"term_d1f","lastOutputAt":1}],"totalCount":1,"truncated":false}}\n' > "$TMP/list-all.json"
+out=$(CL ctx_d1f); [ "$out" = "kept term_d1f (close failed: terminal is busy)" ] && pass "D1f a failed close of a listed terminal is kept" || fail "D1f ($out)"
+out=$(CL 2>&1); code=$?; [ "$code" = 64 ] && pass "close without a dispatch is usage" || fail "close usage ($code $out)"
+# D1h: owned by another dispatch with user_takeover keeps today's behaviour
+reset; L set SPH-40 state=inbox dispatch=ctx_d1h >/dev/null; show ctx_d1h term_d1h user_owned user_takeover false 1 "$APP" released
+sed 's/"ownerDispatchId":"ctx_d1h"/"ownerDispatchId":"ctx_other"/' "$TMP/show-ctx_d1h.json" > "$TMP/x" && mv "$TMP/x" "$TMP/show-ctx_d1h.json"
+out=$(ST brief SPH-40); [ "$out" = "hold session term_d1h (user_takeover)" ] && ! grep -q 'terminal close' "$TMP/calls" && pass "D1h a released terminal owned by another dispatch still holds" || fail "D1h ($out)"
 # #119: a terminal Orca no longer lists is gone, whatever worker-show still says about it; a list
 # that cannot be read, or is cut short, proves nothing and keeps today's behaviour
 started_only() { [ "$(printf '%s\n' "$1" | wc -l | tr -d ' ')" = 1 ] && case "$1" in "started "*) true ;; *) false ;; esac; }

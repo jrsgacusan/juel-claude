@@ -8,6 +8,7 @@ import type {
   Loop,
   Overview,
   Project,
+  ProjectLoop,
   SlackState,
 } from "@/api/types"
 import { HOME } from "./fixtures"
@@ -37,7 +38,22 @@ describe("the mock API", () => {
     expect(
       loops.find((l) => l.id === "N-41")?.options.find((o) => o.recommended)
         ?.answer
-    ).toBe("go")
+    ).toBe("done")
+  })
+  it("lists every project's loops by rank, then project, then number", async () => {
+    const loops = await apiJson<ProjectLoop[]>(paths.allLoops())
+    expect(loops.map((l) => `${l.project}/${l.id}`)).toEqual([
+      "sphere-app/N-41",
+      "sphere-app/N-44",
+      "juel-claude/N-7",
+      "sphere-app/N-38",
+      "sphere-app/N-45",
+      "sphere-app/N-47",
+      "sphere-app/N-48",
+      "sphere-app/N-39",
+      "sphere-app/N-43",
+      "sphere-app/N-46",
+    ])
   })
   it("serves the shapes of the server's contract", async () => {
     const overview = await apiJson<Overview>(paths.overview(HOME))
@@ -51,7 +67,7 @@ describe("the mock API", () => {
       )
       expect(
         Object.keys(detail.record).every((k) =>
-          ["approval", "ci", "gate", "go"].includes(k)
+          ["approval", "ci", "gate"].includes(k)
         )
       ).toBe(true)
       expect(detail.pr?.startsWith("https://")).toBe(true)

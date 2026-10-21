@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react"
 import {
   CircleCheck,
   FileText,
-  Flag,
   GitMerge,
   GitPullRequest,
   Play,
@@ -34,14 +33,13 @@ import { usePage } from "@/lib/paginate"
 import { prLabel } from "@/lib/status"
 import { cn } from "@/lib/utils"
 
-// The four check cards read the release record the server sends (API contract, 2026-10-16).
-// Go, Codex gate, CI and Approval, one card per release-record key, each "Not recorded" when missing (brief D11). No Claude review card: the release record has no such line.
+// The three check cards read the release record the server sends (API contract, 2026-10-16).
+// Merge gate, CI and Approval, one card per release-record key, each "Not recorded" when missing (brief D11). No Claude review card: the release record has no such line.
 const RECORD: Record<
   keyof EvidenceRecord,
   { icon: LucideIcon; label: string }
 > = {
-  go: { icon: Flag, label: "Go" },
-  gate: { icon: ShieldCheck, label: "Codex gate" },
+  gate: { icon: ShieldCheck, label: "Merge gate" },
   ci: { icon: CircleCheck, label: "CI" },
   approval: { icon: UserCheck, label: "Approval" },
 }
@@ -335,7 +333,7 @@ export function EvidenceDetailView({
           </Button>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {RECORD_KEYS.map((key) => {
           const { icon: Icon, label } = RECORD[key]
           return (

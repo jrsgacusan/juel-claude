@@ -6,7 +6,6 @@ export type Decision = { id: string; title: string };
 export type Brief = {
   title: string | null;
   approved: string | null;
-  grant: string | null;
   criteria: string[];
   decisions: Decision[];
 };
@@ -22,14 +21,13 @@ const unquote = (v: string): string => {
 };
 
 /**
- * A brief's item.title, approved: and grant: from its frontmatter, the checklist under
+ * A brief's item.title, approved: from its frontmatter, the checklist under
  * `## Acceptance criteria`, and every `### D<n>` heading in its body.
  */
 export function parseBrief(text: string): Brief {
   const lines = text.split("\n");
   let title: string | null = null;
   let approved: string | null = null;
-  let grant: string | null = null;
   let body = 0;
   if ((lines[0] ?? "").trim() === "---") {
     let inItem = false;
@@ -48,8 +46,6 @@ export function parseBrief(text: string): Brief {
       if (inItem && t) title = unquote(t[1] ?? "") || null;
       const a = /^approved:\s*(.*)$/.exec(l);
       if (a) approved = unquote(a[1] ?? "") || null;
-      const g = /^grant:\s*(.*)$/.exec(l);
-      if (g) grant = unquote(g[1] ?? "") || null;
     }
   }
   const criteria: string[] = [];
@@ -62,7 +58,7 @@ export function parseBrief(text: string): Brief {
     const d = /^### (D\d+)\s+(.*)$/.exec(l);
     if (d) decisions.push({ id: d[1] ?? "", title: (d[2] ?? "").trim() });
   }
-  return { title, approved, grant, criteria, decisions };
+  return { title, approved, criteria, decisions };
 }
 
 export const briefRel = (project: string, item: string): string =>

@@ -148,7 +148,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
 
 **With `--unattended`**, nothing is asked:
-- A merge conflict in phase 2 that `merge-union.sh` cannot resolve: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop.
+- A merge conflict in phase 2 that `merge-union.sh` cannot resolve: with `--brief`, if a `## Decisions` entry names those files and a resolution, apply it as written; otherwise resolve them yourself, keeping both changes' intent, from both items' briefs and `## Decisions` and the sibling PR's diff and description, and record the resolution as a `## Decisions` line. Conclude the merge and continue; the caller runs the regression gate and the codex gate on the result. A file you cannot resolve (a binary file, a lockfile no install regenerates), or no `--brief`: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop. By hand, the rule stays: never resolve a conflict that is not mechanical.
 - Any ambiguous finding in phase 5: do not ask and do not execute anything, including the
   actionable findings, so a fix never ships half-decided. Print `AMBIGUOUS: <author> <file:line>
   <comment, trimmed> — <why it is ambiguous>` for each one and stop; the caller escalates them.
@@ -270,9 +270,10 @@ git status --porcelain
      caller's gates check the merge (`juel:babysit-pr` runs them right after this skill), and
      nothing is pushed on red.
    - Any other exit: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`).
-     Under `--unattended`, abort and print `CONFLICT:` per "Arguments". Otherwise ask via
-     `AskUserQuestion`: resolve the conflicts in this session, or `git merge --abort` and stop the
-     skill. Never resolve a conflict that is not mechanical, and never pick a side silently.
+     Under `--unattended`, resolve and record as "Arguments" says, or abort and print `CONFLICT:`
+     for a file it cannot resolve. By hand, ask via `AskUserQuestion`: resolve the conflicts in
+     this session, or `git merge --abort` and stop the skill. Never resolve a conflict that is not
+     mechanical, and never pick a side silently.
    - If the user chooses to resolve in-session: propose each file's resolution and apply it only
      after the user approves it. Then confirm no conflict markers remain
      (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
@@ -479,7 +480,7 @@ how to go on. The session runs a session task as
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
 fallback model (`latest-sol`, resolved the same way); then run the plan in this session with
-`superpowers:executing-plans`. Say each step in one line. Each of them resumes from the plan's
+`superpowers:executing-plans`. When the fallback model resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session. Say each step in one line. Each of them resumes from the plan's
 ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
 checked before it is edited, since the stop may have left it half applied.
 

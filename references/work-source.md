@@ -283,6 +283,14 @@ open, or a worktree setup must never silently also drop a comment). This is a ha
 capability-flag default; it applies even when the provider's `create`/`update_status` flags are
 otherwise satisfied.
 
+Under `juel:star` (`--unattended`), three posts go through without a preview or a per-instance
+confirmation:
+- filing a follow-up item;
+- writing the tracker status;
+- posting a report to the item STAR was handed.
+
+Run by hand, every rule above holds.
+
 ## 6. Authoring templates (extracted from `create-ticket`, provider-neutral)
 
 Extracted verbatim from `skills/create-ticket/SKILL.md` (formerly `create-linear-ticket`) Steps 5–7 (Steps 4–6 before the
@@ -376,3 +384,5 @@ Create this ticket? [Yes / Edit / Cancel]
 If user says **Edit**: apply their changes and re-preview. If **Cancel**: stop. If **Yes**: proceed.
 This step is MANDATORY for any provider-neutral authoring flow, exactly as it is today for
 `create-ticket` — never create a work item without showing this preview first.
+
+Under `juel:star` (`--unattended`), filing a follow-up item skips this preview; run by hand, it is never skipped.

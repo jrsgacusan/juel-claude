@@ -1,6 +1,6 @@
 #!/bin/sh
-# STAR's merge, the only place a PR is merged: under the owner's go, on the exact head.
-#   merge.sh <pr url> --head <sha> --grant <file> [--home <dir> --item <item>] [--dry-run]
+# STAR's merge, the only place a PR is merged: on the exact head, once the merge gate has passed.
+#   merge.sh <pr url> --head <sha> [--home <dir> --item <item>] [--hosted <login>] [--dry-run]
 # Prints one line and exits 0:
 #   MERGED <merge commit sha>
 #   DRY-RUN <method> <sha>   with --dry-run: everything checked, nothing posted or merged
@@ -11,28 +11,35 @@
 #                            again later (#167). <name> is the first double-quoted name in the
 #                            error, else "required checks". It is printed even when the PR state
 #                            cannot be read afterwards, since GitHub refused the merge
-#   FAIL <what>              live worker <dispatch>, ledger: …, grant: …, merge methods: …,
-#                            comment: …, head moved, or merge: …
+#   FAIL <what>              live worker <dispatch>, ledger: …, merge methods: …, owner branch <base>,
+#                            comment: …, settings: …, head moved, or merge: …
+# There is no grant: the merge gate (pr-verify.sh --merge-gate) is what lets STAR merge.
+# The home is --home, else $JUEL_STAR_HOME, else star-home.sh path. From its star.json it reads
+# mergeMethod and ownerBranches; a missing star.json means both are absent. A star.json that exists
+# but cannot be parsed (or is not a JSON object) is "FAIL settings: <why>": nothing posted, nothing
+# merged, exit 0.
 # With --home and --item (STAR passes both), before anything else it reads the item's ledger row
 # (#80). A row in a worker stage (briefing, building, babysitting, posting) is
 # "FAIL live worker <dispatch>": its worker may still push to the PR. The dispatch cell alone
 # decides nothing, since a verifying row still names its last babysit dispatch. An item with no
 # row is "FAIL ledger: <why>".
-# The grant file has a frontmatter block with date:, then the owner's words. The method is the
-# first of squash, merge and rebase the repository allows. Before merging it posts, once per head,
-# "Merging head <sha> under your go of <date>: "<words>"" (the words on one line, cut at 500
-# characters, sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
-# so GitHub itself refuses when the head moved.
-# The optional ownerApproval sentence is added only when no hosted reviewer exists, the owner grant
-# matches the author's login without case, the rule is none or required 0, and no latest head approval
-# by another writer remains. Anything unreadable leaves the sentence off and the merge goes ahead.
+# The method is mergeMethod when it is set: the repository must allow it, else
+# "FAIL merge methods: <method> not allowed" (nothing posted, nothing merged). With mergeMethod
+# null it is the first of squash, merge and rebase the repository allows. A PR whose base branch is
+# in ownerBranches is "FAIL owner branch <base>", before any comment or merge.
+# Before merging it posts, once per head, "Merging head <sha>: codex PASS, required checks green."
+# (", <login> passed." in place of the full stop only when --hosted <login> is given, which STAR
+# does exactly when it passed --hosted to the merge gate; star.json's hostedReviewer is not read
+# here; sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
+# so GitHub itself refuses when the head moved. The comment is skipped when the PR's author
+# already has one starting "Merging head <sha>:".
 # After the merge call, whatever it said, it reads the PR's state once. MERGED when GitHub says
 # merged, even if the call errored (gh can fail after the merge went through). A call that errored
 # on a PR that is not merged is the FAIL it names, or PENDING when GitHub waits for a required check, state read or not. A call that worked, followed by a state that
 # cannot be read, prints nothing and exits 69: the merge may or may not have happened, and the
 # next run of the merge gate says which.
-# Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, or missing
-# arguments.
+# Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, an unknown
+# argument (a grant file is no longer one), or missing arguments.
 # When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
@@ -45,7 +52,7 @@ import sys
 import tempfile
 
 METHODS = (("squashMergeAllowed", "squash"), ("mergeCommitAllowed", "merge"), ("rebaseMergeAllowed", "rebase"))
-WORKER_STATES = ("briefing", "building", "babysitting", "posting")  # step-check.sh's STATES
+WORKER_STATES = ("briefing", "building", "babysitting", "posting")  # worker-probe.sh's worker stages
 
 
 def out(line):
@@ -109,19 +116,19 @@ def live_worker(home, item):
     return (row.get("dispatch") or "-") if row.get("state") in WORKER_STATES else None
 
 
-args, pr, head, grant, dry, home, item = sys.argv[1:], None, None, None, False, None, None
+args, pr, head, dry, home, item, hosted = sys.argv[1:], None, None, False, None, None, None
 while args:
     arg = args.pop(0)
-    if arg in ("--head", "--grant", "--home", "--item"):
+    if arg in ("--head", "--home", "--item", "--hosted"):
         if not args:
             die(f"{arg} needs a value")
         value = args.pop(0)
         if arg == "--head":
             head = value.strip().lower()
-        elif arg == "--grant":
-            grant = value
         elif arg == "--home":
             home = value
+        elif arg == "--hosted":
+            hosted = value.strip() or None
         else:
             item = value
     elif arg == "--dry-run":
@@ -132,8 +139,8 @@ while args:
         pr = arg
     else:
         die(f"unexpected argument: {arg}")
-if not pr or not head or not grant:
-    die("usage: merge.sh <pr url> --head <sha> --grant <file> [--home <dir> --item <item>] [--dry-run]")
+if not pr or not head:
+    die("usage: merge.sh <pr url> --head <sha> [--home <dir> --item <item>] [--hosted <login>] [--dry-run]")
 if (home is None) != (item is None):
     die("--home and --item go together")
 if not re.fullmatch(r"[0-9a-f]{40}", head):
@@ -145,78 +152,63 @@ if home:
     live = live_worker(home, item)
     if live:
         out(f"FAIL live worker {live}")
-try:
-    text = open(grant, encoding="utf-8").read()
-except OSError as e:
-    out(f"FAIL grant: {e.strerror}: {grant}")
-fm = re.match(r"﻿?---\r?\n(.*?)\r?\n---\r?\n?(.*)", text, re.S)
-date = re.search(r"^date:\s*(\S.*?)\s*$", fm.group(1), re.M) if fm else None
-words = " ".join((fm.group(2) if fm else "").split())
-if not date or not words:
-    out(f"FAIL grant: no date or no words in {grant}")
-words = words if len(words) <= 500 else words[:497] + "..."
 use_star_token(home)
+
+
+def star_config():
+    """mergeMethod and ownerBranches from the home's star.json; absent when there is no star.json,
+    "FAIL settings" when there is one that cannot be parsed."""
+    cfg = home or os.environ.get("JUEL_STAR_HOME")
+    if not cfg:
+        script = os.path.join(os.environ["JUEL_SKILLS_DIR"], "star", "star-home.sh")
+        try:
+            proc = subprocess.run(["sh", script, "path"], capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+            cfg = (proc.stdout or "").splitlines()[0].strip() if proc.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired, IndexError):
+            cfg = ""
+    path = os.path.join(cfg, "star.json") if cfg else ""
+    data = {}
+    if path and os.path.exists(path):
+        try:
+            data = json.load(open(path, encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            out("FAIL settings: " + (str(e).splitlines() or ["unreadable"])[0][:120])
+        if not isinstance(data, dict):
+            out("FAIL settings: star.json is not a JSON object")
+    method = data.get("mergeMethod") if isinstance(data.get("mergeMethod"), str) and data.get("mergeMethod") else None
+    owners = [b for b in data.get("ownerBranches") or [] if isinstance(b, str)] if isinstance(data.get("ownerBranches"), list) else []
+    return method, owners
+
+
+want, owner_branches = star_config()
 r = run(["gh", "repo", "view", url.group(1), "--json", ",".join(k for k, _ in METHODS)], 60)
 allowed = as_json(r)
 if allowed is None:
     out("FAIL merge methods: " + (first(r) if r.returncode else "unreadable output"))
-method = next((name for key, name in METHODS if allowed.get(key) is True), None)
-if not method:
-    out("FAIL merge methods: the repository allows no merge method")
-if dry:
-    out(f"DRY-RUN {method} {head}")
-v = run(["gh", "pr", "view", pr, "--json", "author,comments,reviews,baseRefName"], 60)
+if want:
+    if allowed.get(dict((n, k) for k, n in METHODS).get(want, "")) is not True:
+        out(f"FAIL merge methods: {want} not allowed")
+    method = want
+else:
+    method = next((name for key, name in METHODS if allowed.get(key) is True), None)
+    if not method:
+        out("FAIL merge methods: the repository allows no merge method")
+v = run(["gh", "pr", "view", pr, "--json", "author,comments,baseRefName"], 60)
 d = as_json(v)
 if d is None:
     out("FAIL comment: " + (first(v) if v.returncode else "unreadable output"))
-def bare(login):
-    return login[:-5] if isinstance(login, str) and login.endswith("[bot]") else (login if isinstance(login, str) else "")
-
-
-def owner_self_approval(data):
-    if not home or not isinstance(data, dict):
-        return False
-    try:
-        star = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
-        grant = star.get("ownerApproval") if isinstance(star, dict) else None
-        if not isinstance(grant, dict) or bare(grant.get("login")).lower() != bare(author).lower() or not bare(author):
-            return False
-        if star.get("hostedReviewer") not in (None,):
-            return False
-        repo = url.group(1)
-        base = data.get("baseRefName") if isinstance(data.get("baseRefName"), str) else ""
-        script = os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh")
-        rr = run(["sh", script, repo, base], 125)
-        rule = (rr.stdout or "").splitlines()[0].strip() if rr.returncode == 0 and (rr.stdout or "").splitlines() else ""
-        if rule not in ("none", "required 0"):
-            return False
-        latest = {}
-        for index, review in enumerate(data.get("reviews") or []):
-            login = bare((review.get("author") or {}).get("login"))
-            if not login or review.get("state") not in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
-                continue
-            key = login.lower()
-            prior = latest.get(key)
-            stamp = str(review.get("submittedAt") or "")
-            if prior is None or (stamp, index) >= prior[0]:
-                latest[key] = ((stamp, index), review)
-        for login, (_, review) in latest.items():
-            if (review.get("state") == "APPROVED" and str((review.get("commit") or {}).get("oid") or "").lower() == head
-                    and login != bare(author).lower()
-                    and str(review.get("authorAssociation") or "").upper() in {"OWNER", "MEMBER", "COLLABORATOR"}):
-                return False
-        return True
-    except (OSError, ValueError, TypeError, AttributeError, IndexError):
-        return False
-
-
+base = d.get("baseRefName") if isinstance(d.get("baseRefName"), str) else ""
+if base and base in owner_branches:
+    out(f"FAIL owner branch {base}")
+if dry:
+    out(f"DRY-RUN {method} {head}")
 author = (d.get("author") or {}).get("login") or ""
-prefix = f"Merging head {head} under your go"
+prefix = f"Merging head {head}:"
 if not any(isinstance(c, dict) and (c.get("author") or {}).get("login") == author
            and str(c.get("body") or "").startswith(prefix) for c in d.get("comments") or []):
-    suffix = " Self-approved under the owner's grant: this repository has no second reviewer." if owner_self_approval(d) else ""
+    text = f"{prefix} codex PASS, required checks green" + (f", {hosted} passed." if hosted else ".")
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
-        f.write(f'{prefix} of {date.group(1)}: "{words}"{suffix}\n')
+        f.write(text + "\n")
         body = f.name
     try:
         c = run(["gh", "pr", "comment", pr, "--body-file", body], 60)

@@ -12,8 +12,7 @@ test("a merged item's files show, and an image and a text file open", async ({
     detail.getByRole("heading", { name: "Pause a member's seat" })
   ).toBeVisible()
   for (const text of [
-    "go for seat-pause and csv-import",
-    "2, last SAFE",
+    "Merging head 4f2a9c1e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39: codex PASS, required checks green.",
     "all passed",
     "Ria",
   ]) {

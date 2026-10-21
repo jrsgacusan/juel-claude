@@ -33,19 +33,18 @@ test("answering a loop writes the answer through loops.sh and nudges STAR", asyn
     )
 })
 
-test("a go-batch names its items by their ledger name", async ({ page }) => {
-  await openApp(page, "/sample/needs?loop=N-2")
+test("a person step shows its title and what it is for", async ({ page }) => {
+  await openApp(page, "/needs?project=sample&loop=N-2")
   const answer = page.getByRole("region", { name: "Answer" })
   await expect(
-    answer.getByRole("heading", { name: "Go for batch 1" })
+    answer.getByRole("heading", {
+      name: "Add the webhook secret to .env.local",
+    })
   ).toBeVisible()
-  await expect(
-    answer.getByText("invoice-export", { exact: true })
-  ).toBeVisible()
-  await expect(
-    answer.getByText("Export invoices as CSV", { exact: true })
-  ).toBeVisible()
-  await expect(answer.getByText(/\/Users\/owner\/star\/items/)).toHaveCount(0)
+  await expect(answer.getByText("Your step", { exact: true })).toBeVisible()
+  await expect(answer.getByText("kind: secret")).toBeVisible()
+  await expect(answer.getByRole("radio", { name: /^done/ })).toBeVisible()
+  await expect(answer.getByText("STAR recommends")).toHaveCount(0)
 })
 
 test.describe("on a phone", () => {
@@ -60,11 +59,11 @@ test.describe("on a phone", () => {
   }) => {
     await openApp(page)
     const list = page.getByRole("region", { name: "Open loops" })
-    await list.getByRole("button", { name: /Go for batch 1/ }).click()
+    await list.getByRole("button", { name: /Add the webhook secret/ }).click()
     await expect(
       page
         .getByRole("region", { name: "Answer" })
-        .getByRole("heading", { name: "Go for batch 1" })
+        .getByRole("heading", { name: "Add the webhook secret to .env.local" })
     ).toBeVisible()
     await expect(list).toBeHidden()
     await page.goBack()

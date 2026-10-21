@@ -3,13 +3,13 @@ import { goInApp, isPhone, noHorizontalScroll, openApp, openNav } from "./helper
 test("every page fits the width", async ({ page }) => {
   await openApp(page)
   for (const path of [
-    "/sphere-app/needs",
+    "/needs",
     "/sphere-app/progress?item=SPH-11",
     "/sphere-app/slack",
     "/sphere-app/briefing",
     "/sphere-app/evidence?item=SPH-4",
     "/sphere-app/accounts",
-    "/juel-claude/needs",
+    "/needs?project=juel-claude",
   ]) {
     await goInApp(page, path)
     if (isPhone(page) && path.endsWith("/briefing")) {
@@ -44,7 +44,7 @@ test("makes no request outside its own origin", async ({ page, baseURL }) => {
   page.on("request", (r) => urls.push(r.url()))
   await openApp(page)
   for (const path of [
-    "/sphere-app/needs",
+    "/needs",
     "/sphere-app/progress",
     "/sphere-app/slack",
     "/sphere-app/briefing",
@@ -70,7 +70,7 @@ test("the header shows the breadcrumb, the ⌘K hint and the theme switch", asyn
   ).toContainText("sphere-app")
   await expect(
     page.getByRole("navigation", { name: "breadcrumb" })
-  ).toContainText("Needs you")
+  ).toContainText("Progress")
   await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeVisible()
   await expect(page.getByLabel("System theme")).toBeVisible()
   if (isPhone(page))
@@ -85,7 +85,7 @@ test("the sidebar lists Chat between Progress and Slack replies", async ({ page 
   await openNav(page)
   const sections = page.getByRole("list", { name: "Sections" })
   await expect(sections.getByRole("link"))
-    .toHaveText(["Needs you", "Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
+    .toHaveText(["Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
   await sections.getByRole("link", { name: "Chat", exact: true }).click()
   await expect(page).toHaveURL(/\/sphere-app\/chat$/)
 })

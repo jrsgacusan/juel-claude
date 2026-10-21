@@ -7,9 +7,6 @@ import { readProgress } from "../readers/progress.ts";
 import { readLedger, readQueue } from "../readers/star.ts";
 import type { Router } from "../router.ts";
 
-const counterOf = (counters: string, key: string): string | null =>
-  new RegExp(`(?:^|\\s)${key}=(\\S+)`).exec(counters)?.[1] ?? null;
-
 export type ItemStatus =
   | "needs-you"
   | "stopped"
@@ -26,19 +23,11 @@ export function statusOf(
 ): ItemStatus {
   if (row.state === "done") return "merged";
   if (row.state === "dropped") return "dropped";
-  if (row.state === "escalated" || row.state === "failed") return "stopped";
-  const batch = counterOf(row.counters, "batch");
-  const named = open.some(
-    (n) =>
-      n.item === row.item ||
-      (n.kind === "go-batch" &&
-        ((batch !== null && n.item === batch) ||
-          n.body.some((l) => l.trim() === row.item))),
-  );
-  if (named) return "needs-you";
-  if (["inbox", "briefing", "brief-ready"].includes(row.state))
-    return "briefing";
-  if (["building", "posting", "post-queued", "reported"].includes(row.state))
+  if (row.state === "set-aside") return "stopped";
+  if (row.state === "needs-you" || open.some((n) => n.item === row.item))
+    return "needs-you";
+  if (["inbox", "briefing"].includes(row.state)) return "briefing";
+  if (["building", "posting", "post-queued"].includes(row.state))
     return "building";
   if (["babysit-queued", "babysitting", "verifying"].includes(row.state))
     return "in-review";

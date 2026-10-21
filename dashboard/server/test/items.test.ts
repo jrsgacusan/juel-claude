@@ -139,8 +139,7 @@ test("GET evidence: merged items with evidence, and one item's files in one grou
       record: {
         approval: "a-teammate",
         ci: "all passed",
-        gate: "1",
-        go: "go, ship the rounding fix",
+        gate: "Merging head 0b8e4c3d2a1f: codex PASS, required checks green.",
       },
       groups: [
         {
@@ -186,15 +185,18 @@ test("GET evidence: merged items with evidence, and one item's files in one grou
   }
 });
 
-test("every status: a direct queue item, an unbatched brief, dropped and escalated", async () => {
+test("every status: a queue item, needs-you, post-queued, dropped and set aside", async () => {
   const env = await setup();
   try {
     const row = (item: string, state: string, counters: string): string =>
       `| ${item} | #x | app | - | ${state} | build | 0 | - | - | 0 | - | - | - | - | ${counters} | 2026-10-15T09:00:00Z |\n`;
     fs.appendFileSync(
       path.join(env.star, "ledger.md"),
-      row("issue-8", "brief-ready", "batch=B-9") +
-        row("issue-9", "dropped", "-") + row("issue-10", "escalated", "-"),
+      row("issue-8", "needs-you", "batch=B-9") +
+        row("issue-9", "dropped", "-") +
+        row("issue-10", "set-aside", "-") +
+        row("issue-11", "post-queued", "-") +
+        row("issue-12", "inbox", "batch=issue-2"),
     );
     const q = path.join(env.star, "open-loops.md");
     fs.writeFileSync(
@@ -205,8 +207,8 @@ test("every status: a direct queue item, an unbatched brief, dropped and escalat
           "## Waiting on others",
           [
             "### N-20 · app · issue-3 · which copy for the button?",
-            "kind: question",
-            "msg: m-2",
+            "kind: person",
+            "kind: account",
             "Answer:",
             "",
             "## Waiting on others",
@@ -219,9 +221,14 @@ test("every status: a direct queue item, an unbatched brief, dropped and escalat
     }[];
     const status = Object.fromEntries(items.map((i) => [i.item, i.status]));
     assert.equal(status["issue-3"], "needs-you");
-    assert.equal(status["issue-8"], "briefing");
+    assert.equal(status["issue-2"], "needs-you");
+    assert.equal(status["issue-8"], "needs-you");
     assert.equal(status["issue-9"], "dropped");
     assert.equal(status["issue-10"], "stopped");
+    assert.equal(status["issue-11"], "building");
+    assert.equal(status["issue-5"], "stopped");
+    // no go-batch: a batch= counter never matches a queue item
+    assert.equal(status["issue-12"], "briefing");
   } finally {
     await env.close();
   }

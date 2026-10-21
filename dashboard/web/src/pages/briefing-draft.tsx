@@ -245,7 +245,7 @@ export function DraftPanel({
           {existingRef ? `Created ${existingRef}` : label}
         </Button>
         <p className="-mt-2 text-center text-xs text-muted-foreground">
-          Your go for the build comes later, in Needs you.
+          STAR builds it once the brief is drafted, and asks you only for what a person must supply.
         </p>
       </div>
     </section>

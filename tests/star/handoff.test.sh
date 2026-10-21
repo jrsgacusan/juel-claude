@@ -12,17 +12,17 @@ H="$TMP/home"; mkdir -p "$H"
 T="$ROOT/skills/star/template"
 cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$H/"
 L() { sh "$ROOT/skills/star/loops.sh" --file "$H/open-loops.md" "$@"; }
-L add --kind go-batch --project lstn --item B-1 --title "go for batch B-1: 1 item" >/dev/null
-L add --kind held --project web --item issue-12 --title "PR #12 waits for an approval from someone other than you" >/dev/null
-L add --kind question --project lstn --item SAVI-2 --title "which queue?" >/dev/null
-L add --kind held --project web --item issue-9 --title "set status in_review" >/dev/null
+L add --kind person --project lstn --item B-1 --title "paste the Stripe key" --body "kind: secret" >/dev/null
+L add --kind set-aside --project web --item issue-12 --title "issue-12 set aside: the gate never passed" --body "step: gate" >/dev/null
+L add --kind person --project lstn --item SAVI-2 --title "log in to the vendor console" --body "kind: screen" >/dev/null
+L add --kind draft --project web --item issue-9 --title "by hand: set status in_review" --body "action: set status" >/dev/null
 row() { printf '| %s | %s | %s | /w/%s | %s | - | 1 | t | d | 0 | %s | abc1234 | - | - | - | %s |\n' "$1" "$1" "$2" "$1" "$3" "$4" "$5" >> "$H/ledger.md"; }
-row SAVI-1 lstn brief-ready - 2026-10-07T12:00:00Z
+row SAVI-1 lstn needs-you - 2026-10-07T12:00:00Z
 row SAVI-2 lstn building - 2026-10-07T12:30:00Z
 row issue-12 web verifying https://github.com/o/web/pull/12 2026-10-07T12:40:00Z
 row issue-7 web done https://github.com/o/web/pull/7 2026-10-07T15:00:00Z
 row issue-3 web done https://github.com/o/web/pull/3 2026-10-06T09:00:00Z
-row SAVI-5 lstn escalated - 2026-10-07T11:00:00Z
+row SAVI-5 lstn set-aside - 2026-10-07T11:00:00Z
 printf '2026-10-07T12:59:00Z\tlstn\tSAVI-2\told message before leaving\n2026-10-07T14:10:00Z\tweb\tissue-12\tbabysit: 2 replies, 1 review request\n' > "$H/sent.log"
 HO() { STAR_NOW="$1" STAR_MEM_GB=5 sh "$SCRIPT" --home "$H" "$2" ${3:-} ${4:-}; }
 away() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("away"))' "$H/star.json"; }
@@ -34,9 +34,10 @@ F="$H/handoff.md"
 [ "$(away)" = 2026-10-07T13:00:00Z ] && pass "away recorded in star.json" || fail "away not recorded ($(away))"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["maxParallel"]==3 and "worker" in d' "$H/star.json" && pass "star.json keeps its other settings" || fail "star.json damaged"
 sec() { sed -n "/^### $1/,/^##/p" "$F"; }
-sec "A\." | grep -q 'N-1 · lstn · B-1 · go for batch' && sec "A\." | grep -q 'N-3 · lstn · SAVI-2 · which queue' && ! sec "A\." | grep -q 'N-2' && pass "A: what blocks work" || fail "part A"
-sec "B\." | grep -q 'N-2 · web · issue-12 · PR #12 waits' && sec "B\." | grep -q 'N-4 · web · issue-9' && ! sec "B\." | grep -q 'N-1 ' && pass "B: what can wait" || fail "part B"
+sec "A\." | grep -q 'N-1 · lstn · B-1 · paste the Stripe key' && sec "A\." | grep -q 'N-3 · lstn · SAVI-2 · log in' && ! sec "A\." | grep -q 'N-2' && ! sec "A\." | grep -q 'N-4' && pass "C3a: only person items block work" || fail "part A"
+sec "B\." | grep -q 'N-2 · web · issue-12 · issue-12 set aside' && sec "B\." | grep -q 'N-4 · web · issue-9' && ! sec "B\." | grep -q 'N-1 ' && pass "C3a: a set-aside item and a draft are listed under what waits" || fail "part B"
 sec "C\." | grep -q 'lstn · SAVI-2 · building' && sec "C\." | grep -qi 'draft PR' && ! sec "C\." | grep -q 'issue-7' && pass "C: what runs overnight, finished items left out" || fail "part C"
+sec "C\." | grep -q 'lstn · SAVI-1 · needs-you: waits on you' && sec "C\." | grep -q 'lstn · SAVI-5 · set-aside: set aside' && pass "C3b: a needs-you row waits on the owner and a set-aside row is set aside" || fail "part C states"
 grep -q 'open-loops.md' "$F" && ! grep -q '^Answer:' "$F" && pass "one place to answer: no Answer slots here" || fail "answer slots duplicated"
 
 [ "$(HO 2026-10-07T13:30:00Z due --hours 4)" = not-due ] && [ "$(HO 2026-10-07T17:01:00Z due --hours 4)" = due ] && pass "a summary is due 4 hours after leaving" || fail "due"
@@ -44,7 +45,8 @@ HO 2026-10-07T17:01:00Z summary >/dev/null
 S1=$(sed -n '/^### 2026-10-07T17:01:00Z/,/^### /p' "$F")
 printf '%s\n' "$S1" | grep -q 'waiting to merge.*web issue-12' && pass "summary: PRs waiting to merge" || fail "summary PRs waiting to merge"
 printf '%s\n' "$S1" | grep -q 'Merged since.*web issue-7' && ! printf '%s\n' "$S1" | grep -q 'issue-3' && pass "summary: merged since the last one only" || fail "summary merged"
-printf '%s\n' "$S1" | grep -q 'Stopped.*lstn SAVI-5' && pass "summary: escalated and failed items" || fail "summary stopped"
+printf '%s\n' "$S1" | grep -q 'Set aside.*lstn SAVI-5' && pass "summary: set-aside items" || fail "summary stopped"
+! grep -qiE 'grant|your go|batch go|Approved, not started' "$F" && pass "C3c: no line of the handoff mentions a grant or a go" || fail "C3c: $(grep -iE 'grant|your go|batch go|Approved' "$F")"
 printf '%s\n' "$S1" | grep -q 'babysit: 2 replies, 1 review request' && ! printf '%s\n' "$S1" | grep -q 'old message before leaving' && pass "summary: messages sent since the last one only" || fail "summary sent"
 printf '%s\n' "$S1" | grep -q 'Host: 5 GB' && pass "summary: host health" || fail "summary host"
 [ "$(printf '%s\n' "$S1" | grep -c 'N-[1-4] ')" -ge 1 ] && for n in 1 2 3 4; do printf '%s\n' "$S1" | grep -q "N-$n" || fail "summary misses N-$n"; done; pass "summary: the full needs-you list"
@@ -69,7 +71,7 @@ rown() { printf '| %s | %s | p | /w/%s | %s | - | 1 | t | d | 0 | %s | abc1234 |
 rown a queued - 2026-10-07T12:00:00Z
 rown b verifying 'https://x/pull/1' 2026-10-07T12:00:00Z
 printf '| c | c | p | /w/c | verifying | - | 1 | t | d | 0 | https://x/pull/2 | abc1234 | - | - | 2026-10-07T12:00:00Z |\n' >> "$N/ledger.md"
-printf '| d | d | p | /w/d | escalated | - | 1 | t | d | 0 | - | abc1234 | a \\| b | - | - | 2026-10-07T12:00:00Z |\n' >> "$N/ledger.md"
+printf '| d | d | p | /w/d | set-aside | - | 1 | t | d | 0 | - | abc1234 | a \\| b | - | - | 2026-10-07T12:00:00Z |\n' >> "$N/ledger.md"
 printf '| e | e | p | /w/e | done | - | 1 | t | d | 0 | https://x/pull/5 | abc1234 | - | - | - | 2026-10-07 15:30 |\n' >> "$N/ledger.md"
 HN 2026-10-07T13:00:00Z start >/dev/null
 grep -q 'p · a · queued: ' "$N/handoff.md" && pass "a build waiting for a slot is listed under what runs" || fail "queued missing from part C"
@@ -77,7 +79,7 @@ grep -q '1 ledger row' "$N/handoff.md" && pass "start says when a ledger row cou
 HN 2026-10-07T17:01:00Z summary >/dev/null
 SN=$(sed -n '/^### 2026-10-07T17:01:00Z/,/^### /p' "$N/handoff.md")
 printf '%s\n' "$SN" | grep -q 'Ledger rows unreadable: 1' && pass "summary says when a ledger row could not be read" || fail "summary hid an unreadable ledger row"
-printf '%s\n' "$SN" | grep -q 'Stopped.*p d (escalated)' && pass "an escaped pipe in a cell does not drop the row" || fail "escaped pipe dropped a row"
+printf '%s\n' "$SN" | grep -q 'Set aside.*p d' && pass "an escaped pipe in a cell does not drop the row" || fail "escaped pipe dropped a row"
 printf '%s\n' "$SN" | grep -q 'workers running: 0' && pass "a queued build is not a running worker" || fail "queued counted as running"
 printf '%s\n' "$SN" | grep -q 'Merged since.*p e' && pass "a date with a space instead of T still counts" || fail "space-separated date ignored"
 out=$(HN 2026-10-07T18:00:00Z start 2>/dev/null)
@@ -146,63 +148,30 @@ mkdir -p "$TMP/noproj"; err=$(cd "$TMP/noproj" && env -u JUEL_STAR_HOME sh "$SCR
 
 # The states the intake and report items added are listed too, and their workers counted
 R="$TMP/r"; mkdir -p "$R"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$R/"
-for st in babysit-queued babysitting reported post-queued posting; do
+for st in babysit-queued babysitting needs-you post-queued posting; do
   printf '| %s | %s | p | /w/%s | %s | - | 1 | t | d | 0 | - | abc1234 | - | - | - | 2026-10-07T12:00:00Z |\n' "$st" "$st" "$st" "$st" >> "$R/ledger.md"
 done
 STAR_NOW=2026-10-07T13:00:00Z sh "$SCRIPT" --home "$R" start >/dev/null
-for st in babysit-queued babysitting reported post-queued posting; do
+for st in babysit-queued babysitting needs-you post-queued posting; do
   grep -q "p · $st · $st: " "$R/handoff.md" && pass "part C lists a $st row" || fail "part C misses $st"
 done
 STAR_NOW=2026-10-07T17:01:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$R" summary >/dev/null
 sed -n '/^### 2026-10-07T17:01:00Z/,/^### /p' "$R/handoff.md" | grep -q 'workers running: 2' && pass "babysitting and posting count as running workers" || fail "running workers miss babysitting/posting"
 
-grep -q 'everything keeps running' "$H/handoff.md" && grep -q 'merges under your go' "$H/handoff.md" && ! grep -q 'Nothing is merged' "$H/handoff.md" && pass "the handoff says the loop runs while you are away" || fail "away text"
+ grep -q 'everything keeps running' "$H/handoff.md" && grep -q 'merges once the merge gate holds' "$H/handoff.md" && ! grep -q 'Nothing is merged' "$H/handoff.md" && pass "the handoff says the loop runs while you are away" || fail "away text"
 
-# audit lane b: approved work that has not started, and a summary only when something changed
-Q="$TMP/q"; mkdir -p "$Q/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$Q/"
+# audit lane b: a summary only when something changed; no approved line any more (C3c)
+Q="$TMP/q"; mkdir -p "$Q"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$Q/"
 qrow() { printf '| %s | %s | web | /w/%s | %s | - | 1 | t | d | 0 | %s | abc1234 | - | - | - | %s |\n' "$1" "$1" "$1" "$2" "-" "${3:-2026-10-07T12:00:00Z}" >> "$Q/ledger.md"; }
-brief() { printf -- '---\nitem: %s\n%s\n---\n# brief\n' "$1" "$2" > "$Q/briefs/web/$1.md"; }
 HQ() { STAR_NOW="$1" STAR_MEM_GB="${MEM:-5}" sh "$SCRIPT" --home "$Q" "$2" ${3:-} ${4:-}; }
 qrow Q1 queued; qrow B1 building
-brief Q1 'blockedBy: [B1]
-approved: 2026-10-07T10:00:00Z
-grant: /g/1.md'
 HQ 2026-10-07T09:00:00Z start >/dev/null
 HQ 2026-10-07T13:00:00Z summary >/dev/null
-sq() { sed -n "/^### $1/,/^### /p" "$Q/handoff.md"; }
-sq 2026-10-07T13:00:00Z | grep -qxF -- '- Approved, not started: Q1 (waits on B1, 3 h)' && pass "approved line: waits on its blocker" || fail "approved blocker line: $(sq 2026-10-07T13:00:00Z | grep Approved)"
-sed -i.bak 's/| B1 | \(.*\)| building |/| B1 | \1| done |/' "$Q/ledger.md"; rm -f "$Q/ledger.md.bak"
-brief Q1 'blockedBy: [B1]
-notBefore: 2026-10-09T00:00:00+08:00
-approved: 2026-10-07T10:00:00Z
-grant: /g/1.md'
-HQ 2026-10-07T17:30:00Z summary >/dev/null
-sq 2026-10-07T17:30:00Z | grep -qxF -- '- Approved, not started: Q1 (waits until 2026-10-09, 7 h)' && pass "approved line: waits until notBefore" || fail "approved notBefore line: $(sq 2026-10-07T17:30:00Z | grep Approved)"
-brief Q1 'approved: 2026-10-07T10:00:00Z
-grant: /g/1.md'
-HQ 2026-10-07T22:00:00Z summary >/dev/null
-sq 2026-10-07T22:00:00Z | grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 12 h)' && pass "approved line: waits for a build slot" || fail "approved slot line"
-V="$TMP/v"; mkdir -p "$V/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$V/"
-Qs="$Q"; Q="$V"; qrow Q1 queued; brief Q1 'approved: 2026-10-07T10:00:00Z
-grant: /g/1.md'; Q="$Qs"
-STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$V" start >/dev/null
-STAR_NOW=2026-10-09T13:00:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$V" summary >/dev/null
-grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 2 d)' "$V/handoff.md" && pass "approved line: age in days from 48 h" || fail "approved age: $(grep Approved "$V/handoff.md")"
-brief Q1 'approved:'
-qrow Q2 brief-ready; brief Q2 'grant: /g/2.md'
-HQ 2026-10-10T13:00:00Z summary >/dev/null
-sq 2026-10-10T13:00:00Z | grep -qxF -- '- Approved, not started: none' && pass "approved line: no grant and brief-ready rows are not listed" || fail "approved none: $(sq 2026-10-10T13:00:00Z | grep Approved)"
-qrow Q3 queued; qrow Q4 queued
-brief Q1 'approved: 2026-10-10T12:00:00Z
-grant: /g/1.md'; brief Q3 'approved: 2026-10-10T11:00:00Z
-grant: /g/3.md'; rm -f "$Q/briefs/web/Q4.md"
-HQ 2026-10-10T18:00:00Z summary >/dev/null
-sq 2026-10-10T18:00:00Z | grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 6 h); Q3 (waits for a build slot, 7 h); Q4 (brief unreadable)' && pass "approved line: several rows in ledger order, an unreadable brief named" || fail "approved several: $(sq 2026-10-10T18:00:00Z | grep Approved)"
+! grep -qiE 'grant|Approved, not started|your go' "$Q/handoff.md" && pass "C3c: a summary has no approved line, grant or go" || fail "C3c summary: $(grep -iE 'grant|Approved|your go' "$Q/handoff.md")"
 
 # unchanged: host memory and ages do not count; a merge does
-U="$TMP/u"; mkdir -p "$U/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$U/"
-Q="$U"; qrow Q1 queued; brief Q1 'approved: 2026-10-07T10:00:00Z
-grant: /g/1.md'
+U="$TMP/u"; mkdir -p "$U"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$U/"
+Q="$U"; qrow Q1 queued
 HU() { STAR_NOW="$1" STAR_MEM_GB="${MEM:-5}" sh "$SCRIPT" --home "$U" "$2" ${3:-} ${4:-}; }
 HU 2026-10-07T09:00:00Z start >/dev/null
 HU 2026-10-07T13:00:00Z summary >/dev/null
@@ -226,22 +195,11 @@ O="$TMP/o"; mkdir -p "$O"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "
 STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$O" start >/dev/null
 python3 - "$O/handoff.md" <<'PY3'
 import sys
-p = sys.argv[1]; s = open(p).read().replace("## Summaries\n", "## Summaries\n\n### 2026-10-07T10:00:00Z\n- Items: none open\n- PRs waiting to merge: none\n- Merged since the last summary: none\n- Stopped, waiting for your answer: none\n- Sent since the last summary: nothing\n- Host: 5 GB free + inactive; workers running: 0\n- Needs you: nothing\n", 1)
+p = sys.argv[1]; s = open(p).read().replace("## Summaries\n", "## Summaries\n\n### 2026-10-07T10:00:00Z\n- Items: none open\n- PRs waiting to merge: none\n- Merged since the last summary: none\n- Stopped, waiting for your answer: none\n- Approved, not started: none\n- Sent since the last summary: nothing\n- Host: 5 GB free + inactive; workers running: 0\n- Needs you: nothing\n", 1)
 open(p, "w").write(s)
 PY3
 STAR_NOW=2026-10-07T14:30:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$O" summary --if-due >/dev/null
-[ "$(grep -c '^### 2026-' "$O/handoff.md")" = 2 ] && grep -q 'Approved, not started: none' "$O/handoff.md" && pass "a newest block without the Approved line is not equal: the next due summary is written" || fail "old-format block"
-
-# audit lane A2: a blockedBy line may carry a trailing comment
-W="$TMP/w"; mkdir -p "$W/briefs/web"; cp "$T/open-loops.md" "$T/ledger.md" "$T/star.json" "$W/"
-Qs="$Q"; Q="$W"; qrow Q1 queued
-brief Q1 'blockedBy: []   # each with a decision record: - <date> blocked by <item>: <reason>
-approved: 2026-10-07T10:00:00Z
-grant: /g/1.md'
-Q="$Qs"
-STAR_NOW=2026-10-07T09:00:00Z sh "$SCRIPT" --home "$W" start >/dev/null
-STAR_NOW=2026-10-07T23:00:00Z STAR_MEM_GB=5 sh "$SCRIPT" --home "$W" summary >/dev/null
-grep -qxF -- '- Approved, not started: Q1 (waits for a build slot, 13 h)' "$W/handoff.md" && pass "a blockedBy line with a comment waits for a build slot" || fail "blockedBy comment: $(grep Approved "$W/handoff.md")"
+[ "$(grep -c '^### 2026-' "$O/handoff.md")" = 2 ] && [ "$(grep -c 'Approved, not started' "$O/handoff.md")" = 1 ] && pass "a newest block from before this version (with an Approved line) is not equal: the next due summary is written" || fail "old-format block"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

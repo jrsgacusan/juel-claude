@@ -63,7 +63,10 @@ test("Progress opens on Running", async ({ page }) => {
   const running = page.getByRole("tab", { name: /^Running\s*\d+$/ })
   await expect(running).toHaveAttribute("aria-selected", "true")
   const count = Number((await running.textContent())?.match(/\d+/)?.[0] ?? "0")
-  await expect(page.getByRole("table").getByRole("button")).toHaveCount(count)
+  // with nothing running the table holds only its empty state and its one button
+  if (count === 0)
+    await expect(page.getByRole("button", { name: "Show all items" })).toBeVisible()
+  else await expect(page.getByRole("table").getByRole("button")).toHaveCount(count)
   await expect(
     page.getByRole("button", { name: /^invoice-export / })
   ).toHaveCount(0)

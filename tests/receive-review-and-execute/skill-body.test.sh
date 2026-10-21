@@ -80,5 +80,13 @@ has "C158j the dispatch prompt carries the stop sentence" ' Stop before task <N>
 has "C158k a ran line is a failed run" '`ran <N>` line is a failed run'
 has "C158l an unattended run stops with a STOPPED line babysit escalates" 'print `STOPPED: the executor ran session task <N>` and stop, before any gate or push'
 ! grep -qF 'ESCALATION item=<item> phase=4 reason=codex-failed needs=the executor ran session task' "$SKILL" && pass "C158l2 no ESCALATION line of its own" || fail "C158l2 ESCALATION line in receive-review-and-execute"
+# lane e: STAR autonomy
+has "AU1 an unattended conflict applies a Decisions entry as written" 'if a `## Decisions` entry names those files and a resolution, apply it as written'
+has "AU2 otherwise it resolves from both briefs and the sibling PR" 'resolve them yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
+has "AU3 the resolution is recorded in Decisions" 'record the resolution as a `## Decisions` line'
+has "AU4 the caller runs the gates on the result" 'the caller runs the regression gate and the codex gate on the result'
+has "AU5 By hand the rule stays" 'By hand, the rule stays: never resolve a conflict that is not mechanical.'
+has "AU6 the four internal words stay for babysit" 'AMBIGUOUS:'
+has "AU7 the fallback equal to the executor is no fallback" 'resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

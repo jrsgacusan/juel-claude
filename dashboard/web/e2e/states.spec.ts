@@ -28,7 +28,7 @@ for (const pageName of [
       if (scenario === "empty") {
         const body = {
           needs:
-            "When STAR waits on an answer, a go or one of your steps, it shows here.",
+            "When STAR waits on one of your steps, a draft or a Slack reply, it shows here.",
           progress:
             "Items show here once STAR takes work: type /juel:star <brief> in the project.",
           slack:

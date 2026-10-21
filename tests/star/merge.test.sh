@@ -27,17 +27,16 @@ case "$1 $2" in
 esac
 EOF
 chmod +x "$TMP/bin/gh"
-grant() { printf -- '---\ndate: 2026-10-09T08:00:00Z\nitems: [ITEM-1]\n---\n%s\n' "$1" > "$TMP/grant.md"; }
 state() { # state <GitHub's word for the PR after the merge call>
   printf '{"state":"%s","mergeCommit":{"oid":"9e8d7c6b5a49382716051423324150617e8f9a0b"}}\n' "$1" > "$TMP/state.json"
 }
-reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json"; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[]}\n' > "$TMP/pr.json"; state MERGED; grant "go"; }
-M() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" "$@"; }
+reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json"; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[],"baseRefName":"dev"}\n' > "$TMP/pr.json"; state MERGED; }
+M() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" "$@"; }
 
 reset; out=$(M)
 [ "$out" = "MERGED 9e8d7c6b5a49382716051423324150617e8f9a0b" ] && pass "with no window it merges" || fail "merge ($out)"
 grep -q "pr merge $PR --squash --match-head-commit $HEAD" "$TMP/calls" && pass "squash first, pinned to the head" || fail "merge call ($(cat "$TMP/calls"))"
-[ "$(cat "$TMP/posted")" = "Merging head $HEAD under your go of 2026-10-09T08:00:00Z: \"go\"" ] && pass "the go is quoted on the PR first" || fail "comment ($(cat "$TMP/posted"))"
+[ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green." ] && pass "B1g the comment names the gates, with no hosted reviewer" || fail "comment ($(cat "$TMP/posted"))"
 reset; out=$(M --quiet-hours "22:00-07:00@UTC" 2> "$TMP/err"); rc=$?
 [ "$rc" -eq 64 ] && [ -z "$out" ] && [ ! -f "$TMP/calls" ] && grep -qx 'merge.sh: unknown argument: --quiet-hours' "$TMP/err" && pass "--quiet-hours is refused with 64 and nothing happens" || fail "quiet flag (rc=$rc, out=$out, err=$(cat "$TMP/err"))"
 reset; printf '{"squashMergeAllowed":false,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"
@@ -47,8 +46,8 @@ reset; printf '{"squashMergeAllowed":false,"mergeCommitAllowed":false,"rebaseMer
 out=$(M); [ "$out" = "FAIL merge methods: the repository allows no merge method" ] && ! grep -q 'pr merge' "$TMP/calls" && pass "no allowed method is a FAIL" || fail "no method ($out)"
 reset; touch "$TMP/repo-fail"
 out=$(M); [ "$out" = "FAIL merge methods: HTTP 403: Resource not accessible" ] && pass "unreadable settings are a FAIL, never a guess" || fail "repo fail ($out)"
-reset; printf '{"author":{"login":"me"},"comments":[{"author":{"login":"me"},"body":"Merging head %s under your go of 2026-10-09T08:00:00Z: \\"go\\""}]}\n' "$HEAD" > "$TMP/pr.json"
-out=$(M); [ ! -f "$TMP/posted" ] && case "$out" in "MERGED "*) true ;; *) false ;; esac && pass "the grant comment is posted once per head" || fail "comment twice ($out)"
+reset; printf '{"author":{"login":"me"},"comments":[{"author":{"login":"me"},"body":"Merging head %s: codex PASS, required checks green."}]}\n' "$HEAD" > "$TMP/pr.json"
+out=$(M); [ ! -f "$TMP/posted" ] && case "$out" in "MERGED "*) true ;; *) false ;; esac && pass "B1j the merge comment is posted once per head" || fail "comment twice ($out)"
 reset; printf 'GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN
 out=$(M); [ "$out" = "FAIL head moved" ] && pass "a moved head is FAIL head moved" || fail "moved ($out)"
 reset; printf 'GraphQL: Pull request is not mergeable (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN
@@ -69,28 +68,16 @@ out=$(M 2>/dev/null); rc=$?
 [ -z "$out" ] && [ "$rc" -ne 0 ] && [ "$rc" -ne 64 ] && pass "a state with no state in it is just as unreadable" || fail "no state field (rc=$rc, out=$out)"
 reset; state OPEN
 out=$(M); [ "$out" = "FAIL merge: GitHub says OPEN after the merge call" ] && pass "a merge call that worked on a PR GitHub says is open is a FAIL" || fail "open after a good call ($out)"
-# Review Focus 4: quotes, line breaks and a long message go through --body-file, cut at 500
-reset; long=$(python3 -c 'print("say \"yes\" and $(rm -rf x) `id` " * 80)'); grant "$(printf 'line one\nline two %s' "$long")"
-out=$(M); case "$out" in "MERGED "*) pass "an awkward go message still merges" ;; *) fail "awkward go ($out)" ;; esac
-grep -q -- "--body-file" "$TMP/calls" && ! grep -q -- "--body " "$TMP/calls" && pass "the comment goes through a file" || fail "body flag"
-python3 - "$TMP/posted" <<'PY' && pass "the words are kept on one line and cut at 500 characters" || fail "cut"
-import sys
-t = open(sys.argv[1]).read()
-words = t.split(': "', 1)[1].rstrip().rstrip('"')
-assert "\n" not in t.rstrip("\n") and len(words) == 500 and words.endswith("...") and words.startswith("line one line two"), (len(words), t[:80])
-PY
 reset; out=$(M --dry-run); [ "$out" = "DRY-RUN squash $HEAD" ] && ! grep -q 'pr merge\|pr comment' "$TMP/calls" && pass "a dry run posts and merges nothing" || fail "dry run ($out)"
-reset; printf -- '---\nitems: [ITEM-1]\n---\n\n' > "$TMP/grant.md"
-out=$(M); case "$out" in "FAIL grant: no date or no words"*) pass "a grant with no words is a FAIL" ;; *) fail "empty grant ($out)" ;; esac
-PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head abc1234 --grant "$TMP/grant.md" >/dev/null 2>&1; [ $? -eq 64 ] && pass "a short head is 64" || fail "usage head"
-PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" >/dev/null 2>&1; [ $? -eq 64 ] && pass "no grant is 64" || fail "usage grant"
+PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head abc1234 >/dev/null 2>&1; [ $? -eq 64 ] && pass "a short head is 64" || fail "usage head"
+reset; out=$(M --grant "$TMP/g.md" 2>/dev/null); rc=$?; [ "$rc" -eq 64 ] && [ -z "$out" ] && [ ! -f "$TMP/calls" ] && pass "B1a --grant is unknown argument, 64" || fail "B1a ($rc, $out)"
 # with --home and --item, a head a worker may still push to is never merged (#80)
 APP="$TMP/app"; mkdir -p "$APP"; (cd "$APP" && git init -q -b main . && git commit -q --allow-empty -m init)
 SH=$(HOME="$TMP/home" sh "$ROOT/skills/star/star-home.sh" --cwd "$APP" init)
 LD() { sh "$ROOT/skills/star/ledger.sh" --home "$SH" "$@"; }
 LD add ITEM-1 ref=ITEM-1 project=app state=verifying >/dev/null
-MW() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item ITEM-1 "$@"; }
-MW0() { env -u GH_TOKEN PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item ITEM-1 "$@"; }
+MW() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --home "$SH" --item ITEM-1 "$@"; }
+MW0() { env -u GH_TOKEN PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" QUIET_NOW=${NOW:-2026-10-09T12:00:00Z} sh "$SCRIPT" "$PR" --head "$HEAD" --home "$SH" --item ITEM-1 "$@"; }
 reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
 out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "a verifying row with no dispatch merges" || fail "no dispatch ($out)"
 reset; LD set ITEM-1 state=verifying dispatch=ctx_babysit9 >/dev/null
@@ -120,36 +107,52 @@ d = json.load(open(p)); d["tokenCmd"] = None; json.dump(d, open(p, "w"), indent=
 PY
 reset; LD set ITEM-1 state=babysitting dispatch=ctx_w5 >/dev/null
 out=$(MW); [ "$out" = "FAIL live worker ctx_w5" ] && pass "a live worker holds the merge" || fail "live worker ($out)"
-reset; out=$(PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" --item NOPE-9)
+reset; out=$(PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" --home "$SH" --item NOPE-9)
 case "$out" in "FAIL ledger: "*) [ ! -f "$TMP/calls" ] && pass "an item with no row is a FAIL, never a merge" || fail "no row called gh" ;; *) fail "no row ($out)" ;; esac
-PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --home "$SH" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--home without --item is 64" || fail "usage home"
-PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --grant "$TMP/grant.md" --item ITEM-1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--item without --home is 64" || fail "usage item"
-# #124: the go comment says so when the merge went through under ownerApproval
-oa_set() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["ownerApproval"]=json.loads(sys.argv[2]); d["hostedReviewer"]=json.loads(sys.argv[3]); json.dump(d,open(p,"w"),indent=2)' "$SH/star.json" "$1" "${2:-null}"; }
-prv() { printf '{"author":{"login":"me"},"comments":[],"reviews":[%s],"baseRefName":"main"}\n' "${1:-}" > "$TMP/pr.json"; }
-GOLINE="Merging head $HEAD under your go of 2026-10-09T08:00:00Z: \"go\""
-SELFLINE="$GOLINE Self-approved under the owner's grant: this repository has no second reviewer."
-GRANTED='{"login":"me","since":"2026-10-15T21:05:13Z","words":"merge it"}'
-reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set "$GRANTED"; prv
-out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 a merge under ownerApproval says so in the go comment" || fail "#124 self-approved comment ($out / $(cat "$TMP/posted" 2>/dev/null))"
-bad=""
-for c in null other hosted rule approved; do
-  reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; prv
-  case $c in
-    null) oa_set null ;;
-    other) oa_set '{"login":"someone-else","since":"2026-10-15T21:05:13Z","words":"x"}' ;;
-    hosted) oa_set "$GRANTED" '{"login":"greptile-apps[bot]"}' ;;
-    rule) oa_set "$GRANTED"; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":1}}]\n' > "$TMP/rules.json" ;;
-    approved) oa_set "$GRANTED"; prv "{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}}" ;;
-  esac
-  out=$(MW); { [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$GOLINE" ]; } || bad="$bad $c($(cat "$TMP/posted" 2>/dev/null))"
-done
-[ -z "$bad" ] && pass "#124 null, another login, a hosted reviewer, a rule of one, or a member's approval: the plain go comment" || fail "#124 off cases:$bad"
-
-reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set '{"login":"ME","since":"2026-10-15T21:05:13Z","words":"merge it"}'; prv
-out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 logins compare without case" || fail "#124 case ($out / $(cat "$TMP/posted" 2>/dev/null))"
-reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; oa_set "$GRANTED"; prv "{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}},{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"DISMISSED\",\"submittedAt\":\"2026-10-03T00:00:00Z\",\"commit\":{\"oid\":\"$HEAD\"}}"
-out=$(MW); [ "$out" = "$MERGED_LINE" ] && [ "$(cat "$TMP/posted")" = "$SELFLINE" ] && pass "#124 only a reviewer's latest review counts" || fail "#124 latest review ($out / $(cat "$TMP/posted" 2>/dev/null))"
+PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --home "$SH" >/dev/null 2>&1; [ $? -eq 64 ] && pass "--home without --item is 64" || fail "usage home"
+PATH="$TMP/bin:$PATH" sh "$SCRIPT" "$PR" --head "$HEAD" --item ITEM-1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "--item without --home is 64" || fail "usage item"
+# B1: the project's merge method, owner branches, the hosted reviewer clause, the home
+cfg() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(json.loads(sys.argv[2])); json.dump(d,open(p,"w"),indent=2)' "$SH/star.json" "$1"; }
+cfg '{"mergeMethod":null,"ownerBranches":[],"hostedReviewer":null}'
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && grep -q -- "pr merge $PR --squash" "$TMP/calls" && pass "B1b a passing PR merges with no grant" || fail "B1b ($out)"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg '{"mergeMethod":"merge"}'
+out=$(MW); grep -q -- "pr merge $PR --merge --match-head-commit $HEAD" "$TMP/calls" && pass "B1c mergeMethod merge is used when the repo allows it" || fail "B1c ($out)"
+out=$(MW --dry-run); [ "$out" = "DRY-RUN merge $HEAD" ] && pass "B1c dry run names the method" || fail "B1c dry ($out)"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":false,"rebaseMergeAllowed":false}\n' > "$TMP/repo.json"
+out=$(MW); rc=$?
+[ "$out" = "FAIL merge methods: merge not allowed" ] && [ "$rc" -eq 0 ] && [ ! -f "$TMP/posted" ] && ! grep -q 'pr merge' "$TMP/calls" && pass "B1d a method the repo does not allow is a FAIL, no comment, no merge" || fail "B1d ($out, rc=$rc)"
+out=$(MW --dry-run); [ "$out" = "FAIL merge methods: merge not allowed" ] && pass "B1d the same on a dry run" || fail "B1d dry ($out)"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg '{"mergeMethod":null}'
+out=$(MW); grep -q -- "pr merge $PR --squash" "$TMP/calls" && pass "B1e a null mergeMethod keeps the squash-first order" || fail "B1e ($out)"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg '{"ownerBranches":["main"]}'; printf '{"author":{"login":"me"},"comments":[],"baseRefName":"main"}\n' > "$TMP/pr.json"
+out=$(MW); [ "$out" = "FAIL owner branch main" ] && [ ! -f "$TMP/posted" ] && ! grep -q 'pr merge' "$TMP/calls" && pass "B1f an owner branch is never merged" || fail "B1f ($out)"
+out=$(MW --dry-run); [ "$out" = "FAIL owner branch main" ] && pass "B1f the same on a dry run" || fail "B1f dry ($out)"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg '{"ownerBranches":["main"]}'
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "B1f a PR on another base merges" || fail "B1f other base ($out)"
+cfg '{"ownerBranches":[]}'
+HOSTED='{"login":"greptile-apps[bot]","minScore":4,"maxPasses":2,"refreshOutsideCap":true,"paused":false}'
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg "{\"hostedReviewer\":$HOSTED}"
+out=$(MW --hosted 'greptile-apps[bot]'); [ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green, greptile-apps[bot] passed." ] && pass "B1h R4 --hosted <login> names the hosted reviewer" || fail "B1h ($(cat "$TMP/posted" 2>/dev/null))"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(MW); [ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green." ] && pass "B1i R4 star.json's hostedReviewer is not read: no clause without --hosted" || fail "B1i ($(cat "$TMP/posted" 2>/dev/null))"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; cfg '{"hostedReviewer":null}'
+out=$(MW --hosted 2>/dev/null); rc=$?; [ "$rc" -eq 64 ] && [ ! -f "$TMP/calls" ] && pass "R4 --hosted without a login is 64" || fail "R4 bare --hosted ($rc, $out)"
+# R-4: a home whose star.json exists but cannot be parsed is a FAIL, never a merge
+cp "$SH/star.json" "$TMP/star.json.keep"
+reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; printf '{not json' > "$SH/star.json"
+out=$(MW); rc=$?
+case "$out" in "FAIL settings: "*) [ "$rc" -eq 0 ] && [ ! -f "$TMP/posted" ] && ! grep -q 'pr merge' "$TMP/calls" 2>/dev/null && pass "R4 an unparsable star.json is FAIL settings, no comment, no merge" || fail "R4 side effects ($out, rc=$rc)" ;; *) fail "R4 unparsable ($out)" ;; esac
+out=$(MW --dry-run); case "$out" in "FAIL settings: "*) pass "R4 the same on a dry run" ;; *) fail "R4 dry ($out)" ;; esac
+printf '[1]\n' > "$SH/star.json"
+out=$(MW); case "$out" in "FAIL settings: "*) pass "R4 a star.json that is not an object is FAIL settings" ;; *) fail "R4 non-object ($out)" ;; esac
+rm -f "$SH/star.json"; reset; LD set ITEM-1 state=verifying dispatch=- >/dev/null
+out=$(MW); [ "$out" = "$MERGED_LINE" ] && pass "R4 a missing star.json is still no settings" || fail "R4 missing ($out)"
+cp "$TMP/star.json.keep" "$SH/star.json"
+cfg '{"hostedReviewer":null}'
+reset; cfg '{"mergeMethod":"rebase"}'
+out=$(JUEL_STAR_HOME="$SH" PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD"); grep -q -- "pr merge $PR --rebase" "$TMP/calls" && pass "B1k with no --home, JUEL_STAR_HOME names the home" || fail "B1k ($out)"
+cfg '{"mergeMethod":null}'
 
 # audit lane G: a required check that has not reported is PENDING, not a FAIL (#167)
 reset; printf 'GraphQL: Required status check "ci" is expected. (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN

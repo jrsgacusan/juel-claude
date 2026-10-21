@@ -266,16 +266,17 @@ export function createDb(): MockDb {
       "sphere-app": [
         {
           id: "N-38",
-          kind: "escalation",
+          kind: "set-aside",
           item: "SPH-7",
           title: "The merge gate failed twice on e3f1a92",
           body: [
+            "step: gate",
             "e2e / reports-export failed on both runs, in the same test. Babysit fixed one cause, and the second run failed the same way.",
           ],
           options: [
             opt(
-              "Run the build again",
-              "run the build again: fix e2e / reports-export first",
+              "Try again",
+              "try again: fix e2e / reports-export first",
               true
             ),
             opt("Drop SPH-7", "drop"),
@@ -287,22 +288,16 @@ export function createDb(): MockDb {
         },
         {
           id: "N-41",
-          kind: "go-batch",
-          item: "batch-3",
-          title: "Start building SPH-11, SPH-12 and SPH-14",
+          kind: "person",
+          item: "SPH-11",
+          title: "Log in to the Stripe dashboard and enable test mode",
           body: [
-            "SPH-11",
-            "SPH-12",
-            "SPH-14",
-            "Options: go / go except <items> / drop <item> / or say what to change",
+            "kind: account",
+            "SPH-11 and SPH-12 read test-mode events. Only you can sign in.",
           ],
-          options: [
-            opt("Go", "go", true),
-            opt("Go, except SPH-14", "go except SPH-14"),
-            opt("Drop SPH-12", "drop SPH-12"),
-          ],
+          options: [opt("Done", "done", true), opt("Can't now", "can't now")],
           suggestion:
-            "Go. SPH-11 and SPH-12 start in the next tick. SPH-14 starts on its own once the webhook secret is in.",
+            "Do it now. SPH-11 and SPH-12 start on their own once it is on.",
           answer: "",
           askedAt: ago(12),
         },
@@ -389,7 +384,7 @@ export function createDb(): MockDb {
         },
         {
           id: "N-46",
-          kind: "held",
+          kind: "draft",
           item: "SPH-10",
           title:
             "Mark PR #211 ready, then ask Greptile for its second pass on the same head and post what it finds in #sphere-eng",
@@ -404,12 +399,12 @@ export function createDb(): MockDb {
       "juel-claude": [
         {
           id: "N-7",
-          kind: "go-merge",
+          kind: "set-aside",
           item: "star-dashboard-server",
-          title: "merge PR #131 under a go?",
-          body: ["https://github.com/example/juel-claude/pull/131"],
-          options: [opt("Go", "go", true), opt("Not merging", "not merging")],
-          suggestion: "Go. Every gate passed on 9f3c2e1.",
+          title: "star-dashboard-server set aside: the gate failed twice",
+          body: ["step: gate"],
+          options: [opt("Try again", "try again", true), opt("Drop", "drop")],
+          suggestion: "Try again. The failing check was a flaky selector.",
           answer: "",
           askedAt: ago(30),
         },
@@ -421,7 +416,7 @@ export function createDb(): MockDb {
           ref: "SPH-7",
           title: "Keyboard focus on the export button",
           status: "stopped",
-          state: "escalated",
+          state: "set-aside",
           stage: "babysit",
           branch: "fix/sph-7-export-focus",
           pr: 209,
@@ -533,7 +528,7 @@ export function createDb(): MockDb {
           ref: "SPH-12",
           title: "Rewrite the invite email",
           status: "queued",
-          state: "brief-ready",
+          state: "needs-you",
           stage: "brief",
           branch: "",
           steps: [[12, "Brief ready, 3 criteria"]],
@@ -542,7 +537,7 @@ export function createDb(): MockDb {
           ref: "SPH-14",
           title: "Retry failed billing webhooks",
           status: "queued",
-          state: "brief-ready",
+          state: "needs-you",
           stage: "brief",
           branch: "",
           steps: [[12, "Brief ready, waits for the webhook secret"]],
@@ -557,7 +552,7 @@ export function createDb(): MockDb {
           pr: 207,
           steps: [
             [11, "Merge gate passed on 0b8e4c3"],
-            [10, "Merged under your go of Oct 15"],
+            [10, "Merged after the merge gate passed"],
           ],
         }),
         item(HOME, {
@@ -570,7 +565,7 @@ export function createDb(): MockDb {
           pr: 205,
           steps: [
             [151, "Merge gate passed on 7d2a91c"],
-            [150, "Merged under your go of Oct 15"],
+            [150, "Merged after the merge gate passed"],
           ],
         }),
       ],
@@ -756,8 +751,7 @@ export function createDb(): MockDb {
       mergedAgo: 10,
       goAgo: 60 * 13,
       record: {
-        go: "go",
-        gate: "Passed round 1, sol xhigh",
+        gate: "Merging head 0b8e4c3: codex PASS, required checks green.",
         ci: "14 checks green",
         approval: "A teammate, on 0b8e4c3",
       },
@@ -789,8 +783,7 @@ export function createDb(): MockDb {
       mergedAgo: 150,
       goAgo: 60 * 13,
       record: {
-        go: "go",
-        gate: "Passed round 2, sol xhigh",
+        gate: "Merging head 7d2a91c: codex PASS, required checks green.",
         ci: "14 checks green",
         approval: "A teammate, on 7d2a91c",
       },
@@ -825,8 +818,7 @@ export function createDb(): MockDb {
       mergedAgo: 60 * 24 * 2,
       goAgo: 60 * 24 * 2 + 480,
       record: {
-        go: "go",
-        gate: "Passed round 1, sol xhigh",
+        gate: "Merging head a41f0de: codex PASS, required checks green.",
         ci: "13 checks green",
       },
       groups: [
@@ -859,8 +851,7 @@ export function createDb(): MockDb {
       mergedAgo: (26 - n) * 360,
       goAgo: (26 - n) * 360 + 60,
       record: {
-        go: "go",
-        gate: "Passed round 1, sol xhigh",
+        gate: `Merging head 5e${String(n).padStart(5, "0")}: codex PASS, required checks green.`,
         ci: "9 checks green",
       },
       groups: [[null, shots]],

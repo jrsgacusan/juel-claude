@@ -133,7 +133,8 @@ def parse_note(text, stem):
 
 
 def parse_release(text, stem):
-    first = text.split("\n", 1)[0]
+    body = re.sub(r"\A---[ \t]*\n.*?\n---[ \t]*(?:\n|\Z)", "", text, count=1, flags=re.S)  # a frontmatter block
+    first = next((l for l in body.split("\n") if l.strip()), "")
     first = re.sub(r"^#\s*", "", first).strip()
     parts = first.split(" · ", 2)
     if len(parts) == 3:

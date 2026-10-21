@@ -78,7 +78,8 @@ test("a thread keeps its bullets and links, and on a phone Back returns to the l
     if (coarse)
       for (const name of ["Skip", "Send reply", "Shorter"]) {
         const box = await reply.getByRole("button", { name }).boundingBox()
-        expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+        // a fractional layout offset can make a 44px box measure 43.9999…
+        expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(44)
       }
     await expect(page.getByRole("region", { name: "Messages" })).toBeHidden()
     await page.goBack()

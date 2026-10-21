@@ -141,7 +141,7 @@ hasf "$ST" "B154i no ledger yet: create it first" 'with no ledger yet, first cre
 hasf "$ST" "B154j then the same line again" 'Then dispatch the same line: the executor resumes at the first task not marked complete.'
 hasf "$ST" "B154k the scope record comes first" 'Take the scope record below first, before the first task of either kind runs.'
 hasf "$ST" "B154l the ledger names the plan as the dispatch line does" 'the path exactly as the dispatch line names the plan'
-hasf "$ST" "B154m a session task that cannot finish stops the run" 'A session task that cannot be completed gets no ledger line, and nothing is dispatched past it: under `--unattended`, end the run with `ESCALATION item=<item> phase=4 reason=codex-failed needs=session task <N> failed: <one line>`; interactively, show that line and ask how to go on.'
+hasf "$ST" "B154m a session task that cannot finish stops the run" 'A session task that cannot be completed gets no ledger line, and nothing is dispatched past it: under `--unattended`, end the run with `ESCALATION item=<item> phase=4 reason=out-of-tries step=executor review=<the file holding session task <N> failed: <one line>>`; interactively, show that line and ask how to go on.'
 hasf "$ST" "B154n the escalation list names it" 'or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks")'
 # lane c: #158 the executor is linked into and checked in the Codex home codex exec reads
 for s in ship-ticket execute review-and-execute receive-review-and-execute doctor; do
@@ -163,7 +163,7 @@ env -u CODEX_HOME HOME="$TMPH" node "$ROOT/scripts/link-agent-skills.mjs" >/dev/
 hasf "$EX" "C158d the executor honours a Stop-before sentence in the prompt" 'A dispatch prompt that ends with `Stop before task <N>: the session runs it.` names such a task: stop before task <N> the same way, even when its heading has no marker.'
 hasf "$ST" "C158e ship-ticket runs session-tasks.sh before and after each dispatch" 'sh <session-tasks.sh> <plan> --ledger <ledger>'
 hasf "$ST" "C158f the dispatch prompt ends with the stop sentence" ' Stop before task <N>: the session runs it.'
-hasf "$ST" "C158g a ran line escalates" 'ESCALATION item=<item> phase=<n> reason=codex-failed needs=the executor ran session task <N>'
+hasf "$ST" "C158g a ran line escalates" 'a `ran <N>` line means the executor ran a session task, so the run failed: under `--unattended`, end with `ESCALATION item=<item> phase=<n> reason=out-of-tries step=executor`'
 hasf "$ST" "C158h the gate loop fix plan runs with the session tasks" 'run it with the executor (Phase 4'"'"'s line, its session tasks, its capacity rule and its scope check)'
 
 # audit lane e: #164 every executor check runs executor-check.sh, and a usage limit runs the plan in the session

@@ -2,7 +2,7 @@
 # Checks a PR on the exact head a worker reported: for the human's merge, or, with --merge-gate,
 # for STAR's own merge.
 #   pr-verify.sh <pr> --head <sha> [--repo <owner/name>] [--merge-gate [--hosted [<login>]]
-#                [--home <dir>]]
+#                [--home <dir>] [--brief <path>]]
 # Prints exactly one line and exits 0 (64, with nothing on stdout, only for bad usage):
 #   PASS [<note>] | PENDING <what> | MOVED <head> | MERGED <merge sha> | FAIL <what>
 # "PASS approval is on an earlier commit" is still a pass: the repo's review rule is satisfied,
@@ -23,26 +23,38 @@
 # Where the repo has a review rule, GitHub's own reviewDecision is trusted as it stands (it
 # follows the repo's "dismiss stale approvals" setting). gh signed in to an account that cannot
 # see the repository prints "PENDING gh cannot see <repo>: export GH_TOKEN for this repository".
-# --home <dir> selects the STAR folder whose star.json supplies ownerApproval; it is valid only with
+# --home <dir> selects the STAR folder whose star.json supplies the gh token account; it is valid only with
 # --merge-gate (otherwise 64; an empty value is 64), defaults to $JUEL_STAR_HOME, then star-home.sh path.
 # --merge-gate is STAR's merge gate. A receipt by another login is named when the author has no
 # receipt (#137). It also needs: a comment by the PR's author that starts
 # "Codex gate: PASS (head <the PR's head>"; a reply from the PR's author on every unresolved
-# review thread someone else opened (a hosted reviewer's included); and, without --hosted, an
-# APPROVED review on the head by someone other than the PR's author whose authorAssociation is
-# OWNER, MEMBER or COLLABORATOR (write access), which an explicit zero rule alone does not waive.
-# With no hosted reviewer and no such approval, an ownerApproval.login equal to the author (without
-# [bot] and without case) plus a none or required 0 rule gives "PASS self-approved under the owner's
-# grant". An unreadable rule is "PENDING review rule: <why>" or "PENDING gh cannot see …"; any
-# other rule or no matching grant is "PENDING approval: …".
+# review thread someone else opened (a hosted reviewer's included); and either an APPROVED review
+# on the head by someone other than the PR's author whose authorAssociation is OWNER, MEMBER or
+# COLLABORATOR (write access) ("PASS approved", "PASS hosted" with --hosted), or a base branch whose
+# review rule asks for no approval (review-rule.sh prints none or required 0): "PASS no approval
+# required" ("PASS hosted" with --hosted). Any rule that requires approvals and no such approval
+# on the head is "PENDING approval: …", with or without --hosted (R-5). An unreadable rule is
+# "PENDING review rule: <why>" or "PENDING gh cannot see …".
+# --brief <path> (valid only with --merge-gate, otherwise 64) is the item's brief. A check that
+# failed and that the base branch's rules do not require passes only on a proof line in the
+# brief's "## Decisions" section:
+#   - <date> red-check-proof check=<name> head=<40-hex sha> cause=base|infra base=<40-hex sha> url=<url>
+# (a <name> with a space or = is in double quotes: check="test (ubuntu-latest)") for that check on
+# this exact head, which the script confirms itself with gh: cause=base needs base= to equal the
+# PR's current base head (baseRefOid; a base that moved needs a fresh line) and a run of that name
+# on base= that concluded failure; cause=infra needs the head's own run of that name to
+# have concluded cancelled, startup_failure, timed_out or stale. A confirmed check is set aside and
+# the PASS note ends " (proven not the PR's: <name> <cause>[, …])". A required check, a rule that
+# cannot be read, or a proof that does not hold leaves the check failed: "FAIL checks: …". A brief
+# that cannot be read is "PENDING brief: <why>".
 # The review threads are never guessed: a gh call that exits non-zero, or an answer whose threads
 # are not a list, is "PENDING gh: review threads unreadable", not "no findings".
 # --merge-gate also prints "PENDING check <context> not reported on <head7>" when the base branch's
 # review-rule.sh lists a required check the head has no entry for (#167); the hosted reviewer's
 # "PENDING hosted-status ..." line comes first. Unreadable rules add no such line.
-# --hosted says the project has a hosted reviewer (Greptile): it stands in for that
-# approval, and its review text is never read here: the babysit worker judges it from guidelines
-# and reports READY only on a head it judged clean. Logins are compared without a "[bot]" suffix.
+# --hosted says the project has a hosted reviewer (Greptile): its review text is never read here
+# (the babysit worker judges it from guidelines and reports READY only on a head it judged clean),
+# and it does not stand in for a required human approval (R-5). Logins are compared without a "[bot]" suffix.
 # Its PASS notes are "hosted" and "approved". --hosted <login> (star.json's hostedReviewer.login)
 # also finds the hosted reviewer's own status: a check the base branch's rules require whose
 # name holds the first word of that login (greptile-apps[bot] -> greptile, any case). When the
@@ -99,6 +111,7 @@ p.add_argument("--head", required=True)
 p.add_argument("--repo")
 p.add_argument("--merge-gate", action="store_true")
 p.add_argument("--home")
+p.add_argument("--brief")
 p.add_argument("--hosted", nargs="?", const=True, default=False)
 try:
     a = p.parse_args()
@@ -106,6 +119,9 @@ except SystemExit as e:
     sys.exit(64 if e.code not in (0, None) else 0)
 if a.hosted and not a.merge_gate:
     print("pr-verify.sh: --hosted needs --merge-gate", file=sys.stderr)
+    sys.exit(64)
+if a.brief is not None and not a.merge_gate:
+    print("pr-verify.sh: --brief needs --merge-gate", file=sys.stderr)
     sys.exit(64)
 if a.home is not None and not str(a.home).strip():
     print("pr-verify.sh: --home needs a folder", file=sys.stderr)
@@ -171,27 +187,55 @@ def review_rule(d):
     return rule_lines(d)[0]
 
 
-def owner_approval(author):
-    """Whether STAR's ownerApproval only matches this author's login (#124)."""
-    if not author:
-        return False
-    home = a.home if a.home is not None else os.environ.get("JUEL_STAR_HOME")
-    if not home:
-        script = os.path.join(os.environ.get("JUEL_SKILLS_DIR") or "", "star", "star-home.sh")
-        try:
-            proc = subprocess.run(["sh", script, "path"], capture_output=True, text=True, timeout=LIMIT)
-            home = (proc.stdout or "").splitlines()[0].strip() if proc.returncode == 0 else ""
-        except (OSError, subprocess.TimeoutExpired, IndexError):
-            home = ""
-    if not home:
-        return False
+def proofs_of(path):
+    """The red-check-proof lines of the brief's ## Decisions section as dicts; raises OSError when unreadable."""
+    text = open(path, encoding="utf-8").read()
+    found, inside = [], False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            inside = line[3:].strip().lower() == "decisions"
+            continue
+        m = re.match(r"\s*-\s+\S+\s+red-check-proof\s+(.*)$", line) if inside else None
+        if m:
+            found.append({k: v[1:-1] if v.startswith('"') else v
+                          for k, v in re.findall(r'(\w+)=("[^"]*"|\S+)', m.group(1))})
+    return found
+
+
+def gh_json(path):
     try:
-        data = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
-        grant = data.get("ownerApproval") if isinstance(data, dict) else None
-        login = grant.get("login") if isinstance(grant, dict) else None
-        return isinstance(login, str) and bool(login) and bare(login).lower() == author.lower()
-    except (OSError, ValueError, TypeError, AttributeError):
-        return False
+        proc = subprocess.run(["gh", "api", path], capture_output=True, text=True, timeout=LIMIT)
+        value = json.loads(proc.stdout) if proc.returncode == 0 else None
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def run_conclusion(repo, sha, name):
+    """The conclusion of the check run called name on sha, "" when it cannot be read."""
+    data = gh_json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100")
+    for run in (data or {}).get("check_runs") or []:
+        if isinstance(run, dict) and run.get("name") == name:
+            return str(run.get("conclusion") or "").lower()
+    return ""
+
+
+def proven_cause(d, head, name, proofs):
+    """"base" or "infra" when a proof line for this check on this head holds up against gh, else None."""
+    repo = a.repo or repo_of(d.get("url")) or repo_of(a.pr)
+    if not repo:
+        return None
+    for proof in proofs:
+        if proof.get("check") != name or str(proof.get("head", "")).lower() != head:
+            continue
+        cause = proof.get("cause")
+        if cause == "infra" and run_conclusion(repo, head, name) in ("cancelled", "startup_failure", "timed_out", "stale"):
+            return "infra"
+        base, tip = str(proof.get("base", "")).lower(), str(d.get("baseRefOid") or "").lower()
+        if cause == "base" and re.fullmatch(r"[0-9a-f]{40}", base) and base == tip \
+                and run_conclusion(repo, base, name) == "failure":
+            return "base"
+    return None
 
 
 def hosted_missing(d, checks):
@@ -236,7 +280,7 @@ def fetch():
     fields = ("state,isDraft,reviewDecision,reviews,headRefOid,headRefName,headRepository,headRepositoryOwner,"
               "mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,url,baseRefName")
     if a.merge_gate:
-        fields += ",author,comments"
+        fields += ",baseRefOid,author,comments"
     cmd = ["gh", "pr", "view", a.pr, "--json", fields]
     if a.repo:
         cmd += ["-R", a.repo]
@@ -319,6 +363,7 @@ def main():
     if d.get("isDraft"):
         out("FAIL draft")
     author = bare((d.get("author") or {}).get("login")) if a.merge_gate else ""
+    proofs = []
     if a.merge_gate:
         prefix = f"Codex gate: PASS (head {head}"
         receipts = []
@@ -330,6 +375,11 @@ def main():
             if receipts:
                 out(f"FAIL no codex PASS for {head[:7]} (posted by {', '.join(receipts)}, not the PR's author)")
             out(f"FAIL no codex PASS for {head[:7]}")
+        if a.brief is not None:
+            try:
+                proofs = proofs_of(a.brief)
+            except (OSError, ValueError) as e:
+                out("PENDING brief: " + (e.strerror or str(e)).splitlines()[0][:120])
 
     latest = {}
     for n, r in enumerate(sorted(reviews, key=lambda r: r.get("submittedAt") or "")):
@@ -347,21 +397,16 @@ def main():
         approved = any(r.get("state") == "APPROVED" and ((r.get("commit") or {}).get("oid") or "").lower() == head
                        and bare((r.get("author") or {}).get("login")) != author
                        and str(r.get("authorAssociation") or "").upper() in WRITERS for r in latest.values())
-        if a.hosted:
-            note = "hosted"
-        elif approved:
-            note = "approved"
-        elif owner_approval(author):
+        if approved:
+            note = "hosted" if a.hosted else "approved"
+        else:
             rule = review_rule(d)
             if rule == "unknown" or rule.startswith("unknown "):
                 why = rule[len("unknown"):].strip() or "unreadable"
                 out("PENDING " + why if why.startswith("gh cannot see ") else "PENDING review rule: " + why)
-            if rule in ("none", "required 0"):
-                note = "self-approved under the owner's grant"
-            else:
+            if rule not in ("none", "required 0"):
                 out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
-        else:
-            out(f"PENDING approval: none on the current head from someone other than {author or 'the author'}")
+            note = "hosted" if a.hosted else "no approval required"
     elif decision is None:
         if blockers:
             out("FAIL approval: changes requested by " + names(blockers))
@@ -389,6 +434,16 @@ def main():
         if value in PASSING:
             continue
         (waiting if value in WAITING else failed).append(name)
+    proven = []
+    if failed and a.merge_gate and proofs:
+        lines = rule_lines(d)
+        if not lines[0].startswith("unknown"):  # whether a check is required is unknown otherwise
+            required = {l[len("check "):] for l in lines[1:] if l.startswith("check ")}
+            for name in list(failed):
+                cause = None if name in required else proven_cause(d, head, name, proofs)
+                if cause:
+                    failed.remove(name)
+                    proven.append(f"{name} {cause}")
     if failed:
         out("FAIL checks: " + names(failed))
     if d.get("mergeable") == "CONFLICTING":
@@ -421,7 +476,7 @@ def main():
                          and not any(who == author for who, _ in t[1:]))
         if unanswered:
             out(f"FAIL {unanswered} finding" + ("s" if unanswered > 1 else "") + " without a reply from the author")
-        out("PASS " + note)
+        out("PASS " + note + (f" (proven not the PR's: {', '.join(proven)})" if proven else ""))
     if on_head:
         out("PASS")
     if zero:

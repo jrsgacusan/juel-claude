@@ -27,6 +27,7 @@ import type {
   NewBriefingResponse,
   Overview,
   Project,
+  ProjectLoop,
   SearchResult,
   SlackState,
   Tracker,
@@ -35,6 +36,7 @@ import type {
 export const keys = {
   projects: ["projects"] as const,
   overview: (p: string) => ["overview", p] as const,
+  allLoops: ["loops", "*"] as const,
   loops: (p: string) => ["loops", p] as const,
   items: (p: string) => ["items", p] as const,
   item: (p: string, item: string) => ["item", p, item] as const,
@@ -82,11 +84,17 @@ export const useOverview = (p: string) =>
   useQuery({
     queryKey: keys.overview(p),
     queryFn: () => apiJson<Overview>(paths.overview(p)),
+    enabled: p !== "",
   })
 export const useLoops = (p: string) =>
   useQuery({
     queryKey: keys.loops(p),
     queryFn: () => apiJson<Loop[]>(paths.loops(p)),
+  })
+export const useAllLoops = () =>
+  useQuery({
+    queryKey: keys.allLoops,
+    queryFn: () => apiJson<ProjectLoop[]>(paths.allLoops()),
   })
 export const useItems = (p: string) =>
   useQuery({
@@ -154,12 +162,15 @@ export function useAnswer(p: string) {
     onSuccess: () => {
       setConflict(null)
       void qc.invalidateQueries({ queryKey: keys.loops(p) })
+      void qc.invalidateQueries({ queryKey: keys.allLoops })
       void qc.invalidateQueries({ queryKey: keys.projects })
     },
     onError: (error) => {
       if (isConflictMarkers(error)) setConflict(p)
-      else if (error instanceof ApiError && error.status === 409)
+      else if (error instanceof ApiError && error.status === 409) {
         void qc.invalidateQueries({ queryKey: keys.loops(p) })
+        void qc.invalidateQueries({ queryKey: keys.allLoops })
+      }
     },
   })
 }

@@ -153,5 +153,23 @@ o=$(GH_TOKEN=already PATH="$TMP/tokbin:/usr/bin:/bin" STUB_SEEN="$TMP/seen" STUB
 [ "$(cat "$TMP/seen")" = already ] && pass "#165 a GH_TOKEN already set is kept" || fail "#165 existing token ($(cat "$TMP/seen" 2>/dev/null))"
 rm -f "$H/star.json"
 
+# B3: the record keeps the comment merge.sh posted, as the frontmatter's gate
+GATE="Merging head 9e8d7c6b5a0000000000000000000000000000ff: codex PASS, required checks green."
+python3 - "$TMP/merged.json" "$TMP/merged-gate.json" "$GATE" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["number"] = 25; d["url"] = d["url"].replace("pull/12", "pull/25")
+d["author"] = {"login": "me"}
+d["comments"] = [{"author": {"login": "someone"}, "body": sys.argv[3] + " (not the author)"}, {"author": {"login": "me"}, "body": "unrelated"}, {"author": {"login": "me"}, "body": sys.argv[3]}]
+json.dump(d, open(sys.argv[2], "w"))
+d["number"] = 26; d["url"] = d["url"].replace("pull/25", "pull/26"); d["comments"] = d["comments"][:2]
+json.dump(d, open(sys.argv[2].replace("gate", "nogate"), "w"))
+PY
+out4=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged-gate.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 25)
+[ "$(sed -n 1p "$out4")" = "---" ] && grep -qxF "gate: \"$GATE\"" "$out4" && [ "$(sed -n 3p "$out4")" = "---" ] && pass "B3a the frontmatter keeps the author's merge comment as gate" || fail "B3a ($(head -4 "$out4"))"
+out5=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/merged-nogate.json" sh "$SCRIPT" --home "$H" --project lstn --item '#12' --pr 26)
+grep -qx 'gate: null' "$out5" && pass "B3b no such comment: gate: null" || fail "B3b ($(head -4 "$out5"))"
+[ "$(sed -n 4p "$out4")" = "# lstn · #12 · Add retry to the webhook" ] && pass "B3 the heading follows the frontmatter" || fail "B3 heading ($(sed -n 4p "$out4"))"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

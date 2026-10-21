@@ -10,9 +10,10 @@
 #                                        not-away | not-due | unchanged, else what summary prints (nothing)
 #   handoff.sh [--home <dir>] latest     print the newest summary
 #   handoff.sh [--home <dir>] end        clear away, stamp the file, print the newest summary
-# Each summary has a line "- Approved, not started: <item> (<reason>, <age>)[; ...]" or "... none": the
-# queued rows whose brief has a grant, with waits on <items> | waits until <date> | waits for a build slot.
-# "Changed" ignores a block's heading, its Host line and the ages in the Approved line.
+# Only a person item blocks work (part A); every other queue item waits without blocking (part B). A
+# needs-you row reads as waiting on the owner and a set-aside row as set aside, each with the title of its
+# queue item as the reason. There is no go and no grant to list. "Changed" ignores a block's heading and
+# its Host line.
 # Answers are never collected here: the queue (open-loops.md) is the one place to answer.
 # start while already away changes nothing (the summaries stay); end while not away prints
 # "not away". Every command holds handoff.lock, so runs never overwrite each other. A ledger
@@ -35,21 +36,19 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 ITEM_RE = re.compile(r"^### (N-\d+) · (.*?) · (.*?) · (.*)$")
-BLOCKING = {"go-batch", "person", "go-merge", "question", "escalation", "restart-or-drop"}
+BLOCKING = {"person"}
 OVERNIGHT = {
-    "inbox": "a worker drafts its brief; it then waits for the batch go",
-    "briefing": "its brief is being drafted; it then waits for the batch go",
-    "brief-ready": "waits for the batch go or a person-only step; nothing runs",
+    "inbox": "a worker drafts its brief",
+    "briefing": "its brief is being drafted",
+    "needs-you": "waits on you for a step only a person can do; nothing runs",
     "queued": "builds when a slot frees: plan, luna executes, checks, draft PR, then the codex gate",
     "building": "building: plan, luna executes, checks, draft PR, codex gate until it passes",
     "babysit-queued": "gated and checked; marked ready when a babysit slot frees",
     "babysitting": "with the hosted reviewer or a reviewer: fixes are gated and pushed",
-    "verifying": "STAR checks the merge gate on the exact head and merges it under your go",
-    "reported": "its report is written and waits for your accept",
-    "post-queued": "accepted; the report is posted to the work item",
+    "verifying": "STAR checks the merge gate on the exact head and merges it when every check holds",
+    "post-queued": "merged; the report is posted to the work item",
     "posting": "posting the report to the work item",
-    "escalated": "stopped; waits for your answer",
-    "failed": "stopped; waits for your answer",
+    "set-aside": "set aside; waits for you to try again or drop it",
 }
 FMT = "%Y-%m-%dT%H:%M:%SZ"
 STAMP_RE = re.compile(r"^### (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)\s*$")
@@ -157,60 +156,12 @@ def summaries(lines):
     return s, [(h, (heads[n + 1] if n + 1 < len(heads) else e), lines[h][4:].strip()) for n, h in enumerate(heads)]
 
 
-def brief_fields(home, row):
-    """{key: value} of a brief's frontmatter-style 'key: value' lines, or None when it cannot be read."""
-    path = os.path.join(home, "briefs", row.get("project", ""), f"{row.get('item', '')}.md")
-    try:
-        text = open(path, encoding="utf-8", errors="replace").read()
-    except OSError:
-        return None
-    return {m.group(1): m.group(2).strip() for m in re.finditer(r"^(approved|grant|blockedBy|notBefore):[ \t]*(.*)$", text, re.M)}
-
-
-def approved_line(home, rows, t_now):
-    """'- Approved, not started: ...' for queued rows that hold a grant."""
-    state = {r.get("item"): r.get("state") for r in rows}
-    out = []
-    for r in rows:
-        if r.get("state") != "queued":
-            continue
-        f = brief_fields(home, r)
-        if f is None:
-            out.append(f"{r.get('item')} (brief unreadable)")
-            continue
-        if not re.match(r"[^ #]", f.get("grant", "")):
-            continue
-        blocked_by = re.sub(r"\s+#.*$", "", f.get("blockedBy", "")).strip()  # a trailing comment is not a blocker
-        blockers = [b.strip() for b in blocked_by.strip("[]").split(",") if b.strip()]
-        waiting = [b for b in blockers if state.get(b) not in ("done", "dropped")]
-        nb = f.get("notBefore", "")
-        t_nb = parse(nb)
-        if waiting:
-            why = "waits on " + ", ".join(waiting)
-        elif t_nb and t_now and t_nb > t_now:
-            why = "waits until " + nb[:10]
-        else:
-            why = "waits for a build slot"
-        t_ap = parse(f.get("approved", ""))
-        if t_ap and t_now:
-            hours = max(0, int((t_now - t_ap).total_seconds() // 3600))
-            age = f"{hours} h" if hours < 48 else f"{hours // 24} d"
-            why += f", {age}"
-        out.append(f"{r.get('item')} ({why})")
-    return "- Approved, not started: " + ("; ".join(out) or "none")
-
-
-AGE_RE = re.compile(r", \d+ [hd]\)")
-
-
 def essence(block):
-    """A summary block without what changes by itself: heading, Host line, ages in the Approved line."""
+    """A summary block without what changes by itself: heading and Host line."""
     keep = []
     for l in block[1:]:
         if l.startswith("- Host:"):
             continue
-        if l.startswith("- Approved, not started:"):
-            l = AGE_RE.sub(")", l)
         keep.append(l.rstrip())
     while keep and not keep[-1]:
         keep.pop()
@@ -264,7 +215,12 @@ if a.cmd == "start":
     rows, bad = ledger(home)
     part_a = [f"- {label(x)}" for x in q if x["kind"] in BLOCKING] or ["- Nothing."]
     part_b = [f"- {label(x)}" for x in q if x["kind"] not in BLOCKING] or ["- Nothing."]
+    why = {}
+    for x in q:  # the reason a row waits on the owner or was set aside is its queue item's title
+        if x["kind"] in ("person", "set-aside"):
+            why.setdefault((x["item"], "needs-you" if x["kind"] == "person" else "set-aside"), x["title"])
     part_c = [f"- {r.get('project')} · {r.get('item')} · {r.get('state')}: {OVERNIGHT[r.get('state')]}"
+              + (f" ({why[(r.get('item'), r.get('state'))]})" if (r.get("item"), r.get("state")) in why else "")
               for r in rows if r.get("state") in OVERNIGHT] or ["- Nothing is in progress."]
     if bad:
         part_c.append(f"- {bad} ledger row(s) could not be read (wrong number of cells) and are not listed; check ledger.md")
@@ -286,7 +242,7 @@ if a.cmd == "start":
         "### C. What runs while you're away",
         *part_c,
         "",
-        "While you're away everything keeps running: builds, the codex gate, babysitting and merges under your go.",
+        "While you're away everything keeps running: builds, the codex gate, babysitting and merges once the merge gate holds.",
     ])
     set_away(home, stamp)
     print(path)
@@ -334,7 +290,7 @@ elif a.cmd == "summary":
 
     ready = [f"{r.get('project')} {r.get('item')} {r.get('pr')}" for r in rows if r.get("state") == "verifying"]
     merged = [f"{r.get('project')} {r.get('item')}" for r in rows if r.get("state") == "done" and changed(r)]
-    stopped = [f"{r.get('project')} {r.get('item')} ({r.get('state')})" for r in rows if r.get("state") in ("escalated", "failed")]
+    stopped = [f"{r.get('project')} {r.get('item')}" for r in rows if r.get("state") == "set-aside"]
     sent = []
     for line in read(os.path.join(home, "sent.log")):
         cells = line.split("\t")
@@ -349,8 +305,7 @@ elif a.cmd == "summary":
         "- Items: " + (" · ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "none open"),
         "- PRs waiting to merge: " + ("; ".join(ready) or "none"),
         "- Merged since the last summary: " + ("; ".join(merged) or "none"),
-        "- Stopped, waiting for your answer: " + ("; ".join(stopped) or "none"),
-        approved_line(home, rows, t_now),
+        "- Set aside, waiting for you: " + ("; ".join(stopped) or "none"),
         "- Sent since the last summary: " + ("; ".join(sent) or "nothing"),
         f"- Host: {mem_gb()} GB free + inactive; workers running: {running}",
         "- Needs you: " + ("; ".join(label(x) for x in queue(home)) or "nothing"),

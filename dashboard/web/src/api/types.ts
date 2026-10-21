@@ -41,6 +41,8 @@ export type Loop = {
   /** null when the queue item carries no time. */
   askedAt: string | null
 }
+/** A loop from GET /api/loops: the project it belongs to is on it. An unreadable queue is one entry of kind "error". */
+export type ProjectLoop = Loop & { project: string }
 export type AnswerRequest = { text: string }
 export type AnswerResponse = { recorded: true; nudged: boolean }
 export type ItemStatus =
@@ -90,7 +92,6 @@ export type EvidenceRecord = {
   approval?: string
   ci?: string
   gate?: string
-  go?: string
 }
 /** criterion null: the files are not mapped to criteria, one flat group. */
 export type EvidenceGroup = {
@@ -105,7 +106,7 @@ export type EvidenceDetail = {
   sha: string | null
   mergedAt: string | null
   goAt: string | null
-  /** go, gate, ci and approval feed the four check cards. */
+  /** gate (the line merge.sh posted), ci and approval feed the three check cards. */
   record: EvidenceRecord
   groups: EvidenceGroup[]
 }

@@ -14,7 +14,7 @@ const nth = (rows: HTMLElement[], i: number) => {
 
 describe("the accounts chip", () => {
   it("shows the active account's week left, and opens every account with its week, pace tick, reset and 5-hour window", async () => {
-    const { user } = renderApp("/sphere-app/needs")
+    const { user } = renderApp("/sphere-app/progress")
     const chip = await screen.findByRole("button", { name: CHIP })
     expect(chip).toHaveTextContent("54% left")
     expect(within(chip).getByText("main")).toHaveClass("hidden", "sm:inline")
@@ -46,7 +46,7 @@ describe("the accounts chip", () => {
   it("names a dry run and a failed read", async () => {
     const state = { ...accountsFixture(), auto: { state: "dry run", via: "cswap auto" }, problem: "cswap: timed out after 20 s" }
     server.use(http.get("*/api/accounts", () => HttpResponse.json(state)))
-    const { user } = renderApp("/sphere-app/needs")
+    const { user } = renderApp("/sphere-app/progress")
     await user.click(await screen.findByRole("button", { name: CHIP }))
     const pop = await screen.findByRole("dialog", { name: "Claude accounts" })
     expect(within(pop).getByText("auto in dry run (cswap auto) · 1 min ago")).toBeInTheDocument()
@@ -58,7 +58,7 @@ describe("the accounts chip", () => {
   it("is hidden when cswap is not installed", async () => {
     const state = { installed: false, auto: { state: "off", via: "" }, fetchedAt: null, problem: "", accounts: [] }
     server.use(http.get("*/api/accounts", () => HttpResponse.json(state)))
-    const { client } = renderApp("/sphere-app/needs")
+    const { client } = renderApp("/sphere-app/progress")
     await waitFor(() => expect(client.getQueryState(["accounts"])?.status).toBe("success"))
     expect(screen.getByRole("button", { name: "Search (⌘K)" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /^Claude accounts/ })).not.toBeInTheDocument()

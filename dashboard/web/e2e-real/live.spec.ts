@@ -81,7 +81,7 @@ test("coming back to the page refetches without a reload or a second stream", as
   })
   const refetch = page.waitForRequest(
     (request) =>
-      new URL(request.url()).pathname === "/api/projects/sample/loops"
+      new URL(request.url()).pathname === "/api/loops"
   )
   await page.evaluate(() =>
     document.dispatchEvent(new Event("visibilitychange"))

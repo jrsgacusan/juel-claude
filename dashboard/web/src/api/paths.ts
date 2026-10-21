@@ -4,6 +4,7 @@ const project = (p: string) => `/api/projects/${e(p)}`
 export const paths = {
   projects: () => "/api/projects",
   overview: (p: string) => `${project(p)}/overview`,
+  allLoops: () => "/api/loops",
   loops: (p: string) => `${project(p)}/loops`,
   answer: (p: string, id: string) => `${project(p)}/loops/${e(id)}/answer`,
   items: (p: string) => `${project(p)}/items`,

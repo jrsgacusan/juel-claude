@@ -6,6 +6,7 @@ import { BriefingPage } from "@/pages/briefing"
 import { ChatPage } from "@/pages/chat"
 import { EvidencePage } from "@/pages/evidence"
 import { NeedsPage } from "@/pages/needs"
+import { NeedsRedirect } from "@/pages/needs-redirect"
 import { NotFound } from "@/pages/not-found"
 import { ProgressPage } from "@/pages/progress"
 import { RootRedirect } from "@/pages/root-redirect"
@@ -16,16 +17,25 @@ import { SlackPage } from "@/pages/slack"
 export const routes: RouteObject[] = [
   { path: "/", Component: RootRedirect, errorElement: <RouteError /> },
   {
+    path: "/needs",
+    Component: AppLayout,
+    errorElement: <RouteError />,
+    children: [
+      { index: true, Component: NeedsPage, errorElement: <RouteError /> },
+      { path: "*", Component: NotFound, errorElement: <RouteError /> },
+    ],
+  },
+  {
     path: "/:project",
     Component: AppLayout,
     errorElement: <RouteError />,
     children: [
       {
         index: true,
-        element: <Navigate to="needs" replace />,
+        element: <Navigate to="progress" replace />,
         errorElement: <RouteError />,
       },
-      { path: "needs", Component: NeedsPage, errorElement: <RouteError /> },
+      { path: "needs", Component: NeedsRedirect, errorElement: <RouteError /> },
       {
         path: "progress",
         Component: ProgressPage,

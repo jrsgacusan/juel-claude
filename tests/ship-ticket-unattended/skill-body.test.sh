@@ -13,8 +13,8 @@ for f in '--unattended' '--brief <path>' '--executor-model <id|latest-<family>>'
 done
 grep -q '## Unattended mode' "$SKILL" && pass "section" || fail "section"
 grep -q 'ESCALATION item=' "$SKILL" && pass "escalation line" || fail "escalation line"
-for r in 'brief-violation' 'codex-failed' 'verification-failed' 'gate-red' 'merge-conflict' 'needs-human-input' 'stack-unavailable'; do
-  grep -qi "$r" "$SKILL" && pass "escalation: $r" || fail "escalation: $r"
+for r in 'reason=out-of-tries step=executor' 'reason=out-of-tries step=verify' 'reason=out-of-tries step=regression' 'reason=out-of-tries step=conflict' 'reason=out-of-tries step=stack' 'reason=out-of-tries step=gate-lock' 'reason=out-of-tries step=review-tool' 'reason=out-of-tries step=screen' 'reason=out-of-tries step=worker' 'reason=needs-person needs=' 'RESCOPE item=<item> reason=brief review='; do
+  grep -qF -- "$r" "$SKILL" && pass "escalation: $r" || fail "escalation: $r"
 done
 grep -q 'gh pr create --draft' "$SKILL" && pass "draft PR under unattended" || fail "draft PR"
 grep -qi 'instead of calling the provider.s `fetch`' "$SKILL" && pass "--brief skips fetch" || fail "--brief skips fetch"
@@ -27,7 +27,7 @@ grep -q 'without `--brief` is refused' "$SKILL" && pass "unattended requires bri
 for l in 'PHASE <n> <item>' 'PR item=<item> url=<url> draft' 'DONE item=<item> pr=<url>'; do
   grep -qF "$l" "$SKILL" && pass "line $l" || fail "line $l"
 done
-grep -q 'reason=preflight' "$SKILL" && pass "preflight stop escalates" || fail "preflight stop escalation"
+grep -qF 'phase=0 reason=out-of-tries step=worker' "$SKILL" && pass "preflight stop escalates" || fail "preflight stop escalation"
 grep -q 'Clean up before escalating' "$SKILL" && pass "cleanup before escalation" || fail "cleanup before escalation"
 grep -q 'gh pr create --draft --base <baseBranch>' "$SKILL" && pass "draft PR uses the brief base" || fail "draft PR base"
 grep -q 'the `--brief`.s `baseBranch` → explicit argument' "$SKILL" && pass "brief base heads the chain" || fail "brief base chain"
@@ -45,7 +45,7 @@ grep -q 'Under `--unattended`, this phase is SKIPPED' "$SKILL" && pass "phase 8 
 grep -q 'HELD item=<item> action=open a draft PR from <compare-url>' "$SKILL" && pass "no-gh unattended path" || fail "no-gh unattended path"
 grep -q 'gate-lock.sh' "$SKILL" && pass "S2 gates run through gate-lock.sh" || fail "S2 gate-lock.sh"
 grep -q 'Phase 5.s targeted tests' "$SKILL" && pass "S2 Phase 5 gates locked too" || fail "S2 phase 5 locked"
-grep -q 'unanswered-question' "$SKILL" && pass "S4 unanswered-question escalation" || fail "S4 unanswered-question"
+grep -qF 'decide the question yourself from sources, record it in the brief'"'"'s `## Decisions` with its `Source:`, and go on' "$SKILL" && pass "S4 an unanswered question is decided from sources" || fail "S4 unanswered question decided"
 grep -q 'Tier C is never used' "$SKILL" && pass "S12 no interactive Tier C unattended" || fail "S12 Tier C"
 grep -q 'item.path' "$SKILL" && pass "S11 file status write targets item.path" || fail "S11 item.path"
 grep -q -- '-fix.md' "$SKILL" && grep -q 'Disposition:' "$SKILL" && pass "S16 every finding left unfixed has a disposition" || fail "S16 dispositions"
@@ -62,20 +62,20 @@ grep -q '## Decisions' "$SKILL" && pass "brief decisions are binding" || fail "D
 grep -q 'batch-dir' "$SKILL" && fail "no stale batch-dir paths" || pass "no stale batch-dir paths"
 # Stress test pass fixes
 grep -q 'Nothing is asked at the terminal' "$SKILL" && pass "S4 no prompt survives unattended" || fail "S4 catch-all for prompts"
-grep -q 'needs=verification steps' "$SKILL" && pass "S4 an empty checklist escalates" || fail "S4 empty checklist"
-grep -q 'needs=browser verification of' "$SKILL" && pass "S4 no browser tool escalates" || fail "S4 browser fallback"
-grep -q 'gate-busy' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-busy"
+has "S4 an empty checklist is built from the brief, not asked" 'build the checklist from the brief'"'"'s approach and the diff'"'"'s edge cases'
+grep -qF 'needs=screen: browser verification of' "$SKILL" && pass "S4 no browser tool escalates" || fail "S4 browser fallback"
+grep -qF 'reason=out-of-tries step=gate-lock' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-lock"
 grep -q 'the later one wins' "$SKILL" && pass "S12 contradictory decisions have an order" || fail "S12 decision precedence"
 grep -q 'more than two `HELD` lines' "$SKILL" && pass "S11 held lines are aggregated" || fail "S11 HELD aggregate"
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && grep -q '/tmp/juel.gate.<uid>.lock' "$SKILL" && pass "T1 one gate lock per user, no path to pass" || fail "T1 gate lock path"
 grep -q 'A gate inside an invoked skill' "$SKILL" && pass "T8 gates inside invoked skills are covered" || fail "T8 nested gates"
 grep -q 'ask the coordinator' "$SKILL" && grep -q 'three times' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
-grep -q 'anything else only a person can supply' "$SKILL" && pass "R9 needs-human-input covers what it is used for" || fail "R9 reason 6 definition"
+has "R9 needs-person covers what it is used for" 'an action at the screen (including a browser check no tool can run)'
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
 g "W1 gates run from the manifest, never from a hand-quoted string" 'run-gates.sh'
 ! grep -qF "sh -c '<test command> && <lint command>'" "$SKILL" && pass "W1 the hand-quoted gate line is gone" || fail "W1 hand-quoted gate line still there"
-g "W4 the gate's own exit codes are not a red gate" 'gate-unavailable'
+g "W4 the gate's own exit codes are not a red gate" 'None of these is a red gate: do not start fixing code.'
 g "W5 every invoked skill is told the run is unattended" 'Unattended run: the approved brief'
 g "W6 verification steps the user gave in a decision count" 'verification steps given under `## Decisions`'
 grep -q 'id: orca' "$SKILL" && pass "W7 orca is declared (a worker asks the coordinator through it)" || fail "W7 orca not declared"
@@ -87,13 +87,13 @@ grep -qF -- '--executor' "$ROOT/skills/review-and-execute/SKILL.md" && pass "X3 
 for gone in '`--screen-checks <file>`' '`--fix-review <file>`' 'VERIFIED item=' 'SCREEN path=' 'FIXED item=' 'blocked: needs you at the screen' 'Screen-check mode' 'Fix mode ('; do
   grep -qF -- "$gone" "$SKILL" && fail "removed: $gone" || pass "removed: $gone"
 done
-for l in 'REPORTED item=' 'RESCOPE item=<item> reason=gate review=' 'DONE item=<item> pr=<url> head=<sha> review=<path>' 'STAR-ISSUE:' 'screen-lock.sh' 'renew --holder' 'Status: skipped (STAR owns the status)' 'deliverable: report' 'screen-busy' 'Decisions made without you' 'executor-model.sh' 'codex-gate.sh' 'post-pass' 'review-unavailable' 'red-first' 'progress/<item>.log' 'Mobbin' 'context7' 'frontend-design' 'auto: playwright' 'auto: computer-use' 'gate.maxRounds' 'Resume on an existing draft PR' 'was removed in v2'; do
+for l in 'REPORTED item=' 'RESCOPE item=<item> reason=gate review=' 'DONE item=<item> pr=<url> head=<sha> review=<path>' 'STAR-ISSUE:' 'screen-lock.sh' 'renew --holder' 'Status: skipped (STAR owns the status)' 'deliverable: report' 'step=screen' 'Decisions made without you' 'executor-model.sh' 'codex-gate.sh' 'post-pass' 'step=review-tool' 'red-first' 'progress/<item>.log' 'Mobbin' 'context7' 'frontend-design' 'auto: playwright' 'auto: computer-use' 'tries.perStep' 'Resume on an existing draft PR' 'was removed in v2'; do
   grep -qF -- "$l" "$SKILL" && pass "has: $l" || fail "has: $l"
 done
 # Issue #26
 g "I1 shared ids are reserved, not counted" 'ids.sh'
 g "Z10 --floor takes the number only" '`<highest>` is the number only (40 for D-040)'
-grep -qF 'When `ids.sh` exits' "$SKILL" && grep -qF 'non-zero or is missing, escalate `needs-human-input`, and never take the next number yourself' "$SKILL" && pass "Z10 an ids.sh that cannot run is escalated" || fail "Z10 an ids.sh that cannot run is escalated"
+grep -qF 'When `ids.sh` exits' "$SKILL" && grep -qF 'non-zero or is missing, end with `reason=out-of-tries step=worker`, and never take the next number yourself' "$SKILL" && pass "Z10 an ids.sh that cannot run ends the run" || fail "Z10 an ids.sh that cannot run ends the run"
 g "Z11 Codex gets the ids in the plan" 'With `executor: codex`, reserve the ids while writing the plan and put them in it.'
 # Issue #33
 g "E1 an existing PR is updated, not opened" 'url=<url> existing'
@@ -133,10 +133,10 @@ g "F6a the screen lock is for the visible screen" 'Before launching an app you w
 g "F6b a lapsed lock is handled like exit 65" 'printing `free` (the lock lapsed)'
 g "F7a a failing executor-model.sh counts as default" 'counts as `default <why>`'
 g "F7b Phase 5 passes on what ran" 'or `--executor session` when this session ran the plan'
-g "F8 a person: check runs its automated part" 'citing the person-only step the owner did before go'
+g "F8 a person: check runs its automated part" 'citing the person-only step the owner did.'
 g "F9 without a star block the run ends with a plain DONE" 'then ends with `DONE item=<item> pr=<url> head=<sha>`'
 g "F10 the progress folder is created first" 'mkdir -p <star.home>/progress'
-g "F11 the unanswered-question sentence ends with a period" '`unanswered-question`. A step that needs a person'
+g "F11 a question with no answer is decided, then the run goes on" '`## Decisions` with its `Source:`, and go on. A step that needs a person'
 # Final fixes C-3: only a run under a star: brief has a star.home, so only it creates the folder and keeps the log
 g "C3a the progress paragraph applies under a star: brief" '**Progress.** Under a `star:` brief, STAR judges this run by its progress'
 g "C3b a run without a star: brief keeps no progress log" 'A run without a `star:` brief has no `star.home` and keeps no progress log.'
@@ -157,7 +157,10 @@ g "G63a the gate gets the evidence folder" '--evidence <the Phase 6 evidence dir
 g "G63b the manifest names the evidence folder" '"evidenceDir": "<the evidence directory>"'
 g "G63d a resumed run reads the folder from the manifest and drops a missing one" 'leave `--evidence` out: a missing'
 g "G71a the round streams and only the verdict line is read" 'read only the last line of its output'
-g "G64a a gate-down line is quoted whole" 'quoted whole: an `ERROR gate-down'
+has "G64a an ERROR gate-down line is its own step" '`ERROR gate-down …` line that `codex-gate.sh` itself printed ends as `reason=out-of-tries step=gate-down`'
+has "G64a2 the step list names gate-down, class outside" 'reason=out-of-tries step=gate-down review=<the file holding its ERROR line>'
+has "G64a3 any other gate or post-pass ERROR stays review-tool" 'other `ERROR` from `codex-gate.sh` or `post-pass` is `step=review-tool` too'
+
 # Issue #61: a criterion accepted with a residual
 g "R61a the verdict exists" '`ACCEPTED-RESIDUAL`'
 g "R61b it needs a decision record that names a follow-up" 'accepts the residual and names a follow-up spec item'
@@ -200,7 +203,7 @@ g "L83b through orca's unread messages" 'orca orchestration check --unread --jso
 g "L89a the gate lock line takes the progress log" '[--progress <star.home>/progress/<item>.log]'
 g "L89b never inside a plan the executor runs" 'Never put `--progress` in a plan the executor runs'
 g "L89c the progress row says gate-lock writes the wait" '`gate-lock.sh --progress` writes this step itself every 10 minutes'
-g "L90a a red fixed outside runtime does not count" 'A red does not count toward the two when the fix'
+g "L90a a red fixed outside runtime does not count" 'A red does not count toward the budget when the fix'
 g "L90b at most two refunds between green gates" 'At most two such reds are refunded between two green gates'
 # fix-1: R4 the gate lock is one file per user, so under a star: brief the holder names the project (#76)
 g "R4a a star: brief's gate-lock holder carries the project" '--holder "<star.project>/<item>"'
@@ -231,11 +234,11 @@ g "L102p a merge state still UNKNOWN adds no NOTE" 'Still `UNKNOWN`, it cannot t
 g "L105a missing dependencies are checked before the first dispatch" '**Dependencies.** Under `--unattended`, before the first dispatch (Codex or this session), check'
 g "L105b the check is run-gates.sh's own rule" 'folder above it up to the repo root (`run-gates.sh` makes the same check for a gate that runs a JS'
 g "L105c the install runs in the background, outside the gate lock" 'and not through `gate-lock.sh`'
-g "L105d a failed install is gate-unavailable" 'reason=gate-unavailable needs=dependencies did not install: <one line>'
+g "L105d a failed install is a review-tool step out of tries" 'reason=out-of-tries step=review-tool review=<the file holding the one line>'
 g "L105e resolution still installs and runs nothing" 'resolution still installs and runs nothing'
 g "L105f the resolution sentence is unchanged" 'it must not install or run'
 g "L105g exit 71 for missing dependencies installs once, then reruns" '`dependencies are not installed`: run the resolved `commands.install` once (Phase 4'"'"'s'
-g "L105h a second 71 is gate-unavailable" 'a second 71 is `gate-unavailable`'
+g "L105h a second 71 is step=review-tool" 'a second 71 is `step=review-tool`'
 g "L105i the escalation list names the failed install" 'dependency install failed (Phase 4'"'"'s "Dependencies")'
 g "L99a messages are read only with --unread --json or --peek --json" 'Read messages only with `--unread --json` (or `--peek --json` to'
 g "L99b a plain check prints only subjects and marks them read" 'A plain `orca orchestration check` prints only the subjects and still'
@@ -270,7 +273,7 @@ grep -qF 'and none after a clean merge' "$SKILL" && fail "L111d no base-only mer
 g "L113a a base-moved round merges the base before it runs" '6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.'
 g "L113b the merge follows babysit's Phase 4 step 1" 'Fetch the base and merge it in as `juel:babysit-pr`'"'"'s Phase 4 step 1 does'
 g "L113c then the same round runs again, not as an ERROR retry" 'the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and'
-g "L113d it casts no maxRounds vote" 'it casts no vote toward `gate.maxRounds`.'
+g "L113d it casts no tries.perStep vote" 'it casts no vote toward `tries.perStep`.'
 g "L113e any other ERROR still waits 10 minutes" 'Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more'
 g "L113f review-unavailable never counts a base-moved round" 'An `ERROR base-moved` never counts: the gate loop'"'"'s step 6 merges the base and runs the round again.'
 g "L118a the executor check runs executor-check.sh" 'sh <plugin root>/skills/ship-ticket/executor-check.sh <plugin root>'
@@ -302,9 +305,9 @@ has "#141 the Codex prompt runs only the plan's commands" 'Run only the commands
 
 # lane c: #143 a stalled gate is gate-unavailable at once; #145 anchored ignore entries, and a planned file git ignores stops the build
 has "C143a exit 125 is a stalled gate, with its line" 'Exit 125 is a stalled gate, with this line on stderr: `gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`.'
-has "C143b a stalled gate is not red and not run again" 'It is not red and it is not run again: it is the `gate-unavailable` escalation at once, with `needs=stalled gate: <the stalled line>`.'
+has "C143b a stalled gate is not red and not run again" 'It is not red and it is not run again: it is the `step=review-tool` escalation at once, with `stalled gate: <the stalled line>` in the file `review=` names.'
 has "C143c the escalation list names a stalled gate" 'or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and was stopped)'
-has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.'
+has "C143d needs= for a stalled gate" 'for a stalled gate, `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`;'
 grep -qF 'stalled, the command printed nothing for' "$ROOT/skills/ship-ticket/gate-lock.sh" && pass "C143e gate-lock.sh prints the line the skill quotes" || fail "C143e gate-lock.sh prints the line the skill quotes"
 has "C145a the ignore entries are anchored to the repo root" 'For each one that fails, the entry is anchored to the repo root, so no other folder of the same name is ignored'
 has "C145b the entries it names" '(`/docs/superpowers/`, or `/docs/.superpowers/`), and `/.superpowers/`.'
@@ -320,7 +323,7 @@ printf 'superpowers/\n.superpowers/\n' > "$IG/.gitignore"
 ig tests/superpowers/a.test.sh && pass "C145g (control) the old unanchored line ignores tests/superpowers/" || fail "C145g (control) the old unanchored line"
 has "C145h ship-ticket stops on a planned file git ignores" '**A planned file git ignores.** After every run of the plan in this skill'
 has "C145i it reads the executor's failed-task line and stops before the scope check" 'look in the executor'"'"'s report for a line that begins `task <N> failed: planned file`. One such line means a file the plan needs never reached a commit: stop there, before the scope check.'
-has "C145j the escalation it raises" '`ESCALATION item=<item> phase=<n> reason=codex-failed needs=planned file is git-ignored: <path> (<source>:<line>:<pattern>)`'
+has "C145j the escalation it raises" 'planned file is git-ignored: <path> (<source>:<line>:<pattern>)'
 has "C145k never forced, moved or unignored" 'Never `git add -f` the file, move it, or edit an ignore file to carry on.'
 has "C145l the escalation list names it" 'or a task fails on a planned file git ignores, whoever ran the plan'
 has "C145m a session run stops the same way" 'a path a task'"'"'s `**Files:**` block names that `git add` refuses as ignored stops the run the same way'
@@ -364,5 +367,28 @@ has "E164a codex-failed is for a reason other than capacity or a usage limit" 'f
 has "E164b an out-of-usage codex runs the plan in this session" '**Out of usage.**'
 # audit lane f: Phase 6's evidence is proof only
 has "F5 Phase 6 points to the evidence write rule" '(rule 5 of `references/local-e2e.md`)'
+
+# lane e: STAR autonomy. Two kinds of escalation, a tries budget, no go
+has "AU1 escalations are two kinds" '**Escalations are two kinds.**'
+has "AU2 the person-only form" 'ESCALATION item=<item> phase=<n> reason=needs-person needs=<secret|account|screen|approval|access>: <what>'
+has "AU3 the out-of-tries form" 'ESCALATION item=<item> phase=<n> reason=out-of-tries step=<step>[ review=<path>]'
+has "AU4 a step gets tries.perStep runs" 'A step gets `tries.perStep` runs'
+has "AU5 settings read tries in place of gate.maxRounds" 'its `tries` (`perStep`) in place of `gate.maxRounds`'
+has "AU6 missing acceptance criteria are not a stop" 'Missing acceptance criteria are not a stop: STAR writes them into the brief.'
+has "AU7 a brief violation is a RESCOPE" 'RESCOPE item=<item> reason=brief review=<a file naming what the work needs and why the brief excludes it>'
+has "AU8 the gate cap runs tries.perStep rounds" 'after `tries.perStep` rounds in this run'
+has "AU9 a conflict is resolved, recorded and gated" 'resolve them yourself, keeping both changes'"'"' intent'
+has "AU10 By hand a conflict that is not mechanical is still shown" 'By hand, a conflict `merge-union.sh` cannot resolve still stops the merge for the user.'
+has "AU11 red CI proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<base head> url=<url>'
+has "AU11b a name with a space or = is quoted" 'check="test (ubuntu-latest)"'
+has "AU11c base is the PR base branch's current head" '`baseRefOid`'
+tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF 'file a follow-up for the failure' && fail "AU11d a worker files no follow-up for a proven red check" || pass "AU11d a worker files no follow-up for a proven red check"
+has "AU11e STAR files the follow-up, the worker writes the proof only" 'STAR files any follow-up after the merge'
+has "AU12 the fallback equal to the executor is no fallback" 'there is no fallback: skip straight to running the plan in this session'
+has "AU13 the fallback resolves through executor-model.sh" 'resolves, through `executor-model.sh`, to the same model id as the executor'
+for r in 'reason=merge-conflict' 'reason=unanswered-question' 'reason=gate-red' 'reason=no-review' 'reason=hosted-cap' 'ownerApproval' 'reason=brief-violation' 'reason=codex-failed' 'reason=needs-human-input' 'reason=verification-failed' 'reason=stack-unavailable' 'reason=gate-busy' 'reason=gate-unavailable' 'reason=screen-busy' 'reason=review-unavailable' 'reason=preflight' 'reason=no-brief'; do
+  grep -qF -- "$r" "$SKILL" && fail "AU14 removed reason gone: $r" || pass "AU14 removed reason gone: $r"
+done
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

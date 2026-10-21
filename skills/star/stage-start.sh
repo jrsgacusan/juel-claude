@@ -2,6 +2,7 @@
 # Starts one STAR stage for one ledger row: everything "Fill slots" does, in one place, so no
 # session hand-rolls it.
 #   stage-start.sh [--home H] brief|build|babysit|post <item>
+#   stage-start.sh [--home H] close <dispatch>
 # Prints one line:
 #   started task=<id> dispatch=<id>[ fallback <model>: <why>]
 #   hold memory <gb>          free + inactive memory under hostGate.minFreeGB (default 3)
@@ -23,6 +24,16 @@
 #                             codex terminal in the worktree printed output in the last 10 minutes
 #                             ("live in the worktree")
 #   failed <step>: <why>      step: brief, worktree, branch, env, in-use, task-create, worker-start
+# close <dispatch> (#175) prints exactly one line and starts nothing. It closes the terminal a finished
+# dispatch of STAR's own left open, whatever Orca's retainedReason (user_takeover, identity_unproven):
+#   closed <terminal>                  Orca reports the dispatch settled (completed, failed,
+#                                      cancelled or released) and its terminal owned by that
+#                                      dispatch: closed
+#   kept <terminal> (<state>)          not closed: the dispatch is still running ("running"), the
+#                                      terminal's owner is another dispatch or a person (<state> is its
+#                                      retainedReason or ownershipState), or the close failed
+#                                      ("close failed: <why>")
+#   none                               the dispatch has no terminal, or Orca no longer lists it
 # Before that one line it may print, in this order, each on a line of its own, whatever line
 # follows (#76):
 #   stopped previous gate pgid=<n>    the gate lock, or one of its slot files <lock>.2 to <lock>.4
@@ -35,9 +46,10 @@
 #                                     session" was printed (a live session may be the one running it);
 #                                     one line per slot so held, in slot order
 #   ended previous session <terminal> the previous dispatch's own terminal was open: closed. A
-#                                     dispatch Orca reports released (releaseState or ownershipState
-#                                     "released", with no retainedReason) is gone (#95): its terminal
-#                                     is closed the same way, best-effort, and a failed close is ignored
+#                                     dispatch Orca reports settled (completed, failed, cancelled, or
+#                                     "released") whose terminal it owns is gone (#95, #175), whatever
+#                                     the retainedReason: its terminal is closed the same way,
+#                                     best-effort, and a failed close is ignored
 #   kept previous session <terminal> (<state>)
 #                                     an open terminal Orca does not prove is the dispatch's, quiet
 #                                     for 10 minutes or more, or showing only Claude Code's recap
@@ -186,6 +198,65 @@ def ids(text, prefix):
     return found[0] if found else None
 
 
+def orca_lists(handle):
+    """Whether Orca's terminal list holds this handle (#119); None unless the list proves it is whole:
+    it reads, does not say ok: false, is a list, is marked truncated: false, holds totalCount entries
+    when it names a count, and leaves out no host (hostScope.omittedHostIds). Then a missing handle
+    proves nothing."""
+    shown = run([orca, "terminal", "list", "--limit", "500", "--json"], 60)
+    data = lenient(shown.stdout)
+    result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
+    terminals = result.get("terminals") if isinstance(result, dict) else None
+    if shown.returncode != 0 or not isinstance(terminals, list) or result.get("truncated") is not False:
+        return None
+    count, scope = result.get("totalCount"), result.get("hostScope")
+    if (isinstance(count, int) and count > len(terminals)) or (isinstance(scope, dict) and scope.get("omittedHostIds")):
+        return None
+    return any(isinstance(t, dict) and t.get("handle") == handle for t in terminals)
+
+
+SETTLED_DISPATCH = ("completed", "failed", "cancelled", "canceled")
+
+
+def settled_own_terminal(dispatch):
+    """Orca's view of a dispatch's terminal (#175): (handle, settled_own, result). handle is None when
+    Orca no longer knows the dispatch or it has no terminal. settled_own is True when Orca reports the
+    dispatch settled (its own status completed, failed or cancelled, or releaseState or ownershipState
+    "released") and the terminal's owner is that dispatch: its terminal is STAR's to close, whatever
+    its retainedReason or exactWorker say. After worker-release, a terminal a person clicked into stays
+    releaseState "retained", ownershipState "user_owned", while the dispatch says completed (#175)."""
+    shown = run([orca, "orchestration", "worker-show", "--dispatch", dispatch, "--json"], 60)
+    data = lenient(shown.stdout)
+    result = data.get("result") if isinstance(data, dict) else None
+    if shown.returncode != 0 or not isinstance(result, dict):
+        return None, False, None
+    terminal = result.get("terminal")
+    handle = terminal.get("handle") if isinstance(terminal, dict) else None
+    if not handle:
+        return None, False, result
+    res = result.get("terminalResource") if isinstance(result.get("terminalResource"), dict) else {}
+    released = "released" in (res.get("releaseState"), res.get("ownershipState"))
+    status = (result.get("dispatch") or {}).get("status") if isinstance(result.get("dispatch"), dict) else None
+    settled = released or status in SETTLED_DISPATCH
+    return handle, settled and res.get("ownerDispatchId") == dispatch, result
+
+
+def close_command(dispatch):
+    """close <dispatch> (#175): close the terminal a settled dispatch of STAR's own left open."""
+    handle, settled_own, result = settled_own_terminal(dispatch)
+    if not handle or orca_lists(handle) is False:
+        out("none")
+    if settled_own:
+        closed = run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
+        if closed.returncode == 0 or orca_lists(handle) is False:
+            out(f"closed {handle}")
+        out(f"kept {handle} (close failed: {why(closed)})")
+    res = result.get("terminalResource") if isinstance(result.get("terminalResource"), dict) else {}
+    if "released" in (res.get("releaseState"), res.get("ownershipState")):
+        out(f"kept {handle} ({res.get('retainedReason') or res.get('ownershipState') or 'unowned'})")
+    out(f"kept {handle} (running)")
+
+
 home, args, positional = os.environ.get("STAR_HOME_DEFAULT") or "", sys.argv[1:], []
 while args:
     arg = args.pop(0)
@@ -197,8 +268,10 @@ while args:
         die(64, f"unknown argument: {arg}")
     else:
         positional.append(arg)
+if len(positional) == 2 and positional[0] == "close":
+    close_command(positional[1])
 if len(positional) != 2 or positional[0] not in RUNNING:
-    die(64, "usage: stage-start.sh [--home H] brief|build|babysit|post <item>")
+    die(64, "usage: stage-start.sh [--home H] brief|build|babysit|post <item> | close <dispatch>")
 stage, item = positional
 if not home:
     die(2, "no STAR folder: pass --home, or run inside a project")
@@ -604,23 +677,6 @@ def recent(last):
     return not isinstance(last, (int, float)) or time.time() * 1000 - last <= LIVE_MS
 
 
-def orca_lists(handle):
-    """Whether Orca's terminal list holds this handle (#119); None unless the list proves it is whole:
-    it reads, does not say ok: false, is a list, is marked truncated: false, holds totalCount entries
-    when it names a count, and leaves out no host (hostScope.omittedHostIds). Then a missing handle
-    proves nothing."""
-    shown = run([orca, "terminal", "list", "--limit", "500", "--json"], 60)
-    data = lenient(shown.stdout)
-    result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
-    terminals = result.get("terminals") if isinstance(result, dict) else None
-    if shown.returncode != 0 or not isinstance(terminals, list) or result.get("truncated") is not False:
-        return None
-    count, scope = result.get("totalCount"), result.get("hostScope")
-    if (isinstance(count, int) and count > len(terminals)) or (isinstance(scope, dict) and scope.get("omittedHostIds")):
-        return None
-    return any(isinstance(t, dict) and t.get("handle") == handle for t in terminals)
-
-
 def screen_rows(handle):
     """The terminal's rendered screen rows, read with the same command and checks as worker-probe.sh's
     screen_tail() (without its 25-row cut); None when the screen cannot be read or Orca reports
@@ -664,21 +720,18 @@ def previous_session():
     if not checks_previous():
         return None
     prev = row["dispatch"]
-    shown = run([orca, "orchestration", "worker-show", "--dispatch", prev, "--json"], 60)
-    data = lenient(shown.stdout)
-    result = data.get("result") if isinstance(data, dict) else None
-    if shown.returncode != 0 or not isinstance(result, dict):
-        return None  # Orca no longer knows the dispatch: nothing of it is left to end
-    terminal = result.get("terminal")
-    handle = terminal.get("handle") if isinstance(terminal, dict) else None
+    handle, settled_own, result = settled_own_terminal(prev)
     if not handle:
-        return None  # its terminal is closed
+        return None  # Orca no longer knows the dispatch, or its terminal is closed: nothing of it is left to end
+    terminal = result.get("terminal")
     res = result.get("terminalResource") if isinstance(result.get("terminalResource"), dict) else {}
     seen = result.get("observation") if isinstance(result.get("observation"), dict) else {}
     reason, state = res.get("retainedReason") or "", None
-    if not reason and "released" in (res.get("releaseState"), res.get("ownershipState")):
+    released = "released" in (res.get("releaseState"), res.get("ownershipState"))
+    if settled_own or (not reason and released):
         # Orca released the dispatch, so it is gone (#95): close its terminal best-effort and ignore
-        # the result, since Orca or the coordinator may have closed it already
+        # the result, since Orca or the coordinator may have closed it already. Its own terminal is
+        # closed whatever the retainedReason (#175).
         run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
         NOTES.append(f"ended previous session {handle}")
         return handle
