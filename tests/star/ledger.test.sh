@@ -36,20 +36,14 @@ STAR_NOW=2026-10-07T11:00:00Z sh "$SCRIPT" --home "$H" set SPH-11 round=1 >/dev/
 [ "$(L get SPH-11 updated)" = "2026-10-07T11:00:00Z" ] && pass "every write stamps updated" || fail "stamp"
 
 # counters
-L set SPH-11 counters.silent=+1 >/dev/null; L set SPH-11 counters.silent=+1 counters.last=msg_1 >/dev/null
-[ "$(L get SPH-11 counters.silent)" = "2" ] && [ "$(L get SPH-11 counters.last)" = "msg_1" ] && pass "+1 counts and a word key sets" || fail "counters ($(L get SPH-11 counters))"
-L set SPH-11 counters.hold=3 counters.silent=- >/dev/null
+L set SPH-11 counters.tries=+1 >/dev/null; L set SPH-11 counters.tries=+1 counters.last=msg_1 >/dev/null
+[ "$(L get SPH-11 counters.tries)" = "2" ] && [ "$(L get SPH-11 counters.last)" = "msg_1" ] && pass "+1 counts and a word key sets" || fail "counters ($(L get SPH-11 counters))"
+L set SPH-11 counters.hold=3 counters.tries=- >/dev/null
 [ "$(L get SPH-11 counters)" = "last=msg_1 hold=3" ] && pass "- removes a key" || fail "remove ($(L get SPH-11 counters))"
 L set SPH-11 counters=keep:hold >/dev/null; [ "$(L get SPH-11 counters)" = "hold=3" ] && pass "keep: drops every other key" || fail "keep ($(L get SPH-11 counters))"
 L set SPH-11 counters=- >/dev/null; [ "$(L get SPH-11 counters)" = "-" ] && pass "counters=- clears them" || fail "clear"
-L set SPH-11 counters.kept=1 >/dev/null && [ "$(L get SPH-11 counters.kept)" = "1" ] && pass "kept= is a counter (#19)" || fail "kept counter"
-L set SPH-11 counters.busy=+1 >/dev/null && L set SPH-11 counters.busy=+1 >/dev/null && [ "$(L get SPH-11 counters.busy)" = "2" ] && pass "busy= counts refused check-ins (#25)" || fail "busy counter"
-L set SPH-11 counters.busy=- >/dev/null
-L set SPH-11 counters.synced=abc1234 >/dev/null && [ "$(L get SPH-11 counters.synced)" = "abc1234" ] && pass "synced= holds a base head (#28)" || fail "synced word"
-L set SPH-11 counters.synced=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "synced= does not count" || fail "synced +1"
-L set SPH-11 counters.synced=- >/dev/null
 L set SPH-11 counters=- >/dev/null
-[ "$(L get SPH-11 counters.silent)" = "-" ] && pass "an absent counter reads -" || fail "absent counter"
+[ "$(L get SPH-11 counters.tries)" = "-" ] && pass "an absent counter reads -" || fail "absent counter"
 
 # refusals
 L set SPH-11 updated=x >/dev/null 2>&1; [ $? -eq 64 ] && pass "updated cannot be set" || fail "updated set"
@@ -90,7 +84,7 @@ sed -i.bak '$d' "$H/ledger.md"
 i=0; while [ $i -lt 15 ]; do L add "P-$i" "ref=P-$i" project=app >/dev/null & i=$((i + 1)); done; wait
 [ "$(L list | grep -c '^P-')" -eq 15 ] && pass "15 parallel adds keep 15 rows" || fail "parallel adds ($(L list | grep -c '^P-'))"
 
-# v2: four stages, no review, fix or screen states, the new counters
+# v3: four stages, the schema-3 states and counters
 L add V2-1 ref=V2-1 project=app >/dev/null
 for gone in pr-draft reviewing fix-queued fixing screen-queued screening ready; do
   L set V2-1 "state=$gone" >/dev/null 2>&1; [ $? -eq 64 ] || fail "state $gone is still accepted"
@@ -98,14 +92,33 @@ done; pass "the seven v1-only states are refused"
 for gone in review fix screen; do
   L set V2-1 "stage=$gone" >/dev/null 2>&1; [ $? -eq 64 ] || fail "stage $gone is still accepted"
 done; pass "the three v1-only stages are refused"
-L set V2-1 state=babysit-queued stage=babysit counters.capacity=+1 counters.mismatch=1 counters.mergefail=1 counters.rescoped=1 counters.rescope=V2-1-r3.md counters.batch=B-20261009T081200Z counters.parent=SPH-11 >/dev/null
-[ "$(L get V2-1 counters.rescope)" = "V2-1-r3.md" ] && [ "$(L get V2-1 counters.batch)" = "B-20261009T081200Z" ] && [ "$(L get V2-1 counters.capacity)" = "1" ] && [ "$(L get V2-1 counters.parent)" = "SPH-11" ] && pass "the new counters and words are kept" || fail "new counters ($(L get V2-1 counters))"
+L set V2-1 state=babysit-queued stage=babysit counters.rescoped=1 counters.rescope=V2-1-r3.md counters.batch=B-20261009T081200Z counters.parent=SPH-11 >/dev/null
+[ "$(L get V2-1 counters.rescope)" = "V2-1-r3.md" ] && [ "$(L get V2-1 counters.batch)" = "B-20261009T081200Z" ] && [ "$(L get V2-1 counters.rescoped)" = "1" ] && [ "$(L get V2-1 counters.parent)" = "SPH-11" ] && pass "the kept counters and words are kept" || fail "kept counters ($(L get V2-1 counters))"
 
-# #56: shape= counts a worker_done that was not a report
-L set V2-1 counters.shape=1 >/dev/null && [ "$(L get V2-1 counters.shape)" = "1" ] && pass "shape= is a counter (#56)" || fail "shape counter ($(L get V2-1 counters))"
-# #70: asked= and step= hold the last instruction's time and step
-L set V2-1 counters.asked=2026-10-12T10:00:00Z counters.step=gate-r3 >/dev/null && [ "$(L get V2-1 counters.asked)" = "2026-10-12T10:00:00Z" ] && [ "$(L get V2-1 counters.step)" = "gate-r3" ] && pass "asked= and step= are words (#70)" || fail "asked and step ($(L get V2-1 counters))"
-L set V2-1 counters.asked=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "asked= does not count" || fail "asked +1"
+# C1: schema-3 states and counters
+L set V2-1 state=needs-you >/dev/null && L set V2-1 state=set-aside >/dev/null && pass "C1a: needs-you and set-aside are accepted" || fail "C1a"
+for gone in brief-ready escalated failed reported; do
+  L set V2-1 "state=$gone" >/dev/null 2>&1; [ $? -eq 64 ] || fail "C1b: state $gone is still accepted"
+done; pass "C1b: brief-ready, escalated, failed and reported are refused"
+L set V2-1 counters=- >/dev/null
+L set V2-1 counters.tries=+1 >/dev/null; L set V2-1 counters.tries=+1 >/dev/null
+[ "$(L get V2-1 counters.tries)" = "2" ] && pass "C1c: tries counts" || fail "C1c tries ($(L get V2-1 counters))"
+L set V2-1 counters.depth=1 counters.rescoped=1 counters.hold=1 counters.start=+1 >/dev/null && pass "C1c: depth, rescoped, hold and start are accepted" || fail "C1c rest"
+L set V2-1 counters.reached=babysitting counters.trackerRef=SAVI-1162 >/dev/null && [ "$(L get V2-1 counters.reached)" = "babysitting" ] && [ "$(L get V2-1 counters.trackerRef)" = "SAVI-1162" ] && pass "C1d: reached and trackerRef are words" || fail "C1d ($(L get V2-1 counters))"
+L set V2-1 counters.trackerRef=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "C1d: trackerRef does not count" || fail "C1d +1"
+for gone in moved mergefail go synced; do
+  L set V2-1 "counters.$gone=x" >/dev/null 2>&1; rc=$?
+  L set V2-1 "counters.$gone=1" >/dev/null 2>&1; rc2=$?
+  [ $rc -eq 64 ] && [ $rc2 -eq 64 ] || fail "C1e: counter $gone is still accepted"
+done; pass "C1e: moved, mergefail, go and synced are refused"
+L set V2-1 counters=- state=inbox >/dev/null
+L add C1-a ref=C1-a project=app >/dev/null; L add C1-b ref=C1-b project=app >/dev/null; L add C1-c ref=C1-c project=app >/dev/null
+L set C1-a state=set-aside >/dev/null; L set C1-b state=needs-you >/dev/null; L set C1-c state=babysitting >/dev/null
+L set SPH-12 state=dropped >/dev/null
+want=$(L counts | awk '{print $1}' | tr '\n' ' ')
+order="inbox briefing needs-you queued building babysit-queued babysitting verifying post-queued posting done set-aside dropped"
+exp=""; for s in $order; do L counts | awk -v s="$s" '$1==s{f=1} END{exit !f}' && exp="$exp$s "; done
+[ "$want" = "$exp" ] && L counts | awk '{print $1}' | grep -qx needs-you && pass "C1f: counts lists the I-2 states in order" || fail "C1f ($want vs $exp)"
 # lane e: a follow-up made from a review file gets a real item file (#159)
 H="$TMP/star-e"; mkdir -p "$H/reviews/app" "$H/items/app"; cp "$ROOT/skills/star/template/ledger.md" "$H/ledger.md"
 : > "$H/reviews/app/P-1-r3.md"; : > "$H/reviews/app/P-1-r4.md"
@@ -159,9 +172,5 @@ L add rescopedFrom=W-1 review="$H/reviews/app/W-1-r3.md" >/dev/null; [ "$(L get 
 L add V-1 ref=SPH-4 project=app >/dev/null; L set V-1 worktree=/wt/V-1 >/dev/null; printf 'eval/\n' > "$H/gates/app/V-1-tooling.md"
 L add rescopedFrom=V-1 review="$H/reviews/app/V-1-r3.md" >/dev/null
 [ "$(L get V-1 worktree)" = "/wt/V-1" ] && [ "$(L get V-1-followup worktree)" = "-" ] && [ ! -e "$H/gates/app/V-1-followup-tooling.md" ] && pass "E159o: without a PR the parent keeps its worktree and nothing is copied" || fail "E159o"
-# #162: prompted= counts the answered permission prompts (#114) and go= names the go-all grant (#151)
-L set W-1 counters.prompted=+1 >/dev/null && L set W-1 counters.prompted=+1 >/dev/null && [ "$(L get W-1 counters.prompted)" = "2" ] && pass "C162a prompted= is a counter" || fail "C162a prompted ($(L get W-1 counters))"
-L set W-1 counters.go=go-B-1-20261019T081200Z.md >/dev/null && [ "$(L get W-1 counters.go)" = "go-B-1-20261019T081200Z.md" ] && pass "C162b go= is a word" || fail "C162b go ($(L get W-1 counters))"
-L set W-1 counters.go=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "C162c go= does not count" || fail "C162c go +1"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

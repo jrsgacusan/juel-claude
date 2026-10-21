@@ -5,11 +5,12 @@
 #                                        print it. Safe to repeat; never overwrites a file. It makes
 #                                        library/ and builds/ beside the other folders and copies
 #                                        library.base and notes.base (the Obsidian tables) from the template.
-#   star-home.sh [--cwd <dir>] migrate   bring a v1 folder to star.json schema 2 (STAR's closed loop):
-#                                        prints one "stop <dispatch>" per worker of a removed stage,
+#   star-home.sh [--cwd <dir>] migrate   bring a folder to star.json schema 3 (STAR ships without asking). A schema 1
+#                                        folder is first brought to schema 2's shape (below), then on to 3 in the same run.
+#                                        Prints one "stop <dispatch>" per worker of a removed stage,
 #                                        then "migrated gate" when it moved a v2.0.0 gate to Sol,
 #                                        then "migrated quiet-hours" when it dropped a quietHours key
-#                                        (the feature is gone; a schema 2 folder is cleaned too),
+#                                        (the feature is gone; a schema 3 folder is cleaned too),
 #                                        then "migrated notes=<n> item=sort-memory-notes" when it split
 #                                        memory/<project>.md once (notes.sh split), kept the original as
 #                                        memory/<project>.md.pre-notes, copied each standing key into a note
@@ -19,7 +20,21 @@
 #                                        (star.json has no evidenceChecked) when worktree-clean.sh
 #                                        --evidence-report finds dependency folders in evidence/; the key is
 #                                        set either way, and a failing report leaves it unset,
-#                                        then "current" or "migrated rows=<n>"
+#                                        then "current" (schema 3) or "migrated schema=3 rows=<n> loops=<n>"
+#                                        (rows: ledger rows whose state or stage it changed; loops: queue
+#                                        items it closed), then "warn executor.fallback equals
+#                                        executor.model" when the two are equal, on every path (#173).
+# The schema 2 to 3 step, in this order, each part safe to repeat (star.json is written last): star.json gets
+# tries (perStep from gate.maxRounds, else 3; rescopes 1; followUpDepth 2), mergeMethod, baseBranch and
+# ownerBranches, hostedReviewer.paused false when a reviewer is set, and loses ownerApproval and gate.maxRounds;
+# every open queue item of a removed kind (go-batch, go-merge, accept-report, restart-or-drop, question,
+# escalation, held, and a person item whose "kind:" is not secret, account, screen, approval or access) is closed
+# with the answer "closed by the schema-3 migration", and one that names a need only a person can meet comes
+# back as a person item through loops.sh (keywords: "approval from someone other than" approval; "cannot see",
+# "tokenCmd" access; "login", "trust" screen; "secret", "token", "api key", "password" secret; "account", "sign up",
+# "sign in", "paid", "credit" account; the first match wins); ledger rows then move through ledger.sh
+# (brief-ready to needs-you when an open person item names the row's item, else queued; escalated and failed to
+# set-aside; reported to post-queued; counters keep only schema 3's keys and gain tries=0). Grant files are left alone.
 #   star-home.sh [--cwd <dir>] import <spec path>
 #                                        copy a spec from outside the folder, with each file under the spec's folder that its text
 #                                        names, into items/<project>/<kebab name>[-<n>]/ and print the copy's path; a spec already
@@ -49,15 +64,14 @@
 # migrate copies star.json and ledger.md to *.v1.bak (never over a backup), drops the review, fix
 # and screen stages, "reviewer" and every stage's "executor", adds the schema 2 keys it lacks,
 # moves rows out of the seven v1-only states and out of v1's verifying (pr-draft, reviewing,
-# fix-queued, fixing to queued; screen-queued, screening, ready, verifying to brief-ready) with a
-# decision record in each brief (only those rows count in "migrated rows=<n>"), and closes open
-# approve-brief, prep and merge-pr queue items. Any other row that is not done or dropped and is
+# fix-queued, fixing, screen-queued, screening, ready, verifying to queued) with a
+# decision record in each brief, and closes open approve-brief, prep and merge-pr queue items
+# (a schema 2 folder skips this: its verifying rows stay verifying). Any other row that is not done or dropped and is
 # still at the review, fix or screen stage (an escalated or failed row, say) gets stage=build.
 # The stop lines go to migrate-stops.txt in the folder and are printed at once, before the first
 # row moves, so a run that fails later has still named every worker to stop (they come first, on
 # stdout, even when the exit is 1). The file is deleted only when the run succeeds; a run that
-# finds it (an earlier migrate stopped half way) prints its lines again, before "current" or
-# "migrated rows=<n>".
+# finds it (an earlier migrate stopped half way) prints its lines again, before the main line.
 # migrate also moves a v2.0.0 gate to v2.1.0's: "model": "gpt-6-astra" becomes "latest-sol", and a
 # string "fallback" (v2.0.0's codex fallback) becomes {"agent": "claude", "model": "opus",
 # "effort": "xhigh"}. Any other gate value is the owner's and is left alone. init and migrate both
@@ -81,20 +95,37 @@ SUBDIRS = ("inbox", "briefs", "reviews", "gates", "releases", "drafts", "memory"
            "items", "grants", "progress", "evidence", "library", "builds")
 BASES = ("library.base", "notes.base")
 FILES = ("open-loops.md", "ledger.md", "star.json")
-V2_DEFAULTS = {
+DEFAULTS = {
     "executor": {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"},
     "gate": {"model": "latest-sol", "effort": "xhigh",
-             "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 3},
+             "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}},
+    "tries": {"perStep": 3, "rescopes": 1, "followUpDepth": 2},
+    "mergeMethod": None,
+    "baseBranch": None,
+    "ownerBranches": [],
     "hostedReviewer": None,
-    "ownerApproval": None,
     "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
     "progressDeadlineMin": 30,
     "tokenCmd": None,
 }
+# schema 3 (STAR ships without asking): a queue item of one of these kinds is closed by migrate; a
+# person item whose "kind:" line is not one of PERSON_KINDS is closed too.
+REMOVED_KINDS = ("go-batch", "go-merge", "accept-report", "restart-or-drop", "question", "escalation", "held",
+                 "approve-brief", "prep", "merge-pr")
+PERSON_KINDS = ("secret", "account", "screen", "approval", "access")
+# The first match wins; the text is a removed item's title and body, lower-cased.
+NEED_WORDS = (("approval", ("approval from someone other than",)),
+              ("access", ("cannot see", "tokencmd")),
+              ("screen", ("login", "trust")),
+              ("secret", ("secret", "token", "api key", "password")),
+              ("account", ("account", "sign up", "sign in", "paid", "credit")))
+KEEP_COUNTERS = ("tries", "rescoped", "depth", "hold", "start", "reached", "parent", "trackerRef", "batch",
+                 "last", "tracker", "rescope")
+CLOSE_ANSWER = "closed by the schema-3 migration"
 MOVES = {"pr-draft": ("queued", "build", "resume"), "reviewing": ("queued", "build", "resume"),
          "fix-queued": ("queued", "build", "resume"), "fixing": ("queued", "build", "resume"),
-         "screen-queued": ("brief-ready", "build", "screen"), "screening": ("brief-ready", "build", "screen"),
-         "ready": ("brief-ready", "build", "merge"), "verifying": ("brief-ready", "build", "merge")}
+         "screen-queued": ("queued", "build", "screen"), "screening": ("queued", "build", "screen"),
+         "ready": ("queued", "build", "merge"), "verifying": ("queued", "build", "merge")}
 RUNNING_V1 = ("reviewing", "fixing", "screening")
 REMOVED_STAGES = ("review", "fix", "screen")
 CLOSED = ("done", "dropped")
@@ -103,14 +134,14 @@ RECORDS = {
                "STAR moved to the closed loop (juel v2.0.0) while this item was {old}.",
                "Run the build again on the item's existing branch and draft PR: verify it, then the codex gate loop.",
                "No separate review or fix stage runs for it; the build worker gates its own PR."),
-    "screen": ("Screen checks become person-only steps",
+    "screen": ("Screen checks become person items",
                "STAR moved to the closed loop (juel v2.0.0) while this item was {old}: checks waited for a person at the screen.",
-               "Ask the checks listed in {pending} as person-only steps in the next batch summary; after go, the build resumes on the existing PR.",
-               "No check waits for a person after go."),
-    "merge": ("Merge under a go",
+               "Ask the checks listed in {pending} as person items; the build resumes on the existing PR.",
+               "No check waits for a person unless it is a person item."),
+    "merge": ("Merge under the merge gate",
               "STAR moved to the closed loop (juel v2.0.0) while this item was {old}: its PR waited for the owner's merge.",
-              "A v1 item: once you say go, the build resumes the gate loop on its existing PR, and STAR merges it under that go.",
-              "The owner no longer presses merge for this PR: the go in the next batch summary is its grant."),
+              "A v1 item: the build resumes the gate loop on its existing PR, and STAR merges it once the merge gate holds.",
+              "The owner no longer presses merge for this PR."),
 }
 
 
@@ -248,7 +279,7 @@ def upgrade_gate(data):
         gate["model"] = "latest-sol"
         changed = True
     if isinstance(gate.get("fallback"), str):
-        gate["fallback"] = dict(V2_DEFAULTS["gate"]["fallback"])
+        gate["fallback"] = dict(DEFAULTS["gate"]["fallback"])
         changed = True
     return changed
 
@@ -362,6 +393,102 @@ def migrate_evidence(data):
     return True
 
 
+def queue_items(queue):
+    """The open queue items with their title and body: [{id, kind, project, item, state, title, text, sub}].
+    Read straight from open-loops.md (loops.sh list has no body); every write goes through loops.sh."""
+    loops = os.path.join(os.environ["STAR_SKILL_DIR"], "loops.sh")
+    listed = subprocess.run(["sh", loops, "--file", queue, "list"], capture_output=True, text=True)
+    if listed.returncode != 0:
+        die(1, "loops.sh list: " + (listed.stderr.strip() or f"exit {listed.returncode}"))
+    bodies, current = {}, None
+    for line in open(queue, encoding="utf-8", errors="surrogateescape").read().split("\n"):
+        found = re.match(r"^### (N-\d+) · ", line)
+        if found:
+            current = bodies.setdefault(found.group(1), [])
+        elif line.startswith("## "):
+            current = None
+        elif current is not None:
+            current.append(line)
+    found = []
+    for line in listed.stdout.splitlines():
+        cells = line.split("\t")
+        if len(cells) < 6 or cells[4] == "missing":
+            continue
+        body = [l for l in bodies.get(cells[0], []) if not re.match(r"\s{0,3}(?:[-*+]\s+)?(?:\[[ xX]\]\s*)?[*_]{0,2}answer\s*[:：]", l, re.I)]
+        sub = next((m.group(1) for l in body[1:] for m in [re.match(r"(?:> )?kind:\s*(\S+)", l)] if m), "")
+        found.append({"id": cells[0], "kind": cells[1], "project": cells[2], "item": cells[3], "state": cells[4],
+                      "title": cells[5], "text": (cells[5] + " " + " ".join(body)).lower(), "sub": sub})
+    return found
+
+
+def person_need(entry):
+    for need, words in NEED_WORDS:
+        if any(w in entry["text"] for w in words):
+            return need
+    return None
+
+
+def migrate_queue(skill):
+    """Close the open items of a removed kind (and person items of a removed sub-kind); a person-only need
+    among them comes back as a person item. Returns how many it closed."""
+    queue, loops = os.path.join(home, "open-loops.md"), os.path.join(skill, "loops.sh")
+    closed = 0
+    for entry in queue_items(queue):
+        removed = entry["kind"] in REMOVED_KINDS or (entry["kind"] == "person" and entry["sub"] not in PERSON_KINDS)
+        if not removed:
+            continue
+        need = person_need(entry) if entry["state"] == "open" else None
+        if need:
+            added = subprocess.run(["sh", loops, "--file", queue, "add", "--kind", "person", "--project", entry["project"],
+                                    "--item", entry["item"], "--title", entry["title"],
+                                    "--body", f"kind: {need}\n{entry['title']}"], capture_output=True, text=True)
+            if added.returncode != 0:
+                die(1, f"loops.sh add {entry['id']}: " + (added.stderr.strip() or f"exit {added.returncode}"))
+        for args in (("set-answer", entry["id"], CLOSE_ANSWER), ("close", entry["id"])):
+            done = subprocess.run(["sh", loops, "--file", queue, *args], capture_output=True, text=True)
+            if done.returncode not in (0, 4):  # 4: already closed
+                die(1, f"loops.sh {args[0]} {entry['id']}: " + (done.stderr.strip() or f"exit {done.returncode}"))
+        closed += 1
+    return closed
+
+
+def ledger_rows(skill):
+    rows = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "list"],
+                          capture_output=True, text=True)
+    if rows.returncode != 0:
+        die(1, "ledger.sh list: " + (rows.stderr.strip() or f"exit {rows.returncode}"))
+    return [l.split("\t") for l in rows.stdout.splitlines() if len(l.split("\t")) >= 6]
+
+
+def ledger_run(skill, *args):
+    done = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, *args], capture_output=True, text=True)
+    if done.returncode != 0:
+        die(1, f"ledger.sh {' '.join(args[:2])}: " + (done.stderr.strip() or f"exit {done.returncode}"))
+    return done.stdout.strip()
+
+
+def migrate_ledger(skill, queue_entries):
+    """Schema-3 states and counters. Returns the items whose row changed."""
+    waiting = {e["item"] for e in queue_entries if e["kind"] == "person" and e["state"] == "open" and e["sub"] in PERSON_KINDS}
+    changed = []
+    for cells in ledger_rows(skill):
+        item, state = cells[0], cells[1]
+        new = {"escalated": "set-aside", "failed": "set-aside", "reported": "post-queued",
+               "brief-ready": "needs-you" if item in waiting else "queued"}.get(state)
+        have = ledger_run(skill, "get", item, "counters")
+        kept = [p.split("=", 1)[0] for p in have.split() if "=" in p]
+        fields = [f"state={new}"] if new else []
+        if any(k not in KEEP_COUNTERS for k in kept):
+            fields.append("counters=keep:" + ",".join(KEEP_COUNTERS))
+        if "tries" not in kept:
+            fields.append("counters.tries=0")
+        if fields:
+            ledger_run(skill, "set", item, *fields)
+            if new:
+                changed.append(item)
+    return changed
+
+
 def migrate():
     star_path = os.path.join(home, "star.json")
     stops_path = os.path.join(home, "migrate-stops.txt")
@@ -378,6 +505,11 @@ def migrate():
                 print(line, flush=True)
                 printed.append(line)
 
+    def warn(data):
+        ex = data.get("executor") if isinstance(data.get("executor"), dict) else {}
+        if isinstance(ex.get("model"), str) and ex.get("model") == ex.get("fallback"):
+            print("warn executor.fallback equals executor.model")
+
     announce()
     try:
         data = json.load(open(star_path, encoding="utf-8"))
@@ -385,7 +517,7 @@ def migrate():
         die(1, f"cannot read {star_path} ({e})")
     if not isinstance(data, dict):
         die(1, f"{star_path} is not a JSON object")
-    if data.get("schema") == 2:
+    if isinstance(data.get("schema"), int) and data["schema"] >= 3:
         gate_moved = upgrade_gate(data)
         quiet_gone = "quietHours" in data
         data.pop("quietHours", None)
@@ -398,40 +530,49 @@ def migrate():
         if gate_moved or quiet_gone or notes_moved or evidence_set:
             write_json(star_path, data)
         print("current")
+        warn(data)
         forget(stops_path)
         return
-    for name in ("star.json", "ledger.md"):
-        src = os.path.join(home, name)
-        if os.path.exists(src) and not os.path.exists(src + ".v1.bak"):
-            shutil.copyfile(src, src + ".v1.bak")
-    stages = data.get("stages") if isinstance(data.get("stages"), dict) else {}
-    for gone in REMOVED_STAGES:
-        stages.pop(gone, None)
-    for entry in stages.values():
-        if isinstance(entry, dict):
-            entry.pop("executor", None)
-    data["stages"] = stages
-    data.pop("reviewer", None)
-    for key, value in V2_DEFAULTS.items():
-        data.setdefault(key, value)
+    skill = os.environ["STAR_SKILL_DIR"]
+    project = (data.get("project") or {}).get("name") or ""
+    touched = set()
+    from_v1 = data.get("schema") != 2
+    if from_v1:  # schema 1: bring it to schema 2's shape first, then on to schema 3
+        for name in ("star.json", "ledger.md"):
+            src = os.path.join(home, name)
+            if os.path.exists(src) and not os.path.exists(src + ".v1.bak"):
+                shutil.copyfile(src, src + ".v1.bak")
+        stages = data.get("stages") if isinstance(data.get("stages"), dict) else {}
+        for gone in REMOVED_STAGES:
+            stages.pop(gone, None)
+        for entry in stages.values():
+            if isinstance(entry, dict):
+                entry.pop("executor", None)
+        data["stages"] = stages
+        data.pop("reviewer", None)
+    # star.json is changed in memory and written last, so a run that stops half way starts over with
+    # gate.maxRounds still in place
+    tries = data.get("tries") if isinstance(data.get("tries"), dict) else None
+    if tries is None:
+        gate = data.get("gate") if isinstance(data.get("gate"), dict) else {}
+        rounds = gate.get("maxRounds")
+        data["tries"] = {**DEFAULTS["tries"], "perStep": rounds if isinstance(rounds, int) and rounds > 0 else 3}
+    for key, value in DEFAULTS.items():
+        data.setdefault(key, json.loads(json.dumps(value)))
     if upgrade_gate(data):
         print("migrated gate")
     if "quietHours" in data:
         del data["quietHours"]
         print("migrated quiet-hours")
-    project = (data.get("project") or {}).get("name") or ""
     migrate_notes(data)
     migrate_evidence(data)
-    skill = os.environ["STAR_SKILL_DIR"]
-    rows = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "list"],
-                          capture_output=True, text=True)
-    if rows.returncode != 0:
-        die(1, "ledger.sh list: " + (rows.stderr.strip() or f"exit {rows.returncode}"))
+    if isinstance(data.get("hostedReviewer"), dict):
+        data["hostedReviewer"].setdefault("paused", False)
+    data.pop("ownerApproval", None)
+    if isinstance(data.get("gate"), dict):
+        data["gate"].pop("maxRounds", None)
     moving, restage = [], []
-    for line in rows.stdout.splitlines():
-        cells = line.split("\t")
-        if len(cells) < 6:
-            continue
+    for cells in ledger_rows(skill) if from_v1 else []:  # a schema 2 row is already in schema 2's states
         if cells[1] in MOVES:
             moving.append((cells[0], cells[1]))
             if cells[1] in RUNNING_V1 and cells[5] not in ("", "-") and f"stop {cells[5]}" not in stops:
@@ -444,34 +585,22 @@ def migrate():
             f.write("\n".join(stops) + "\n")
         os.replace(tmp, stops_path)
         announce()
-
-    def ledger_set(item, *fields):
-        done = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, "set", item, *fields],
-                              capture_output=True, text=True)
-        if done.returncode != 0:
-            die(1, f"ledger.sh set {item}: " + (done.stderr.strip() or f"exit {done.returncode}"))
-
     for item, old in moving:
         new, stage, kind = MOVES[old]
-        ledger_set(item, f"state={new}", f"stage={stage}", "task=-", "dispatch=-")
+        ledger_run(skill, "set", item, f"state={new}", f"stage={stage}", "task=-", "dispatch=-")
         record(project, item, old, kind)
+        touched.add(item)
     # no state move reaches an escalated or failed row, but v2 cannot start a row at a removed stage
     for item in restage:
-        ledger_set(item, "stage=build")
-    queue, loops = os.path.join(home, "open-loops.md"), os.path.join(skill, "loops.sh")
-    items = subprocess.run(["sh", loops, "--file", queue, "list"], capture_output=True, text=True)
-    if items.returncode != 0:
-        die(1, "loops.sh list: " + (items.stderr.strip() or f"exit {items.returncode}"))
-    for line in items.stdout.splitlines():
-        cells = line.split("\t")
-        if len(cells) >= 2 and cells[1] in ("approve-brief", "prep", "merge-pr"):
-            closed = subprocess.run(["sh", loops, "--file", queue, "close", cells[0]], capture_output=True, text=True)
-            if closed.returncode not in (0, 4):  # 4: already closed
-                die(1, f"loops.sh close {cells[0]}: " + (closed.stderr.strip() or f"exit {closed.returncode}"))
-    data["schema"] = 2
+        ledger_run(skill, "set", item, "stage=build")
+        touched.add(item)
+    loops = migrate_queue(skill)
+    touched.update(migrate_ledger(skill, queue_items(os.path.join(home, "open-loops.md"))))
+    data["schema"] = 3
     write_json(star_path, data)
     forget(stops_path)
-    print(f"migrated rows={len(moving)}")
+    print(f"migrated schema=3 rows={len(touched)} loops={loops}")
+    warn(data)
 
 
 class RegistryError(Exception):

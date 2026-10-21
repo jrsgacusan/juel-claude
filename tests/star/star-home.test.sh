@@ -163,19 +163,20 @@ sh "$LS" --file "$Q" add --kind approve-brief --project mig --item A --title "ap
 sh "$LS" --file "$Q" add --kind prep --project mig --item C --title "a question" --body "x" >/dev/null
 sh "$LS" --file "$Q" add --kind escalation --project mig --item E --title "stuck" --body "x" >/dev/null
 out=$(sh "$SCRIPT" --cwd "$MIG" migrate)
-[ "$out" = "$(printf 'stop ctx_r1\nmigrated rows=5')" ] && [ ! -e "$HM2/migrate-stops.txt" ] && pass "migrate names the worker to stop, moves five rows, then forgets the stop list" || fail "migrate output ($out)"
+[ "$out" = "$(printf 'stop ctx_r1\nmigrated schema=3 rows=5 loops=3')" ] && [ ! -e "$HM2/migrate-stops.txt" ] && pass "migrate names the worker to stop, moves five rows, then forgets the stop list" || fail "migrate output ($out)"
 LG() { sh "$ROOT/skills/star/ledger.sh" --home "$HM2" get "$@"; }
-[ "$(LG A state)/$(LG A stage)" = "queued/build" ] && [ "$(LG B state)/$(LG B dispatch)" = "queued/-" ] && [ "$(LG C state)" = "brief-ready" ] && [ "$(LG D state)/$(LG D stage)" = "brief-ready/build" ] && [ "$(LG G state)/$(LG G stage)" = "brief-ready/build" ] && [ "$(LG E state)" = "building" ] && [ "$(LG F state)" = "done" ] && pass "each v1 state lands where the table says" || fail "rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM2" list))"
-grep -q '### D1 Merge under a go' "$HM2/briefs/mig/D.md" && grep -q 'once you say go, the build resumes the gate loop on its existing PR, and STAR merges it under that go' "$HM2/briefs/mig/D.md" && pass "a v1 PR that waited for its merge waits for a go in the next batch" || fail "ready record ($(cat "$HM2/briefs/mig/D.md"))"
-python3 - "$HM2/star.json" <<'PY' && pass "star.json is schema 2 and keeps the owner's own values" || fail "star.json after migrate"
+[ "$(LG A state)/$(LG A stage)" = "queued/build" ] && [ "$(LG B state)/$(LG B dispatch)" = "queued/-" ] && [ "$(LG C state)" = "queued" ] && [ "$(LG D state)/$(LG D stage)" = "queued/build" ] && [ "$(LG G state)/$(LG G stage)" = "queued/build" ] && [ "$(LG E state)" = "building" ] && [ "$(LG F state)" = "done" ] && pass "each v1 state lands where the table says" || fail "rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM2" list))"
+grep -q '### D1 Merge under the merge gate' "$HM2/briefs/mig/D.md" && grep -q 'STAR merges it once the merge gate holds' "$HM2/briefs/mig/D.md" && ! grep -qi 'once you say go' "$HM2/briefs/mig/D.md" && pass "a v1 PR that waited for its merge is merged by the merge gate" || fail "ready record ($(cat "$HM2/briefs/mig/D.md"))"
+python3 - "$HM2/star.json" <<'PY' && pass "star.json is schema 3 and keeps the owner's own values" || fail "star.json after migrate"
 import json, sys
 d = json.load(open(sys.argv[1]))
-assert d["schema"] == 2 and d["maxParallel"] == 5, d
+assert d["schema"] == 3 and d["maxParallel"] == 5, d
 assert set(d["stages"]) == {"brief", "build", "babysit", "post"}, d["stages"]
 assert all("executor" not in s for s in d["stages"].values()), d["stages"]
 assert "reviewer" not in d
 assert d["executor"] == {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"}, d["executor"]
-assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}, "maxRounds": 3}, d["gate"]
+assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}}, d["gate"]
+assert d["tries"] == {"perStep": 3, "rescopes": 1, "followUpDepth": 2}, d["tries"]
 assert d["hostedReviewer"] is None and d["hostGate"]["maxAgents"] == 40 and d["progressDeadlineMin"] == 30
 assert "tokenCmd" in d and d["tokenCmd"] is None, d.get("tokenCmd")
 PY
@@ -187,11 +188,11 @@ d = t.index("## Decisions"); r = t.index("### D1 Resume under the closed loop");
 assert d < r < f, (d, r, f)
 assert "Source: star-home.sh migrate" in t
 PY
-grep -q '^## Decisions$' "$HM2/briefs/mig/C.md" && grep -q '### D1 Screen checks become person-only steps' "$HM2/briefs/mig/C.md" && pass "a brief without ## Decisions gets one" || fail "decisions section added"
+grep -q '^## Decisions$' "$HM2/briefs/mig/C.md" && grep -q '### D1 Screen checks become person items' "$HM2/briefs/mig/C.md" && pass "a brief without ## Decisions gets one" || fail "decisions section added"
 open=$(sh "$LS" --file "$Q" list)
 printf '%s\n' "$open" | grep -q "$(printf '\tapprove-brief\t')" && fail "approve-brief left open" || pass "approve-brief items are closed"
 printf '%s\n' "$open" | grep -q "$(printf '\tprep\t')" && fail "prep left open" || pass "prep items are closed"
-printf '%s\n' "$open" | grep -q "$(printf '\tescalation\t')" && pass "other items stay open" || fail "escalation was closed"
+printf '%s\n' "$open" | grep -q "$(printf '\tescalation\t')" && fail "escalation left open" || pass "a removed-kind escalation is closed too"
 cp "$HM2/star.json" "$TMP/after.json"
 [ "$(sh "$SCRIPT" --cwd "$MIG" migrate)" = "current" ] && cmp -s "$HM2/star.json" "$TMP/after.json" && pass "a second migrate changes nothing" || fail "migrate twice"
 
@@ -204,7 +205,7 @@ sh "$SCRIPT" --cwd "$MIG2" migrate >/dev/null 2> "$TMP/mig2.err"; rc=$?
 [ "$rc" -eq 1 ] && grep -q 'loops.sh list' "$TMP/mig2.err" && grep -qx 'stop ctx_r2' "$HM3/migrate-stops.txt" && pass "a queue loops.sh cannot read stops migrate with exit 1, and the stop list is kept" || fail "broken queue (rc=$rc: $(cat "$TMP/mig2.err"))"
 grep -v '^<<<<<<< HEAD$' "$HM3/open-loops.md" > "$TMP/q2"; cat "$TMP/q2" > "$HM3/open-loops.md"
 out=$(sh "$SCRIPT" --cwd "$MIG2" migrate)
-[ "$out" = "$(printf 'stop ctx_r2\nmigrated rows=0')" ] && [ ! -e "$HM3/migrate-stops.txt" ] && pass "the rerun names the worker the stopped run had moved on" || fail "rerun ($out)"
+[ "$out" = "$(printf 'stop ctx_r2\nmigrated schema=3 rows=0 loops=0')" ] && [ ! -e "$HM3/migrate-stops.txt" ] && pass "the rerun names the worker the stopped run had moved on" || fail "rerun ($out)"
 
 # B-1: the stop lines are printed before the first row moves, so a run that fails still names them
 unschema() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.pop("schema",None); json.dump(d,open(p,"w"))' "$1/star.json"; }
@@ -228,7 +229,7 @@ printf '#!/bin/sh\ncase "$*" in *" set B "*) echo "refused" >&2; exit 2 ;; esac\
 out=$(sh "$STUB/star-home.sh" --cwd "$MIG4" migrate 2> "$TMP/mig4.err"); rc=$?
 [ "$rc" -eq 1 ] && [ "$out" = "$(printf 'stop ctx_a4\nstop ctx_b4')" ] && grep -q 'ledger.sh set B' "$TMP/mig4.err" && pass "a migrate that fails while moving rows has already named every worker to stop" || fail "failing while moving (rc=$rc, stdout: $out, stderr: $(cat "$TMP/mig4.err"))"
 out=$(sh "$SCRIPT" --cwd "$MIG4" migrate)
-[ "$out" = "$(printf 'stop ctx_a4\nstop ctx_b4\nmigrated rows=1')" ] && [ ! -e "$HM5/migrate-stops.txt" ] && pass "the rerun prints each stop line once and deletes the stop list when it succeeds" || fail "rerun after a failed move ($out)"
+[ "$out" = "$(printf 'stop ctx_a4\nstop ctx_b4\nmigrated schema=3 rows=1 loops=0')" ] && [ ! -e "$HM5/migrate-stops.txt" ] && pass "the rerun prints each stop line once and deletes the stop list when it succeeds" || fail "rerun after a failed move ($out)"
 
 # a folder already at schema 2 that still has a stop list (the run stopped after writing star.json)
 mkrepo "$TMP/cur"; CUR=$(real "$TMP/cur"); HC=$(sh "$SCRIPT" --cwd "$CUR" init)
@@ -242,9 +243,9 @@ v1at "$HM6" E escalated fix -; v1at "$HM6" X failed review -; v1at "$HM6" Z baby
 v1at "$HM6" D done fix -; v1at "$HM6" P dropped review -; v1at "$HM6" K queued build -; v1at "$HM6" R reviewing review ctx_r6
 out=$(sh "$SCRIPT" --cwd "$MIG5" migrate)
 LG5() { sh "$ROOT/skills/star/ledger.sh" --home "$HM6" get "$@"; }
-[ "$(LG5 E state)/$(LG5 E stage)" = "escalated/build" ] && [ "$(LG5 X state)/$(LG5 X stage)" = "failed/build" ] && [ "$(LG5 Z state)/$(LG5 Z stage)" = "babysitting/build" ] && pass "an open row left at a removed stage reads stage build and keeps its state" || fail "restaged rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
+[ "$(LG5 E state)/$(LG5 E stage)" = "set-aside/build" ] && [ "$(LG5 X state)/$(LG5 X stage)" = "set-aside/build" ] && [ "$(LG5 Z state)/$(LG5 Z stage)" = "babysitting/build" ] && pass "an open row left at a removed stage reads stage build and keeps its state" || fail "restaged rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
 [ "$(LG5 D stage)" = "fix" ] && [ "$(LG5 P stage)" = "review" ] && [ "$(LG5 K stage)" = "build" ] && pass "done and dropped rows keep their stage, and a row already at build is left alone" || fail "closed rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM6" list))"
-[ "$out" = "$(printf 'stop ctx_r6\nmigrated rows=1')" ] && [ "$(LG5 R state)/$(LG5 R stage)" = "queued/build" ] && pass "only the row moved out of a v1 state is counted" || fail "restage count ($out)"
+[ "$out" = "$(printf 'stop ctx_r6\nmigrated schema=3 rows=4 loops=0')" ] && [ "$(LG5 R state)/$(LG5 R stage)" = "queued/build" ] && pass "rows moved out of a v1 state or an escalated or failed one are counted" || fail "restage count ($out)"
 
 # v2.1.0: migrate moves a v2.0.0 gate to Sol and the Claude fallback, and leaves the owner's own values alone
 mkrepo "$TMP/gate"; GT=$(real "$TMP/gate"); HG=$(sh "$SCRIPT" --cwd "$GT" init)
@@ -356,7 +357,7 @@ import json, sys
 p = sys.argv[1]; d = json.load(open(p)); d["quietHours"] = None; json.dump(d, open(p, "w"), indent=2)
 PY
 out=$(sh "$SCRIPT" --cwd "$QH1" migrate)
-[ "$out" = "$(printf 'migrated quiet-hours\nmigrated rows=0')" ] && ! grep -q quietHours "$HQ1/star.json" && pass "Q157 the v1 path drops quietHours too" || fail "quiet migrate v1 ($out)"
+[ "$out" = "$(printf 'migrated quiet-hours\nmigrated schema=3 rows=0 loops=0')" ] && ! grep -q quietHours "$HQ1/star.json" && pass "Q157 the v1 path drops quietHours too" || fail "quiet migrate v1 ($out)"
 
 # lane c: init starts the new notes layout, the Obsidian tables are copied once and never overwritten
 mkrepo "$TMP/lc1"; LC1=$(real "$TMP/lc1"); HC1=$(sh "$SCRIPT" --cwd "$LC1" init)
@@ -443,5 +444,87 @@ p = sys.argv[1]; d = json.load(open(p)); d.pop("notes", None); json.dump(d, open
 PYR
 sh "$SCRIPT" --cwd "$RN" migrate >/dev/null
 [ "$(ls "$HR"/memory/app/M-*.md | wc -l | tr -d ' ')" = "5" ] && cmp -s "$HR/memory/app.md" "$HR/memory/app.md.pre-notes" && pass "real migrate: a re-run after a failure adds nothing" || fail "real migrate re-run ($(ls "$HR"/memory/app/ | tr '\n' ' '))"
+
+# lane c: schema 3 (STAR ships without asking)
+mkrepo "$TMP/s3"; S3=$(real "$TMP/s3"); H3=$(sh "$SCRIPT" --cwd "$S3" init)
+python3 - "$H3/star.json" "$ROOT/skills/star/template/star.json" <<'PY' && pass "C2a: init writes the schema-3 star.json of Interface I-1" || fail "C2a template"
+import json, sys
+d = json.load(open(sys.argv[1])); t = json.load(open(sys.argv[2]))
+d["project"] = None
+want = {"schema": 3, "maxParallel": 3, "maxInReview": 3, "maxBriefs": 4,
+        "stages": {"brief": {"agent": "claude", "model": "opus", "effort": "high"},
+                   "build": {"agent": "claude", "model": "opus", "effort": "xhigh"},
+                   "babysit": {"agent": "claude", "model": "opus", "effort": "xhigh"},
+                   "post": {"agent": "claude", "model": "opus", "effort": "xhigh"}},
+        "worker": {"agent": "claude", "model": "opus", "effort": "xhigh"},
+        "executor": {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"},
+        "gate": {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}},
+        "tries": {"perStep": 3, "rescopes": 1, "followUpDepth": 2},
+        "mergeMethod": None, "baseBranch": None, "ownerBranches": [], "hostedReviewer": None,
+        "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
+        "progressDeadlineMin": 30, "mcps": None, "notes": "split", "gateDown": None, "hostedDown": None,
+        "tokenCmd": None, "ghLogin": None, "run": None, "terminal": None, "caffeinatePid": None,
+        "heartbeat": None, "notified": [], "away": None, "project": None}
+assert t == want and list(t) == list(want), t
+assert {k: v for k, v in d.items() if k != "evidenceChecked"} == want, d
+PY
+
+# a live schema-2 home with rows mid-flight
+mkrepo "$TMP/s2"; S2=$(real "$TMP/s2"); H2=$(sh "$SCRIPT" --cwd "$S2" init)
+python3 - "$H2/star.json" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d["schema"] = 2; d["notes"] = "legacy"; d["evidenceChecked"] = "2026-10-01T00:00:00Z"
+d["gate"]["maxRounds"] = 5
+d["ownerApproval"] = {"login": "boss"}
+d["hostedReviewer"] = {"login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2, "refreshOutsideCap": True}
+for k in ("tries", "mergeMethod", "baseBranch", "ownerBranches"):
+    d.pop(k)
+json.dump(d, open(p, "w"), indent=2)
+PY
+row2() { printf '| %s | %s | s2 | - | %s | %s | 1 | - | - | 0 | - | - | - | - | %s | 2026-10-08T12:00:00Z |\n' "$1" "$1" "$2" "$3" "$4" >> "$H2/ledger.md"; }
+row2 NY brief-ready build -; row2 NN brief-ready build -; row2 ES escalated build "miss=2 rescoped=1"; row2 FA failed build -
+row2 RE reported post -; row2 VE verifying babysit "moved=1 mergefail=1 batch=B-1 parent=X"
+Q2="$H2/open-loops.md"; LS2="$ROOT/skills/star/loops.sh"
+qa() { sh "$LS2" --file "$Q2" add --kind "$1" --project s2 --item "$2" --title "$3" --body "$4"; }
+for k in go-batch go-merge accept-report restart-or-drop question; do qa $k NN "a $k" "x" >/dev/null; done
+qa escalation ES needs-human-input "The Stripe API key is missing" >/dev/null
+qa held FA "PR #12 waits for an approval from someone other than you" "x" >/dev/null
+qa person NN "Confirm the id" "kind: confirm-id" >/dev/null
+qa person NY "Paste the Stripe key" "kind: secret" >/dev/null
+qa slack-reply FA "Reply to Ana" "draft: /d/1.md" >/dev/null
+mkdir -p "$H2/grants/s2"; printf 'go\n' > "$H2/grants/s2/go-1.md"
+out=$(sh "$SCRIPT" --cwd "$S2" migrate)
+[ "$out" = "migrated schema=3 rows=5 loops=8" ] && pass "C2b: migrate prints the schema-3 line" || fail "C2b line ($out)"
+python3 - "$H2/star.json" <<'PY' && pass "C2b and C2h: star.json has the schema-3 keys, loses ownerApproval and gate.maxRounds, and notes stays legacy" || fail "C2b star.json ($(cat "$H2/star.json"))"
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d["schema"] == 3 and d["tries"] == {"perStep": 5, "rescopes": 1, "followUpDepth": 2}, d
+assert d["mergeMethod"] is None and d["baseBranch"] is None and d["ownerBranches"] == []
+assert d["hostedReviewer"]["paused"] is False and d["hostedReviewer"]["login"] == "greptile-apps[bot]"
+assert "ownerApproval" not in d and "maxRounds" not in d["gate"], d
+assert d["notes"] == "legacy"
+PY
+LG2() { sh "$ROOT/skills/star/ledger.sh" --home "$H2" get "$@"; }
+[ "$(LG2 NY state)" = "needs-you" ] && [ "$(LG2 NN state)" = "queued" ] && [ "$(LG2 ES state)" = "set-aside" ] && [ "$(LG2 FA state)" = "set-aside" ] && [ "$(LG2 RE state)" = "post-queued" ] && [ "$(LG2 VE state)/$(LG2 VE stage)" = "verifying/babysit" ] && pass "C2c: the rows land in the schema-3 states and verifying keeps its stage" || fail "C2c ($(sh "$ROOT/skills/star/ledger.sh" --home "$H2" list))"
+[ "$(LG2 VE counters.tries)" = "0" ] && [ "$(LG2 VE counters.batch)" = "B-1" ] && [ "$(LG2 VE counters.parent)" = "X" ] && [ "$(LG2 VE counters.moved)" = "-" ] && [ "$(LG2 VE counters.mergefail)" = "-" ] && [ "$(LG2 ES counters.rescoped)" = "1" ] && [ "$(LG2 ES counters.miss)" = "-" ] && pass "C2c: counters fold to tries=0 and keep batch and parent" || fail "C2c counters ($(LG2 VE counters))"
+open=$(sh "$LS2" --file "$Q2" list)
+for k in go-batch go-merge accept-report restart-or-drop question escalation held; do
+  printf '%s\n' "$open" | grep -q "$(printf '\t%s\t' "$k")" && fail "C2d: $k left open"
+done
+printf '%s\n' "$open" | grep -q 'Confirm the id' && fail "C2d: the confirm-id person item is open"
+[ "$(grep -c 'Answer: closed by the schema-3 migration' "$H2/open-loops-archive.md")" -eq 8 ] && pass "C2d: the removed-kind items are closed with the migration answer" || fail "C2d archive ($(grep -c 'Answer: closed by' "$H2/open-loops-archive.md"))"
+[ "$(printf '%s\n' "$open" | grep -c "$(printf '\tperson\t')")" -eq 3 ] && grep -q 'kind: secret' "$Q2" && grep -q 'kind: approval' "$Q2" && printf '%s\n' "$open" | grep -q "Paste the Stripe key" && printf '%s\n' "$open" | grep -q "$(printf '\tslack-reply\t')" && pass "C2d: the API-key escalation is a secret person item, the approval held is an approval one, the secret and slack-reply stay" || fail "C2d person items ($open)"
+[ -f "$H2/grants/s2/go-1.md" ] && pass "C2g: grant files are still there" || fail "C2g"
+sum1=$(cat "$H2/star.json" "$H2/ledger.md" "$Q2" "$H2/open-loops-archive.md" | cksum)
+[ "$(sh "$SCRIPT" --cwd "$S2" migrate)" = "current" ] && [ "$sum1" = "$(cat "$H2/star.json" "$H2/ledger.md" "$Q2" "$H2/open-loops-archive.md" | cksum)" ] && pass "C2e: a second migrate prints current and changes no file" || fail "C2e"
+
+# C2f (#173): a fallback equal to the model is named after the main line, on every path
+mkrepo "$TMP/s2w"; S2W=$(real "$TMP/s2w"); H2W=$(sh "$SCRIPT" --cwd "$S2W" init)
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["schema"]=2; d["gate"]["maxRounds"]=3; d["executor"]={"model":"latest-sol","effort":"xhigh","fallback":"latest-sol"}; json.dump(d,open(p,"w"))' "$H2W/star.json"
+out=$(sh "$SCRIPT" --cwd "$S2W" migrate)
+[ "$out" = "$(printf 'migrated schema=3 rows=0 loops=0\nwarn executor.fallback equals executor.model')" ] && pass "C2f: the schema-2 path prints the warn line after the main line" || fail "C2f schema 2 ($out)"
+out=$(sh "$SCRIPT" --cwd "$S2W" migrate)
+[ "$out" = "$(printf 'current\nwarn executor.fallback equals executor.model')" ] && pass "C2f: the current path prints it too" || fail "C2f current ($out)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
