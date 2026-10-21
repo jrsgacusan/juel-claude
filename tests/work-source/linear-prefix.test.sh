@@ -11,5 +11,10 @@ done
 if grep -n '`mcp__linear__` or `mcp__claude_ai_Linear__`' "$ROOT"/skills/*/SKILL.md; then fail "a two-prefix rule is left"; else pass "no two-prefix rule is left"; fi
 grep -q 'save_comment' "$ROOT/skills/star/SKILL.md" && pass "post-report knows save_comment" || fail "post-report comment tool"
 grep -qF 'call to `<LINEAR_COMMENT>` (§4.1)' "$ROOT/references/work-source.md" && pass "Z12 the confirmation rule covers both comment tools" || fail "Z12 the confirmation rule covers both comment tools"
+# lane e: STAR autonomy. Three posts skip the confirmation under juel:star, by hand every rule holds
+WS=$(tr '\n' ' ' < "$ROOT/references/work-source.md" | tr -s ' ')
+for l in 'Under `juel:star` (`--unattended`), three posts go through without a preview or a per-instance confirmation:' '- filing a follow-up item;' '- writing the tracker status;' '- posting a report to the item STAR was handed.' 'Run by hand, every rule above holds.' 'filing a follow-up item skips this preview; run by hand, it is never skipped.'; do
+  printf '%s' "$WS" | grep -qF -- "$l" && pass "STAR exception: $l" || fail "STAR exception: $l"
+done
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

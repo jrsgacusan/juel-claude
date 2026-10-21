@@ -179,7 +179,8 @@ Usage: `/juel:ship-ticket`, `/juel:ship-ticket SAVI-1162`, or, as a `juel:star` 
 
 `--fix-review` and `--screen-checks` were removed in v2, when STAR moved the codex gate loop into
 the build: a run given either stops at once. Under `--unattended` it prints
-`ESCALATION item=<item> phase=0 reason=preflight needs=<flag> was removed in v2: STAR runs the gate loop inside the build`;
+a progress line, `<flag> was removed in v2: STAR runs the gate loop inside the build`, then
+`ESCALATION item=<item> phase=0 reason=out-of-tries step=worker`;
 otherwise it says the same in one line.
 
 ## Base branch & repo conventions
@@ -312,9 +313,9 @@ log entry. Without that flag, every rule in this section applies unchanged.
 ## Unattended mode
 
 `--unattended` is how `juel:star` runs this skill as an Orca worker, where no human answers
-checkpoints. The human already approved the scope as a brief (the batch go), and STAR merges under
-that go once every gate holds. `--unattended` without `--brief` is refused: print
-`ESCALATION item=unknown phase=0 reason=no-brief needs=an approved brief` and stop.
+checkpoints. STAR decided the scope in a brief and merges once every gate holds.
+`--unattended` without `--brief` is refused: print a progress line saying it needs a brief, then
+`ESCALATION item=unknown phase=0 reason=out-of-tries step=worker` and stop.
 
 **Item name.** `item` below is the brief's `item.name` when it has one (STAR sets it and uses it
 for its ledger and paths), else `item.ref`, else `item.slug`. Never a literal `null` or an empty
@@ -329,9 +330,12 @@ line:
 | an outward action held | `HELD item=<item> action=<what>` |
 | PR opened | `PR item=<item> url=<url> draft` |
 | an existing PR updated (`existingPr`, or a resumed build) | `PR item=<item> url=<url> existing` |
-| a decision this run cannot make | `ESCALATION item=<item> phase=<n> reason=<reason> needs=<what>` |
+| only a person can supply it | `ESCALATION item=<item> phase=<n> reason=needs-person needs=<secret|account|screen|approval|access>: <what>` |
+| a step ran out of tries | `ESCALATION item=<item> phase=<n> reason=out-of-tries step=<step>[ review=<path>]` |
 | build finished: the PR passed the codex gate, its PASS is posted, and it is marked ready | `DONE item=<item> pr=<url> head=<sha> review=<path>` (`<sha>` the full head, `<path>` the SAFE review file), followed by `GATES <path>`: the gate manifest's path. Write it as soon as the commands are resolved in Phase 4 (every gate in this run is run from it; see "Gate lock"): the commands as a JSON gate manifest (`test`, `lint`, `typecheck`, `build`, `sweep`; each `{"cmd": …, "cwd": …}` with the directory it runs in, `.` for the repo root or a package dir in a monorepo; `null` for a skipped key) to the brief's `star.gates` path, or to `${docsRoot}/gates.json` when the brief has no `star:` block, and report only the path |
-| the codex gate still says NOT SAFE after `gate.maxRounds` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>`, ending ` tooling=all` when that round's `tooling=` equals `p0 + p1`: `RESCOPE item=<item> reason=gate review=<the last review's path> tooling=all` |
+| the codex gate still says NOT SAFE after `tries.perStep` rounds in this run | `RESCOPE item=<item> reason=gate review=<the last review's path>`, ending ` tooling=all` when that round's `tooling=` equals `p0 + p1`: `RESCOPE item=<item> reason=gate review=<the last review's path> tooling=all` |
+| the work needs something the brief excludes or does not cover | `RESCOPE item=<item> reason=brief review=<a file naming what the work needs and why the brief excludes it>` |
+| a check that is the PR's fault is still red after `tries.perStep` fix attempts | `RESCOPE item=<item> reason=ci review=<the failing check's log, saved to a file>` |
 | report written (`deliverable: report`) | `REPORTED item=<item> path=<path>` |
 | friction with STAR's own contract or tools | `STAR-ISSUE: <one line, no project names or ticket text>` (at most one, in the `worker_done` body) |
 
@@ -377,7 +381,7 @@ run `sh <ids.sh> --home <star.home> reserve <the file's path in the repo> --item
 `${CLAUDE_PLUGIN_ROOT}/skills/star/ids.sh`); `<highest>` is the number only (40 for D-040). It
 prints one id per line: use them in order, written the way the file writes them (`D-041`).
 Siblings building at the same time then never take the same number. When `ids.sh` exits
-non-zero or is missing, escalate `needs-human-input`, and never take the next number yourself.
+non-zero or is missing, end with `reason=out-of-tries step=worker`, and never take the next number yourself.
 With `executor: codex`, reserve the ids while writing the plan and put them in it. Without a
 `star:` block, or for a file nobody else appends to, nothing changes.
 
@@ -387,12 +391,12 @@ invokes, that says to ask, confirm with or wait for the user means this under `-
 | The text says | An unattended run |
 |---|---|
 | "Proceed to phase N+1?" | prints the `PHASE` line and continues (Checkpoints, below) |
-| ask for verification steps, because the item has no acceptance criteria and the checklist is empty (Phase 2, Phase 6 step 1) | `ESCALATION item=<item> phase=<n> reason=needs-human-input needs=verification steps for <item>: it has no acceptance criteria` |
-| ask the user to drive the browser (`juel:verify` unavailable, Phase 6 step 3) | `ESCALATION item=<item> phase=6 reason=needs-human-input needs=browser verification of <the items>`. An item is never recorded as user-confirmed |
-| ask which remote or base branch | the brief's `baseBranch`; one remote → it, `origin` → it, otherwise `ESCALATION … phase=0 reason=preflight needs=which remote to push to: <names>` |
-| stop and ask the user to commit, stash, or create a worktree | `ESCALATION … phase=<n> reason=preflight needs=<what is wrong>` |
-| A gate inside an invoked skill: `superpowers:brainstorming`'s design approval, `superpowers:writing-plans`' plan review and its choice of execution method, a confirmation in `juel:review-and-execute`, `juel:verify` or `run` | the approved brief is the approval. Tell the skill so when invoking it ("unattended: the brief is approved, take your default path, ask nothing"), treat every such gate as answered yes, take the default or recommended option, and never wait on it. What only a person can supply is the `needs-human-input` escalation |
-| any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; "No answer from the user: escalate this." → `unanswered-question`. A step that needs a person's hands at the Mac (sign in, drag a DMG, a keychain or Gatekeeper prompt) is never asked mid-run: the owner did the brief's person-only steps before go, and a step the brief missed is the `needs-human-input` escalation. |
+| ask for verification steps, because the item has no acceptance criteria and the checklist is empty (Phase 2, Phase 6 step 1) | not a stop: STAR writes acceptance criteria into the brief. With none, build the checklist from the brief's approach and the diff's edge cases, and record it as a `## Decisions` line with its `Source:` |
+| ask the user to drive the browser (`juel:verify` unavailable, Phase 6 step 3) | `ESCALATION item=<item> phase=6 reason=needs-person needs=screen: browser verification of <the items>`. An item is never recorded as user-confirmed |
+| ask which remote or base branch | the brief's `baseBranch`; one remote → it, `origin` → it, otherwise a progress line naming the remotes, then `ESCALATION … phase=0 reason=out-of-tries step=worker` |
+| stop and ask the user to commit, stash, or create a worktree | a progress line saying what is wrong, then `ESCALATION … phase=<n> reason=out-of-tries step=worker` |
+| A gate inside an invoked skill: `superpowers:brainstorming`'s design approval, `superpowers:writing-plans`' plan review and its choice of execution method, a confirmation in `juel:review-and-execute`, `juel:verify` or `run` | the approved brief is the approval. Tell the skill so when invoking it ("unattended: the brief is approved, take your default path, ask nothing"), treat every such gate as answered yes, take the default or recommended option, and never wait on it. What only a person can supply is the `needs-person` escalation |
+| any other question | the brief or its `## Decisions` answers it → use that. Otherwise send it with `orca orchestration ask --question "<question>" --json` and wait for the reply; with no answer by its deadline ("No answer from the user: escalate this."), decide the question yourself from sources, record it in the brief's `## Decisions` with its `Source:`, and go on. A step that needs a person's hands at the Mac (sign in, drag a DMG, a keychain or Gatekeeper prompt) is never asked mid-run: the owner did the brief's person-only steps, and a step the brief missed is the `needs-person` escalation. |
 
 `AskUserQuestion` is never called.
 
@@ -433,7 +437,7 @@ numbers carried on. A different head, or no such line: Phases 2 and 3 as above.
 
 **Settings from STAR.** Under a brief with a `star:` block, read `<star.home>/star.json` once,
 before Phase 1: its `executor` (`model`, `effort`, `fallback`) and `gate` (`model`, `effort`,
-`fallback`, `maxRounds`) blocks, and its `mcps`. A flag on the command line wins over it.
+`fallback`) blocks, its `tries` (`perStep`) in place of `gate.maxRounds`, and its `mcps`. A flag on the command line wins over it.
 
 **Grounded decisions.** STAR decides product calls without asking the owner, so every decision
 this run takes (in brainstorming, the spec, the plan or a fix) names its source. Consult, in this
@@ -488,7 +492,7 @@ does not prove the bug: rewrite it until it fails there. A base snapshot kept fo
 code change. Phases 2 to 5 are SKIPPED with "report deliverable: the acceptance criteria are the
 checklist". Phase 6 is the work: build the checklist from the acceptance criteria, run every
 check, and record each as verified, failing or blocked with its evidence. A failing flow is a
-finding to report: never the `verification-failed` escalation, and Phase 6 does not loop back to
+finding to report: never the `step=verify` escalation, and Phase 6 does not loop back to
 Phase 5. Phase 7 writes the report to `<star.reports>/<item>.md` (the brief's `star:` block): one
 section per criterion with its result and evidence paths, then any proposed bug tickets (title,
 steps, evidence), and prints `REPORTED item=<item> path=<path>` as the final line. No commit, no
@@ -505,7 +509,7 @@ sh <screen-lock.sh> release --holder "<item>"
 
 (`screen-lock.sh` is next to this file: `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/screen-lock.sh`
 when that is set.) Exit 75 means another item has the screen, which is normal: do any screen-free
-work in the plan, then try again; after 2 hours of tries escalate `screen-busy`. Where an app lets
+work in the plan, then try again; after 2 hours of tries end with `reason=out-of-tries step=screen`. Where an app lets
 you set a window or profile title, include the item name. While you hold the lock, renew it at
 least every 10 minutes: `sh <screen-lock.sh> renew --holder "<item>"`. A lock nobody renews for 30
 minutes is taken over by the next worker. `renew` exiting 65 (the lock was taken over) or
@@ -514,9 +518,9 @@ the steps that drive the visible screen: a check the brief's `## Checks` marks `
 runs headless and takes no lock, and `auto: hidden-window` (a hidden Electron dev build driven over
 CDP, as `juel:verify`'s Electron row says) takes none either; only `auto: computer-use`
 (`orca computer`) and a launched app's real window need it. Every check the brief marks `person:`
-was done by the owner before go. A check that
+was done by the owner. A check that
 turns out to need a person anyway is a brief miss:
-`ESCALATION item=<item> phase=6 reason=needs-human-input needs=<the check> needs a person and is not
+`ESCALATION item=<item> phase=6 reason=needs-person needs=screen: <the check> needs a person and is not
 in the brief's person-only steps`. Never mark it PASS.
 
 **Status writes under STAR.** When the brief has a `star:` block, the coordinator owns the work
@@ -531,62 +535,104 @@ record's title and source, so every reviewer sees every call that was made witho
 run continues. The task list and rule 3's one-line evidence still apply.
 
 **A preflight STOP is reported too.** An unattended run that stops on preflight must not end
-silently: after the preflight block, print
-`ESCALATION item=<item> phase=0 reason=preflight needs=<each failing check>` and stop.
+silently: after the preflight block, print a progress line naming each failing check, then
+`ESCALATION item=<item> phase=0 reason=out-of-tries step=worker` and stop.
 
-**Escalations are a fixed list.** On any of these, print the `ESCALATION` line and end the run.
-Nothing else stops an unattended run, and nothing on this list is ever worked around:
+**Escalations are two kinds.** A need only a person can supply, or a step that ran out of tries.
+On either, print the `ESCALATION` line and end the run. Nothing else stops an unattended run, and
+nothing on this list is ever worked around. A step gets `tries.perStep` runs (3 by default, from
+`star.json`'s `tries`) before it is out of tries: a failure for another reason than the last one
+still counts, because the budget bounds the step, not the cause. Where a step quotes a message,
+write it to `<star.reviews>/<item>-tool.log` (beside the gate manifest without a `star:` block) and
+name that file in `review=`.
 
-1. `brief-violation` — the work needs something the brief's scope excludes or does not cover.
-2. `codex-failed`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity or a usage limit
+*A person must supply it.* `ESCALATION item=<item> phase=<n> reason=needs-person needs=<secret|account|screen|approval|access>: <what>`,
+only for a secret, an account or paid service, an action at the screen (including a browser check
+no tool can run), or access. Check the brief first: verification steps given under `## Decisions` are the checklist's source,
+and the escalation is not raised again for what they settle.
+Missing acceptance criteria are not a stop: STAR writes them into the brief.
+
+*A step ran out of tries.* `ESCALATION item=<item> phase=<n> reason=out-of-tries step=<step>[ review=<path>]`,
+with `<step>` one of:
+
+1. `reason=out-of-tries step=executor`: Codex fails in phase 4, or in a gate-loop fix, for a reason other than capacity or a usage limit
    (capacity retries, then the fallback model, then this session runs the plan; see Phase 4), or
    a task fails on a planned file git ignores, whoever ran the plan (Phase 4, "A planned file git
-   ignores"), or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks").
-3. `verification-failed`: a phase 6 item is still FAIL after one loop back through phase 5.
+   ignores": out of tries at once, since the same plan fails the same way), or a session task
+   (`**Run:** session`) cannot be completed (Phase 4, "Session tasks"). Each failed run is a try:
+   run the plan again, from its ledger, until `tries.perStep` runs have failed.
+2. `reason=out-of-tries step=verify`: a phase 6 item is still FAIL after one loop back through phase 5.
    Before raising it, when what still fails is a residual that no further change inside this item
    can close (an open-ended input the fix keeps chasing, say), ask the coordinator with
    `orca orchestration ask` whether it accepts the criterion with that residual, naming the
-   residual and a proposed follow-up. Then read the brief's `## Decisions` again: a record that
+   residual and a proposed follow-up. STAR answers by judgment. Then read the brief's `## Decisions` again: a record that
    accepts the residual and names a follow-up spec item makes the item `ACCEPTED-RESIDUAL` (Phase
    6 step 4) and the escalation is not raised. An answer that accepts it while the brief holds no
    such record: ask once more, naming the missing record; still none, raise the escalation.
-4. `gate-red` — the regression gate is red twice. A red does not count toward the two when the fix
+3. `reason=out-of-tries step=regression`: the regression gate is red `tries.perStep` times. A red does not count toward the budget when the fix
    for it changed only files outside runtime (Phase 6 step 6's definition, read from
    `git diff --name-only <the commit before the fix>..HEAD`): a test registration or bookkeeping
    audit fixed in a test file, say. At most two such reds are refunded between two green gates; a
    third counts. The fix still goes through a plan and the executor, or Phase 5, never by hand.
-5. `merge-conflict` — a merge conflict with the base branch.
-6. `needs-human-input` — the run needs a secret, a paid service, a real account, or anything else only a person can supply: verification steps for an item with no acceptance criteria, a browser check when no browser tool is available. Check the brief first: verification steps given under `## Decisions` (the user's answer to an earlier escalation of this kind) are the checklist's source, and the escalation is not raised again.
-7. `stack-unavailable` — the stack cannot run on this host (no Docker, ports or services it needs).
-8. `unanswered-question` — a question you sent the coordinator with `orca orchestration ask` came
-   back with "No answer from the user: escalate this." Clean up as below, then escalate with the
-   question in `needs=`. Never for a step that needs a person: that is `needs-human-input`.
-9. `gate-busy` — `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
-   `needs=` quotes its "busy, held by …" line.
-10. `gate-unavailable` — the gate could not run or did not end: `gate-lock.sh` or `run-gates.sh`
-    exited 71 (a lock file, manifest or directory problem, or dependencies still missing after one
-    install), or 124 (the command ran past its time limit and was stopped), or 125 (a stalled
-    gate: the command printed nothing for `--idle-max` seconds and was stopped), or the
-    dependency install failed (Phase 4's "Dependencies"). None of these is a red gate: do not start
-    fixing code. `needs=` quotes the script's message: for a stalled gate,
-    `stalled gate: <the stalled line>`; for a failed install, `dependencies did not install: <one line>`.
-11. `screen-busy` — `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries. `needs=`
-    quotes its "busy, held by …" line.
-12. `review-unavailable`: `codex-gate.sh` printed `ERROR` twice, 10 minutes apart, or
-    `post-pass` printed `ERROR` twice, a minute apart. `needs=` quotes its `ERROR` line, whole.
-    An `ERROR base-moved` never counts: the gate loop's step 6 merges the base and runs the round again.
+4. `reason=out-of-tries step=conflict`: a merge conflict with the base branch whose resolution failed the gates (see "Conflicts").
+5. `reason=out-of-tries step=stack`: the stack cannot run on this host (no Docker, ports or services it needs).
+6. `reason=out-of-tries step=gate-lock`: `gate-lock.sh` exited 75 twice in a row: the lock stayed busy for two full waits.
+   The file `review=` names quotes its "busy, held by …" line.
+7. `reason=out-of-tries step=review-tool`: the gate or the review could not run or did not end.
+   `gate-lock.sh` or `run-gates.sh` exited 71 (a lock file, manifest or directory problem, or
+   dependencies still missing after one install), or 124 (the command ran past its time limit and
+   was stopped), or 125 (a stalled gate: the command printed nothing for `--idle-max` seconds and
+   was stopped), or the dependency install failed (Phase 4's "Dependencies"); or `codex-gate.sh`
+   printed `ERROR` twice, 10 minutes apart, or `post-pass` printed `ERROR` twice, a minute apart.
+   None of these is a red gate: do not start fixing code. The file `review=` names quotes the
+   message: for a stalled gate, `stalled gate: <the stalled line>`; for a failed install,
+   `dependencies did not install: <one line>`; for a review, its `ERROR` line, whole (an
+   `ERROR gate-down …` line tells STAR the gate itself is down).
+   An `ERROR base-moved` never counts: the gate loop's step 6 merges the base and runs the round again.
+8. `reason=out-of-tries step=screen`: `screen-lock.sh` stayed busy (exit 75) through 2 hours of tries.
+   The file `review=` names quotes its "busy, held by …" line.
+9. `reason=out-of-tries step=worker`: the run cannot start or go on: a preflight check fails, there is no
+   brief, `ids.sh` cannot run, or the checkout is not on the brief's branch.
+
+A brief violation is not an escalation. When the work needs something the brief's scope excludes
+or does not cover, end with `RESCOPE item=<item> reason=brief review=<a file naming what the work
+needs and why the brief excludes it>`.
+
+**Conflicts.** A merge of the base branch that conflicts (an `existingPr` brief's first merge, a
+gate round's `ERROR base-moved`) goes through `merge-union.sh` first. When it leaves conflicts: if
+a `## Decisions` entry names those files and a resolution, apply it as written; otherwise resolve
+them yourself, keeping both changes' intent, from both items' briefs and `## Decisions` and the
+sibling PR's diff and description, and record the resolution as a `## Decisions` line. Then run
+the regression gate and the codex gate on the result. Failing those gates spends tries, and ends
+as `reason=out-of-tries step=conflict`. By hand, a conflict `merge-union.sh` cannot resolve still
+stops the merge for the user.
+
+**Red CI.** Before the PR is marked ready, for each failing check on its head:
+1. Rerun it once. Green means a flake: go on.
+2. If it is still red, find out whether the base branch's head fails the same check name, or
+   whether the run's conclusion is `cancelled`, `startup_failure`, `timed_out` or `stale`.
+3. When either holds, write the proof line to the brief's `## Decisions`:
+   `- <date> red-check-proof check=<name> head=<head> cause=base|infra base=<sha> url=<url>`
+   (`<head>` and `<sha>` full 40-character shas; `base=` only for `cause=base`). Then file a
+   follow-up for the failure through `references/work-source.md` `create`, with the defaults the
+   brief's tracker gives, unless the brief already lists one for that check.
+4. Otherwise it is the PR's fault: fix it, up to `tries.perStep` attempts, then
+   `RESCOPE item=<item> reason=ci review=<path>`.
+
+A required check never passes on a proof: it is the PR's fault, or the item waits. By hand, a red
+check is shown to the user.
 
 An item that cannot be verified is **never marked PASS** to keep the run going; it is an escalation.
 
 **Clean up before escalating.** An escalation raised after Phase 6 has started its stack runs Phase
-6 step 7's cleanup first, then prints the `ESCALATION` line. A cleanup that fails adds
-`cleanup-failed:<identifiers still live>` to `needs=`, so the human knows what is still running.
+6 step 7's cleanup first, then prints the `ESCALATION` line. A cleanup that fails writes
+`cleanup-failed:<identifiers still live>` into the file `review=` names, so the human knows what is still running.
 
 **Branch and base come from the brief.** With `--brief`, the brief's `branch` and `baseBranch` are
 the resolved values for this run: they head the base-branch chain in "Base branch & repo
 conventions", Phase 5 reviews against `baseBranch`, and Phase 7 opens the PR with
 `--base <baseBranch>`. Before Phase 1, check that the checkout's current branch is the brief's
-`branch`; a mismatch is `ESCALATION item=<item> phase=0 reason=preflight needs=checkout on <branch>`.
+`branch`; a mismatch is a progress line `checkout is not on <branch>`, then `ESCALATION item=<item> phase=0 reason=out-of-tries step=worker`.
 
 **An existing PR.** A brief with `existingPr: <url>` asks for that open PR to be made mergeable,
 not for a new one. Its `branch` is the PR's head branch, already checked out and tracking the
@@ -635,19 +681,18 @@ With more slots, the first waiters in the queue race for a freed slot.
 `sh <gate-lock.sh> --slots <n>` (1 to 4) sets the slot count, shared by every project on this
 machine. Only the owner changes it: never run `--slots` from this skill or a plan. Exit 75, with
 "busy, held by …" on stderr, means the queue ahead of it did not move for its whole
-`--wait-max` (default 3600 s): run the same line once more; a second 75 is the `gate-busy`
-escalation. Exit 125 is a stalled gate, with this line on stderr:
+`--wait-max` (default 3600 s): run the same line once more; a second 75 is
+`reason=out-of-tries step=gate-lock`. Exit 125 is a stalled gate, with this line on stderr:
 `gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`. The command went
 silent for `--idle-max` seconds (900 by default) and was stopped, and the lock is free again. It
-is not red and it is not run again: it is the `gate-unavailable` escalation at once, with
-`needs=stalled gate: <the stalled line>`.
-Exit 71 or 124 is `gate-unavailable`, except an exit 71 whose message says
+is not red and it is not run again: it is the `step=review-tool` escalation at once, with `stalled gate: <the stalled line>` in the file `review=` names.
+Exit 71 or 124 is `step=review-tool`, except an exit 71 whose message says
 `dependencies are not installed`: run the resolved `commands.install` once (Phase 4's
-"Dependencies"), then the same line again; a second 71 is `gate-unavailable`. Any other non-zero exit is the gate's own: it
+"Dependencies"), then the same line again; a second 71 is `step=review-tool`. Any other non-zero exit is the gate's own: it
 is red, and `run-gates.sh` names the gate that failed. Never remove the lock file by hand. Before
 starting the Phase 6 stack, check memory the way `juel:star` does (free + inactive at least
-3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes escalate
-`stack-unavailable`.
+3 GB); below that, wait in foreground calls of at most 540 s, and after 30 minutes end with
+`reason=out-of-tries step=stack`.
 
 **Gate once per PR.** The full regression gate (every gate in the manifest) and every Phase 6 live
 check run once per PR, on the worker's own changes, before the first draft push: that is Phase 6.
@@ -704,7 +749,7 @@ contract: "The approved brief below is a fixed contract. Its Approach and Scope 
 the implementation inside them; do not reopen scope and do not ask for approval. If the work cannot
 be done inside the brief, stop and say so (brief-violation). Your terminal state is handing the
 approach back to juel:ship-ticket; do not write a spec or invoke writing-plans." A
-brief-violation answer becomes the `brief-violation` escalation under `--unattended`, and a question
+brief-violation answer becomes `RESCOPE item=<item> reason=brief review=<file>` under `--unattended`, and a question
 to the user otherwise. Without `--brief`, this phase is unchanged:
 
 Invoke `Skill("juel:start")`. It detects the ticket id from the worktree (`basename $(pwd)`), fetches the Linear issue, summarizes requirements, and runs `superpowers:brainstorming`.
@@ -771,7 +816,7 @@ Write a short spec doc capturing the agreed approach from brainstorming.
 
 - Path: `${docsRoot}/specs/<YYYY-MM-DD>[-<ref-lower>]-<slug>.md` — the ref segment is included, lower-cased, only when the work item has one (e.g. `2026-08-01-savi-1162-add-auth.md`); when `ref` is null it drops out entirely, never a placeholder (e.g. `2026-08-01-add-auth.md`) (gitignored, per user memory)
 - **If that path already exists (a re-run for the same ticket on the same day), never overwrite it.** Write `-v2` instead (e.g. `2026-08-01-savi-1162-add-auth-v2.md`); if `-v2` exists too, `-v3`, and so on.
-- Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the work item if it has any; otherwise ask the user for concrete verification steps and record those in the spec instead (under `--unattended`: the `needs-human-input` escalation in "Nothing is asked at the terminal").
+- Contents: problem, chosen approach, scope (in/out), risks, acceptance criteria pulled from the work item if it has any; otherwise ask the user for concrete verification steps and record those in the spec instead (under `--unattended`: the checklist comes from the brief, as "Nothing is asked at the terminal" says).
 
 **Checkpoint:** show spec path, ask to proceed.
 
@@ -836,8 +881,8 @@ tool). When one is missing, run the resolved `commands.install` once, from the f
 for, in the background like `codex exec` (`run_in_background: true`, wait for the completion
 notification, never poll it) and not through `gate-lock.sh`. An install that exits non-zero, or
 no install command resolved, ends the run with
-`ESCALATION item=<item> phase=4 reason=gate-unavailable needs=dependencies did not install: <one line>`
-(`<one line>` its last error line). This is not part of resolving the commands:
+`ESCALATION item=<item> phase=4 reason=out-of-tries step=review-tool review=<the file holding the one line>`
+(the file holds `dependencies did not install: <one line>`, `<one line>` its last error line). This is not part of resolving the commands:
 resolution still installs and runs nothing.
 
 **The progress ledger.** The executor records each task it finishes in
@@ -855,7 +900,7 @@ line's prompt ends with ` Stop before task <N>: the session runs it.`, inside it
 when Codex did not load the executor skill. After each executor run (every try of the capacity rule
 included), run it again: a `ran <N>` line means the executor ran a session task, so the run failed:
 under `--unattended`, end with
-`ESCALATION item=<item> phase=<n> reason=codex-failed needs=the executor ran session task <N>`;
+`ESCALATION item=<item> phase=<n> reason=out-of-tries step=executor`;
 interactively, show that line and ask how to go on.
 Before each dispatch, and after a dispatch whose report ends with
 `stopped at task <N>: run by the session`, look at the first task with no `Task <N>: complete`
@@ -865,7 +910,7 @@ its commit, inside its `**Files:**` block, never `git add -f`), then append
 yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`, the path
 exactly as the dispatch line names the plan. A session task that cannot be completed gets no
 ledger line, and nothing is dispatched past it: under `--unattended`, end the run with
-`ESCALATION item=<item> phase=4 reason=codex-failed needs=session task <N> failed: <one line>`;
+`ESCALATION item=<item> phase=4 reason=out-of-tries step=executor review=<the file holding session task <N> failed: <one line>>`;
 interactively, show that line and ask how to go on. Then dispatch the same line: the executor
 resumes at the first task not marked complete. When every task left
 is a session task, nothing more is dispatched. The ledger is the record of who ran what: a
@@ -919,11 +964,13 @@ The brackets are not typed: the part inside them is added only when `session-tas
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
 fallback model (`--executor-model` from `executor.fallback`, `latest-sol` by default, resolved the
-same way); then run the plan in this session with `superpowers:executing-plans`. Each try resumes
+same way); then run the plan in this session with `superpowers:executing-plans`. When the fallback
+model resolves, through `executor-model.sh`, to the same model id as the executor, there is no
+fallback: skip straight to running the plan in this session. Each try resumes
 from the plan's ledger (above), so the same line continues at the first task not marked complete:
 never write a resume prompt by hand. Each step is one
 line to the user (under `--unattended`, a progress line and a terminal line, never a `NOTE`). Any
-other non-zero exit is the `codex-failed` escalation under `--unattended`.
+other non-zero exit is a failed try of `step=executor` under `--unattended`.
 
 **Out of usage.** When codex exits non-zero and its last lines say `usage limit`, `hit your usage
 limit`, `try again at`, `out of credits` or `credit balance` (any case), the account is out of
@@ -950,7 +997,7 @@ fix round of the codex gate loop), look in the executor's report for a line that
 `task <N> failed: planned file`. One such line means a file the plan needs never reached a
 commit: stop there, before the scope check. Never `git add -f` the file, move it, or edit an
 ignore file to carry on. Under `--unattended` it is
-`ESCALATION item=<item> phase=<n> reason=codex-failed needs=planned file is git-ignored: <path> (<source>:<line>:<pattern>)`,
+`ESCALATION item=<item> phase=<n> reason=out-of-tries step=executor review=<the file holding planned file is git-ignored: <path> (<source>:<line>:<pattern>)>`,
 copied from that line; interactively, show the line and ask how to go on. When this session runs
 the plan (`--executor session`, or the last step of the capacity rule), it never runs `git add -f`
 either: a path a task's `**Files:**` block names that `git add` refuses as ignored stops the run
@@ -1089,8 +1136,9 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
 
    **An empty checklist is never a pass.** If this step yields zero items (no acceptance criteria,
    no recorded verification steps, no diff-implied edge cases), stop here and ask the user for
-   concrete verification steps before marking this phase done (under `--unattended`: escalate
-   `needs-human-input`, never ask).
+   concrete verification steps before marking this phase done (under `--unattended`: write the checklist
+   from the brief's approach and the diff's edge cases, record it as a `## Decisions` line with its
+   `Source:`, never ask; still empty, `reason=out-of-tries step=verify`).
 2. **Construct self-servable fixtures first, then ask only what remains.** For every checklist item
    whose data-state need is a self-servable edge case — NULL/empty fields, a 403/permission-denied
    state, a boundary value, or a pattern the repo already uses elsewhere (an existing seed script,
@@ -1098,7 +1146,7 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    insert/API call against the `commands.run` stack (from Phase 4). Do this before asking the user.
 
    Under `--unattended` there is nobody to ask: anything Claude cannot self-serve is the
-   `needs-human-input` escalation, and the item is never marked PASS. Otherwise,
+   `needs-person` escalation, and the item is never marked PASS. Otherwise,
    **ask the user only what Claude genuinely cannot self-serve:** "Do you need anything from
    me (an external paid service, a real org membership, a secret, or anything else I can't
    construct myself)?" Wait for their answer before driving anything that needs it.
@@ -1125,7 +1173,7 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
      under the screen lock, renewed every 10 minutes), `auto: api` or `auto: cli` (call it and
      observe).
      A check marked `person:` runs its automated part like any other and is recorded by that result,
-     citing the person-only step the owner did before go.
+     citing the person-only step the owner did.
    - **Any item whose diff touches UI:** capture the rule 4 screenshots (light mode, desktop
      1440x900) of every changed screen or state into the evidence directory's `screenshots/`,
      taken during the recorded flow, and note the item's start time in the recording.
@@ -1135,7 +1183,7 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    - **If `juel:verify` is unavailable:** fall back to driving the resolved `commands.run` (from Phase 4
      — reuse it, do not re-derive) directly, and ask the user to drive the browser themselves and
      confirm each affected checklist item, recording which items were not verified by Claude
-     directly. Under `--unattended` nobody can: escalate `needs-human-input` for those items.
+     directly. Under `--unattended` nobody can: escalate `needs-person needs=screen:` for those items.
    - **If `run` is unavailable:** execute the `commands.run` resolved in Phase 4 directly and
      observe.
 4. **Record evidence per item, not in aggregate, in the evidence directory's `report.md`.** Its
@@ -1148,7 +1196,7 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
    One more verdict exists, `ACCEPTED-RESIDUAL`, for an item whose live check still shows a small
    residual after the loop back through phase 5. It is allowed only when a record in the brief's
    `## Decisions` accepts the residual and names a follow-up spec item (the coordinator's or the
-   owner's answer to your ask, escalation 3). Record the residual as observed, the decision
+   owner's answer to your ask, the `step=verify` escalation). Record the residual as observed, the decision
    record's title and the follow-up's path. It counts as met for the gate and for step 6, it is
    never written as PASS, and an item with no such record stays FAIL.
 5. **Run the final regression gate** (under `--unattended`, inside the gate lock from "Unattended
@@ -1250,12 +1298,12 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    already ready is left as it is. Then end the run with
    `DONE item=<item> pr=<url> head=<the full head> review=<the review path it printed>`.
    `post-pass` printing `ERROR …`: wait a minute and run it once more; a second `ERROR` is
-   `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`.
+   `ESCALATION item=<item> phase=7 reason=out-of-tries step=review-tool review=<the file holding its ERROR line>`.
    A resumed build on a ready PR posts its PASS comment at once.
-4. `NOT-SAFE …`: when this is the run's `gate.maxRounds`-th NOT-SAFE round (3 by default),
+4. `NOT-SAFE …`: when this is the run's `tries.perStep`-th NOT-SAFE round (3 by default),
    go straight to step 5, before any fix. Otherwise read that review file's findings. Validate each
    `[P0]` and `[P1]` finding with `superpowers:receiving-code-review` against the brief; one outside
-   the brief's scope is the `brief-violation` escalation. The round's `-fix.md` is
+   the brief's scope ends the run as `RESCOPE item=<item> reason=brief review=<file>`. The round's `-fix.md` is
    `<star.reviews>/<item>-r<k>-fix.md`: one line per finding, `Fixed in <sha>.` or
    `Disposition: <the technical reason>`. For each accepted `[P0]` or `[P1]` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its `-fix.md` line names the sites (`Fixed in <sha>. Sites: <path:line>, <path:line>.`).
    No finding accepted: skip the plan, the executor, the tests, Phase 6, the commit and the push;
@@ -1272,21 +1320,21 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    push (never force), read the PR's merge state as "Gate once per PR" says, write the `-fix.md`,
    then run the next round from step 1. `[P2]` and `[P3]`
    findings never block. A NOT-SAFE round's fix plan fixes them when cheap. A SAFE round's `[P2]` and `[P3]` findings stay in its review: no commit and no push after a SAFE round for them alone.
-5. On the run's `gate.maxRounds`-th NOT-SAFE round (3 by default), end with
+5. On the run's `tries.perStep`-th NOT-SAFE round (3 by default), end with
    `RESCOPE item=<item> reason=gate review=<the last review's path>`, with no fix: STAR narrows the
    item. The line ends with ` tooling=all` when that round's `tooling=` equals `p0 + p1` (every
    blocking finding left is in tooling: STAR hands the PR to one follow-up instead of narrowing it):
    `RESCOPE item=<item> reason=gate review=<the last review's path> tooling=all`.
 6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.
    Fetch the base and merge it in as `juel:babysit-pr`'s Phase 4 step 1 does (`../babysit-pr/SKILL.md`
-   from this file: `merge-union.sh` resolves a mechanical conflict; any other conflict is
-   `git merge --abort` and the `merge-conflict` escalation), run the sweep as "Gate once per PR"
+   from this file: `merge-union.sh` resolves a mechanical conflict; any other conflict follows
+   "Conflicts" above), run the sweep as "Gate once per PR"
    item 2 says, commit the merge, push (never force), read the PR's merge state as "Gate once per PR"
    says, then run the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and
-   it casts no vote toward `gate.maxRounds`.
+   it casts no vote toward `tries.perStep`.
    Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
    (an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move); a second `ERROR` is
-   `ESCALATION item=<item> phase=7 reason=review-unavailable needs=<its ERROR line>`, the line
+   `ESCALATION item=<item> phase=7 reason=out-of-tries step=review-tool review=<the file holding its ERROR line>`, the line
    quoted whole: an `ERROR gate-down …` line tells STAR that the gate itself is down (Sol and its
    Claude fallback both failed), and STAR parks the item instead of handing it to the owner.
 
@@ -1300,7 +1348,7 @@ Outside babysit's Phase 4 sync before `READY` and STAR's "Sync after the base mo
    stage after it checks this run's `DONE` report. End the run with the `DONE` line. With no `gh`,
    there is no PR to gate: skip the codex gate loop, print
    `HELD item=<item> action=open a draft PR from <compare-url> (base <baseBranch>)`, then end with
-   `ESCALATION item=<item> phase=7 reason=needs-human-input needs=no gh on this machine: open a draft PR from <compare-url>, then answer with the PR's URL`
+   `ESCALATION item=<item> phase=7 reason=needs-person needs=access: no gh on this machine; open a draft PR from <compare-url>`
    in place of the `DONE` line.
 2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
    number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
@@ -1328,8 +1376,8 @@ and "Ready for you to merge" or why it stopped.
 | A remote record this run cannot delete (no delete access) | Only when the brief, its Decisions or a Before-you-go answer allows it: mark the entry `handed-off`, list it in the PR body and report a `HELD` line. Otherwise it is a failed cleanup. |
 | Not in a worktree | Ask user; do not auto-create one. |
 | `--unattended` hits anything on the escalation list | Print the `ESCALATION` line and end the run. Never work around it, never mark an unverifiable item PASS. |
-| `--unattended` without `--brief` | Refuse with the `no-brief` escalation; never run unattended without an approved brief. |
-| Phase 8 stops (red gate twice, merge conflict, PR closed) | babysit-pr reports why; fix or decide, then resume with `/juel:babysit-pr <pr>`. Never merge the PR from this skill. |
+| `--unattended` without `--brief` | Refuse with `reason=out-of-tries step=worker`; never run unattended without a brief. |
+| Phase 8 stops (a step out of tries, a need only a person can supply, PR closed) | babysit-pr reports why; fix or decide, then resume with `/juel:babysit-pr <pr>`. Never merge the PR from this skill. |
 
 ## Common mistakes
 

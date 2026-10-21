@@ -27,7 +27,7 @@ grep -q 'READY item=<item> pr=<url> head=<pushed sha>' "$SKILL" && pass "unatten
 grep -q 'Never mark it ready a second time' "$SKILL" && pass "marked ready once" || fail "mark-ready once"
 grep -q 'wait for CI and the approval' "$SKILL" && pass "READY waits for CI" || fail "READY waits for CI"
 grep -q '| `--since <iso>` |' "$SKILL" && pass "resumable cursor" || fail "--since cursor"
-grep -q 'reason=no-review' "$SKILL" && pass "review wait is bounded" || fail "no-review bound"
+grep -qF 'reason=out-of-tries step=hosted-wait' "$SKILL" && pass "review wait is bounded" || fail "no-review bound"
 grep -q 'when `decision` is null' "$SKILL" && pass "approval without required review" || fail "null decision approval"
 grep -q 'first line of the `worker_done` body' "$SKILL" && pass "READY rides worker_done" || fail "worker_done body"
 grep -q 'gate.lock' "$SKILL" && pass "unattended gates take the lock" || fail "gate lock"
@@ -38,34 +38,34 @@ grep -q 'add-reviewer <each reviewer' "$SKILL" && pass "S13 dismissed approval r
 grep -q -- '--only <ids>' "$SKILL" && pass "S14 only this round's feedback" || fail "S14 --only"
 grep -q '`cancel`' "$SKILL" && pass "S21 cancelled checks rejected" || fail "S21 cancel bucket"
 grep -q 'empty string' "$SKILL" && pass "S20 empty decision normalized" || fail "S20 empty decision"
-grep -q 'reason=unanswered-question' "$SKILL" && pass "S4 unanswered question escalates" || fail "S4 unanswered-question"
+grep -qF 'decide the question yourself from sources' "$SKILL" && pass "S4 an unanswered question is decided from sources" || fail "S4 unanswered question decided"
 grep -q '| `--gates-file <path>` |' "$SKILL" && pass "T11 gate manifest accepted" || fail "T11 --gates-file"
 grep -q 'whose approval is for an older commit' "$SKILL" && ! grep -q 'submitted after the last commit' "$SKILL" && pass "T8 stale approval judged by commit, re-requested" || fail "T8 stale approval"
 grep -q 'background, like `codex exec`' "$SKILL" && pass "T1 gates run backgrounded" || fail "T1 backgrounded gates"
 grep -q 'at most 12 lines' "$SKILL" && pass "report capped at 12 lines" || fail "12-line cap"
-grep -q 'DRAFT <path>' "$SKILL" && grep -q 'candidate decisions' "$SKILL" && pass "ambiguous review comes with a draft" || fail "DRAFT on ambiguous review"
+! grep -qF 'DRAFT <path>' "$SKILL" && ! grep -q 'candidate decisions' "$SKILL" && pass "an ambiguous review is decided, not drafted" || fail "an ambiguous review is decided, not drafted"
 grep -q 'MERGED item=<item> pr=<url>' "$SKILL" && pass "a merge seen while babysitting is reported" || fail "MERGED report"
-grep -q 'cursor=<last cursor>' "$SKILL" && grep -q 'ESCALATION item=<item> phase=8 reason=<reason> cursor=' "$SKILL" && pass "escalations carry the cursor" || fail "escalation cursor"
+grep -qF 'ESCALATION item=<item> phase=8 reason=needs-person needs=<kind>: <what>' "$SKILL" && grep -qF 'ESCALATION item=<item> phase=8 reason=out-of-tries step=<step>[ review=<path>]' "$SKILL" && pass "escalations have exactly two shapes" || fail "escalation shapes"
 grep -q 'star.notes' "$SKILL" && grep -q '## Decisions' "$SKILL" && pass "reads notes and decisions first" || fail "notes and decisions"
 grep -q 'SENT replies=<n> review-requests=<m>' "$SKILL" && pass "reports what it sent" || fail "SENT line"
 # Stress test pass fixes
-grep -q '| `--reviewed <path>` |' "$SKILL" && grep -q 'reason=no-safe-verdict' "$SKILL" && pass "S5 mark-ready needs a SAFE review on this head" || fail "S5 SAFE proof"
-grep -q 'reason=ci-stuck' "$SKILL" && pass "S15 the CI wait is bounded" || fail "S15 ci-stuck"
-grep -q 'reason=gate-busy' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-busy"
+grep -q '| `--reviewed <path>` |' "$SKILL" && grep -qF 'reason=out-of-tries step=gate`' "$SKILL" && pass "S5 mark-ready needs a SAFE review on this head" || fail "S5 SAFE proof"
+grep -qF 'reason=out-of-tries step=ci-wait' "$SKILL" && pass "S15 the CI wait is bounded" || fail "S15 ci-wait"
+grep -qF 'reason=out-of-tries step=gate-lock' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-lock"
 grep -q 'commit.oid' "$SKILL" && pass "S8 approvals are matched to the head commit" || fail "S8 approval by commit"
-grep -q 'Under `--unattended`: `git merge --abort`' "$SKILL" && pass "S4 final-sync conflict never asks" || fail "S4 phase 4 conflict"
+grep -qF 'Under `--unattended` nothing is asked: if a' "$SKILL" && pass "S4 final-sync conflict never asks" || fail "S4 phase 4 conflict"
 grep -q 'never dropped to fit' "$SKILL" && pass "S11 the report keeps what STAR needs" || fail "S11 report priority"
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && pass "T1 no gate lock path to pass" || fail "T1 gate lock path"
 grep -q 'taken from the repo root' "$SKILL" && ! grep -q '(cd <cwd> && <cmd>)' "$SKILL" && pass "T9 each gate runs from the repo root" || fail "T9 gate cwd"
 grep -q 'at least 7 characters' "$SKILL" && grep -q 'newest review file' "$SKILL" && pass "T5 the SAFE proof must be exact and current" || fail "T5 SAFE proof"
-grep -q '| `draft` |' "$SKILL" && grep -q 'reason=pr-draft-again' "$SKILL" && grep -q "the snapshot's \`base\`" "$SKILL" && pass "T6 a PR made draft again or retargeted is not reported ready" || fail "T6 draft and base"
-grep -q 'reason=blocked-without-feedback' "$SKILL" && pass "T13 a bot-only block does not wait 72 hours" || fail "T13 bot-only block"
+grep -q '| `draft` |' "$SKILL" && grep -qF 'reason=out-of-tries step=pr-draft' "$SKILL" && grep -q "the snapshot's \`base\`" "$SKILL" && pass "T6 a PR made draft again or retargeted is not reported ready" || fail "T6 draft and base"
+grep -qF 'reason=needs-person needs=approval: PR #<n>' "$SKILL" && pass "T13 a bot-only block needing an approval is a person's" || fail "T13 bot-only block"
 grep -q 'ask the coordinator' "$SKILL" && pass "a stuck worker asks the coordinator before giving up" || fail "ask when stuck"
 # Final pass
 g() { grep -qF -- "$2" "$SKILL" && pass "$1" || fail "$1"; }
 g "B1 gates run from the manifest, never from a hand-quoted string" 'run-gates.sh'
 g "B2 the SAFE proof is checked by the script" 'review-proof.sh'
-g "B4 escalations carry the cursor the round started from" 'the cursor this round started from'
+g "B4 an escalation carries no cursor" 'The report carries no cursor'
 g "B5 READY waits for checks whether or not Phase 4 pushed" 'whether or not Phase 4 pushed'
 g "B5 a head with no checks yet is not green at once" 'no checks reported'
 g "B6 the approval rule matches the final check" 'latest review'
@@ -94,7 +94,7 @@ gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow() { printf '%s\n' "$gate_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
 grow "C1a the gate's findings are read from its review file" '<star.reviews>/<item>-r<k>.md'
 grow "C1b each P0 and P1 finding is validated against the brief" 'superpowers:receiving-code-review'
-grow "C1c a finding outside the brief's scope is the brief-violation escalation" 'reason=brief-violation'
+grow "C1c a finding outside the brief's scope is a brief RESCOPE" 'RESCOPE item=<item> reason=brief review='
 grow "C1d the fix is planned as a new -vN plan" '(`superpowers:writing-plans`, a new `-vN`)'
 grow "C1e the plan runs on the executor and its model script" 'executor-model.sh'
 grow "C1f with the capacity and out-of-usage rules" 'capacity and out-of-usage rules'
@@ -171,9 +171,9 @@ hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
 hrow "L93a the pass record" '<star.reviews>/<item>-hosted.log'
 hrow "L93b passes are counted from the file" 'a restarted run counts them from the file, never from memory'
 hrow "L93c the last pass reviews a current head" 'so the last pass reviews a head that is current with the base'
-hrow "L93d refreshOutsideCap false escalates" 'reason=hosted-cap'
+hrow "L93d refreshOutsideCap false is out of tries at hosted-review" 'reason=out-of-tries step=hosted-review'
 settings_row=$(grep -F '| settings |' "$SKILL")
-printf '%s\n' "$settings_row" | grep -qF '`refreshOutsideCap`, true when absent' && pass "L93e settings name refreshOutsideCap" || fail "L93e settings name refreshOutsideCap"
+printf '%s\n' "$settings_row" | grep -qF '`refreshOutsideCap`, `paused`' && pass "L93e settings name refreshOutsideCap" || fail "L93e settings name refreshOutsideCap"
 g "L93f Phase 1's refresh honours the setting" 'false and every pass used'
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "L81e babysit's gate fix plan carries a Base line" '`**Base:** spec implemented at <the full head>; apply only the tasks below.`'
@@ -184,7 +184,7 @@ grow "L81f the in-session run is told the Base line wins" "The plan's Base line 
 g "L88a gh cannot see reads the notes for a token rule first" 'may name a `GH_TOKEN` rule'
 g "L88b the token prefix goes on every later GitHub command" 'an `export` does not outlive one shell call'
 g "L88c tokenCmd is named as the lasting fix" 'the plugin'"'"'s session hook already gives every session the token'
-g "L90c a red fixed outside runtime is refunded" 'A red is refunded, and does not count toward the two'
+g "L90c a red fixed outside runtime is refunded" 'A red is refunded, and does not count toward the budget'
 g "L90d the Phase 4 red row counts the same way" 'counted as the row above counts them'
 g "L89d babysit's gate lock reports its wait" '--progress <star.home>/progress/<item>.log -- sh <run-gates.sh>'
 g "L83c decisions are read after every background step" '| after every background step (an executor run, a gate round, the regression gate, a CI poll, a Phase 2 wake) |'
@@ -223,7 +223,7 @@ rv "R10b that covers the waits after errors and silence" 'after `errors`, `silen
 printf '%s\n' "$review_mode" | grep -qF 'and `--head-seen <the last snapshot'"'"'s head_seen>` on every repeat' && fail "R10c the Codex-only head-seen wording is gone" || pass "R10c the Codex-only head-seen wording is gone"
 rv "R12a silence names what the wait is for" 'no re-request or settled push for 72 h, still waiting'
 printf '%s\n' "$review_mode" | grep -qF 'no response from the author for 72 h' && fail "R12b the author-response wording is gone" || pass "R12b the author-response wording is gone"
-rv "R13a an unattended run prints the stop as an escalation" 'ESCALATION item=<item> phase=8 reason=preflight needs=the PR'"'"'s author is <login>: reviewer mode runs only interactively'
+rv "R13a an unattended run prints the stop as an escalation" 'ESCALATION item=<item> phase=8 reason=out-of-tries step=worker'
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "R1a babysit records what is already changed before the executor" 'sh <scope-check.sh> --record "$(git rev-parse --git-path juel_scope_before)"'
 grow "R1b the record is taken right before the executor runs" 'Right before the executor runs'
@@ -250,7 +250,7 @@ mrow "R9f any other NO still escalates" 'Any other `NO …`'
 g "#109i babysit's Phase 3 merges the base only when the PR conflicts" 'It merges the base branch in only when the PR conflicts with it (a `behind` PR is synced in Phase 4)'
 g "#96a Phase 1 rebuilds a missing hosted log from the PR" 'sh <script> <pr> --hosted <login> --hosted-passes > <log>.tmp'
 g "#96b an error line writes no file" 'An `error` line writes no file'
-g "#96c a second error is the pr-state-errors escalation" 'A second `error` → `ESCALATION item=<item> phase=8 reason=pr-state-errors'
+g "#96c a second error is out of tries at gh" 'A second `error` → `ESCALATION item=<item> phase=8 reason=out-of-tries step=gh'
 g "#96d a missing log is never zero passes" 'A missing log is never read as zero passes.'
 hosted_row=$(grep -F 'a hosted reviewer (`hostedReviewer` set)' "$SKILL")
 hrow "#96e the hosted row says how the record is rebuilt" 'A missing file is rebuilt from the PR in Phase 1 step 9'
@@ -280,7 +280,7 @@ ci_row=$(grep -F 'wait for CI and the approval' "$SKILL")
 crow() { printf '%s\n' "$ci_row" | grep -qF -- "$2" && pass "$1" || fail "$1"; }
 crow "#102b no CI only when the base head has none either" "only when the base branch's head has no check runs either"
 crow "#102c it reads the base head's check runs" 'commits/<base>/check-runs --jq .total_count'
-crow "#102d a PR that is not DIRTY escalates ci-missing" 'reason=ci-missing cursor=<last cursor> needs=no CI ran on head <sha> (PR <mergeStateStatus>)'
+crow "#102d no checks reported and none required goes on" 'codex SAFE is the bar'
 crow "#102e a DIRTY PR is the conflict wake first" 'On a `DIRTY` PR the `conflict` wake acts first'
 crow "#102f and the report carries the NOTE" 'NOTE: no CI ran on head <sha7> (PR DIRTY)'
 printf '%s\n' "$ci_row" | grep -qF 'and "this repo has no CI" after that' && fail "#102g a head with no checks is no longer read as no CI" || pass "#102g a head with no checks is no longer read as no CI"
@@ -288,10 +288,10 @@ report_row=$(grep -F '| Phase 5 report |' "$SKILL")
 printf '%s\n' "$report_row" | grep -qF '`NOTE: no CI ran on head <sha7> (PR DIRTY)` once' && pass "#102h the report lists the NOTE" || fail "#102h the report lists the NOTE"
 g "#105a Phase 1 checks for missing dependencies before any gate" 'Then, before any gate runs, check for missing dependencies'
 g "#105b it runs the install once" 'When one is missing, run the install command once'
-g "#105c a failed install is gate-unavailable" 'reason=gate-unavailable needs=dependencies did not install: <one line>'
+g "#105c a failed install is out of tries at review-tool" 'reason=out-of-tries step=review-tool review=<the file holding the one line>'
 gates_row=$(grep -F '| gates run directly |' "$SKILL")
 printf '%s\n' "$gates_row" | grep -qF 'Exit 71 with `dependencies are not installed` in its message: run the install command once' && pass "#105d exit 71 for missing dependencies installs once" || fail "#105d exit 71 for missing dependencies installs once"
-printf '%s\n' "$gates_row" | grep -qF 'a second 71 is the `gate-unavailable` escalation' && pass "#105e a second 71 is gate-unavailable" || fail "#105e a second 71 is gate-unavailable"
+printf '%s\n' "$gates_row" | grep -qF 'a second 71 is `reason=out-of-tries step=review-tool`' && pass "#105e a second 71 is review-tool" || fail "#105e a second 71 is review-tool"
 # fix: the install step names a package.json that declares dependencies (#105)
 g "F105a Phase 1 installs for a package.json that declares dependencies" 'a `package.json` at the repo root, or in a gate'"'"'s `cwd`, that declares dependencies (a non-empty'
 g "F105b it names the four dependency keys and workspaces" '`dependencies`, `devDependencies`, `optionalDependencies` or `peerDependencies`, or a `workspaces` key)'
@@ -312,7 +312,7 @@ printf '%s\n' "$gate_row" | grep -qF 'when a script proves the merge added nothi
 phase 4 | grep -qF 'file this branch changes, as `carry-check.sh` decides, carries the last SAFE with no codex round.' && pass "#110c Phase 4 step 4 names carry-check's rule" || fail "#110c Phase 4 step 4 names carry-check's rule"
 grow "#113a a base-moved round merges the base first" 'The gate printing `ERROR base-moved …`: the base changed a file this branch changes.'
 grow "#113b it merges as Phase 4 step 1 does and runs the sweep" 'Merge it in as Phase 4 step 1 does'
-grow "#113c it is not an ERROR retry" 'it is not an `ERROR` retry, never counts toward the second `ERROR`, and casts no vote toward `gate.maxRounds`.'
+grow "#113c it is not an ERROR retry" 'it is not an `ERROR` retry, never counts toward the second `ERROR`, and casts no vote toward `tries.perStep`.'
 grow "#113d any other ERROR still waits 10 minutes" 'The gate printing any other `ERROR`: wait 10 minutes and run the same round once more'
 g "#113e base-moved is the one behind merge outside Phase 4" 'A gate round that prints `ERROR base-moved` is the one case where a `behind` PR is merged outside Phase 4.'
 # fix-3: babysit describes a carried merge as one that brings no change to a branch file, as carry-check.sh decides (#110)
@@ -337,16 +337,16 @@ g "B122g an older log's second pass line for one head becomes a refresh (#122)" 
 g "B122h the first pass line of each head is kept (#122)" '`<its iso> refresh head=<that sha>`, keeping the first `pass` line of each head and every other'
 g "B120a the base sync names the edit next to an insertion (#120)" 'to one list), or one side inserted lines right after a line the other side edited (#120), or'
 
-R124="Under a \`star:\` brief, \`star.json\`'s \`ownerApproval\` (null when absent) is the owner's grant in a repository with no second reviewer: when it is set, its \`login\` is the PR's author, and the snapshot says \`approval: none\`, or \`approval: required\` with \`required: 0\`, wait for no approval and request no reviewer (no \`gh pr edit --add-reviewer\`); STAR's merge gate checks the same three conditions itself."
 R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
 R131b="For each accepted \`[P0]\` or \`[P1]\` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its \`-fix.md\` line names the sites (\`Fixed in <sha>. Sites: <path:line>, <path:line>.\`)."
 B126="The last hosted pass's base merge runs Phase 4 step 1, so it is part of that sync."
-has "#124 ownerApproval: no approval waited for, no reviewer requested" "$R124"
-has "#124 the settings row reads ownerApproval" '`ownerApproval` (`login`, `since`, `words`, or null)'
+has "#124 no reviewer is requested and no approval waited for unless the rule requires one" "Babysit requests no reviewer and waits for no approval unless the base branch's review rule requires one"
+has "#124 the settings row reads tries and hostedReviewer.paused" '`tries` (`perStep`'
+! grep -qF 'ownerApproval' "$SKILL" && pass "#124 ownerApproval is gone" || fail "#124 ownerApproval is gone"
 has "#126 the one base-merge rule" "$R126"
 has "#126 the last hosted pass's base merge is Phase 4's sync" "$B126"
 has "#129 a skipped run is logged, not a pass" 'log `<iso> skipped head=<sha> <reason>` in `<item>-hosted.log`, spend no pass on it (the passes stay the `pass` lines)'
-has "#129 a skipped run escalates hosted-unavailable" '`ESCALATION item=<item> phase=8 reason=hosted-unavailable cursor=<cursor> needs=<the skip reason>`'
+has "#129 a skipped run is out of tries at hosted-wait" '`ESCALATION item=<item> phase=8 reason=out-of-tries step=hosted-wait`'
 has "#129 a rebuilt log keeps skipped lines, never as passes" 'A `skipped` line it prints stays in the log as it is and is never a pass.'
 R129c=$(cat <<'EOF'
 An item with `kind: hosted-skip` is a hosted run that reviewed nothing
@@ -357,7 +357,7 @@ has "#131 the fix covers every site of the pattern" "$R131b"
 
 # lane c: #143 a stalled gate (exit 125) is gate-unavailable here too, never a red gate
 gates_row=$(grep -F '| gates run directly |' "$SKILL")
-printf '%s\n' "$gates_row" | grep -qF 'Exit 71, 124 or 125 (the gate could not run, ran past its time limit, or stalled: it printed nothing for `--idle-max` seconds) → `ESCALATION item=<item> phase=8 reason=gate-unavailable needs=<the script'"'"'s message>`, never a red gate and never run again' && pass "C143f babysit reads exit 125 as a stalled gate" || fail "C143f babysit reads exit 125 as a stalled gate"
+printf '%s\n' "$gates_row" | grep -qF 'Exit 71, 124 or 125 (the gate could not run, ran past its time limit, or stalled: it printed nothing for `--idle-max` seconds) → `ESCALATION item=<item> phase=8 reason=out-of-tries step=review-tool review=<the file holding the script'"'"'s message>`, never a red gate and never run again' && pass "C143f babysit reads exit 125 as a stalled gate" || fail "C143f babysit reads exit 125 as a stalled gate"
 # lane f: #160 a capped round whose blocking findings are all tooling reports tooling=all
 tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF 'reason=gate review=<path> tooling=all' && pass "TL160j babysit's gate cap line carries tooling=all" || fail "TL160j babysit's gate cap line carries tooling=all"
 tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF "when that round's \`tooling=\` equals \`p0 + p1\`" && pass "TL160k tooling=all when every blocking finding is in tooling" || fail "TL160k tooling=all condition"
@@ -378,6 +378,33 @@ has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P
 grep -qF 'That condition is for the final sync alone: a' "$SKILL" && grep -qF 'the base moved") always fetches and merges the base as below.' "$SKILL" && pass "I1 a base-moved or conflict merge always merges" || fail "I1 a base-moved or conflict merge always merges"
 # audit fix 8: a codex usage limit in a gate fix round runs the plan in the session
 grow "F8 a usage limit runs the plan in the session" 'a codex usage limit runs the plan in this session'
+
+
+# lane e: STAR autonomy
+has "AU1 the conflict rule applies a Decisions entry as written" 'if a `## Decisions` entry names those files and a resolution, apply it as written'
+has "AU2 otherwise it resolves from both briefs and the sibling PR" 'resolve them yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
+has "AU3 the resolution is recorded as a Decisions line" 'record the resolution as a `## Decisions` line'
+has "AU4 the regression gate and the codex gate run on the result" 'then run the regression gate and the codex gate on the result'
+has "AU5 a conflict that fails the gates ends as step=conflict" 'reason=out-of-tries step=conflict'
+has "AU6 By hand the conflict rule stays" 'By hand, the rule stays: never resolve a conflict that is not mechanical.'
+has "AU7 red CI is rerun once" 'Rerun it once. Green means a flake: go on.'
+has "AU8 the proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<sha> url=<url>'
+has "AU9 the proof causes" "the base branch's head fails the same check name, or the run's conclusion is \`cancelled\`, \`startup_failure\`, \`timed_out\` or \`stale\`"
+has "AU10 a follow-up is filed through work-source create" 'file a follow-up for the failure through `references/work-source.md` `create`'
+has "AU11 otherwise the PR's fault, then RESCOPE ci" 'then `RESCOPE item=<item> reason=ci review=<path>`'
+has "AU12 a required check never passes on a proof" 'A required check never passes on a proof'
+has "AU13 RESCOPE reasons" 'RESCOPE item=<item> reason=<gate|hosted-review|ci|brief> review=<path>'
+has "AU14 By hand red CI is shown to the user" 'By hand, a red check is shown to the user.'
+has "AU15 the hosted reviewer can be paused" 'The hosted reviewer is paused when `hostedReviewer.paused` is true, or when the project'"'"'s `CLAUDE.md` or `AGENTS.md` says the hosted reviewer is paused.'
+has "AU16 paused: no ping, no score wait, READY on codex SAFE" 'When paused: no ready-for-review ping, no score wait, and `READY` once codex is SAFE on the head and the checks hold.'
+has "AU17 hostedReviewer settings carry paused" '`refreshOutsideCap`, `paused`'
+has "AU18 an ambiguous finding is decided and recorded" 'decide the finding from the brief, the code and sources, record a `## Decisions` line, and go on'
+has "AU19 a stopped remediation is out of tries at executor" 'reason=out-of-tries step=executor'
+has "AU20 a red gate is out of tries at regression" 'reason=out-of-tries step=regression'
+has "AU21 a gh that cannot see the repo needs access" 'reason=needs-person needs=access:'
+for r in 'reason=merge-conflict' 'reason=unanswered-question' 'reason=gate-red' 'reason=no-review' 'reason=hosted-cap' 'ownerApproval' 'reason=brief-violation' 'reason=codex-failed' 'reason=needs-human-input' 'reason=ci-missing' 'reason=ci-failed' 'reason=ci-stuck' 'reason=pr-draft-again' 'reason=no-safe-verdict' 'reason=gate-busy' 'reason=gate-unavailable' 'reason=review-unavailable' 'reason=hosted-unavailable' 'reason=pr-state-errors' 'reason=blocked-without-feedback' 'reason=remediation-stopped' 'reason=ambiguous-review' 'reason=preflight' 'reason=pr-closed' 'gate.maxRounds'; do
+  grep -qF -- "$r" "$SKILL" && fail "AU22 removed reason gone: $r" || pass "AU22 removed reason gone: $r"
+done
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
