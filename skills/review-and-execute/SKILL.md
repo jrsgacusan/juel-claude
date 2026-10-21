@@ -299,7 +299,7 @@ the plan is the file the dispatch line names, the ledger the one in "The progres
 inside its quotes, brackets not typed. After each run, run it again: a `ran <N>` line is a failed
 run. In an unattended invocation (`juel:ship-ticket --unattended` runs this skill in its Phase 5),
 stop before any further step and end the caller's run with
-`ESCALATION item=<item> phase=5 reason=codex-failed needs=the executor ran session task <N>`,
+`ESCALATION item=<item> phase=5 reason=out-of-tries step=executor`,
 `<item>` being the caller's; interactively, show that line and ask how to go on. The session runs a session task as
 `juel:ship-ticket`'s Phase 4 **Session tasks** says, then dispatches the same line again.
 
@@ -307,7 +307,7 @@ stop before any further step and end the caller's run with
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
 fallback model (`latest-sol`, resolved the same way); then run the plan in this session with
-`superpowers:executing-plans`. Say each step in one line. Each of them resumes from the plan's
+`superpowers:executing-plans`. When the fallback model resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session. Say each step in one line. Each of them resumes from the plan's
 ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
 checked before it is edited, since the stop may have left it half applied.
 

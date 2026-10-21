@@ -222,7 +222,7 @@ codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effo
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
 fallback model (`latest-sol`, resolved the same way); then run the plan in this session with
-`superpowers:executing-plans`. Say each step in one line. Each of them resumes from the plan's
+`superpowers:executing-plans`. When the fallback model resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session. Say each step in one line. Each of them resumes from the plan's
 ledger: the tasks a stopped run finished are not done again, and the first unfinished task is
 checked before it is edited, since the stop may have left it half applied.
 
