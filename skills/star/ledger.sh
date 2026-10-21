@@ -18,8 +18,8 @@
 #   ledger.sh [--home H] counts            -> "<state> <n>" for each state that has rows, in state order
 # States (schema 3): inbox, briefing, needs-you, queued, building, babysit-queued, babysitting,
 # verifying, post-queued, posting, done, set-aside, dropped. Counters: tries, rescoped, depth, hold
-# and start take a number, +1 or -; reached, parent, trackerRef, batch, last, tracker and rescope take
-# one word (never +1). Any other state or counter is refused (64).
+# and start take a number, +1 or -; reached, parent, trackerRef, batch, last, tracker, rescope and live
+# (stage-start.sh's in-flight marker) take one word (never +1). Any other state or counter is refused (64).
 # Each field is its own argument: nothing is split on spaces, so one value can never become two
 # rows. A value is cleaned on the way in: "|" and line breaks become "/ ", an empty value is "-".
 # "updated" is stamped by every write (UTC, or STAR_NOW when set) and cannot be set by hand.
@@ -56,7 +56,7 @@ STATES = ["inbox", "briefing", "needs-you", "queued", "building", "babysit-queue
           "verifying", "post-queued", "posting", "done", "set-aside", "dropped"]
 STAGES = ["brief", "build", "babysit", "post"]
 COUNTS = ["tries", "rescoped", "depth", "hold", "start"]
-WORDS = ["reached", "parent", "trackerRef", "batch", "last", "tracker", "rescope"]
+WORDS = ["reached", "parent", "trackerRef", "batch", "last", "tracker", "rescope", "live"]
 DEFAULTS = {"worktree": "-", "state": "inbox", "stage": "brief", "round": "0", "task": "-",
             "dispatch": "-", "restarts": "0", "pr": "-", "head": "-", "cursor": "-", "verify": "-",
             "counters": "-"}

@@ -106,6 +106,8 @@ L set V2-1 counters.tries=+1 >/dev/null; L set V2-1 counters.tries=+1 >/dev/null
 L set V2-1 counters.depth=1 counters.rescoped=1 counters.hold=1 counters.start=+1 >/dev/null && pass "C1c: depth, rescoped, hold and start are accepted" || fail "C1c rest"
 L set V2-1 counters.reached=babysitting counters.trackerRef=SAVI-1162 >/dev/null && [ "$(L get V2-1 counters.reached)" = "babysitting" ] && [ "$(L get V2-1 counters.trackerRef)" = "SAVI-1162" ] && pass "C1d: reached and trackerRef are words" || fail "C1d ($(L get V2-1 counters))"
 L set V2-1 counters.trackerRef=+1 >/dev/null 2>&1; [ $? -eq 64 ] && pass "C1d: trackerRef does not count" || fail "C1d +1"
+# I1: live is stage-start.sh's in-flight marker (a request id), a word and never a budget
+L set V2-1 counters.live=1a2b-3c >/dev/null && [ "$(L get V2-1 counters.live)" = "1a2b-3c" ] && L set V2-1 counters.live=- >/dev/null && pass "I1a: live is a word stage-start can set and clear" || fail "I1a live ($(L get V2-1 counters))"
 for gone in moved mergefail go synced; do
   L set V2-1 "counters.$gone=x" >/dev/null 2>&1; rc=$?
   L set V2-1 "counters.$gone=1" >/dev/null 2>&1; rc2=$?
