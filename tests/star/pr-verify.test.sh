@@ -150,6 +150,11 @@ mg() { # mg <name> <expected> <json body> [extra args]
 }
 # with a hosted reviewer: the babysit worker judged its review; the script asks for no approval
 mg "hosted, PASS posted, green: PASS" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+HONE="$TMP/hosted-one.json"; printf '[{"type":"pull_request","parameters":{"required_approving_review_count":1}}]\n' > "$HONE"
+RULES="$HONE"
+mg "R5 hosted, rule requires 1 and no approval on the head: PENDING approval" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$PASSC]" "--hosted"
+mg "R5 hosted, rule requires 1 and an approval on the head: PASS hosted" "PASS hosted" "$OK,$BASE,$AUTHOR,"'"reviewDecision":"","reviews":[{"author":{"login":"ezra"},"authorAssociation":"MEMBER","state":"APPROVED","submittedAt":"2026-10-02T00:00:00Z","commit":{"oid":"abc1234def"}}]'",$GREEN,\"comments\":[$PASSC]" "--hosted"
+RULES=""
 mg "no codex PASS: FAIL" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[]" "--hosted"
 mg "a PASS by someone else does not count" "FAIL no codex PASS for abc1234 (posted by x, not the PR's author)" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[{\"author\":{\"login\":\"x\"},\"body\":\"Codex gate: PASS (head abc1234def, round 1, m e)\"}]" "--hosted"
 printf '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[{"author":{"login":"greptile-apps"},"body":"The export ignores the filter."}]}}]}}}}}\n' > "$TMP/t1.json"
@@ -195,6 +200,7 @@ OLDPASS='{"author":{"login":"me"},"body":"Codex gate: PASS (head 0ld0000aaa, rou
 mg "a codex PASS for an earlier head does not count" "FAIL no codex PASS for abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[$OLDPASS]" "--hosted"
 RULES="$ONE"
 mg "an approval of an earlier commit does not count" "PENDING approval: none on the current head from someone other than me" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"authorAssociation\":\"MEMBER\",\"state\":\"APPROVED\",\"submittedAt\":\"2026-10-02T00:00:00Z\",\"commit\":{\"oid\":\"0ld0000aaa\"}}],$GREEN,\"comments\":[$PASSC]"
+RULES="$TMP/none0.json"; printf '[]\n' > "$RULES"
 mg "logins are compared without a [bot] suffix" "PASS hosted" "$OK,$BASE,\"author\":{\"login\":\"ci[bot]\"},$NOAPP,$GREEN,\"comments\":[{\"author\":{\"login\":\"ci\"},\"body\":\"Codex gate: PASS (head abc1234def, round 1, m e)\"}]" "--hosted"
 unset RULES
 # review threads: only an unresolved one someone else opened counts, and only the author's own reply answers it
@@ -287,7 +293,7 @@ mh "a bare --hosted never names it as a hosted status; the missing check is name
 printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"build"}]}}]\n' > "$HRULES"
 mh "a missing required check that is not the hosted reviewer's is named as a check (#167)" "PENDING check build not reported on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
 printf '{"x":1}\n' > "$HRULES"
-mh "rules that cannot be read never name a hosted status" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
+mh "rules that cannot be read never name a hosted status (R5: unreadable rule with --hosted is PENDING, never a pass)" "PENDING review rule: unreadable rules" "$OK,$BASE,$AUTHOR,$NOAPP,$CIONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
 
 # audit lane G: a required check that has not reported is named (#167)
 GR="$TMP/g-rules.json"
@@ -303,7 +309,7 @@ mr "G a required check with no entry on the head is named" "PENDING check ci not
 printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"build"},{"context":"Greptile Review"}]}}]\n' > "$GR"
 mr "G the hosted status line still wins" "PENDING hosted-status Greptile Review missing on abc1234" "$OK,$BASE,$AUTHOR,$NOAPP,$BUILDONLY,\"comments\":[$PASSC]" "greptile-apps[bot]"
 printf '{"x":1}\n' > "$GR"
-mr "G unreadable rules add no check line" "PENDING merge state: blocked (a required check or review has not reported)" "$OK,$BASE,$AUTHOR,$NOAPP,$BUILDONLY,\"comments\":[$PASSC]" ""
+mr "G unreadable rules add no check line" "PENDING review rule: unreadable rules" "$OK,$BASE,$AUTHOR,$NOAPP,$BUILDONLY,\"comments\":[$PASSC]" ""
 printf '[{"type":"pull_request","parameters":{"required_approving_review_count":0}},{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"ci"},{"context":"build"}]}}]\n' > "$GR"
 mr "G every required check reported: the gate goes on" "PASS hosted" "$OK,$BASE,$AUTHOR,$NOAPP,$BOTH,\"comments\":[$PASSC]" "greptile-apps[bot]"
 
@@ -349,7 +355,7 @@ out=$(PATH="$TMP/bin:/usr/bin:/bin" STUB_JSON="$TMP/pr.json" sh "$SCRIPT" 5 --he
 H40=abc1234def0000000000000000000000000000ff
 B40=bbbbbbbbbb0000000000000000000000000000aa
 BASE40=cccccccccc0000000000000000000000000000dd
-STUB_BASE_SHA=$B40; export STUB_BASE_SHA
+STUB_BASE_SHA=$BASE40; export STUB_BASE_SHA
 PR40="\"state\":\"OPEN\",\"isDraft\":false,\"headRefOid\":\"$H40\",\"baseRefOid\":\"$BASE40\",\"mergeable\":\"MERGEABLE\",\"mergeCommit\":null"
 PASS40='{"author":{"login":"me"},"body":"Codex gate: PASS (head '$H40', round 1, m e)"}'
 REDCI='"statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"}]'
@@ -361,7 +367,7 @@ printf '{"check_runs":[{"name":"lint","conclusion":"failure"}]}\n' > "$TMP/runs-
 printf '{"check_runs":[{"name":"lint","conclusion":"success"}]}\n' > "$TMP/runs-ok.json"
 printf '{"check_runs":[{"name":"lint","conclusion":"cancelled"}]}\n' > "$TMP/runs-cancelled.json"
 brief() { # brief <check> <head> <cause>
-  printf '# Brief\n\n## Decisions\n- 2026-10-21 red-check-proof check=%s head=%s cause=%s base=%s url=https://github.com/o/r/runs/1\n\n## Notes\n' "$1" "$2" "$3" "$B40" > "$TMP/brief.md"
+  printf '# Brief\n\n## Decisions\n- 2026-10-21 red-check-proof check=%s head=%s cause=%s base=%s url=https://github.com/o/r/runs/1\n\n## Notes\n' "$1" "$2" "$3" "$BASE40" > "$TMP/brief.md"
 }
 rc() { # rc <name> <expected> <check rollup> <rules file> ; env: STUB_COMPARE STUB_BASE_RUNS STUB_RUN
   printf '{%s}\n' "$PR40,$BASE,$AUTHOR,$NOAPP,$3,\"comments\":[$PASS40]" > "$TMP/pr.json"
@@ -373,9 +379,21 @@ brief lint $H40 base
 rc "B2e a red check that is not required passes on a base proof it confirms" "PASS hosted (proven not the PR's: lint base)" "$REDCI" "$RRULES"
 STUB_BASE_RUNS="$TMP/runs-ok.json"
 rc "B2f the check was green on the base: FAIL" "FAIL checks: lint" "$REDCI" "$RRULES"
-STUB_BASE_RUNS="$TMP/runs-fail.json"; STUB_COMPARE="$TMP/cmp-div.json"
-rc "B2f the base is not an ancestor of the PR's base: FAIL" "FAIL checks: lint" "$REDCI" "$RRULES"
-STUB_COMPARE="$TMP/cmp-ahead.json"
+STUB_BASE_RUNS="$TMP/runs-fail.json"
+# R-2: a proof written against an ancestor that is no longer the base head is stale
+printf '# Brief\n\n## Decisions\n- 2026-10-21 red-check-proof check=lint head=%s cause=base base=%s url=u\n' "$H40" "$B40" > "$TMP/brief.md"
+rc "R2 base is an ancestor but not the current base head: FAIL" "FAIL checks: lint" "$REDCI" "$RRULES"
+brief lint $H40 base
+rc "R2 base equals the PR's current baseRefOid: PASS" "PASS hosted (proven not the PR's: lint base)" "$REDCI" "$RRULES"
+# R-2: names with a space or = are double-quoted
+QCI='"statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"CheckRun","name":"test (ubuntu-latest)","status":"COMPLETED","conclusion":"FAILURE"}]'
+printf '{"check_runs":[{"name":"test (ubuntu-latest)","conclusion":"failure"}]}\n' > "$TMP/runs-q.json"
+STUB_BASE_RUNS="$TMP/runs-q.json"
+printf '# Brief\n\n## Decisions\n- 2026-10-21 red-check-proof check="test (ubuntu-latest)" head=%s cause=base base=%s url=u\n' "$H40" "$BASE40" > "$TMP/brief.md"
+rc "R2 a quoted check name with a space passes" "PASS hosted (proven not the PR's: test (ubuntu-latest) base)" "$QCI" "$RRULES"
+printf '# Brief\n\n## Decisions\n- 2026-10-21 red-check-proof check=test head=%s cause=base base=%s url=u\n' "$H40" "$BASE40" > "$TMP/brief.md"
+rc "R2 the unquoted first word is not the quoted name" "FAIL checks: test (ubuntu-latest)" "$QCI" "$RRULES"
+STUB_BASE_RUNS="$TMP/runs-fail.json"
 brief lint 9999999999999999999999999999999999999999 base
 rc "B2g a proof for a different head: FAIL" "FAIL checks: lint" "$REDCI" "$RRULES"
 brief build $H40 base
@@ -386,7 +404,7 @@ STUB_RUN="$TMP/runs-fail.json"
 rc "B2j cause=infra but the run failed: FAIL" "FAIL checks: lint" "$REDCI" "$RRULES"
 brief lint $H40 base
 rc "B2k a required check never passes on a proof" "FAIL checks: lint" "$REDCI" "$RRULES_LINT"
-rc "a rule that cannot be read lets no red check pass on a proof" "FAIL checks: lint" "$REDCI" "$BAD"
+rc "a rule that cannot be read lets no red check pass on a proof" "PENDING review rule: unreadable rules" "$REDCI" "$BAD"
 printf '# Brief\n\n## Notes\n- 2026-10-21 red-check-proof check=lint head=%s cause=base base=%s url=u\n\n## Decisions\n- none\n' "$H40" "$B40" > "$TMP/brief.md"
 rc "a proof outside ## Decisions does not count" "FAIL checks: lint" "$REDCI" "$RRULES"
 unset STUB_COMPARE STUB_BASE_RUNS STUB_RUN STUB_BASE_SHA
