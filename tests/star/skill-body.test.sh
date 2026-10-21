@@ -95,7 +95,7 @@ PY
 want_states="inbox briefing needs-you queued building babysit-queued babysitting verifying post-queued posting done set-aside dropped"
 got_states=$(awk '/^\| State \| Pool \| Meaning \|/{t=1;next} t&&/^\|/{split($0,c,"|");gsub(/[ `]/,"",c[2]);if(c[2]!~/^-+$/)printf "%s ",c[2];next} t{exit}' "$SKILL" | sed 's/ $//')
 [ "$got_states" = "$want_states" ] && pass "A9 states (I-2)" || fail "A9 states: $got_states"
-bad_kinds=$(grep -oE -- '--kind [a-z-]+' "$tmp/text" | sed 's/--kind //' | sort -u | grep -vxE 'person|set-aside|slack-reply|draft')
+bad_kinds=$(grep -oE -- '--kind [a-z-]+' "$tmp/text" | sed 's/--kind //' | sort -u | grep -vxE 'person|set-aside|slack-reply|draft|rule|fact|decision|note')  # the last four are notes.sh kinds
 [ -z "$bad_kinds" ] && pass "A10 queue kinds" || fail "A10 queue kinds: $bad_kinds"
 a11=ok
 for w in BRIEF SPLIT DONE RESCOPE REPORTED HELD READY MERGED POSTED reason=needs-person reason=out-of-tries \
