@@ -459,7 +459,7 @@ in the record's Source.
 Create the folder before the first line: `mkdir -p <star.home>/progress`. Append one line to
 `<star.home>/progress/<item>.log` at each step below:
 `printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<one line>" >> <that file>`.
-`<step>` is exactly one of these tokens, because STAR's `step-check.sh` reads it to know what you
+`<step>` is exactly one of these tokens, because STAR reads it to know what you
 are waiting on; the free text goes in the third field:
 
 | Step | Write it |

@@ -9,8 +9,8 @@
 #     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39).
 # "gate-gone r<k>" (with --item and --home, for a worker that is not settled) means the newest gate
 # round's <H>/reviews/<project>/<item>-r<k>.run names a pid (and gate pid) that is not alive while
-# no verdict file <item>-r<k>.md exists: the codex gate died. It replaces step-check.sh's "restart
-# gate-r<k> gate process gone". The project is star.json's project.name, else every folder under reviews.
+# no verdict file <item>-r<k>.md exists: the codex gate died. The project is star.json's
+# project.name, else every folder under reviews.
 # <reason> follows only a failed settlement, when Orca gives one (agent_prompt_stalled: the agent
 # never took its prompt, most often because Claude Code's trust dialog was on screen).
 # "stuck" labels: usage limit, login, trust dialog, model switch, confirmation dialog, waiting for

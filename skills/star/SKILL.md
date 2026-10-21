@@ -26,7 +26,7 @@ metadata:
         check: "resolve_bin orca against PATH, then the app-bundle candidate"
       - id: gh
         hard: true
-        why: workers open and babysit PRs; pr-verify.sh, done-check.sh and release-record.sh read them; merge.sh merges under the owner's go; star-issue.sh files STAR's own improvement issues
+        why: workers open and babysit PRs; pr-verify.sh, done-check.sh and release-record.sh read them; merge.sh merges when the merge gate holds on the exact head; star-issue.sh files STAR's own improvement issues
         check: "gh auth status"
       - id: git
         hard: true
@@ -34,7 +34,7 @@ metadata:
         check: "command -v git"
       - id: python3
         hard: true
-        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, worktree-clean.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh, done-check.sh, merge.sh, codex-gate.sh, step-check.sh and the session hook run on it
+        why: star-home.sh, loops.sh, ledger.sh, messages.sh, stage-start.sh, star-issue.sh, worktree-clean.sh, pr-verify.sh, worker-probe.sh, release-record.sh, handoff.sh, done-check.sh, merge.sh, codex-gate.sh and the session hook run on it
         check: "command -v python3"
       - id: claude
         hard: true

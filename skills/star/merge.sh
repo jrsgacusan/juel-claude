@@ -37,7 +37,7 @@
 # cannot be read, prints nothing and exits 69: the merge may or may not have happened, and the
 # next run of the merge gate says which.
 # Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, an unknown
-# argument (--grant is one), or missing arguments.
+# argument (a grant file is no longer one), or missing arguments.
 # When GH_TOKEN is unset, gh runs with the token of the account star.json configures (gh-token.sh, #137).
 JUEL_SKILLS_DIR=$(cd "$(dirname "$0")/.." && pwd)
 export JUEL_SKILLS_DIR
