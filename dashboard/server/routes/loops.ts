@@ -7,16 +7,16 @@ import { lastLine, run } from "../proc.ts";
 import { readQueue } from "../readers/star.ts";
 import type { Router } from "../router.ts";
 
-const BLOCKED = [
-  "go-batch",
-  "question",
-  "person",
-  "escalation",
-  "restart-or-drop",
-  "go-merge",
-];
-const rank = (kind: string): number =>
-  BLOCKED.includes(kind) ? 0 : kind === "slack-reply" ? 1 : 2;
+const BLOCKED = ["person"];
+// person 0, set-aside 1, slack-reply 2, everything else 3.
+export const rankOf = (kind: string): number =>
+  BLOCKED.includes(kind)
+    ? 0
+    : kind === "set-aside"
+      ? 1
+      : kind === "slack-reply"
+        ? 2
+        : 3;
 const num = (id: string): number => Number(id.slice(2)) || 0;
 
 export function loopOf(n: NeedItem, nowMs: number): Record<string, unknown> {
@@ -42,9 +42,45 @@ export function loopRoutes(router: Router, ctx: Ctx): void {
   router.add("GET", "/api/projects/:p/loops", async (req) => {
     const p = await ctx.registry.find(req.params["p"] ?? "");
     const needs = [...readQueue(p.home).needs].sort(
-      (a, b) => rank(a.kind) - rank(b.kind) || num(a.id) - num(b.id),
+      (a, b) => rankOf(a.kind) - rankOf(b.kind) || num(a.id) - num(b.id),
     );
     return { json: needs.map((n) => loopOf(n, Date.now())) };
+  });
+
+  // Every registered project's queue in one list. A queue that cannot be read is one error entry,
+  // so the other projects still show.
+  router.add("GET", "/api/loops", async () => {
+    const now = Date.now();
+    const rows: Record<string, unknown>[] = [];
+    for (const p of await ctx.registry.current()) {
+      try {
+        for (const n of readQueue(p.home).needs)
+          rows.push({ project: p.name, ...loopOf(n, now) });
+      } catch (err) {
+        ctx.log(
+          `loops: ${p.name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        rows.push({
+          project: p.name,
+          id: "",
+          kind: "error",
+          item: "",
+          title: `${p.name}'s queue could not be read`,
+          body: [err instanceof Error ? err.message : String(err)],
+          options: [],
+          suggestion: null,
+          answer: "",
+          askedAt: null,
+        });
+      }
+    }
+    rows.sort(
+      (a, b) =>
+        rankOf(String(a["kind"])) - rankOf(String(b["kind"])) ||
+        String(a["project"]).localeCompare(String(b["project"])) ||
+        num(String(a["id"])) - num(String(b["id"])),
+    );
+    return { json: rows };
   });
 
   // The band's path (hooks/register.tsx sendAnswer): loops.sh set-answer, then wake STAR, here with

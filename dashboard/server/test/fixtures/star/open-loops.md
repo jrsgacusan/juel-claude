@@ -10,9 +10,9 @@ next: issue-6 waits for a build slot
 ## Needs you
 <!-- Answer on an item's "Answer:" line. Keep going on the lines right under it; a blank line ends the answer. -->
 
-### N-3 · app · issue-9 · trim memory/app.md
-kind: held
-Options: done
+### N-3 · app · issue-9 · issue-9 set aside: the gate failed twice
+kind: set-aside
+Options: try again / drop
 Answer:
 
 ### N-4 · app · slack · Ria in #eng: is the CSV export landing today?
@@ -23,11 +23,10 @@ Suggest: Not today. It's in final review now.
 Options: send (recommended) / rewrite: <how> / skip
 Answer:
 
-### N-5 · app · B-2 · go for batch B-2: 1 items
-kind: go-batch
-issue-2
-Suggest: go: the brief is small and every check is automated
-Options: go (recommended) / go except <items> / drop <item>
+### N-5 · app · issue-2 · add the Stripe webhook secret to .env.local
+kind: person
+kind: secret
+Options: done / can't now
 Answer:
 
 ### N-6 · app · issue-7 · add the Stripe test key to .env.local
@@ -40,9 +39,9 @@ Options: done (recommended) / can't now
 Answer:
 
 ### N-7 · app · issue-1 · which date format?
-kind: question
-msg: m-1
-deadline: 2026-10-15T08:30:00Z
+kind: draft
+drafts/2026-10-15-app-slack-C1-1700000000.000100.md
+Options: send / drop
 Answer: ISO 8601
 
 ## Waiting on others
