@@ -455,7 +455,7 @@ python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["workin
 d2() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 --item ITEM-D2 --home "$HD2" 2>&1; }
 sleep 0 & DEAD=$!; wait "$DEAD" 2>/dev/null
 sleep 30 & LIVE=$!
-trap 'kill "$LIVE" 2>/dev/null; rm -rf "$TMP"' EXIT
+trap '{ kill "$LIVE"; wait "$LIVE"; } 2>/dev/null; rm -rf "$TMP"' EXIT
 mkdir -p "$HD2/progress"; : > "$HD2/progress/ITEM-D2.log"
 printf '{"pid":%s,"gate":%s,"started":"2026-10-07T11:00:00Z"}\n' "$DEAD" "$DEAD" > "$HD2/reviews/p/ITEM-D2-r2.run"
 out=$(d2); [ "$out" = "gate-gone r2" ] && echo "ok   D2a a dead gate pid with no verdict is gate-gone" || { echo "FAIL D2a ($out)"; fails=$((fails + 1)); }
