@@ -342,7 +342,7 @@ function workerMergeText(how: string): string {
   return (
     `juel STAR guard: a direct merge (${how}) is refused here: a STAR worker never merges a PR. ` +
     `Leave the PR open and say so in your report; STAR merges it through merge.sh once the merge ` +
-    `gate passes on its head and the owner has said go.`
+    `gate passes on its head.`
   )
 }
 
@@ -350,15 +350,15 @@ function denyText(v: Verdict, p: Place, root: string): string {
   if (v.kind === 'merge') {
     return (
       `juel STAR guard: a direct merge (${v.how}) is refused in the STAR coordinator. STAR merges only ` +
-      `through merge.sh, on the exact head pr-verify.sh --merge-gate passed, under the item's grant: ` +
-      `sh ${root}/skills/star/merge.sh <pr url> --head <sha> --grant <grant file> --home ${p.home} --item <item>. ` +
-      `If the merge gate has not passed, run it first; without the owner's go, queue a go-merge item.`
+      `through merge.sh, on the exact head pr-verify.sh --merge-gate passed: ` +
+      `sh ${root}/skills/star/merge.sh <pr url> --head <sha> --home ${p.home} --item <item>. ` +
+      `If the merge gate has not passed, run it first.`
     )
   }
   return (
     `juel STAR guard: ${v.path} is ${v.why}, and the STAR coordinator never reads review, evidence or ` +
     `log content into its session. Use the script that reads it and prints one line (done-check.sh, ` +
-    `pr-verify.sh --merge-gate, step-check.sh), or count with grep -c, grep -q or wc -l. ` +
+    `pr-verify.sh --merge-gate, worker-probe.sh), or count with grep -c, grep -q or wc -l. ` +
     `If the owner needs it, give them the path.`
   )
 }

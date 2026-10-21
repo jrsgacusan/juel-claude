@@ -16,6 +16,7 @@ run() { printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"compact"}
 valid() { python3 -c 'import json,sys; d=json.load(sys.stdin)["hookSpecificOutput"]; assert d["hookEventName"]=="SessionStart"; t=d["additionalContext"]; assert "/juel:star" in t and "merge.sh" in t and sys.argv[1] in t, t' "$1" 2>/dev/null; }
 
 owner term_A
+run "$TMP/app" term_A | grep -qF 'Merge only through merge.sh, when pr-verify.sh --merge-gate passes on the exact head.' && ! run "$TMP/app" term_A | grep -qE "go|grant" && pass "the standing rule has no go and no grant" || fail "standing rule"
 run "$TMP/app" term_A | valid "$H" && pass "speaks to the owning terminal, valid JSON, names the folder" || fail "owning terminal"
 run "$TMP/app/src" term_A | valid "$H" && pass "speaks from a subfolder of the project" || fail "subfolder"
 out=$(run "$TMP/app" term_B); [ -z "$out" ] && pass "silent for another terminal in the same project" || fail "another terminal was told it is STAR ($out)"
@@ -72,7 +73,9 @@ import json, sys
 d = json.load(open(sys.argv[1])); keys = list(d)
 assert d["maxParallel"] == 3 and d["maxInReview"] == 3 and "quietHours" not in d and d["notified"] == [] and d["away"] is None and d["terminal"] is None
 assert d["tokenCmd"] is None and keys.index("tokenCmd") == keys.index("hostedDown") + 1
-assert d["ownerApproval"] is None and keys.index("ownerApproval") == keys.index("hostedReviewer") + 1
+assert "ownerApproval" not in d and d["tries"] == {"perStep": 3, "rescopes": 1, "followUpDepth": 2}
+assert keys[keys.index("gate") + 1:keys.index("gate") + 5] == ["tries", "mergeMethod", "baseBranch", "ownerBranches"]
+assert keys.index("hostedReviewer") == keys.index("ownerBranches") + 1
 assert d["hostedDown"] is None and keys.index("hostedDown") == keys.index("gateDown") + 1
 assert d["ghLogin"] is None and keys.index("ghLogin") == keys.index("tokenCmd") + 1
 PY
