@@ -2,7 +2,8 @@
 # Opens the STAR dashboard: one local server on this Mac for every project's STAR folder.
 #   sh skills/star/dashboard.sh [--tailnet]
 # Builds dashboard/web (npm ci, npm run build) when its package.json exists and dist/ is missing or
-# older than web/src, web/package.json or web/package-lock.json, and free + inactive memory is at
+# older than web/src, web/app-public, web/index.html, web/vite.config.ts, web/package.json
+# or web/package-lock.json, and free + inactive memory is at
 # least 3 GB (STAR_FREE_GB overrides the reading); with less, an earlier build is served as it is.
 # Starts node dashboard/server/main.ts from this checkout, in its own session (output to
 # ~/.juel/dashboard.log; $JUEL_DIR replaces ~/.juel when it is set and not empty), unless the pid in
@@ -60,7 +61,7 @@ free_gb() {
 
 stale() {
   [ -f "$WEB/dist/index.html" ] || return 0
-  [ -n "$(find "$WEB/src" "$WEB/package.json" "$WEB/package-lock.json" -type f -newer "$WEB/dist/index.html" 2>/dev/null | head -n 1)" ]
+  [ -n "$(find "$WEB/src" "$WEB/app-public" "$WEB/index.html" "$WEB/vite.config.ts" "$WEB/package.json" "$WEB/package-lock.json" -type f -newer "$WEB/dist/index.html" 2>/dev/null | head -n 1)" ]
 }
 
 if [ ! -f "$WEB/package.json" ]; then

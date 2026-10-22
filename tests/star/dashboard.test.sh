@@ -92,6 +92,17 @@ out=$(STAR_FREE_GB=8 D 2>&1)
 touch -t 202001010000 "$W/dist/index.html"
 out=$(STAR_FREE_GB=8 D 2>&1)
 grep -qx 'run build' "$TMP/npm.log" && pass "a source newer than dist/ rebuilds it" || fail "stale dist not rebuilt: $out"
+# index.html, vite.config.ts and app-public/ (the home-screen icons) are inputs of the build too
+mkdir -p "$W/app-public/icons"; echo '<html>' > "$W/index.html"; echo 'export default {}' > "$W/vite.config.ts"; echo p > "$W/app-public/icons/x.png"
+for w in app-public/icons/x.png index.html vite.config.ts; do
+  find "$W" -path "$W/dist" -prune -o -type f -exec touch -t 202001010000 {} +
+  touch -t 202101010000 "$W/dist/index.html"; : > "$TMP/npm.log"
+  out=$(STAR_FREE_GB=8 D 2>&1); [ ! -s "$TMP/npm.log" ] || fail "$w: rebuilt with nothing newer than dist/"
+  touch "$W/$w"; : > "$TMP/npm.log"
+  out=$(STAR_FREE_GB=8 D 2>&1)
+  grep -qx 'run build' "$TMP/npm.log" && pass "a newer $w rebuilds dist/" || fail "newer $w not rebuilt: $out"
+done
+touch "$W/src/main.tsx"
 : > "$TMP/npm.log"; touch -t 202001010000 "$W/dist/index.html"
 out=$(STAR_FREE_GB=1 D 2>&1); rc=$?
 [ "$rc" = 0 ] && [ ! -s "$TMP/npm.log" ] && printf '%s\n' "$out" | grep -q 'serving the web app built before' && pass "low memory serves the stale build and builds nothing" || fail "low memory with a stale dist (rc=$rc): $out"
