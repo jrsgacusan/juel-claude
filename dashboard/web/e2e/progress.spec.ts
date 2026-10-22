@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test"
 import { isPhone, noHorizontalScroll, openApp } from "./helpers.js"
 test("opens a row's step log and goes to Needs you", async ({ page }) => {
   await openApp(page, "/sphere-app/progress")
-  await page.getByRole("tab", { name: /^Needs you/ }).click()
+  await page.getByRole("tab", { name: /^Blocked/ }).click()
   await page.getByText("Remove the old export modal").click()
   const dialog = page.getByRole("dialog")
   await expect(dialog).toContainText(".worktrees/sphere-app/sph-9")
@@ -40,19 +40,38 @@ test("opens on Running and pages All ten rows at a time", async ({ page }) => {
     "aria-selected",
     "true"
   )
-  await expect(page.getByText("Export reports as CSV")).toBeVisible()
-  await expect(page.getByText("Fix invoice rounding")).toHaveCount(0)
+  // The Merged today list sits under the table, so the rows are looked up inside the table or the cards.
+  const rows = isPhone(page)
+    ? page.getByRole("list", { name: "Items" })
+    : page.getByRole("table")
+  await expect(rows.getByText("Export reports as CSV")).toBeVisible()
+  await expect(rows.getByText("Fix invoice rounding")).toHaveCount(0)
   await page.getByRole("tab", { name: /^All/ }).click()
   const pages = page.getByRole("navigation", { name: "Item pages" })
   await expect(pages).toContainText("Page 1 of 2")
-  await expect(page.getByText("Reports page filters")).toHaveCount(0)
+  await expect(rows.getByText("Reports page filters")).toHaveCount(0)
   await pages.getByRole("button", { name: "Next page" }).click()
   await expect(pages).toContainText("Page 2 of 2")
-  await expect(page.getByText("Reports page filters")).toBeVisible()
+  await expect(rows.getByText("Reports page filters")).toBeVisible()
   await noHorizontalScroll(page)
 })
 
-test("a phone gets cards, two-column stats and tabs that scroll", async ({
+test("shows one summary line, and Merged today under the table", async ({
+  page,
+}) => {
+  await openApp(page, "/sphere-app/progress")
+  await expect(page.getByRole("img", { name: "3 of 3 busy" })).toBeVisible()
+  await expect(page.getByText("3 of 3 build slots busy.")).toBeVisible()
+  await expect(page.getByText("1 in review, 2 merged today.")).toBeVisible()
+  await expect(page.getByRole("region", { name: "Summary" })).toHaveCount(0)
+  const merged = page.getByRole("list", { name: "Merged today" })
+  await expect(merged.getByRole("listitem")).toHaveCount(2)
+  await expect(merged).toContainText("Fix invoice rounding")
+  await page.getByRole("tab", { name: /^Merged/ }).click()
+  await expect(merged).toHaveCount(0)
+})
+
+test("a phone gets cards, a bottom sheet and tabs that scroll", async ({
   page,
 }) => {
   test.skip(!isPhone(page), "phone layout only")
@@ -60,12 +79,6 @@ test("a phone gets cards, two-column stats and tabs that scroll", async ({
   await expect(page.getByRole("table")).toHaveCount(0)
   const cards = page.getByRole("list", { name: "Items" }).getByRole("listitem")
   await expect(cards).toHaveCount(6)
-  const columns = await page
-    .getByRole("region", { name: "Summary" })
-    .evaluate(
-      (el) => getComputedStyle(el).gridTemplateColumns.split(" ").length
-    )
-  expect(columns).toBe(2)
   const overflow = await page
     .getByRole("tablist")
     .locator("..")
@@ -74,8 +87,8 @@ test("a phone gets cards, two-column stats and tabs that scroll", async ({
   await page
     .getByRole("button", { name: /^SPH-11 Export reports as CSV$/ })
     .click()
-  await expect(page.getByRole("dialog")).toContainText(
-    ".worktrees/sphere-app/sph-11"
-  )
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toContainText(".worktrees/sphere-app/sph-11")
+  await expect(dialog).toHaveAttribute("data-side", "bottom")
   await noHorizontalScroll(page)
 })
