@@ -3,6 +3,19 @@
 The page the dashboard server serves (`dashboard/server/`). Vite, React, TypeScript, Tailwind CSS v4
 and shadcn/ui; data through TanStack Query from the server's API, typed in `src/api/types.ts`.
 
+## On your iPhone's home screen
+
+Open the tailnet link in Safari, tap Share, then Add to Home Screen. The STAR icon appears and opens
+the dashboard full screen, signed in: the page links `/manifest.webmanifest?t=<token>` (`src/lib/manifest-link.ts`),
+and the server answers it with a `start_url` that carries the token, because a home-screen app keeps
+its own storage, separate from Safari's.
+
+The icons are in `app-public/icons/`: `star.svg` is the source (the favicon's four-point star, light
+on `#171717`), rendered to `star-180.png`, `star-192.png`, `star-512.png` and `star-512-maskable.png`
+(the star at 50% of the side, so a circle mask keeps it) by loading the SVG at each size in
+Playwright's Chromium and screenshotting the square. Only `app-public/` reaches `dist/` (see
+`publicDir` in `vite.config.ts`); the dev server serves no icons.
+
     npm ci
     npm run dev          # http://localhost:5173/?t=dev, with the MSW mock layer (src/mocks/)
     npm test             # Vitest + Testing Library
