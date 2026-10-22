@@ -164,5 +164,14 @@ g checkout -q -b handok "$GH"; g merge -q --no-edit origin/main >/dev/null 2>&1
 printf 'a\nb\nX\nY\n' > "$R/hand1.txt"; printf 'a\nb\nX1\nX2\nY\n' > "$R/hand2.txt"; g add hand1.txt hand2.txt; g commit -qm "Merge origin/main"; MHK=$(g rev-parse HEAD)
 t "audit lane C: a resolution that keeps every added line carries" "OK carried from $GH: the merge brings no change to a file this branch changes, except lines both sides only added (hand1.txt, hand2.txt)" "$(C --from "$GH" --head "$MHK" --base origin/main)"
 
+# #183: a twin of the gated merge (same tree, same parents, any order) carries; other parents never do
+TWIN=$(g commit-tree "$M1^{tree}" -p "$M1^1" -p "$M1^2" -m "Merge branch 'main' into feat")
+t "#183 a merge with the gated merge's tree and parents carries" "OK carried from $M1: $(s7 "$TWIN") has the same tree and parents as $(s7 "$M1")" "$(C --from "$M1" --head "$TWIN")"
+TWINR=$(g commit-tree "$M1^{tree}" -p "$M1^2" -p "$M1^1" -m "Merge branch 'main' into feat")
+t "#183 the same parents in the other order carry too" "OK carried from $M1: $(s7 "$TWINR") has the same tree and parents as $(s7 "$M1")" "$(C --from "$M1" --head "$TWINR")"
+ONEP=$(g commit-tree "$M1^{tree}" -p "$M1^1" -m "not a merge")
+out=$(C --from "$M1" --head "$ONEP"); rc=$?
+[ "$rc" -eq 1 ] && case "$out" in "NO "*) true ;; *) false ;; esac && pass "#183 the same tree with different parents is refused" || fail "#183 different parents ($rc $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
