@@ -48,7 +48,6 @@ test("a message gets a streamed reply, and create writes the spec and the inbox 
   await expect
     .poll(() =>
       readdirSync(join(e2e().star, "inbox"))
-        .filter((n) => !n.includes("-slack-"))
         .map((n) => starFile(`inbox/${n}`))
         .some((t) =>
           t.includes("items/sample/remind-owners-about-unpaid-invoices.md")

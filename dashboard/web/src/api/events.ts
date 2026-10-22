@@ -56,15 +56,14 @@ export function keysFor(event: ChangeEvent): QueryKey[] {
     event.project ? [key, event.project] : [key]
   switch (event.what) {
     case "loops":
-      return [scoped("loops"), ["loops", "*"], ["projects"], ["slack"]]
+      return [scoped("loops"), ["loops", "*"], ["projects"]]
     case "ledger":
     case "progress":
       return [scoped("items"), scoped("item"), scoped("overview"), ["projects"]]
     case "evidence":
       return [scoped("evidence")]
     case "drafts":
-    case "slack":
-      return [["slack"], ["draft"]]
+      return [["draft"]]
     case "briefings":
       return [scoped("briefings"), scoped("briefing")]
     case "chat":

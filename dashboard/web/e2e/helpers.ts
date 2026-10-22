@@ -7,7 +7,6 @@ export type Scenario =
   | "loading"
   | "conflict"
   | "stopped"
-  | "slack-off"
 
 /** Sets the mock scenario before load, opens /?t=test-token like the launcher, checks the redirect to the combined /needs, then moves to `path` inside the app (goInApp). */
 export async function openApp(

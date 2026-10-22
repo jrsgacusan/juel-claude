@@ -28,10 +28,6 @@ export const paths = {
     return `/api/search?${params.toString()}`
   },
   events: () => "/api/events",
-  slack: () => "/api/slack",
-  slackRoute: (id: string) => `/api/slack/${e(id)}/route`,
-  slackCheck: () => "/api/slack/check",
-  slackPaused: () => "/api/slack/paused",
   briefings: (p: string) => `${project(p)}/briefings`,
   briefing: (p: string, id: string) => `${project(p)}/briefings/${e(id)}`,
   briefingMessages: (p: string, id: string) =>
@@ -42,6 +38,5 @@ export const paths = {
   chat: (p: string, before?: string) =>
     `${project(p)}/chat${before === undefined ? "" : `?before=${e(before)}`}`,
   away: (p: string) => `${project(p)}/away`,
-  slackRedraft: (p: string) => `${project(p)}/slack/redraft`,
   accounts: () => "/api/accounts",
 }

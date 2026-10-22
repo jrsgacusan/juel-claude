@@ -59,7 +59,6 @@ describe("the event stream", () => {
       ["loops", p],
       ["loops", "*"],
       ["projects"],
-      ["slack"],
     ])
     for (const what of ["ledger", "progress"] as const)
       expect(keysFor({ type: "change", project: p, what })).toEqual([
@@ -72,11 +71,6 @@ describe("the event stream", () => {
       ["evidence", p],
     ])
     expect(keysFor({ type: "change", project: p, what: "drafts" })).toEqual([
-      ["slack"],
-      ["draft"],
-    ])
-    expect(keysFor({ type: "change", what: "slack" })).toEqual([
-      ["slack"],
       ["draft"],
     ])
     expect(keysFor({ type: "change", project: p, what: "briefings" })).toEqual([

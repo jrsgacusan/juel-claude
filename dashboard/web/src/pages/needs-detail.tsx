@@ -2,14 +2,9 @@ import { CircleCheck } from "lucide-react"
 import { type KeyboardEvent, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { isConflictMarkers } from "@/api/client"
-import { useAnswer, useItems, useSlack } from "@/api/queries"
+import { useAnswer, useItems } from "@/api/queries"
 import type { ProjectLoop } from "@/api/types"
 import { AnswerDock, isTyping, useNarrow } from "@/components/list-detail"
-import {
-  type AskedRewrite,
-  SlackReplyEditor,
-} from "@/components/slack-reply-editor"
-import { SlackText } from "@/components/slack-text"
 import { StageRail } from "@/components/stage-rail"
 import { StarMark } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
@@ -17,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
 import { agoText } from "@/lib/format"
@@ -97,9 +91,7 @@ export function LoopDetail({
   onCancelHeld?: () => void
 }) {
   const answer = useAnswer(project)
-  const slack = useSlack()
   const narrow = useNarrow()
-  const [rewrite, setRewrite] = useState<AskedRewrite | null>(null)
   const [reply, setReply] = useState("")
   const sending = useRef(false)
   const lastSent = useRef<string | null>(null)
@@ -107,17 +99,10 @@ export function LoopDetail({
   const { label, icon: Icon } = kindOf(loop.kind)
   const body = visibleBody(loop)
   const subkind = subkindOf(loop.body)
-  const unblocks =
-    loop.kind === "slack-reply"
-      ? []
-      : [...new Set([loop.item, ...alsoItems(loop.body)])].filter(Boolean)
+  const unblocks = [
+    ...new Set([loop.item, ...alsoItems(loop.body)]),
+  ].filter(Boolean)
   const chosen = loop.options.find((o) => o.answer === reply)?.answer ?? ""
-  const message =
-    loop.kind === "slack-reply"
-      ? slack.data?.routed.find(
-          (m) => m.loopId === loop.id && m.project === loop.project
-        )
-      : undefined
 
   const send = async () => {
     const text = reply.trim()
@@ -166,7 +151,7 @@ export function LoopDetail({
 
   // On a desktop a number key picks that option, unless the user is typing.
   useEffect(() => {
-    if (narrow || loop.kind === "slack-reply") return
+    if (narrow) return
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return
       if (isTyping(event.target)) return
@@ -230,22 +215,11 @@ export function LoopDetail({
         </h2>
       </div>
 
-      {loop.kind === "slack-reply" ? (
-        <div className="rounded-xl border bg-muted px-4 py-3 text-sm leading-6">
-          {message && (
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">
-              {message.from} in {message.channel}
-            </span>
-          )}
-          <SlackText text={message?.text ?? loop.title} />
-        </div>
-      ) : (
-        body.map((line) => (
-          <p key={line} className="text-sm leading-6 break-words">
-            {line}
-          </p>
-        ))
-      )}
+      {body.map((line) => (
+        <p key={line} className="text-sm leading-6 break-words">
+          {line}
+        </p>
+      ))}
 
       {loop.suggestion && (
         <Card className="flex-row gap-3 p-4">
@@ -263,21 +237,6 @@ export function LoopDetail({
 
       {unblocks.length > 0 && <Unblocks project={project} refs={unblocks} />}
 
-      {loop.kind === "slack-reply" && slack.isPending && (
-        <Skeleton className="h-40 w-full" />
-      )}
-
-      {loop.kind === "slack-reply" && message ? (
-        <SlackReplyEditor
-          project={project}
-          message={message}
-          onDone={(mark) => onSent(mark === "Sent" ? "send" : "skip", true)}
-          onBeforeAnswer={onCancelHeld}
-          rewrite={rewrite}
-          onRewrite={setRewrite}
-          dock={narrow}
-        />
-      ) : loop.kind !== "slack-reply" || !slack.isPending ? (
         <>
           {loop.options.length > 0 && (
             <fieldset className="flex flex-col gap-2">
@@ -347,10 +306,9 @@ export function LoopDetail({
               </Button>
             )}
           </div>
-        </>
-      ) : null}
+      </>
 
-      {loop.kind !== "slack-reply" && sentText && (
+      {sentText && (
         <p
           role="status"
           className="flex items-center gap-2 rounded-lg border border-done-line bg-done-bg px-3 py-2 text-sm text-done-fg"
@@ -363,7 +321,7 @@ export function LoopDetail({
           </span>
         </p>
       )}
-      {loop.kind !== "slack-reply" && !sentText && serverAnswer && (
+      {!sentText && serverAnswer && (
         <p
           role="status"
           className="flex items-center gap-2 rounded-lg border border-done-line bg-done-bg px-3 py-2 text-sm text-done-fg"
@@ -373,20 +331,18 @@ export function LoopDetail({
         </p>
       )}
       {/* Last, after the status lines: the dock's spacer keeps them clear of the fixed bar. */}
-      {narrow &&
-        !(loop.kind === "slack-reply" && message) &&
-        (loop.kind !== "slack-reply" || !slack.isPending) && (
-          <AnswerDock>
-            <Button
-              variant="answer"
-              onClick={() => void send()}
-              disabled={answer.isPending}
-              className="h-11 flex-1"
-            >
-              Send to STAR
-            </Button>
-          </AnswerDock>
-        )}
+      {narrow && (
+        <AnswerDock>
+          <Button
+            variant="answer"
+            onClick={() => void send()}
+            disabled={answer.isPending}
+            className="h-11 flex-1"
+          >
+            Send to STAR
+          </Button>
+        </AnswerDock>
+      )}
     </div>
   )
 }

@@ -29,7 +29,6 @@ import type {
   Project,
   ProjectLoop,
   SearchResult,
-  SlackState,
   Tracker,
   TrackerInfo,
 } from "./types"
@@ -42,7 +41,6 @@ export const keys = {
   item: (p: string, item: string) => ["item", p, item] as const,
   evidence: (p: string) => ["evidence", p] as const,
   evidenceItem: (p: string, item: string) => ["evidence", p, item] as const,
-  slack: ["slack"] as const,
   draft: (p: string, draftPath: string) => ["draft", p, draftPath] as const,
   briefings: (p: string) => ["briefings", p] as const,
   briefing: (p: string, id: string) => ["briefing", p, id] as const,
@@ -118,11 +116,6 @@ export const useEvidenceItem = (p: string, item: string | null) =>
     queryFn: () => apiJson<EvidenceDetail>(paths.evidenceItem(p, item ?? "")),
     enabled: item !== null,
   })
-export const useSlack = () =>
-  useQuery({
-    queryKey: keys.slack,
-    queryFn: () => apiJson<SlackState>(paths.slack()),
-  })
 export const useDraftText = (p: string, draftPath: string | null) =>
   useQuery({
     queryKey: keys.draft(p, draftPath ?? ""),
@@ -187,14 +180,6 @@ export function useSaveDraft(p: string) {
       )
       return qc.invalidateQueries({ queryKey: keys.draft(p, draftPath) })
     },
-  })
-}
-export function useRouteMessage() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, project }: { id: string; project: string }) =>
-      sendJson<unknown>("POST", paths.slackRoute(id), { project }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.slack }),
   })
 }
 export function useNewBriefing(p: string) {
