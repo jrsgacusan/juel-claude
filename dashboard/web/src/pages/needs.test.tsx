@@ -840,3 +840,119 @@ describe("Needs you sections", () => {
     ).toBeInTheDocument()
   })
 })
+
+describe("Needs you detail", () => {
+  it("shows the subkind chip and an Unblocks block with each item's rail, and drops the raw lines", async () => {
+    renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(await within(detail).findByText("Account")).toBeInTheDocument()
+    expect(within(detail).queryByText(/kind: account/)).not.toBeInTheDocument()
+    expect(within(detail).queryByText(/^also:/)).not.toBeInTheDocument()
+    const unblocks = await within(detail).findByRole("region", {
+      name: "Unblocks",
+    })
+    expect(within(unblocks).getByText("SPH-11")).toBeInTheDocument()
+    expect(within(unblocks).getByText("SPH-12")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(within(unblocks).getAllByRole("img").length).toBeGreaterThan(0)
+    )
+  })
+
+  it("lists the refs alone when the items cannot be read", async () => {
+    server.use(
+      http.get("*/api/projects/:p/items", () =>
+        HttpResponse.json({ error: "no" }, { status: 500 })
+      )
+    )
+    renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    const unblocks = await within(detail).findByRole("region", {
+      name: "Unblocks",
+    })
+    expect(within(unblocks).getByText("SPH-11")).toBeInTheDocument()
+    expect(within(unblocks).getByText("SPH-12")).toBeInTheDocument()
+    expect(within(unblocks).queryAllByRole("img")).toHaveLength(0)
+  })
+
+  it("the footnote says STAR acts on the answer as soon as it is sent", async () => {
+    renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    expect(
+      await within(detail).findByText(
+        "STAR acts on your answer as soon as you send it."
+      )
+    ).toBeInTheDocument()
+    expect(within(detail).queryByText(/open-loops\.md/)).not.toBeInTheDocument()
+    expect(detail.querySelector(".max-w-\\[680px\\]")).not.toBeNull()
+  })
+
+  it("on a desktop each option shows its number, a number picks it, J and K move the selection", async () => {
+    const { user, router } = renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    await within(detail).findByText("Account")
+    expect(within(detail).getByText("1")).toBeInTheDocument()
+    expect(within(detail).getByText("2")).toBeInTheDocument()
+    await user.keyboard("2")
+    expect(within(detail).getByLabelText("Or write your own")).toHaveValue(
+      "can't now"
+    )
+    expect(within(detail).getAllByRole("radio")[1]).toBeChecked()
+    await user.keyboard("j")
+    expect(router.state.location.search).toBe(
+      "?project=sphere-app&loop=sphere-app%2FN-44"
+    )
+    await user.keyboard("k")
+    expect(router.state.location.search).toBe(
+      "?project=sphere-app&loop=sphere-app%2FN-41"
+    )
+  })
+
+  it("the keys do nothing while the textarea has focus, and the list footer shows the hints", async () => {
+    const { user, router } = renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    const box = await within(detail).findByLabelText("Or write your own")
+    await user.click(box)
+    await user.keyboard("2jk")
+    expect(box).toHaveValue("2jk")
+    expect(router.state.location.search).toBe("?project=sphere-app&loop=N-41")
+    const list = screen.getByRole("region", { name: "Open loops" })
+    for (const word of ["move", "pick", "send"])
+      expect(within(list).getByText(word)).toBeInTheDocument()
+    expect(within(list).getByText("J")).toBeInTheDocument()
+    expect(within(list).getByText("⌘↵")).toBeInTheDocument()
+  })
+
+  it("on a phone Send to STAR sits in the dock and shows no ⌘↵", async () => {
+    phone()
+    renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    await within(detail).findByText("Account")
+    const dock = detail.querySelector(
+      "[data-slot='answer-dock']"
+    ) as HTMLElement
+    expect(dock).not.toBeNull()
+    expect(
+      within(dock).getByRole("button", { name: /Send to STAR/ })
+    ).toHaveAttribute("data-variant", "answer")
+    expect(within(detail).queryByText("⌘↵")).not.toBeInTheDocument()
+  })
+
+  it("on a phone a Slack reply's Skip and Send reply sit in the dock", async () => {
+    phone()
+    renderApp("/needs?project=sphere-app&loop=N-45")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    const dock = await waitFor(() => {
+      const el = detail.querySelector(
+        "[data-slot='answer-dock']"
+      ) as HTMLElement
+      expect(el).not.toBeNull()
+      return el
+    })
+    expect(
+      within(dock).getByRole("button", { name: "Skip" })
+    ).toBeInTheDocument()
+    expect(
+      within(dock).getByRole("button", { name: "Send reply" })
+    ).toBeInTheDocument()
+  })
+})

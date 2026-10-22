@@ -2,6 +2,7 @@ import { act, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createMemoryRouter, RouterProvider, useSearchParams } from "react-router"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { useDetailOpen } from "@/lib/chrome"
 import { ListDetail, useListSelection } from "./list-detail"
 
 const setWidth = (value: number) =>
@@ -24,12 +25,15 @@ function Harness({ aliases }: { aliases: string[] }) {
       list={<><input aria-label="Filter" />{list}</>} detail={<p>{`Showing ${shown ?? "A"}`}</p>} />
   )
 }
+function DetailFlag() {
+  return <p data-testid="detail-open">{String(useDetailOpen())}</p>
+}
 function start(path = "/", aliases: string[] = []) {
-  const router = createMemoryRouter([{ path: "/", element: <Harness aliases={aliases} /> }], {
+  const router = createMemoryRouter([{ path: "/", element: <><Harness aliases={aliases} /><DetailFlag /></> }], {
     initialEntries: [path],
   })
-  render(<RouterProvider router={router} />)
-  return { router, user: userEvent.setup() }
+  const view = render(<RouterProvider router={router} />)
+  return { router, user: userEvent.setup(), view }
 }
 afterEach(() => setWidth(1024))
 
@@ -97,5 +101,26 @@ describe("ListDetail", () => {
     act(() => void window.dispatchEvent(new Event("resize")))
     expect(screen.queryByRole("region", { name: "Thing" })).not.toBeInTheDocument()
     expect(screen.getByRole("region", { name: "Things" })).toBeInTheDocument()
+  })
+
+  it("tells the chrome when a phone shows its detail, and when it does not", async () => {
+    phone()
+    const { user, view } = start()
+    const flag = () => screen.getByTestId("detail-open").textContent
+    expect(flag()).toBe("false")
+    await user.click(screen.getByRole("button", { name: "Open A" }))
+    expect(flag()).toBe("true")
+    await user.click(screen.getByRole("button", { name: "Back to Things" }))
+    expect(flag()).toBe("false")
+    await user.click(screen.getByRole("button", { name: "Open B" }))
+    expect(flag()).toBe("true")
+    view.unmount()
+    render(<DetailFlag />)
+    expect(screen.getByTestId("detail-open").textContent).toBe("false")
+  })
+
+  it("never reports a detail open on a desktop", () => {
+    start("/?item=A")
+    expect(screen.getByTestId("detail-open").textContent).toBe("false")
   })
 })
