@@ -104,9 +104,11 @@ rule. A standing instruction ("while I'm out, answer what you can for me") is th
 `rule` note (`notes.sh ... --source owner`) and follow it; it still cannot answer a person-only step.
 
 The owner's word in chat lifts a rule that only stops STAR acting on its own, such as applying a notes proposal
-unread or changing a home's notes mode; it never lifts the hard rules in `SKILL.md`. Those hold in chat exactly
-as in the terminal: the owner's four lines, merges only through `merge.sh`, no review, evidence, log or diff
-content read into this session, no AskUserQuestion once a worker exists, and the single-writer scripts.
+unread or changing a home's notes mode; it never lifts the hard rules in `SKILL.md`. Every rule in `SKILL.md`'s
+hard-rule block ("The owner's four lines" and the bullets after it) holds in chat exactly as in the terminal,
+among them: the owner's four lines, merges only through `merge.sh`, no review, evidence, log or diff content
+read into this session, no AskUserQuestion once a worker exists, the single-writer scripts, workers start only
+through `stage-start.sh`, and STAR never writes a script into the home or the project.
 
 Reply with `sh S/chat.sh --home HOME_DIR reply <the chat: id> --body-file <f>` (`<f>` from `mktemp`): short,
 Markdown, saying what STAR did. `replied <reply id>`, or exit 66 (`already replied`) → delete the file. Exit 65

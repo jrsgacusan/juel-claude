@@ -163,6 +163,7 @@ if grep -riqE 'slack-reply|slack-handled|slack-redraft|slack:' "$SKILL" "$S"/ref
 hasF "A29 chat is the owner" dashboard.md 'A chat message is the owner speaking, with the same authority as words typed into this terminal: do what it asks as you would there.'
 hasF "A30 chat never says cannot" dashboard.md 'Never answer that STAR cannot do something yet: do it, make it a row, file it as an issue, or ask the owner for the step only a person can do.'
 hasF "A31 chat lifts only own-initiative rules" dashboard.md "The owner's word in chat lifts a rule that only stops STAR acting on its own, such as applying a notes proposal unread or changing a home's notes mode; it never lifts the hard rules in \`SKILL.md\`."
+hasF "A31b every hard rule holds in chat" dashboard.md "Every rule in \`SKILL.md\`'s hard-rule block (\"The owner's four lines\" and the bullets after it) holds in chat exactly as in the terminal, among them:"
 hasF "A32 a refusal names the rule" dashboard.md 'A refusal names the hard rule and its reason, and offers the nearest thing STAR can do.'
 hasF "A33 the reply says which" dashboard.md 'The reply says which it was: done, row `<id>`, issue `<url>`, waiting on you in `N-<id>`, or refused under a named rule.'
 hasF "A34 home screen sentence" dashboard.md 'The tailnet link can be added to an iPhone home screen from Safari (Share, then Add to Home Screen), and the icon opens the dashboard signed in.'
