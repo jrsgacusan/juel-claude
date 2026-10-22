@@ -5,6 +5,7 @@ import { AccountsPage } from "@/pages/accounts"
 import { BriefingPage } from "@/pages/briefing"
 import { ChatPage } from "@/pages/chat"
 import { EvidencePage } from "@/pages/evidence"
+import { MorePage } from "@/pages/more"
 import { NeedsPage } from "@/pages/needs"
 import { NeedsRedirect } from "@/pages/needs-redirect"
 import { NotFound } from "@/pages/not-found"
@@ -53,6 +54,7 @@ export const routes: RouteObject[] = [
         Component: EvidencePage,
         errorElement: <RouteError />,
       },
+      { path: "more", Component: MorePage, errorElement: <RouteError /> },
       {
         path: "accounts",
         Component: AccountsPage,

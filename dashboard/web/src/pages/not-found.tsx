@@ -7,7 +7,7 @@ export function NotFound() {
   return (
     <EmptyState
       title={`There is no page at ${pathname}.`}
-      body="The dashboard has Needs you, Progress, Chat, Slack replies, Briefing and Evidence for each project, and Claude accounts."
+      body="The dashboard has Needs you, Progress, Chat, Slack replies, Briefing, Evidence and More for each project, and Claude accounts."
       action={
         <Button asChild variant="outline" size="sm">
           <Link to="/">Go to the dashboard</Link>
