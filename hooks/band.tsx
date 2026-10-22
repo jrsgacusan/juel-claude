@@ -38,10 +38,9 @@ export type BandView = {
 const KINDS: Readonly<Record<string, { label: string; color: string }>> = {
   person: { label: 'Your step', color: 'warning' },
   'set-aside': { label: 'Set aside', color: 'error' },
-  'slack-reply': { label: 'Slack reply', color: 'permission' },
   draft: { label: 'Draft', color: 'ide' },
 }
-const KIND_WIDTH = 12 // 'Slack reply', plus a space
+const KIND_WIDTH = 10 // 'Your step' and 'Set aside', the widest labels, plus a space
 /** The items the band shows at once: the one being answered, then the next ones, in queue order. */
 const MAX_ROWS = 3
 
