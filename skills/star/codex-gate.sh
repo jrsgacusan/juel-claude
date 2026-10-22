@@ -91,6 +91,15 @@
 # read"), a "Review comment(s):" header with no tagged finding under it, and a bullet that ends
 # with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
 # dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
+# The parser stays strict: a tag outside a finding bullet is never read as prose. The fallback's
+# prompt says to write a tag only at the start of a bullet (P1, not [P1], in the verdict paragraph),
+# and a fallback review that is still unreadable runs once more in the same round (#185), its prompt
+# ending with "Your previous review wrote a grade tag outside a finding bullet: "<the first offending
+# line, cut to 160 characters>". Write a [P0] to [P3] tag only at the start of a finding bullet." A
+# round runs the fallback at most twice, counting the #100 denial re-run. An unreadable fallback
+# review after that is "ERROR fallback-unreadable <why>" (same exit code), with both runs kept in the
+# error log; an unreadable codex review keeps "ERROR unreadable review: <why>". The worker waits 10
+# minutes and runs the round again, without spending its one retry on it.
 # post-pass posts two lines on the PR, "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)"
 # and "VERDICT: PASS", the line a project's review rule reads (#84), once per head. A direct call
 # (no --carried-from, and a --review that is not -carried.md) prints already only over a comment by
@@ -182,7 +191,8 @@ NO_WRITE = ["Bash(git * --output*)"]
 # codex review has its own output shape; the fallback is told the shape the parser below reads
 FORMAT = ("Write the review as plain text: first one short paragraph with your overall verdict, then each "
           "finding as one bullet line, \"- [P<n>] <title> — <path>:<line>\", with any detail indented on the "
-          "lines below it. Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, "
+          "lines below it. Write a [P0] to [P3] tag only at the start of a finding bullet; anywhere else, "
+          "including the verdict paragraph, write the grade without brackets (P1, not [P1]). Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, "
           "git rev-parse, git merge-base and git cat-file, one command per call with no pipe, redirect, && or "
           "||: any other command is refused, and a refused command fails the review. Search with Grep and find "
           "files with Glob, never git grep, grep or rg. Single-quote any argument that holds a shell "
@@ -733,9 +743,10 @@ def codex_cmd(m, e):
             "-c", 'sandbox_mode="read-only"', "-c", "mcp_servers={}"]
 
 
-def claude_cmd(m, e, denied=()):
-    """claude -p on the round's prompt; after a denial, the prompt ends with one line per denied command (#100)."""
-    asked = prompt.rstrip("\n") + "\n\n" + "\n".join(DENIED.format(d) for d in denied) + "\n" if denied else prompt
+def claude_cmd(m, e, notes=()):
+    """claude -p on the round's prompt; on a re-run, the prompt ends with one line per note: a denied command
+    (#100) or an unreadable review (#185)."""
+    asked = prompt.rstrip("\n") + "\n\n" + "\n".join(notes) + "\n" if notes else prompt
     return ["claude", "-p", asked, "--model", m, "--effort", e, "--append-system-prompt", FORMAT,
             "--add-dir", home, *([o["evidence"]] if o.get("evidence") else []),
             "--allowedTools", *read_only(*worktree_paths()),
@@ -877,6 +888,41 @@ def stopped(signum, _frame):
     if proc is not None and proc.poll() is None:
         stop_child(proc)
     error(f"stopped by {signal.Signals(signum).name}")
+# the line a fallback run's prompt gets when its previous review wrote a tag outside a finding bullet (#185)
+RETAG = ("Your previous review wrote a grade tag outside a finding bullet: \"{}\". Write a [P0] to [P3] tag only at "
+         "the start of a finding bullet.")
+
+
+def parse_review(text):
+    """(findings, overall, why, offending): why is None when the review is readable, else the reason it is not;
+    offending is the first line that made it unreadable. Strict on purpose: a tag outside a finding bullet is
+    never read as prose, since a real P1 written that way must not pass as SAFE."""
+    findings, overall, current, listing = [], [], None, False
+    odd_tag = untagged = header = None
+    for line in text.splitlines():
+        tag = TAG.match(line)
+        if tag:
+            title, _, where = tag.group(2).rpartition(" — ")
+            current = {"p": int(tag.group(1)), "title": (title or tag.group(2)).strip(),
+                       "where": where.strip() if title else "", "body": []}
+            findings.append(current)
+            listing = True
+        elif ANY_TAG.search(line):
+            odd_tag = odd_tag or line
+        elif PLACED.match(line):
+            untagged = untagged or line
+        elif current is not None and line[:1].isspace() and line.strip():
+            current["body"].append(line.strip())
+        elif FINDINGS_HEADER.match(line):
+            header = header or line
+            listing = True
+        elif not listing and line.strip():
+            overall.append(line.strip())
+    if odd_tag:
+        return findings, overall, "a finding in a shape the gate cannot read", odd_tag
+    if untagged or (listing and not findings):
+        return findings, overall, "findings without [P0]-[P3] tags", untagged or header or ""
+    return findings, overall, None, ""
 
 
 ROUND.update(reviews=reviews, item=item, k=k, raw=raw_path, log=log_path, run=run_path)
@@ -914,45 +960,42 @@ if used is None:
     if rc < 0:
         error(f"claude review stopped by signal {-rc}")
     text, failed, denied = claude_review(rc, output, tail)
+    runs = 1  # a round runs the fallback at most twice, counting the re-run after a denial (#100) and after an unreadable review (#185)
     if denied:  # once more in the same round, told what was denied; a second denial is gate-down (#100)
         keep_output(output)
-        rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"], denied), label + " (again, after a denial)",
-                                   "claude", fb["model"])
+        rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"], [DENIED.format(d) for d in denied]),
+                                   label + " (again, after a denial)", "claude", fb["model"])
         if rc < 0:
             error(f"claude review stopped by signal {-rc}")
         text, failed, _ = claude_review(rc, output, tail)
+        runs = 2
     if failed:
         error(f"gate-down {short}: {why}; claude: {failed[:160]}")
     with open(raw_path, "w", encoding="utf-8") as f:  # the raw file holds the review, not the JSON around it
         f.write(text)
+    _, _, bad, line = parse_review(text)
+    if bad and runs < 2:  # once more in the same round, told the offending line (#185)
+        keep_output(text)
+        rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"], [RETAG.format(" ".join(line.split())[:160])]),
+                                   label + " (again, after an unreadable review)", "claude", fb["model"])
+        if rc < 0:
+            error(f"claude review stopped by signal {-rc}")
+        text, failed, _ = claude_review(rc, output, tail)
+        if failed:
+            error(f"gate-down {short}: {why}; claude: {failed[:160]}")
+        with open(raw_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        _, _, bad, line = parse_review(text)
+    if bad:
+        error(f"fallback-unreadable {bad}")
     used = (f"claude:{fb['model']}", fb["effort"], short)
 after = head()
 if after != before:
     error(f"HEAD moved during the review ({before[:7]} to {after[:7] or '?'})")
 
-findings, overall, current, listing, untagged, odd_tag = [], [], None, False, False, False
-for line in text.splitlines():
-    tag = TAG.match(line)
-    if tag:
-        title, _, where = tag.group(2).rpartition(" — ")
-        current = {"p": int(tag.group(1)), "title": (title or tag.group(2)).strip(),
-                   "where": where.strip() if title else "", "body": []}
-        findings.append(current)
-        listing = True
-    elif ANY_TAG.search(line):
-        odd_tag = True
-    elif PLACED.match(line):
-        untagged = True
-    elif current is not None and line[:1].isspace() and line.strip():
-        current["body"].append(line.strip())
-    elif FINDINGS_HEADER.match(line):
-        listing = True
-    elif not listing and line.strip():
-        overall.append(line.strip())
-if odd_tag:
-    error("unreadable review: a finding in a shape the gate cannot read")
-if untagged or (listing and not findings):
-    error("unreadable review: findings without [P0]-[P3] tags")
+findings, overall, bad, _ = parse_review(text)
+if bad:
+    error("unreadable review: " + bad)
 p0 = sum(1 for f in findings if f["p"] == 0)
 p1 = sum(1 for f in findings if f["p"] == 1)
 verdict = "NOT-SAFE" if p0 + p1 else "SAFE"

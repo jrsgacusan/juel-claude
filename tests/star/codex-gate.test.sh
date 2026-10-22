@@ -731,6 +731,35 @@ reset; plan "1 quoted-usage error: 401 Unauthorized"; cplan "0 safe"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review failed: error: 401 Unauthorized" ] && [ ! -f "$TMP/claude-calls" ] && pass "a usage word in quoted diff content is a plain failure, with no fallback" || fail "quoted usage ($rc $out)"
 
+# lane c: an unreadable fallback review is steered, run once more, then named (#185)
+UNREAD="ERROR fallback-unreadable a finding in a shape the gate cannot read"
+reset; plan "1 - You've hit your usage limit."; cplan "0 safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'only at the start of a finding bullet' && grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'P1, not [P1]' && pass "the fallback is told a tag belongs only at the start of a finding bullet (#185)" || fail "tag rule ($(cat "$TMP/claude-calls"))"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-tag-in-verdict.json" "0 claude-clean.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] \
+  && [ "$(grep -c 'Your previous review wrote a grade tag outside a finding bullet' "$TMP/claude-calls")" = 1 ] \
+  && grep -qF 'wrote a grade tag outside a finding bullet: "No [P0] or [P1] findings, so ITEM-1 can merge.". Write a [P0] to [P3] tag only at the start of a finding bullet.' "$TMP/claude-calls" \
+  && pass "an unreadable fallback review is run once more with the offending line quoted, and a clean re-run gives a verdict (#185)" || fail "re-run ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) runs)"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-tag-in-verdict.json" "0 claude-tag-in-verdict-2.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "$UNREAD" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && [ ! -f "$R1" ] \
+  && grep -qF 'No [P0] or [P1] findings' "$H/reviews/app/ITEM-1-r1-error-1.log" && grep -qF "Round 1's [P1] is fixed." "$H/reviews/app/ITEM-1-r1-error-1.log" \
+  && grep -q '^--- ERROR fallback-unreadable ' "$H/reviews/app/ITEM-1-r1-error-1.log" \
+  && pass "two unreadable fallback reviews are ERROR fallback-unreadable, with both runs in the error log (#185)" || fail "both unreadable ($rc $out)"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-tag-in-verdict-p1.json" "0 claude-clean-p1.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && case "$out" in "NOT-SAFE round=1 findings=1 p0=0 p1=1 "*) true ;; *) false ;; esac && case "$out" in *ERROR*) false ;; *) true ;; esac \
+  && grep -q '^1\. \[P1\] Data loss — src/b.ts:9$' "$R1" \
+  && pass "a re-run that is clean in shape but holds a real P1 is NOT-SAFE, never SAFE (#185)" || fail "p1 after re-run ($rc $out)"
+reset; mkdir -p "$TMP/fix"; cp "$FIX"/*.txt "$TMP/fix/"; printf 'No [P1] problems here.\n\n- [P2] A slow loop — src/a.ts:3\n' > "$TMP/fix/tagprose.txt"; plan "0 tagprose"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR unreadable review: a finding in a shape the gate cannot read" ] && [ ! -f "$TMP/claude-calls" ] && pass "a codex review with a tag in prose keeps ERROR unreadable review, with no fallback (#185)" || fail "codex tag in prose ($rc $out)"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 claude-tag-in-verdict.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "$UNREAD" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && pass "a denied run then an unreadable one gets no third run: ERROR fallback-unreadable (#185)" || fail "denied then unreadable ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) runs)"
+
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

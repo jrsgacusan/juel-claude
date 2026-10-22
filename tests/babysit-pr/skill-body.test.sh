@@ -421,5 +421,9 @@ has "#179b a push cuts a running pass short" 'a push ends a running pass early a
 has "#179c at a counted cap the push is escalated" 'ESCALATION item=<item> phase=8 reason=out-of-tries step=hosted-review review=<a file saying a push of the base merge on <head> would start a reviewer run that counts as pass <n+1>>'
 has "#179d the conflict wake points at the hold" 'push it only as the hold in Phase 4 step 4 allows'
 
+# an unreadable fallback review is retried without spending the round (#185)
+has "FU1 an ERROR fallback-unreadable waits and does not spend the retry" 'An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.'
+has "FU2 the third ERROR fallback-unreadable on a round is review-tool" 'The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`.'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
