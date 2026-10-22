@@ -186,7 +186,8 @@ def rule_lines(d):
 def base_requires_up_to_date(d):
     """True when the base needs branches up to date (a strict rule), or when that cannot be read."""
     lines = rule_lines(d)
-    return lines[:1] == ["unknown"] or "strict" in lines
+    # review-rule.sh reports an unreadable rule as "unknown <why>", and this script's own fallback is a bare "unknown".
+    return lines[0] == "unknown" or lines[0].startswith("unknown ") or "strict" in lines
 
 
 def review_rule(d):

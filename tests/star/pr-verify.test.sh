@@ -344,6 +344,12 @@ STUB_PROTECTION="$TMP/protection.json"; export STUB_PROTECTION
 oa "#180 behind a base with strict classic protection waits" "PENDING merge state: behind the base branch" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\""
 unset STUB_PROTECTION
 oa "#180 behind with a rule that cannot be read stays pending" "PENDING review rule: unreadable rules" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\"" "$BAD"
+# An approved head reaches the behind check: a rule review-rule.sh cannot read prints "unknown <why>", which must hold.
+APPROVED_GATE="$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]"
+oa "#180 approved and behind with an unreadable rule stays pending" "PENDING merge state: behind the base branch" "$OWN" "$APPROVED_GATE,\"mergeStateStatus\":\"BEHIND\"" "$BAD"
+STUB_RULES="$BAD"; export STUB_RULES
+t "#180 approved and behind with an unreadable rule stays pending in plain mode" "PENDING merge state: behind the base branch" "$OK,$BASE,$MEMBER_OK,\"mergeStateStatus\":\"BEHIND\",$GREEN"
+unset STUB_RULES
 oa "#180 conflicting and behind on a non-strict base is FAIL conflicts" "FAIL conflicts" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\",\"mergeable\":\"CONFLICTING\""
 t "#180 behind a non-strict base, approved and green, passes" "PASS" "$OK,$BASE,$APPROVED,\"mergeStateStatus\":\"BEHIND\",$GREEN"
 oa "no approval needed never hides changes requested" "FAIL approval: changes requested by ezra" "$OWN" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN,\"comments\":[$PASSC]"
