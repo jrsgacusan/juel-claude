@@ -387,16 +387,15 @@ In reviewer mode, this phase is the re-review in "Reviewer mode"; the steps belo
 4. `git push <remote> HEAD`. Never force-push. Under a `star:` brief the push is gated first (the
    "a push in Phase 3 or Phase 4" row of "Unattended mode"), and a merge that brings no change to a
    file this branch changes, as `carry-check.sh` decides, carries the last SAFE with no codex round.
-   Under `--unattended` with a hosted reviewer set and not paused, a push that only merges the base
-   branch in (from Phase 4 step 1 or a `conflict` wake) holds first, because a push ends a running pass early
+   Under `--unattended` with a hosted reviewer set and not paused, every push a `conflict` wake or Phase 4 step 1 makes (the base merge, and any fix it needed to go green) holds first, because a push ends a running pass early
    and starts another run, so the pass the reviewer is working on never finishes and a run is spent
-   for nothing: while the snapshot's `hosted` is `pending` on the PR's head, keep the merged, gated
-   commit local, wait 60 seconds and run the script again, and push only once `hosted` is no longer
-   `pending`. The wait ends where the hosted-reviewer row's wait ends: 72 hours with no new feedback
+   for nothing: while the snapshot's `hosted` is `pending` or `unknown` on the PR's head, keep the merged, gated
+   commits local, wait 60 seconds and run the script again, and push only once `hosted` is neither
+   (`unknown` holds too: a status that cannot be read may be a pass still running). The wait ends where the hosted-reviewer row's wait ends: 72 hours with no new feedback
    since the PR was marked ready ends with `ESCALATION item=<item> phase=8 reason=out-of-tries
    step=hosted-wait`. When the pass that finished is not yet judged, judge it first, as the
-   hosted-reviewer row says, and then push: a clean review keeps its judgement across the push, and a
-   not clean one gets its batched fix in this push. When the passes used (the distinct heads with a
+   hosted-reviewer row says, and then push: a clean review keeps its judgement across the push; a
+   not clean one gets its batched fix in this push, except when it was the last pass (`maxPasses`), push nothing and end with `RESCOPE item=<item> reason=hosted-review` as the hosted-reviewer row says, its open findings in `<star.reviews>/<item>-hosted-p<n>.md`. When the passes used (the distinct heads with a
    `pass` line in `<item>-hosted.log`) equal `maxPasses` and `hostedReviewer.refreshOutsideCap` is
    false, the push would start a reviewer run that counts as a pass beyond the cap, so push nothing
    and end with `ESCALATION item=<item> phase=8 reason=out-of-tries step=hosted-review review=<a file
