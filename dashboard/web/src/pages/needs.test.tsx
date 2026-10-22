@@ -910,6 +910,33 @@ describe("Needs you detail", () => {
     expect(chips).toHaveClass("md:flex-wrap", "[scrollbar-width:none]")
   })
 
+  it("opens the routed message of the loop's own project when another project has the same loop id", async () => {
+    const db = getDb()
+    db.slack.routed.unshift({
+      ...db.slack.routed[0]!,
+      id: "other-project-msg",
+      project: "juel-claude",
+      from: "Zed",
+      text: "a message from another project",
+      draftPath: "drafts/missing.md",
+    })
+    renderApp("/needs?project=sphere-app&loop=N-45")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    const reply = await within(detail).findByRole("textbox", { name: "Your reply" })
+    await waitFor(() => expect((reply as HTMLTextAreaElement).value).toMatch(/Not today/))
+  })
+
+  it("on a phone puts the sent status above the answer dock, so the dock never covers it", async () => {
+    phone()
+    renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    fireEvent.click(await within(detail).findByRole("radio", { name: /Done/ }))
+    fireEvent.click(within(detail).getByRole("button", { name: /Send to STAR/ }))
+    const status = await within(detail).findByRole("status")
+    const dock = detail.querySelector("[data-slot=answer-dock]") as HTMLElement
+    expect(status.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it("lists the refs alone when the items cannot be read", async () => {
     server.use(
       http.get("*/api/projects/:p/items", () =>

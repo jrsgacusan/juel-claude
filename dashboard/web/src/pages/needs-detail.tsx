@@ -112,7 +112,9 @@ export function LoopDetail({
   const chosen = loop.options.find((o) => o.answer === reply)?.answer ?? ""
   const message =
     loop.kind === "slack-reply"
-      ? slack.data?.routed.find((m) => m.loopId === loop.id)
+      ? slack.data?.routed.find(
+          (m) => m.loopId === loop.id && m.project === loop.project
+        )
       : undefined
 
   const send = async () => {
@@ -343,18 +345,6 @@ export function LoopDetail({
               </Button>
             )}
           </div>
-          {narrow && (
-            <AnswerDock>
-              <Button
-                variant="answer"
-                onClick={() => void send()}
-                disabled={answer.isPending}
-                className="h-11 flex-1"
-              >
-                Send to STAR
-              </Button>
-            </AnswerDock>
-          )}
         </>
       ) : null}
 
@@ -380,6 +370,21 @@ export function LoopDetail({
           <span className="min-w-0 break-words">{`Sent "${serverAnswer}". Waiting for STAR to pick it up.`}</span>
         </p>
       )}
+      {/* Last, after the status lines: the dock's spacer keeps them clear of the fixed bar. */}
+      {narrow &&
+        !(loop.kind === "slack-reply" && message) &&
+        (loop.kind !== "slack-reply" || !slack.isPending) && (
+          <AnswerDock>
+            <Button
+              variant="answer"
+              onClick={() => void send()}
+              disabled={answer.isPending}
+              className="h-11 flex-1"
+            >
+              Send to STAR
+            </Button>
+          </AnswerDock>
+        )}
     </div>
   )
 }
