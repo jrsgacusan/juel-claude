@@ -64,11 +64,14 @@ describe("Briefing", () => {
     expect(
       within(draft).getByText("Where do sphere-app's tickets live?")
     ).toBeInTheDocument()
-    expect(
-      within(draft).getByRole("button", {
-        name: "Pick where the ticket goes first",
-      })
-    ).toBeDisabled()
+    const pick = within(draft).getByRole("button", {
+      name: "Pick where the ticket goes first",
+    })
+    expect(pick).toBeDisabled()
+    expect(pick).toHaveAttribute("data-variant", "outline")
+    expect(pick).not.toHaveClass("opacity-50")
+    expect(within(draft).getByRole("combobox", { name: "Tracker" })).toHaveClass("ring-wait")
+    expect(within(draft).getByText("Needed before the ticket can be created.")).toBeInTheDocument()
   })
 
   it("streams the agent's turn from briefing events", async () => {
@@ -187,11 +190,13 @@ describe("Briefing", () => {
       )
     ).toBeInTheDocument()
     expect(getDb().trackers["sphere-app"]?.tracker).toBe("synapse")
-    expect(
-      within(draft).getByRole("button", {
-        name: "Save as a spec and hand to STAR",
-      })
-    ).toBeEnabled()
+    const spec = within(draft).getByRole("button", {
+      name: "Save as a spec and hand to STAR",
+    })
+    expect(spec).toBeEnabled()
+    expect(spec).toHaveAttribute("data-variant", "answer")
+    expect(within(draft).queryByText("Needed before the ticket can be created.")).not.toBeInTheDocument()
+    expect(within(draft).getByRole("combobox", { name: "Tracker" })).not.toHaveClass("ring-wait")
     await pickTracker(user, "GitHub Issues")
     await user.click(
       await within(draft).findByRole("button", {
