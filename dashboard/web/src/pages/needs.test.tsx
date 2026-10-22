@@ -940,6 +940,18 @@ describe("Needs you detail", () => {
     expect(status.compareDocumentPosition(dock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it("in Unblocks shows Report only for a report item, and the status for a state with no rail", async () => {
+    const row = getDb().items["sphere-app"]?.find((d) => d.row.item === "SPH-12")?.row
+    if (!row) throw new Error("fixture missing")
+    row.state = "some-future-state"
+    renderApp("/needs?project=sphere-app&loop=N-41")
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    const unblocks = await within(detail).findByRole("region", { name: "Unblocks" })
+    const entry = (await within(unblocks).findByText("SPH-12")).closest("li") as HTMLElement
+    await waitFor(() => expect(entry).toHaveTextContent(/Queued|Needs you|Briefing/))
+    expect(entry).not.toHaveTextContent("Report")
+  })
+
   it("lists the refs alone when the items cannot be read", async () => {
     server.use(
       http.get("*/api/projects/:p/items", () =>

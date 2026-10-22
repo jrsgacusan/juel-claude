@@ -208,7 +208,7 @@ export function ItemSheet({
             <BulletList title="Decisions" lines={detail.data.decisions} />
             <div className="mt-auto flex flex-wrap gap-2">
               {waiting && (
-                <Button variant="answer" asChild>
+                <Button variant="answer" asChild className="pointer-coarse:h-11">
                   <Link
                     to={projectPath(
                       project,
@@ -221,7 +221,7 @@ export function ItemSheet({
                 </Button>
               )}
               {row.prUrl && pr && (
-                <Button variant="outline" asChild>
+                <Button variant="outline" asChild className="pointer-coarse:h-11">
                   <a href={row.prUrl} target="_blank" rel="noreferrer">
                     <ExternalLink />
                     Open PR {pr}
@@ -229,7 +229,7 @@ export function ItemSheet({
                 </Button>
               )}
               {row.status === "merged" && (
-                <Button variant="outline" asChild>
+                <Button variant="outline" asChild className="pointer-coarse:h-11">
                   <Link
                     to={projectPath(project, "evidence", { item: row.item })}
                   >
@@ -238,7 +238,7 @@ export function ItemSheet({
                   </Link>
                 </Button>
               )}
-              <Button variant="outline" asChild>
+              <Button variant="outline" asChild className="pointer-coarse:h-11">
                 <Link
                   to={`${projectPath(project, "chat")}?draft=${encodeURIComponent(`About ${row.item}: `)}`}
                 >

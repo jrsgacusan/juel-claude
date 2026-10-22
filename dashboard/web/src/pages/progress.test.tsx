@@ -126,6 +126,7 @@ describe("Progress", () => {
       "SPH-7 waits on you: The merge gate failed twice on e3f1a92. 8 more wait on you."
     )
     const link = screen.getByRole("link", { name: "Open Needs you" })
+    expect(link).toHaveClass("pointer-coarse:h-11")
     expect(link).toHaveAttribute("data-variant", "answer")
     expect(link).toHaveAttribute("href", "/needs?project=sphere-app")
     await user.click(link)
@@ -457,6 +458,9 @@ describe("Progress", () => {
     expect(
       within(sheet).getByRole("link", { name: "Ask STAR about it" })
     ).toHaveAttribute("href", "/sphere-app/chat?draft=About%20SPH-14%3A%20")
+    // Touch size on a phone, as every other button in the app.
+    for (const name of ["Answer in Needs you", "Ask STAR about it"])
+      expect(within(sheet).getByRole("link", { name })).toHaveClass("pointer-coarse:h-11")
   })
 
   it("opens from the bottom on a phone and from the right wider", async () => {

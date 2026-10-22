@@ -25,6 +25,11 @@ const MINUTE = 60_000
 
 export const ago = (minutes: number): string =>
   new Date(Date.now() - minutes * MINUTE).toISOString()
+/** As ago, but never before today's midnight, so an item the mock merged "today" stays today at any hour. */
+export const agoToday = (minutes: number): string =>
+  new Date(
+    Math.max(new Date().setHours(0, 0, 0, 0), Date.now() - minutes * MINUTE)
+  ).toISOString()
 const slackTs = (minutes: number): string =>
   ((Date.now() - minutes * MINUTE) / 1000).toFixed(6)
 const today = () => new Date().toISOString().slice(0, 10)
@@ -93,7 +98,7 @@ function item(p: string, s: ItemSeed): ItemDetail {
       step: `${token} ${lastText}`,
       prUrl: s.pr ? `https://github.com/example/${p}/pull/${s.pr}` : null,
       counters: s.counters,
-      mergedAt: s.mergedAgo === undefined ? null : ago(s.mergedAgo),
+      mergedAt: s.mergedAgo === undefined ? null : agoToday(s.mergedAgo),
     },
     progress: s.steps.map(([m, text]) => ({ time: ago(m), text })),
     criteria: s.criteria ?? [],

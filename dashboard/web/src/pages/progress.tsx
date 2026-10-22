@@ -186,7 +186,7 @@ export function ProgressPage() {
                 {waiting.length > 1 &&
                   ` ${waiting.length - 1} more wait on you.`}
               </p>
-              <Button variant="answer" asChild>
+              <Button variant="answer" asChild className="pointer-coarse:h-11">
                 <Link to={needsPath(project)}>Open Needs you</Link>
               </Button>
             </div>
@@ -325,7 +325,7 @@ function MergedToday({ project, rows }: { project: string; rows: ItemRow[] }) {
                     href={row.prUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-mono text-xs underline-offset-4 hover:underline"
+                    className="font-mono text-xs underline-offset-4 hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center"
                   >
                     {pr}
                   </a>

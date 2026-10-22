@@ -30,7 +30,7 @@ import {
 } from "@/lib/loops"
 import { usePending } from "@/lib/pending-answers"
 import { railOf } from "@/lib/stage"
-import { stepText } from "@/lib/status"
+import { statusOf, stepText } from "@/lib/status"
 
 /** The items this answer unblocks: each with its title, a small rail and its step. The refs alone when the items cannot be read. */
 function Unblocks({ project, refs }: { project: string; refs: string[] }) {
@@ -65,7 +65,9 @@ function Unblocks({ project, refs }: { project: string; refs: string[] }) {
                   </span>
                 ) : (
                   <span className="text-xs text-muted-foreground">
-                    Report{stepText(row.step) ? `. ${stepText(row.step)}` : ""}
+                    {/* No rail: a report item says so; a state the rail does not know shows its status. */}
+                    {row.stage === "post" ? "Report" : statusOf(row.status).label}
+                    {stepText(row.step) ? `. ${stepText(row.step)}` : ""}
                   </span>
                 ))}
             </li>
