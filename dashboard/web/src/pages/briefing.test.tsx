@@ -559,7 +559,8 @@ describe("Briefing", () => {
   it("shows Delete only when the briefing is deletable", async () => {
     const first = renderApp("/sphere-app/briefing")
     const chat = await screen.findByRole("region", { name: "Conversation" })
-    expect(await within(chat).findByRole("button", { name: "Delete" })).toBeInTheDocument()
+    expect(await within(chat).findByRole("button", { name: "More actions" })).toBeInTheDocument()
+    expect(within(chat).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument()
     first.unmount()
     server.use(
       http.get("*/api/projects/:p/briefings", () =>
@@ -571,14 +572,15 @@ describe("Briefing", () => {
     renderApp("/sphere-app/briefing")
     const again = await screen.findByRole("region", { name: "Conversation" })
     await within(again).findByText(/^Admins keep asking to pause/)
-    expect(within(again).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument()
+    expect(within(again).queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
   })
 
   it("deletes a briefing after a confirmation in the page", async () => {
     const confirm = vi.spyOn(window, "confirm")
     const { user, router } = renderApp("/sphere-app/briefing?briefing=b1")
     const chat = await screen.findByRole("region", { name: "Conversation" })
-    await user.click(await within(chat).findByRole("button", { name: "Delete" }))
+    await user.click(await within(chat).findByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Delete briefing" }))
     const ask = within(chat).getByRole("group", { name: "Delete this briefing" })
     expect(ask).toHaveTextContent(
       `Delete "Pause a member's seat"? This removes its chat and draft. Tickets, inbox files and STAR's rows stay.`
@@ -586,7 +588,8 @@ describe("Briefing", () => {
     await user.click(within(ask).getByRole("button", { name: "Keep it" }))
     expect(within(chat).queryByRole("group", { name: "Delete this briefing" })).not.toBeInTheDocument()
     expect(b1()).toBeDefined()
-    await user.click(within(chat).getByRole("button", { name: "Delete" }))
+    await user.click(within(chat).getByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Delete briefing" }))
     await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
     expect(
       await screen.findByText(`Deleted "Pause a member's seat".`, undefined, { timeout: 5_000 })
@@ -608,7 +611,8 @@ describe("Briefing", () => {
     )
     const { user } = renderApp("/sphere-app/briefing")
     const chat = await screen.findByRole("region", { name: "Conversation" })
-    await user.click(await within(chat).findByRole("button", { name: "Delete" }))
+    await user.click(await within(chat).findByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Delete briefing" }))
     await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
     expect(
       await within(chat).findByText("Couldn't delete this briefing: its ticket is still being created")
