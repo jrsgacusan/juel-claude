@@ -3,12 +3,15 @@ import { createRoot } from "react-dom/client"
 import { RouterProvider } from "react-router"
 import "./index.css"
 import { createQueryClient } from "@/api/queries"
-import { captureToken } from "@/api/token"
+import { captureToken, getToken } from "@/api/token"
 import { AppProviders } from "@/app"
+import { linkManifest } from "@/lib/manifest-link"
 import { createAppRouter } from "@/router"
 
 // Before the router reads the URL: ?t= goes to localStorage (sessionStorage or memory when storage refuses) and leaves the address bar.
 captureToken()
+// An iPhone home-screen app has its own storage, so the saved start URL must carry the token.
+linkManifest(getToken())
 
 async function enableMocking(): Promise<void> {
   // Development only (brief D3): a production build drops this branch, so msw is never bundled.
