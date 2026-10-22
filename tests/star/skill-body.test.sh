@@ -158,7 +158,7 @@ hasT "A28 stages.md says parallel starts are safe" 'Parallel starts are safe: `s
 # hasF <name> <file under references/> <text>: the text is in that one reference once line breaks are folded
 hasF() { tr '\n' ' ' < "$S/references/$2" | tr -s ' ' | grep -qF -- "$3" && pass "$1" || fail "$1"; }
 # No Slack reply handling in the rule book (#184)
-if grep -riqE 'slack-reply|slack-handled|slack-redraft|slack:' "$SKILL" "$S"/references/; then fail "A38 no Slack reply rules"; else pass "A38 no Slack reply rules"; fi
+if grep -riqE 'slack[-]reply|slack[-]handled|slack[-]redraft|slack:' "$SKILL" "$S"/references/; then fail "A38 no Slack reply rules"; else pass "A38 no Slack reply rules"; fi
 # Chat speaks as the owner (spec Part 1)
 hasF "A29 chat is the owner" dashboard.md 'A chat message is the owner speaking, with the same authority as words typed into this terminal: do what it asks as you would there.'
 hasF "A30 chat never says cannot" dashboard.md 'Never answer that STAR cannot do something yet: do it, make it a row, file it as an issue, or ask the owner for the step only a person can do.'
