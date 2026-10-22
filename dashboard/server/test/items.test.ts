@@ -42,6 +42,7 @@ test("GET items: every ledger column plus title, status, step and prUrl", async 
       status: "building",
       step: "gate-r2 codex gate round 2",
       prUrl: "https://github.com/o/r/pull/11",
+      mergedAt: null,
     });
     assert.equal(items[1]?.["title"], null);
     assert.equal(items[1]?.["step"], null);
@@ -309,6 +310,61 @@ test("an unreadable release record or evidence folder makes the evidence routes 
     );
     fs.chmodSync(shots, 0o755);
   } finally {
+    await env.close();
+  }
+});
+
+const mergedAts = async (env: Awaited<ReturnType<typeof setup>>) =>
+  Object.fromEntries(
+    (
+      (await (await env.api("/api/projects/app/items")).json()) as {
+        item: string;
+        mergedAt: string | null;
+      }[]
+    ).map((i) => [i.item, i.mergedAt]),
+  );
+
+test("GET items: a done row has mergedAt from its release record, every other row null", async () => {
+  const env = await setup();
+  try {
+    assert.deepEqual(await mergedAts(env), {
+      "issue-1": null,
+      "issue-2": null,
+      "issue-3": null,
+      "issue-4": "2026-10-15T11:40:00Z",
+      "issue-5": null,
+      "issue-6": null,
+    });
+  } finally {
+    await env.close();
+  }
+});
+
+test("GET items: a done row with no release record has mergedAt null", async () => {
+  const env = await setup();
+  try {
+    fs.rmSync(path.join(env.star, "releases", "2026-10-15-app-issue-4.md"));
+    assert.equal((await mergedAts(env))["issue-4"], null);
+  } finally {
+    await env.close();
+  }
+});
+
+test("GET items: an unreadable release record still answers 200 with mergedAt null", async () => {
+  const env = await setup();
+  const record = path.join(env.star, "releases", "2026-10-15-app-issue-4.md");
+  try {
+    fs.chmodSync(record, 0o000);
+    const r = await env.api("/api/projects/app/items");
+    assert.equal(r.status, 200);
+    const rows = (await r.json()) as {
+      item: string;
+      mergedAt: string | null;
+    }[];
+    assert.equal(rows.find((i) => i.item === "issue-4")?.mergedAt, null);
+    assert.equal(rows.length, 6);
+  } finally {
+    fs.chmodSync(record, 0o644);
     await env.close();
   }
 });

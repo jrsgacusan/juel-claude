@@ -1,7 +1,7 @@
-import { GitPullRequest, Search } from "lucide-react"
-import { useState, useSyncExternalStore } from "react"
-import { useParams } from "react-router"
-import { useItems, useOverview } from "@/api/queries"
+import { CircleCheck, GitPullRequest, Search } from "lucide-react"
+import { useState } from "react"
+import { Link, useParams } from "react-router"
+import { useItems, useLoops, useOverview } from "@/api/queries"
 import type { ItemRow } from "@/api/types"
 import {
   EmptyState,
@@ -12,7 +12,8 @@ import {
   refreshFailed,
 } from "@/components/page-state"
 import { CountTabs } from "@/components/count-tabs"
-import { Dot, StateBadge } from "@/components/status"
+import { SlotPips, StageRail } from "@/components/stage-rail"
+import { Dot } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Pager } from "@/components/pager"
 import { Button } from "@/components/ui/button"
@@ -27,17 +28,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { age, dayLabel } from "@/lib/format"
+import { age, clock, dayLabel } from "@/lib/format"
 import { itemLabel } from "@/lib/items"
+import { isAnswered } from "@/lib/loops"
 import { usePage } from "@/lib/paginate"
-import { prLabel, type ProgressTab, stepText, TAB_OF } from "@/lib/status"
+import { needsPath, projectPath } from "@/lib/routes"
+import { railOf } from "@/lib/stage"
+import {
+  prLabel,
+  type ProgressTab,
+  statusOf,
+  stepText,
+  TAB_OF,
+} from "@/lib/status"
 import { useSearchParam } from "@/lib/use-search-param"
 import { cn } from "@/lib/utils"
-import { ItemSheet } from "./progress-sheet"
+import { ItemSheet, usePhone } from "./progress-sheet"
 
 const TABS: Array<{ id: ProgressTab; label: string }> = [
   { id: "running", label: "Running" },
-  { id: "needs", label: "Needs you" },
+  { id: "needs", label: "Blocked" },
   { id: "merged", label: "Merged" },
   { id: "all", label: "All" },
 ]
@@ -49,11 +59,21 @@ const matches = (row: ItemRow, q: string) =>
     .includes(q.trim().toLowerCase())
 
 const updatedAt = (row: ItemRow) => Date.parse(row.updated ?? "") || 0
+const mergedAtMs = (row: ItemRow) => Date.parse(row.mergedAt ?? "") || 0
+
+/** What a row's step column says when the row has no step text of its own. */
+const FALLBACK: Partial<Record<ItemRow["status"], string>> = {
+  queued: "Queued for a build slot",
+  merged: "Merged",
+  stopped: "Set aside",
+  dropped: "Dropped",
+}
 
 export function ProgressPage() {
   const { project = "" } = useParams()
   const items = useItems(project)
   const overview = useOverview(project)
+  const loops = useLoops(project)
   const [itemParam, setItemParam] = useSearchParam("item")
   const [tab, setTab] = useState<ProgressTab>("running")
   const [q, setQ] = useState("")
@@ -64,11 +84,7 @@ export function ProgressPage() {
   if (items.isPending) {
     return (
       <LoadingState label="the items">
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24" />
-          ))}
-        </div>
+        <Skeleton className="h-6 w-80 max-w-full" />
         <Skeleton className="h-72 w-full" />
       </LoadingState>
     )
@@ -102,37 +118,16 @@ export function ProgressPage() {
   const all = items.data!
   const by = (status: ItemRow["status"]) =>
     all.filter((r) => r.status === status)
-  const building = by("building").length
   const inReview = by("in-review").length
-  const mergedToday = by("merged").filter(
-    (r) => r.updated && dayLabel(r.updated) === "Today"
-  )
-  const waiting = all.filter((r) => TAB_OF[r.status] === "needs").length
+  const mergedToday = by("merged")
+    .filter((r) => dayLabel(r.mergedAt) === "Today")
+    .sort((a, b) => mergedAtMs(b) - mergedAtMs(a))
   const overviewFailed = queryFailed(overview) || refreshFailed(overview)
   const [busy, slots] = overview.data?.workers.build ?? [0, 0]
   const count = (t: ProgressTab) =>
     t === "all" ? all.length : all.filter((r) => TAB_OF[r.status] === t).length
-  const cards: Array<[label: string, value: string, sub: string]> = [
-    [
-      "Build slots",
-      overviewFailed ? "–" : `${busy} of ${slots}`,
-      overviewFailed
-        ? "Couldn't load the workers"
-        : slots > 0 && busy >= slots
-          ? "All busy"
-          : `${Math.max(0, slots - busy)} free`,
-    ],
-    ["Waiting on you", String(waiting), "Answers, approvals and stops"],
-    ["In review", String(inReview), "Hosted review or an approval"],
-    [
-      "Merged today",
-      String(mergedToday.length),
-      mergedToday
-        .map((r) => prLabel(r))
-        .filter(Boolean)
-        .join(", ") || "None yet",
-    ],
-  ]
+  const waiting = (loops.data ?? []).filter((l) => !isAnswered(l))
+  const first = waiting[0]
   const gateDown = overview.data?.gateDown
 
   return (
@@ -153,13 +148,23 @@ export function ProgressPage() {
       )}
       <div className="min-h-0 min-w-0 flex-1 md:overflow-y-auto">
         <div className="mx-auto flex max-w-6xl flex-col gap-6 p-4 sm:p-6 lg:p-8">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
-                Progress
-              </h1>
-              <p className="text-sm text-muted-foreground">{`${building} building, ${inReview} in review, ${mergedToday.length} merged today`}</p>
-            </div>
+          <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+            Progress
+          </h1>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            {overviewFailed ? (
+              <span className="text-muted-foreground">
+                Couldn't load the workers.
+              </span>
+            ) : (
+              overview.data && (
+                <span className="flex items-center gap-2">
+                  <SlotPips busy={busy} total={slots} />
+                  <span>{`${busy} of ${slots} build slots busy.`}</span>
+                </span>
+              )
+            )}
+            <span className="text-muted-foreground">{`${inReview} in review, ${mergedToday.length} merged today.`}</span>
             {overview.data &&
               !overviewFailed &&
               (gateDown ? (
@@ -174,20 +179,18 @@ export function ProgressPage() {
                 </Badge>
               ))}
           </div>
-          <section
-            aria-label="Summary"
-            className="grid grid-cols-2 gap-3 lg:grid-cols-4"
-          >
-            {cards.map(([label, value, sub]) => (
-              <Card key={label} className="gap-1 p-4">
-                <span className="text-sm text-muted-foreground">{label}</span>
-                <span className="text-2xl font-semibold tracking-tight tabular-nums">
-                  {value}
-                </span>
-                <span className="text-xs text-muted-foreground">{sub}</span>
-              </Card>
-            ))}
-          </section>
+          {first && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-wait-line bg-wait-bg px-4 py-3 text-sm">
+              <p className="min-w-0 break-words">
+                {`${first.item} waits on you: ${first.title}.`}
+                {waiting.length > 1 &&
+                  ` ${waiting.length - 1} more wait on you.`}
+              </p>
+              <Button variant="answer" asChild>
+                <Link to={needsPath(project)}>Open Needs you</Link>
+              </Button>
+            </div>
+          )}
           <Card className="gap-0 overflow-hidden p-0">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b p-3">
               <CountTabs
@@ -215,6 +218,9 @@ export function ProgressPage() {
               onShowAll={() => setTab("all")}
             />
           </Card>
+          {tab !== "merged" && mergedToday.length > 0 && (
+            <MergedToday project={project} rows={mergedToday} />
+          )}
         </div>
         <ItemSheet
           project={project}
@@ -249,28 +255,96 @@ function useFreshRows(
   return seen.fresh
 }
 
-const PHONE = "(max-width: 639px)"
-
-function usePhone(): boolean {
-  return useSyncExternalStore(
-    (notify) => {
-      const mq = window.matchMedia(PHONE)
-      mq.addEventListener("change", notify)
-      return () => mq.removeEventListener("change", notify)
-    },
-    () => window.matchMedia(PHONE).matches,
-    () => false
-  )
-}
-
 function PrLabel({ pr }: { pr: string | null }) {
   return pr ? (
     <span className="inline-flex items-center gap-1.5 font-mono text-xs">
       <GitPullRequest className="size-3.5 text-muted-foreground" />
       {pr}
     </span>
-  ) : (
-    <span className="text-xs text-muted-foreground">None yet</span>
+  ) : null
+}
+
+/** The stage rail and the step text. A row without a rail says "Report" (a report item) or its status label. */
+function StageCell({ row }: { row: ItemRow }) {
+  const rail = railOf(row)
+  const text = stepText(row.step) || FALLBACK[row.status] || ""
+  const label = rail
+    ? null
+    : row.stage === "post"
+      ? "Report"
+      : statusOf(row.status).label
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      {rail ? (
+        <StageRail rail={rail} />
+      ) : (
+        <span className="text-xs font-medium">{label}</span>
+      )}
+      {text && (
+        <span
+          title={text}
+          className={cn(
+            "text-sm break-words",
+            row.status === "needs-you"
+              ? "text-wait-fg"
+              : "text-muted-foreground"
+          )}
+        >
+          {text}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function MergedToday({ project, rows }: { project: string; rows: ItemRow[] }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-sm font-medium">Merged today</h2>
+      <Card className="gap-0 p-0">
+        <ul aria-label="Merged today" className="divide-y">
+          {rows.map((row) => {
+            const pr = prLabel(row)
+            return (
+              <li
+                key={row.item}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm"
+              >
+                <CircleCheck
+                  className="size-4 shrink-0 text-done"
+                  aria-hidden="true"
+                />
+                <span className="font-mono text-xs text-muted-foreground">
+                  {itemLabel(row)}
+                </span>
+                <span className="min-w-0 flex-1 font-medium break-words">
+                  {row.title ?? row.item}
+                </span>
+                {row.prUrl && pr && (
+                  <a
+                    href={row.prUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-mono text-xs underline-offset-4 hover:underline"
+                  >
+                    {pr}
+                  </a>
+                )}
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {clock(row.mergedAt)}
+                </span>
+                <Link
+                  to={projectPath(project, "evidence", { item: row.item })}
+                  className="text-xs underline underline-offset-4 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center"
+                >
+                  Evidence
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      </Card>
+    </section>
   )
 }
 
@@ -288,7 +362,11 @@ function EmptyRows({
     return (
       <>
         <span>Nothing is running right now.</span>{" "}
-        <Button variant="link" className="pointer-coarse:h-11" onClick={onShowAll}>
+        <Button
+          variant="link"
+          className="pointer-coarse:h-11"
+          onClick={onShowAll}
+        >
           Show all items
         </Button>
       </>
@@ -321,14 +399,13 @@ function ItemCards({
               onClick={() => onOpen(row.item)}
               className="flex w-full flex-col gap-1.5 px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             >
-              <span className="font-mono text-xs break-all text-muted-foreground">
-                {label}
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <span className="font-mono break-all">{label}</span>
+                <PrLabel pr={prLabel(row)} />
+                <span className="tabular-nums">{age(row.updated)}</span>
               </span>
               <span className="font-medium break-words">{title}</span>
-              <span className="flex flex-wrap items-center gap-2">
-                <StateBadge status={row.status} />
-                <PrLabel pr={prLabel(row)} />
-              </span>
+              <StageCell row={row} />
             </button>
           </li>
         )
@@ -379,10 +456,7 @@ function ItemList({
           <TableHeader>
             <TableRow>
               <TableHead className="px-4">Item</TableHead>
-              <TableHead className="w-36 px-4">Status</TableHead>
-              <TableHead className="hidden w-[28%] px-4 lg:table-cell">
-                Current step
-              </TableHead>
+              <TableHead className="w-[34%] px-4">Stage</TableHead>
               <TableHead className="w-24 px-4">PR</TableHead>
               <TableHead className="w-24 px-4 text-right">Updated</TableHead>
             </TableRow>
@@ -416,14 +490,8 @@ function ItemList({
                       <span className="font-medium break-words">{title}</span>
                     </button>
                   </TableCell>
-                  <TableCell className="px-4 py-3">
-                    <StateBadge status={row.status} />
-                  </TableCell>
-                  <TableCell
-                    className="hidden truncate px-4 py-3 text-muted-foreground lg:table-cell"
-                    title={stepText(row.step)}
-                  >
-                    {stepText(row.step)}
+                  <TableCell className="px-4 py-3 md:whitespace-normal">
+                    <StageCell row={row} />
                   </TableCell>
                   <TableCell className="px-4 py-3">
                     <PrLabel pr={prLabel(row)} />
@@ -437,7 +505,7 @@ function ItemList({
             {rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={4}
                   className="px-4 py-10 text-center text-sm text-muted-foreground"
                 >
                   <EmptyRows tab={tab} q={q} onShowAll={onShowAll} />

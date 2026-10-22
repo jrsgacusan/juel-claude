@@ -42,11 +42,13 @@ test("a row opens its step log", async ({ page }) => {
     sheet.getByRole("heading", { name: "Export invoices as CSV" })
   ).toBeVisible()
   await expect(sheet.getByText("invoice-export", { exact: true })).toBeVisible()
-  await expect(sheet.getByText("reading the brief")).toBeVisible()
-  await expect(sheet.getByText("running the plan")).toBeVisible()
+  // "Now" repeats the latest line, so a step text can match twice: look at the first.
+  await expect(sheet.getByText("reading the brief").first()).toBeVisible()
+  await expect(sheet.getByText("running the plan").first()).toBeVisible()
   await expect(
-    sheet.getByText("invoices page renders the export button")
+    sheet.getByText("invoices page renders the export button").first()
   ).toBeVisible()
+  await expect(sheet.getByText("Worktree", { exact: true })).toBeVisible()
   await expect(
     sheet.getByText(
       "A CSV of the month's invoices downloads from the invoices page."
