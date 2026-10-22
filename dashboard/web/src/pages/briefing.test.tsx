@@ -64,11 +64,14 @@ describe("Briefing", () => {
     expect(
       within(draft).getByText("Where do sphere-app's tickets live?")
     ).toBeInTheDocument()
-    expect(
-      within(draft).getByRole("button", {
-        name: "Pick where the ticket goes first",
-      })
-    ).toBeDisabled()
+    const pick = within(draft).getByRole("button", {
+      name: "Pick where the ticket goes first",
+    })
+    expect(pick).toBeDisabled()
+    expect(pick).toHaveAttribute("data-variant", "outline")
+    expect(pick).not.toHaveClass("opacity-50")
+    expect(within(draft).getByRole("combobox", { name: "Tracker" })).toHaveClass("ring-wait")
+    expect(within(draft).getByText("Needed before the ticket can be created.")).toBeInTheDocument()
   })
 
   it("streams the agent's turn from briefing events", async () => {
@@ -187,11 +190,13 @@ describe("Briefing", () => {
       )
     ).toBeInTheDocument()
     expect(getDb().trackers["sphere-app"]?.tracker).toBe("synapse")
-    expect(
-      within(draft).getByRole("button", {
-        name: "Save as a spec and hand to STAR",
-      })
-    ).toBeEnabled()
+    const spec = within(draft).getByRole("button", {
+      name: "Save as a spec and hand to STAR",
+    })
+    expect(spec).toBeEnabled()
+    expect(spec).toHaveAttribute("data-variant", "answer")
+    expect(within(draft).queryByText("Needed before the ticket can be created.")).not.toBeInTheDocument()
+    expect(within(draft).getByRole("combobox", { name: "Tracker" })).not.toHaveClass("ring-wait")
     await pickTracker(user, "GitHub Issues")
     await user.click(
       await within(draft).findByRole("button", {
@@ -559,7 +564,8 @@ describe("Briefing", () => {
   it("shows Delete only when the briefing is deletable", async () => {
     const first = renderApp("/sphere-app/briefing")
     const chat = await screen.findByRole("region", { name: "Conversation" })
-    expect(await within(chat).findByRole("button", { name: "Delete" })).toBeInTheDocument()
+    expect(await within(chat).findByRole("button", { name: "More actions" })).toBeInTheDocument()
+    expect(within(chat).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument()
     first.unmount()
     server.use(
       http.get("*/api/projects/:p/briefings", () =>
@@ -571,14 +577,15 @@ describe("Briefing", () => {
     renderApp("/sphere-app/briefing")
     const again = await screen.findByRole("region", { name: "Conversation" })
     await within(again).findByText(/^Admins keep asking to pause/)
-    expect(within(again).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument()
+    expect(within(again).queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
   })
 
   it("deletes a briefing after a confirmation in the page", async () => {
     const confirm = vi.spyOn(window, "confirm")
     const { user, router } = renderApp("/sphere-app/briefing?briefing=b1")
     const chat = await screen.findByRole("region", { name: "Conversation" })
-    await user.click(await within(chat).findByRole("button", { name: "Delete" }))
+    await user.click(await within(chat).findByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Delete briefing" }))
     const ask = within(chat).getByRole("group", { name: "Delete this briefing" })
     expect(ask).toHaveTextContent(
       `Delete "Pause a member's seat"? This removes its chat and draft. Tickets, inbox files and STAR's rows stay.`
@@ -586,7 +593,8 @@ describe("Briefing", () => {
     await user.click(within(ask).getByRole("button", { name: "Keep it" }))
     expect(within(chat).queryByRole("group", { name: "Delete this briefing" })).not.toBeInTheDocument()
     expect(b1()).toBeDefined()
-    await user.click(within(chat).getByRole("button", { name: "Delete" }))
+    await user.click(within(chat).getByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Delete briefing" }))
     await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
     expect(
       await screen.findByText(`Deleted "Pause a member's seat".`, undefined, { timeout: 5_000 })
@@ -608,7 +616,8 @@ describe("Briefing", () => {
     )
     const { user } = renderApp("/sphere-app/briefing")
     const chat = await screen.findByRole("region", { name: "Conversation" })
-    await user.click(await within(chat).findByRole("button", { name: "Delete" }))
+    await user.click(await within(chat).findByRole("button", { name: "More actions" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Delete briefing" }))
     await user.click(within(chat).getByRole("button", { name: "Delete briefing" }))
     expect(
       await within(chat).findByText("Couldn't delete this briefing: its ticket is still being created")

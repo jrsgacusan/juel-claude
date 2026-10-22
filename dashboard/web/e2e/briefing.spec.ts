@@ -43,7 +43,8 @@ test("deletes a briefing after asking in the page, never in a browser dialog", a
   })
   await openApp(page, "/sphere-app/briefing?briefing=b0")
   const chat = page.getByRole("region", { name: "Conversation" })
-  await chat.getByRole("button", { name: "Delete" }).click()
+  await chat.getByRole("button", { name: "More actions" }).click()
+  await page.getByRole("menuitem", { name: "Delete briefing" }).click()
   await expect(chat.getByRole("group", { name: "Delete this briefing" })).toContainText(
     'Delete "Export reports as CSV"? This removes its chat and draft.'
   )
