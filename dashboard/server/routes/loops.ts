@@ -8,15 +8,13 @@ import { readQueue } from "../readers/star.ts";
 import type { Router } from "../router.ts";
 
 const BLOCKED = ["person"];
-// person 0, set-aside 1, slack-reply 2, everything else 3.
+// person 0, set-aside 1, everything else 2.
 export const rankOf = (kind: string): number =>
   BLOCKED.includes(kind)
     ? 0
     : kind === "set-aside"
       ? 1
-      : kind === "slack-reply"
-        ? 2
-        : 3;
+      : 2;
 const num = (id: string): number => Number(id.slice(2)) || 0;
 
 export function loopOf(n: NeedItem, nowMs: number): Record<string, unknown> {

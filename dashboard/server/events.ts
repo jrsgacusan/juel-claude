@@ -64,7 +64,6 @@ export const WHATS = [
   "progress",
   "evidence",
   "drafts",
-  "slack",
   "briefings",
   "chat",
 ] as const;
@@ -73,7 +72,6 @@ const FOLDERS: Readonly<Record<string, What>> = {
   progress: "progress",
   evidence: "evidence",
   drafts: "drafts",
-  slack: "slack",
   briefings: "briefings",
   chat: "chat",
 };
@@ -113,7 +111,6 @@ export function signatures(home: string): Record<string, string> {
     progress: tree("progress"),
     evidence: tree("evidence"),
     drafts: tree("drafts"),
-    slack: tree("slack"),
     briefings: tree("briefings"),
     chat: tree("chat"),
   };

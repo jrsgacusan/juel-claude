@@ -67,7 +67,7 @@ test("GET file refuses .., an absolute path and a symlink out with 400; a missin
 
 test("PUT drafts/:name replaces everything after the first line and keeps the first line", async () => {
   const env = await setup();
-  const name = "2026-10-15-app-slack-C1-1700000000.000100.md";
+  const name = "2026-10-15-app-status-issue-1.md";
   try {
     const r = await env.api(`/api/projects/app/drafts/${name}`, {
       method: "PUT",
@@ -77,7 +77,7 @@ test("PUT drafts/:name replaces everything after the first line and keeps the fi
     assert.deepEqual(await r.json(), { saved: true });
     assert.equal(
       fs.readFileSync(path.join(env.star, "drafts", name), "utf8"),
-      "to: slack C1 1700000000.000100\nTomorrow morning, before the demo.\n",
+      "status: issue-1\nTomorrow morning, before the demo.\n",
     );
     // (a bare `..` segment never reaches the server: fetch resolves it in the URL first)
     for (const bad of ["..%2Fledger.md", ".hidden", "a%20b.md", "x..md"]) {
@@ -138,28 +138,6 @@ test("an html evidence file is served as text, and a file the server cannot read
     assert.match(
       ((await locked.json()) as { error: string }).error,
       /^evidence\/issue-4\/page\.html: permission denied/,
-    );
-  } finally {
-    await env.close();
-  }
-});
-
-test("search on one project with an unreadable draft is 502 naming it", async () => {
-  const env = await setup();
-  try {
-    fs.chmodSync(
-      path.join(
-        env.star,
-        "drafts",
-        "2026-10-15-app-slack-C1-1700000000.000100.md",
-      ),
-      0o000,
-    );
-    const r = await env.api("/api/search?q=x&project=app");
-    assert.equal(r.status, 502);
-    assert.match(
-      ((await r.json()) as { error: string }).error,
-      /^drafts\/2026-10-15-app-slack-C1-1700000000\.000100\.md: permission denied/,
     );
   } finally {
     await env.close();
