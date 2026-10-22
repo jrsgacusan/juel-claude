@@ -62,10 +62,16 @@ test("a fresh browser context opening start_url is signed in and the address bar
   const context = await browser.newContext(iphone)
   try {
     const installed = await context.newPage()
+    // Signed in, on any layout: an /api call answers 200 and the app keeps the token in its own storage.
+    const answered = installed.waitForResponse(
+      (res) => new URL(res.url()).pathname.startsWith("/api/") && res.status() === 200
+    )
     await installed.goto(new URL(manifest.start_url, e2e().origin).href)
-    await expect(
-      installed.getByRole("link", { name: /^sample/ }).first()
-    ).toBeVisible()
+    await answered
+    await expect(installed).toHaveURL(/\/needs$/)
+    expect(
+      await installed.evaluate(() => localStorage.getItem("star-token"))
+    ).toBe(token())
     await expect(installed.getByText(PASTE)).toHaveCount(0)
     expect(installed.url()).not.toContain("t=")
   } finally {
