@@ -152,8 +152,6 @@ grep -qF 'a direct <code>gh pr merge</code> is refused in STAR'"'"'s session and
 # the STAR dashboard (star-dashboard-server)
 grep -qF '<code>/juel:star dashboard</code> opens one local page for every STAR project on this Mac' "$PAGE" && pass "DASH the page names the dashboard" || fail "DASH dashboard on the page"
 grep -qF 'When STAR has a pick on something it asks you, it marks the option it recommends and says why in one line, never for a secret.' "$PAGE" && pass "DASH the page names STAR picks" || fail "DASH picks on the page"
-grep -qF 'A Slack message the dashboard routes to a project comes to you with a reply its drafter (Opus 5.5, read-only) already wrote in your voice from the project'"'"'s code, briefs and PRs: send it, have it rewritten, or skip it. STAR never writes reply text.' "$PAGE" && pass "DASH the page names Slack replies" || fail "DASH Slack replies on the page"
-grep -qF 'STAR raises each Slack message once, even when the dashboard hands it over again.' "$PAGE" && pass "DASH the page says each Slack message is raised once" || fail "DASH a Slack message raised once on the page"
 # the docs copy: docs/star-closed-loop.html changes in the same commit as this page
 DOCS="$ROOT/docs/star-closed-loop.html"
 if [ -f "$DOCS" ] && tail -n +2 "$PAGE" | cmp -s - "$DOCS"; then
@@ -177,18 +175,19 @@ grep -qF 'The codex gate names every site of a finding class in one finding' "$P
 grep -qF 'With no <code>tokenCmd</code>, every worker acts as the same GitHub account STAR does.' "$PAGE" && pass "R137 the page says workers act as STAR's account" || fail "R137 ghLogin on the page"
 grep -qF "STAR's own scripts use that account too, whatever account the keyring has active." "$PAGE" && pass "R137b the page says STAR's scripts use the configured account" || fail "R137b STAR's scripts on the page"
 
-# lane b: the page shows chat, the background wait, away and the Slack drafter
+# lane b: the page shows chat, the background wait and away; the Slack drafter is gone (#184)
 grep -qF 'STAR ingests it, woken within seconds by a message wait that runs in the background' "$PAGE" && pass "LB1 the drawing's label names the background wait" || fail "LB1 background wait in the aria-label"
 grep -qF '>Background message wait</text>' "$PAGE" && pass "LB1 the drawing shows the background wait" || fail "LB1 background wait in the drawing"
 grep -qF 'STAR waits for worker messages in the background, one wait at a time, so a chat message, a nudge or your own words reach it within seconds.' "$PAGE" && pass "LB1 Never stalls names the background wait" || fail "LB1 background wait in Never stalls"
 grep -qF 'or chat with STAR from the dashboard, which answers in the thread' "$PAGE" && pass "LB2 the drawing's label names chat" || fail "LB2 chat in the aria-label"
 grep -qF '>From the dashboard</text>' "$PAGE" && grep -qF '>chat: STAR replies in the thread</text>' "$PAGE" && pass "LB2 the drawing shows chat" || fail "LB2 chat in the drawing"
-grep -qF 'acting only through its own rules, and it asks you only for what a person must supply.' "$PAGE" && pass "LB2 the page explains chat" || fail "LB2 chat on the page"
+grep -qF 'A chat message is you: STAR does what it asks within its hard rules, turns work on the code into an item, files work on the plugin itself as an issue, and asks you only for a step a person must do.' "$PAGE" && pass "LB2 the page says a chat message is you" || fail "LB2 chat as the owner on the page"
+grep -qF 'acting only through its own rules' "$PAGE" && fail "LB2 the page still limits chat to STAR's rules" || pass "LB2 the page no longer limits chat to STAR's rules"
+grep -qF 'On an iPhone, open that link in Safari and add it to the home screen: the icon opens the dashboard full screen, signed in.' "$PAGE" && pass "PWA the page names the home screen" || fail "PWA home screen on the page"
+grep -qF 'A Claude review in a shape the gate cannot read runs once more, then is retried without spending the round.' "$PAGE" && pass "#185 the page names the fallback re-run" || fail "#185 fallback re-run on the page"
+grep -qi 'slack' "$PAGE" && fail "#184 the page still mentions Slack" || pass "#184 the page has no Slack"
 grep -qF 'Its away switch does what <code>/juel:star away</code> and <code>back</code> do, and STAR posts what still needs you into the chat.' "$PAGE" && pass "LB3 the page names the away switch" || fail "LB3 away switch on the page"
 grep -qF 'a reply STAR drafted in your voice' "$PAGE" && fail "LB4 the page no longer says STAR drafts" || pass "LB4 the page no longer says STAR drafts"
-grep -qF '>Slack: drafted before STAR</text>' "$PAGE" && pass "LB4 the drawing shows the drafter" || fail "LB4 drafter in the drawing"
-grep -qF 'and a Slack message the dashboard routes arrives with a reply its drafter already wrote' "$PAGE" && pass "LB4 the drawing's label names the drafter" || fail "LB4 drafter in the aria-label"
-grep -qF '<td>Slack drafter, run by the dashboard</td>' "$PAGE" && pass "LB4 the Models table names the drafter" || fail "LB4 drafter in Models"
 grep -qF 'from a phone you reach it over your tailnet: <code>/juel:star dashboard --tailnet</code> maps it with <code>tailscale serve</code>, never <code>tailscale funnel</code>, and prints the link; the server itself stays on 127.0.0.1.' "$PAGE" && pass "LB5 the page says how to reach the dashboard from a phone" || fail "LB5 tailscale serve on the page"
 grep -qF 'and a gate that prints nothing for 15 minutes is stopped and reported as stalled, so it never holds every build.' "$PAGE" && pass "LB6 a stalled gate is stopped and reported (#143)" || fail "LB6 stalled gate on the page"
 # lane e: the page shows #147 #150 #151 #152 #154
