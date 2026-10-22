@@ -207,6 +207,15 @@ describe("Chat", () => {
     expect(page.closest("main")).toHaveClass("max-md:h-[calc(100dvh-var(--tab-bar-h))]")
   })
 
+  it("opens with the draft from the link in the composer, and drops it from the URL", async () => {
+    const { router } = renderApp("/sphere-app/chat?draft=About%20SPH-11%3A%20")
+    const box = await screen.findByLabelText("Message STAR")
+    expect(box).toHaveValue("About SPH-11: ")
+    await waitFor(() => expect(router.state.location.search).toBe(""))
+    expect(router.state.location.pathname).toBe("/sphere-app/chat")
+    expect(screen.getByLabelText("Message STAR")).toHaveValue("About SPH-11: ")
+  })
+
   it("starts a switched-to project's chat fresh: no carried text, no other project's message", async () => {
     const { user, router } = renderApp("/sphere-app/chat")
     const box = await screen.findByLabelText("Message STAR")
