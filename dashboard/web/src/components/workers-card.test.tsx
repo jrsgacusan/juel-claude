@@ -13,6 +13,8 @@ describe("the Workers card", () => {
   it("shows each pool as one square per slot with n/max, and the busy count", () => {
     render(<WorkersCard workers={pools([1, 4], [3, 3], [1, 3])} />)
     for (const text of ["Workers", "5 busy", "1 of 4", "3 of 3", "1 of 3"]) expect(screen.getByText(text)).toBeInTheDocument()
+    // Counts are words in the UI face; the mono face is kept for SHAs and paths.
+    expect(screen.getByText("1 of 4")).not.toHaveClass("font-mono")
     expect(slots("Briefing")).toHaveLength(4)
     expect(filled("Briefing")).toHaveLength(1)
     expect(slots("Review")).toHaveLength(3)

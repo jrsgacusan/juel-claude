@@ -54,7 +54,7 @@ export function WorkersCard({ workers }: { workers: Overview["workers"] }) {
           </div>
           <span
             className={cn(
-              "text-right font-mono text-[11px] tabular-nums",
+              "text-right text-xs tabular-nums",
               n > 0 ? "text-foreground" : "text-muted-foreground"
             )}
           >

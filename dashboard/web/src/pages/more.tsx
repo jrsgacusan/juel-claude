@@ -152,7 +152,7 @@ export function MorePage() {
       </nav>
       <Section id="more-appearance" title="Appearance">
         <div role="group" aria-labelledby="more-appearance">
-          <ThemeSwitch />
+          <ThemeSwitch full />
         </div>
       </Section>
     </div>

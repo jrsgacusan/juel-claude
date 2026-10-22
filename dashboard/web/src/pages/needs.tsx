@@ -302,7 +302,7 @@ function Chips({
     <div
       role="group"
       aria-label="Filter"
-      className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1"
+      className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:flex-wrap md:overflow-x-visible [&::-webkit-scrollbar]:hidden"
     >
       {chips.map((chip) => (
         <button

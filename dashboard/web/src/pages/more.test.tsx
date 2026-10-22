@@ -37,6 +37,9 @@ describe("More", () => {
     expect(before(workers, pages)).toBe(true)
     expect(before(pages, projects)).toBe(true)
     expect(before(projects, system)).toBe(true)
+    // On More the three choices read as words, full width, at touch size.
+    expect(within(dark).getByText("Dark")).not.toHaveClass("hidden")
+    expect(dark).toHaveClass("flex-1", "h-11")
     await user.click(dark)
     expect(localStorage.getItem("star-theme")).toBe("dark")
   })

@@ -856,6 +856,15 @@ describe("Needs you detail", () => {
     await waitFor(() =>
       expect(within(unblocks).getAllByRole("img").length).toBeGreaterThan(0)
     )
+    // The step reads as STAR wrote it for people, without its step token.
+    expect(within(unblocks).getByText("Codex gate, round 2 of 3")).toBeInTheDocument()
+    expect(within(unblocks).queryByText(/gate-r2/)).not.toBeInTheDocument()
+  })
+
+  it("wraps the filter chips on a desktop and scrolls them without a bar on a phone", async () => {
+    renderApp("/needs")
+    const chips = await screen.findByRole("group", { name: "Filter" })
+    expect(chips).toHaveClass("md:flex-wrap", "[scrollbar-width:none]")
   })
 
   it("lists the refs alone when the items cannot be read", async () => {

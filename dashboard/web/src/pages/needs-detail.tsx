@@ -29,6 +29,7 @@ import {
   visibleBody,
 } from "@/lib/loops"
 import { railOf } from "@/lib/stage"
+import { stepText } from "@/lib/status"
 
 /** The items this answer unblocks: each with its title, a small rail and its step. The refs alone when the items cannot be read. */
 function Unblocks({ project, refs }: { project: string; refs: string[] }) {
@@ -55,15 +56,15 @@ function Unblocks({ project, refs }: { project: string; refs: string[] }) {
                 (rail ? (
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <StageRail rail={rail} size="sm" className="w-40" />
-                    {row.step && (
+                    {stepText(row.step) && (
                       <span className="min-w-0 text-xs break-words text-muted-foreground">
-                        {row.step}
+                        {stepText(row.step)}
                       </span>
                     )}
                   </span>
                 ) : (
                   <span className="text-xs text-muted-foreground">
-                    Report{row.step ? `. ${row.step}` : ""}
+                    Report{stepText(row.step) ? `. ${stepText(row.step)}` : ""}
                   </span>
                 ))}
             </li>
