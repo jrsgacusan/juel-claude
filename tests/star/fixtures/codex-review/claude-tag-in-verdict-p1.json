@@ -4,7 +4,7 @@
  "is_error": false,
  "duration_ms": 41873,
  "num_turns": 3,
- "result": "Nothing blocks this, except that [P1] below.\n\n- [P1] Data loss \u2014 src/b.ts:9",
+ "result": "Nothing blocks this, except that [P1] below.\n\n- [P1] Data loss \u2014 src/b.ts:9\n\nVERDICT: NOT-SAFE",
  "stop_reason": "end_turn",
  "session_id": "00000000-0000-0000-0000-000000000000",
  "total_cost_usd": 0.31,
