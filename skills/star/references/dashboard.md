@@ -1,7 +1,7 @@
-# The dashboard, the chat, hand-overs, Slack, drafts and being away
+# The dashboard, the chat, hand-overs, drafts and being away
 
 Read this when the owner talks to STAR (chat, the terminal, another session), when a batch finishes drafting,
-when a Slack message arrives, and for `away` and `back`.
+and for `away` and `back`.
 
 ## Contents
 
@@ -10,7 +10,7 @@ when a Slack message arrives, and for `away` and `back`.
 - Chat
 - Feedback on a brief
 - The batch digest
-- Drafts and Slack
+- Drafts
 - Away and back
 
 ## The dashboard
@@ -61,25 +61,6 @@ the single line `control: away`, `control: back` or `control: stop`, followed by
 "I'm leaving" said in chat is written down at once the same way, before the tick goes on, so a compaction in the
 middle of a tick cannot lose it. Whoever carries a control file out deletes it in the same step. A start deletes
 every `control: stop` file it finds: a stop older than this start has already happened.
-
-A `slack:` block in an inbox file is a Slack message the dashboard's watcher routed here:
-
-```
-slack:
-  id: <channelId>-<ts>
-  channel: <#name, or "a DM">
-  channelId: <id>
-  ts: <ts>
-  threadTs: <ts, or ->
-  from: <display name>
-  permalink: <url>
-  draft: <absolute draft path>
-  drafterError: <one line why, only when the drafter failed>
-  text: |
-    <the message, every line indented four spaces>
-  thread: |
-    <at most 5 earlier thread lines, "name: text">
-```
 
 ## Chat
 
@@ -191,16 +172,12 @@ Tell me what to change on any of these and I will redo it.
 A `Blocked by:`, `Not before:` or `Held:` line appears only for a brief that has one. The decision records are
 where the owner overrules STAR: an answer that names one is feedback for that brief.
 
-## Drafts and Slack
+## Drafts
 
 STAR writes for the owner only what shipping needs, and sends none of it by itself:
 
 - "Draft a status note": STAR writes `HOME_DIR/drafts/<date>-status.md` from the ledger and the queue and queues
   it as a `draft` item. The owner sends it.
-- A Slack reply is never STAR's to write. The dashboard's drafter writes each draft from the project's code,
-  briefs and PRs before the message reaches STAR, and again when the owner answers `rewrite: <how>`
-  (`slack-redraft.sh` asks for it). STAR queues it, posts it on the owner's `send`, and never writes or changes
-  reply text. The draft file's first line is `to: slack <channelId> <threadTs, or ts>`.
 
 ## Away and back
 

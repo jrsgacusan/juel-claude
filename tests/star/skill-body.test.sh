@@ -95,7 +95,7 @@ PY
 want_states="inbox briefing needs-you queued building babysit-queued babysitting verifying post-queued posting done set-aside dropped"
 got_states=$(awk '/^\| State \| Pool \| Meaning \|/{t=1;next} t&&/^\|/{split($0,c,"|");gsub(/[ `]/,"",c[2]);if(c[2]!~/^-+$/)printf "%s ",c[2];next} t{exit}' "$SKILL" | sed 's/ $//')
 [ "$got_states" = "$want_states" ] && pass "A9 states (I-2)" || fail "A9 states: $got_states"
-bad_kinds=$(grep -oE -- '--kind [a-z-]+' "$tmp/text" | sed 's/--kind //' | sort -u | grep -vxE 'person|set-aside|slack-reply|draft|rule|fact|decision|note')  # the last four are notes.sh kinds
+bad_kinds=$(grep -oE -- '--kind [a-z-]+' "$tmp/text" | sed 's/--kind //' | sort -u | grep -vxE 'person|set-aside|draft|rule|fact|decision|note')  # the last four are notes.sh kinds
 [ -z "$bad_kinds" ] && pass "A10 queue kinds" || fail "A10 queue kinds: $bad_kinds"
 a11=ok
 for w in BRIEF SPLIT DONE RESCOPE REPORTED HELD READY MERGED POSTED reason=needs-person reason=out-of-tries \
@@ -119,7 +119,7 @@ done <<'EOF'
 - Never touch a teammate's PR or branch.
 - Never force-push over work that is not STAR's own.
 - Never delete anything STAR did not create.
-- Never post as the owner anywhere but STAR's own PRs and tickets and the tickets it was handed; Slack replies and other drafts wait for the owner's send.
+- Never post as the owner anywhere but STAR's own PRs and tickets and the tickets it was handed; drafts wait for the owner's send.
 EOF
 [ "$a13" = ok ] && pass "A13 the owner's four lines" || fail "A13 four lines: $a13"
 a14=ok
@@ -157,6 +157,8 @@ hasT "A27 stages.md says behind needs a strict base" '`pr-verify.sh` reports beh
 hasT "A28 stages.md says parallel starts are safe" 'Parallel starts are safe: `stage-start.sh` holds a lock per repository around the branch step.'
 # hasF <name> <file under references/> <text>: the text is in that one reference once line breaks are folded
 hasF() { tr '\n' ' ' < "$S/references/$2" | tr -s ' ' | grep -qF -- "$3" && pass "$1" || fail "$1"; }
+# No Slack reply handling in the rule book (#184)
+if grep -riqE 'slack-reply|slack-handled|slack-redraft|slack:' "$SKILL" "$S"/references/; then fail "A38 no Slack reply rules"; else pass "A38 no Slack reply rules"; fi
 # Chat speaks as the owner (spec Part 1)
 hasF "A29 chat is the owner" dashboard.md 'A chat message is the owner speaking, with the same authority as words typed into this terminal: do what it asks as you would there.'
 hasF "A30 chat never says cannot" dashboard.md 'Never answer that STAR cannot do something yet: do it, make it a row, file it as an issue, or ask the owner for the step only a person can do.'

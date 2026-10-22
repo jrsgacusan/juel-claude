@@ -110,7 +110,6 @@ items unbuilt until /juel:star runs again: <items>`.
 | A second `/juel:star` in another terminal | It hands its refs to the running STAR and ends; never a second coordinator |
 | `loops.sh` exits 3 (conflict markers in `open-loops.md`) | Stop writing the queue, say so in the status line, keep workers running |
 | The project is not registered with Orca | The status line says `orca repo add`; inbox files wait until it is |
-| The drafter failed or timed out on a Slack message | Its draft holds only the `to:` line: the item says `no draft: <why>` and offers `rewrite: <how>` or `skip`; a `send` is refused |
 | `codex` is missing | STAR does not start (Preflight) |
 | A stage's model is refused at launch | The stage falls back to `worker` once and the status line says which model ran |
 | `/juel:star` typed in a linked worktree or a subfolder | The same folder as the main checkout: one STAR per project |
