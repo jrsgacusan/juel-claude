@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils"
 
 const CHIPS = ["Shorter", "Add the PR link", "Less formal"]
 /** A draft file is "to: slack <channelId> <threadTs or ts>" and then the reply. */
-const replyOf = (file: string) => file.split("\n").slice(1).join("\n")
+export const replyOf = (file: string) => file.split("\n").slice(1).join("\n")
 
 /** A rewrite the owner asked the drafter for: the item it was asked on and the Suggest line it had. */
 export type AskedRewrite = {

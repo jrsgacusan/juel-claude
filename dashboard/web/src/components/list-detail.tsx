@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore, type ReactNode } from "react"
 import { ChevronLeft } from "lucide-react"
 import { useLocation, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
+import { setDetailOpen } from "@/lib/chrome"
 import { useSearchParam } from "@/lib/use-search-param"
 import { cn } from "@/lib/utils"
 
@@ -68,6 +69,11 @@ export function ListDetail({
   useEffect(() => {
     if (narrow && showDetail) window.scrollTo(0, 0)
   }, [narrow, showDetail])
+  // The phone's tab bar hides while a detail shows.
+  useEffect(() => {
+    setDetailOpen(narrow && showDetail)
+    return () => setDetailOpen(false)
+  }, [narrow, showDetail])
   return (
     <div className={cn("grid min-h-0 flex-1 md:h-full", columns)}>
       <section
@@ -119,5 +125,14 @@ export function AnswerDock({ children }: { children: ReactNode }) {
         {children}
       </div>
     </>
+  )
+}
+
+/** True when a key press came from a place the user types in, so a shortcut key must not act. */
+export function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
   )
 }
