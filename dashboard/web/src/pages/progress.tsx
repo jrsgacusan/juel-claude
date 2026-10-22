@@ -1,5 +1,5 @@
 import { CircleCheck, GitPullRequest, Search } from "lucide-react"
-import { useState, useSyncExternalStore } from "react"
+import { useState } from "react"
 import { Link, useParams } from "react-router"
 import { useItems, useLoops, useOverview } from "@/api/queries"
 import type { ItemRow } from "@/api/types"
@@ -43,7 +43,7 @@ import {
 } from "@/lib/status"
 import { useSearchParam } from "@/lib/use-search-param"
 import { cn } from "@/lib/utils"
-import { ItemSheet } from "./progress-sheet"
+import { ItemSheet, usePhone } from "./progress-sheet"
 
 const TABS: Array<{ id: ProgressTab; label: string }> = [
   { id: "running", label: "Running" },
@@ -253,20 +253,6 @@ function useFreshRows(
     setSeen({ all, view, fresh })
   }
   return seen.fresh
-}
-
-const PHONE = "(max-width: 639px)"
-
-function usePhone(): boolean {
-  return useSyncExternalStore(
-    (notify) => {
-      const mq = window.matchMedia(PHONE)
-      mq.addEventListener("change", notify)
-      return () => mq.removeEventListener("change", notify)
-    },
-    () => window.matchMedia(PHONE).matches,
-    () => false
-  )
 }
 
 function PrLabel({ pr }: { pr: string | null }) {

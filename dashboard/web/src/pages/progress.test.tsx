@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { getConnection } from "@/api/events"
 import type { ItemDetail, ItemStatus } from "@/api/types"
 import { Dot, StateBadge } from "@/components/status"
+import { UPCOMING } from "@/lib/stage"
 import { server } from "@/mocks/node"
 import { getDb, mockEvents, setScenario } from "@/mocks/state"
 import { renderApp } from "@/test/render"
@@ -156,7 +157,8 @@ describe("Progress", () => {
   it("reads a queued row with no step as waiting for a slot", async () => {
     const row = getDb().items["sphere-app"]?.find(
       (d) => d.row.item === "SPH-14"
-    )!
+    )
+    if (!row) throw new Error("fixture missing")
     row.row.step = null
     row.row.state = "queued"
     renderApp("/sphere-app/progress")
@@ -192,7 +194,8 @@ describe("Progress", () => {
   it("shows Dropped for a dropped row", async () => {
     const row = getDb().items["sphere-app"]?.find(
       (d) => d.row.item === "SPH-13"
-    )!
+    )
+    if (!row) throw new Error("fixture missing")
     row.row.state = "dropped"
     row.row.status = "dropped"
     row.row.step = null
@@ -226,9 +229,8 @@ describe("Progress", () => {
   })
 
   it("does not count a row merged yesterday but updated today as merged today", async () => {
-    const row = getDb().items["sphere-app"]?.find(
-      (d) => d.row.item === "SPH-4"
-    )!
+    const row = getDb().items["sphere-app"]?.find((d) => d.row.item === "SPH-4")
+    if (!row) throw new Error("fixture missing")
     row.row.mergedAt = new Date(Date.now() - 48 * 3600_000).toISOString()
     row.row.updated = new Date().toISOString()
     renderApp("/sphere-app/progress")
@@ -278,8 +280,8 @@ describe("Progress", () => {
     expect(within(sheet).getByText("#213")).toBeInTheDocument()
     expect(within(sheet).getByText("Plan written, 4 tasks")).toBeInTheDocument()
     expect(
-      within(sheet).getByText("Asked: widen the scope to the public API?")
-    ).toBeInTheDocument()
+      within(sheet).getAllByText("Asked: widen the scope to the public API?")
+    ).toHaveLength(2)
     expect(
       within(sheet).getByRole("link", { name: /Open PR #213/ })
     ).toHaveAttribute("href", "https://github.com/example/sphere-app/pull/213")
@@ -373,7 +375,9 @@ describe("Progress", () => {
     const { user, router } = renderApp("/sphere-app/progress?item=SPH-8")
     const sheet = await screen.findByRole("dialog")
     expect(
-      await within(sheet).findByText("Merged after the merge gate passed")
+      (
+        await within(sheet).findAllByText("Merged after the merge gate passed")
+      )[0]
     ).toBeInTheDocument()
     expect(
       within(sheet).queryByRole("link", { name: "Answer in Needs you" })
@@ -383,6 +387,91 @@ describe("Progress", () => {
       expect(
         router.state.location.pathname + router.state.location.search
       ).toBe("/sphere-app/evidence?item=SPH-8")
+    )
+  })
+
+  it("heads the sheet with ref, PR and age on one line, then the title, a large rail and Now", async () => {
+    renderApp("/sphere-app/progress?item=SPH-11")
+    const sheet = await screen.findByRole("dialog")
+    const head = await within(sheet).findByText(/^updated /)
+    expect(head.parentElement).toHaveTextContent(/^SPH-11\s*#214\s*updated /)
+    expect(
+      within(sheet).getByRole("heading", { name: "Export reports as CSV" })
+    ).toBeInTheDocument()
+    const rail = within(sheet).getByRole("img", { name: /^Stage 3 of 5, Gate/ })
+    expect(rail).toHaveAttribute("data-size", "lg")
+    for (const name of ["Brief", "Build", "Gate", "Review", "Merge"])
+      expect(within(rail).getByText(name)).toBeInTheDocument()
+    expect(within(sheet).getByText("Now")).toBeInTheDocument()
+    expect(within(sheet).getAllByText("Codex gate, round 2 of 3")).toHaveLength(
+      2
+    )
+    expect(within(sheet).getByText("Worktree")).toBeInTheDocument()
+    expect(within(sheet).getByText(".worktrees/sphere-app/sph-11")).toHaveClass(
+      "truncate",
+      "select-all"
+    )
+  })
+
+  it("says Not created yet for an item with no worktree", async () => {
+    renderApp("/sphere-app/progress?item=SPH-15")
+    const sheet = await screen.findByRole("dialog")
+    expect(await within(sheet).findByText("Not created yet")).toHaveClass(
+      "select-all"
+    )
+  })
+
+  it("lists the stages still to come as muted lines after the progress", async () => {
+    renderApp("/sphere-app/progress?item=SPH-11")
+    const sheet = await screen.findByRole("dialog")
+    const review = await within(sheet).findByText(UPCOMING.Review)
+    const merge = within(sheet).getByText(UPCOMING.Merge)
+    expect(review).toHaveClass("text-muted-foreground")
+    expect(merge.textContent).toBe("STAR merges it once every gate holds")
+    expect(within(sheet).queryByText(UPCOMING.Build)).not.toBeInTheDocument()
+    expect(within(sheet).queryByText(UPCOMING.Gate)).not.toBeInTheDocument()
+    const last = within(sheet).getAllByText("Codex gate, round 2 of 3").at(-1)!
+    expect(
+      last.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("lists no steps to come for a merged item", async () => {
+    renderApp("/sphere-app/progress?item=SPH-8")
+    const sheet = await screen.findByRole("dialog")
+    await within(sheet).findAllByText("Merged after the merge gate passed")
+    expect(within(sheet).queryByText(UPCOMING.Merge)).not.toBeInTheDocument()
+  })
+
+  it("uses the answer variant for Answer in Needs you, and links Ask STAR about it to Chat", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-14"
+    )
+    if (!row) throw new Error("fixture missing")
+    row.row.status = "needs-you"
+    renderApp("/sphere-app/progress?item=SPH-14")
+    const sheet = await screen.findByRole("dialog")
+    expect(
+      await within(sheet).findByRole("link", { name: "Answer in Needs you" })
+    ).toHaveAttribute("data-variant", "answer")
+    expect(
+      within(sheet).getByRole("link", { name: "Ask STAR about it" })
+    ).toHaveAttribute("href", "/sphere-app/chat?draft=About%20SPH-14%3A%20")
+  })
+
+  it("opens from the bottom on a phone and from the right wider", async () => {
+    mockPhone()
+    const phone = renderApp("/sphere-app/progress?item=SPH-11")
+    expect(await screen.findByRole("dialog")).toHaveAttribute(
+      "data-side",
+      "bottom"
+    )
+    phone.unmount()
+    vi.restoreAllMocks()
+    renderApp("/sphere-app/progress?item=SPH-11")
+    expect(await screen.findByRole("dialog")).toHaveAttribute(
+      "data-side",
+      "right"
     )
   })
 
@@ -430,7 +519,7 @@ describe("Progress", () => {
       within(sheet).getByRole("heading", { name: "SPH-13" })
     ).toBeInTheDocument()
     expect(
-      within(sheet).getByText("Executor writing the code")
+      within(sheet).getAllByText("Executor writing the code")[0]
     ).toBeInTheDocument()
     expect(within(sheet).queryByText(/null/)).not.toBeInTheDocument()
     expect(
@@ -670,8 +759,7 @@ describe("Progress pages", () => {
     renderApp("/sphere-app/progress?item=SPH-9")
     const sheet = await screen.findByRole("dialog")
     const path = await within(sheet).findByText(".worktrees/sphere-app/sph-9")
-    expect(path).toHaveClass("break-all", "select-all")
-    expect(path).not.toHaveClass("truncate")
+    expect(path).toHaveClass("truncate", "select-all")
     expect(sheet.querySelector('[data-slot="sheet-header"]')).toHaveClass(
       "pr-12"
     )
