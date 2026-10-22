@@ -13,7 +13,6 @@ export const paths = {
   evidenceItem: (p: string, item: string) =>
     `${project(p)}/evidence/${e(item)}`,
   file: (p: string, path: string) => `${project(p)}/file?path=${e(path)}`,
-  draft: (p: string, name: string) => `${project(p)}/drafts/${e(name)}`,
   search: ({
     q,
     project: p,

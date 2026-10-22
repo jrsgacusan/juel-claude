@@ -1,4 +1,14 @@
+import { devices } from "@playwright/test"
 import { expect, openApp, e2e, test } from "./helpers.js"
+
+// iPhone emulation Chromium supports (no WebKit project here): the phone's size, touch and user agent.
+const iphone = {
+  viewport: { width: 390, height: 844 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 3,
+  userAgent: devices["iPhone 13"].userAgent,
+}
 
 const token = (): string => {
   const value = new URL(e2e().url).searchParams.get("t")
@@ -49,7 +59,7 @@ test("a fresh browser context opening start_url is signed in and the address bar
     await fetch(new URL(href ?? "", e2e().origin))
   ).json()) as { start_url: string }
 
-  const context = await browser.newContext()
+  const context = await browser.newContext(iphone)
   try {
     const installed = await context.newPage()
     await installed.goto(new URL(manifest.start_url, e2e().origin).href)
@@ -66,7 +76,7 @@ test("a fresh browser context opening start_url is signed in and the address bar
 test("a fresh browser context opening / with no token shows the token form", async ({
   browser,
 }) => {
-  const context = await browser.newContext()
+  const context = await browser.newContext(iphone)
   try {
     const bare = await context.newPage()
     await bare.goto(e2e().origin + "/")
