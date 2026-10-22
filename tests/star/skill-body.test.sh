@@ -150,5 +150,14 @@ hasT "A24 a note that did not work (R-6)" 'the note did not work'
 hasT "A25 can't now stays open (R-7)" "stays open"
 if grep -qF "STAR adds the item once more" "$tmp/text"; then fail "A25 can't now is never asked again"; else pass "A25 can't now is never asked again"; fi
 
+# the rule-book lines for #176, #177, #180 and #181
+has "A26 the merge gate says when behind holds it" "GitHub's merge state not blocked or dirty, and not behind when the base requires up-to-date branches"
+if tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF "not blocked, behind or dirty"; then fail "A26 the old behind wording is gone"; else pass "A26 the old behind wording is gone"; fi
+hasT "A27 stages.md says behind needs a strict base" '`pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict`, or the rule cannot be read).'
+hasT "A28 stages.md says parallel starts are safe" 'Parallel starts are safe: `stage-start.sh` holds a lock per repository around the branch step.'
+for f in state recovery; do
+  tr '\n' ' ' < "$S/references/$f.md" | tr -s ' ' | grep -qF 'A schema-3 home may delete an old `grants/` folder and the `grant` line in a brief'"'"'s frontmatter: nothing reads them.' && pass "A29 $f.md says an old grants/ may go" || fail "A29 $f.md says an old grants/ may go"
+done
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -51,7 +51,7 @@ issues.log, ids.json, index.db, library.base, notes.base
 
 `<project>` is the name in `star.json`. A folder holds one project; the name stays in paths, the
 queue and the ledger so every file says what it belongs to. Old files such as `grants/` stay on disk
-unread; nothing in a migration deletes them.
+unread; nothing in a migration deletes them. A schema-3 home may delete an old `grants/` folder and the `grant` line in a brief's frontmatter: nothing reads them.
 
 ## `star.json`
 
