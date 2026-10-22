@@ -64,3 +64,51 @@ describe("motion classes (I-15)", () => {
     expect(reduce).toMatch(/\.motion-bar\s*\{\s*transition:\s*none/)
   })
 })
+
+// oklch -> oklab -> linear sRGB (Ottosson's matrices) -> WCAG relative luminance.
+function luminance(value: string): number {
+  const m = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)/.exec(value)
+  if (!m) throw new Error(`not an oklch value: ${value}`)
+  const [L, C, h] = [Number(m[1]), Number(m[2]), (Number(m[3]) * Math.PI) / 180]
+  const a = C * Math.cos(h)
+  const b = C * Math.sin(h)
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+  const mm = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
+  const rgb = [
+    4.0767416621 * l - 3.3077115913 * mm + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * mm - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * mm + 1.707614701 * s,
+  ].map((v) => Math.min(1, Math.max(0, v)))
+  return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+}
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+describe("answer colour and fonts", () => {
+  const light = block(":root")
+  const dark = block(".dark")
+  const theme = block("@theme inline")
+  const value = (blockText: string, name: string) => new RegExp(`--${name}:\\s*(oklch\\([^)]*\\))`).exec(blockText)?.[1] ?? ""
+  it("defines --answer and --answer-foreground as oklch in both themes", () => {
+    for (const b of [light, dark]) {
+      expect(b).toMatch(/--answer:\s*oklch\(/)
+      expect(b).toMatch(/--answer-foreground:\s*oklch\(/)
+    }
+  })
+  it("maps them in @theme inline", () => {
+    expect(theme).toContain("--color-answer: var(--answer)")
+    expect(theme).toContain("--color-answer-foreground: var(--answer-foreground)")
+  })
+  it("uses Instrument Sans and the system mono stack, with no Geist", () => {
+    expect(theme).toMatch(/--font-sans:\s*"Instrument Sans Variable"/)
+    expect(theme).toMatch(/--font-mono:\s*ui-monospace/)
+    expect(css.toLowerCase()).not.toContain("geist")
+  })
+  it("answer text contrast is at least 4.5:1 in both themes", () => {
+    for (const b of [light, dark])
+      expect(contrast(value(b, "answer"), value(b, "answer-foreground"))).toBeGreaterThanOrEqual(4.5)
+  })
+})

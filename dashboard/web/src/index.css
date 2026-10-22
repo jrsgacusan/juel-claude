@@ -1,18 +1,16 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/instrument-sans";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans:
-    "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    sans-serif;
-  --font-mono:
-    "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+    "Instrument Sans Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -51,6 +49,8 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --color-answer: var(--answer);
+  --color-answer-foreground: var(--answer-foreground);
   --color-wait: var(--wait);
   --color-wait-fg: var(--wait-fg);
   --color-wait-bg: var(--wait-bg);
@@ -121,6 +121,8 @@
   --stop-fg: oklch(0.505 0.213 27.518);
   --stop-bg: oklch(0.971 0.013 17.38);
   --stop-line: oklch(0.885 0.062 18.334);
+  --answer: oklch(0.769 0.163 72.4);
+  --answer-foreground: oklch(0.237 0.049 78.2);
   --shot: oklch(0.955 0 0);
   --shot-bar: oklch(0.205 0 0);
   --shot-line: oklch(0.88 0 0);
@@ -170,6 +172,8 @@
   --stop-fg: oklch(0.808 0.114 19.571);
   --stop-bg: oklch(0.258 0.092 26.042);
   --stop-line: oklch(0.396 0.141 25.723);
+  --answer: oklch(0.769 0.163 72.4);
+  --answer-foreground: oklch(0.237 0.049 78.2);
   --shot: oklch(0.24 0 0);
   --shot-bar: oklch(0.85 0 0);
   --shot-line: oklch(0.36 0 0);
