@@ -25,9 +25,9 @@ import { LoopDetail } from "./needs-detail"
 type Tab = "all" | LoopGroup
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "all", label: "All" },
-  { id: "blocked", label: "Blocked" },
+  { id: "hold", label: "Blocked" },
   { id: "slack", label: "Slack" },
-  { id: "others", label: "Others" },
+  { id: "other", label: "Others" },
 ]
 
 const keyOf = (loop: ProjectLoop) => `${loop.project}/${loop.id}`

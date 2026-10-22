@@ -24,11 +24,11 @@ describe("Needs you", () => {
       await screen.findByRole("tab", { name: /^All\s*10$/ })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("tab", { name: /^Blocked\s*2$/ })
+      screen.getByRole("tab", { name: /^Blocked\s*4$/ })
     ).toBeInTheDocument()
     expect(screen.getByRole("tab", { name: /^Slack\s*3$/ })).toBeInTheDocument()
     expect(
-      screen.getByRole("tab", { name: /^Others\s*5$/ })
+      screen.getByRole("tab", { name: /^Others\s*3$/ })
     ).toBeInTheDocument()
     const list = screen.getByRole("region", { name: "Open loops" })
     const entries = within(list).getAllByRole("button")
@@ -464,7 +464,7 @@ describe("Needs you", () => {
     const list = await screen.findByRole("region", { name: "Open loops" })
     const before = within(list).getByRole("list")
     expect(before).toHaveClass("motion-fade-in")
-    await user.click(screen.getByRole("tab", { name: /^Blocked\s*2$/ }))
+    await user.click(screen.getByRole("tab", { name: /^Blocked\s*4$/ }))
     const after = within(list).getByRole("list")
     expect(after).not.toBe(before)
     expect(after).toHaveClass("motion-fade-in")
