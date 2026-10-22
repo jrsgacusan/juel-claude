@@ -134,6 +134,8 @@ export function SlackPage() {
       : undefined) ??
     (loopParam ? routed.find((m) => m.loopId === loopParam) : undefined)
   const selected = named ?? routed[0] ?? unrouted[0]
+  // A phone marks a row current only when the URL names it; a desktop shows the first one.
+  const current = narrow ? named : selected
   const markDone = (id: string, mark: string) =>
     setDone((current) => ({ ...current, [id]: mark }))
   const model = slack.data!.status.model
@@ -218,7 +220,7 @@ export function SlackPage() {
                       key={m.id}
                       message={m}
                       mark={done[m.id]}
-                      selected={selected?.id === m.id}
+                      selected={current?.id === m.id}
                       onClick={() => select(m.id)}
                     />
                   ))}
@@ -230,7 +232,7 @@ export function SlackPage() {
                       key={m.id}
                       message={m}
                       mark={done[m.id]}
-                      selected={selected?.id === m.id}
+                      selected={current?.id === m.id}
                       onClick={() => select(m.id)}
                     />
                   ))}

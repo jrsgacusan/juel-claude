@@ -56,6 +56,7 @@ test("on a phone, an item opens on its own and Back returns to the list", async 
   test.skip(!isPhone(page), "the phone layout only")
   await openApp(page, "/needs")
   const list = page.getByRole("region", { name: "Open loops" })
+  await expect(list.locator("[aria-current]")).toHaveCount(0)
   await list
     .getByRole("button", { name: /Log in to the Stripe dashboard/ })
     .click()
@@ -70,13 +71,14 @@ test("on a phone, an item opens on its own and Back returns to the list", async 
   const coarse = await page.evaluate(
     () => matchMedia("(pointer: coarse)").matches
   )
-  if (coarse) {
-    await expect(answer.getByText("⌘↵")).toBeHidden()
-    const box = await answer
-      .getByRole("button", { name: /Send to STAR/ })
-      .boundingBox()
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
-  }
+  await expect(answer.getByText("⌘↵")).toHaveCount(0)
+  const dock = answer.locator("[data-slot='answer-dock']")
+  const send = dock.getByRole("button", { name: /Send to STAR/ })
+  await expect(send).toBeVisible()
+  const box = await send.boundingBox()
+  // a fractional layout offset can make a 44px box measure 43.9999…
+  expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(44)
+  if (!coarse) expect(box?.height ?? 0).toBeGreaterThan(0)
   await page.goBack()
   await expect(list).toBeVisible()
   await expect(page).toHaveURL(/\/needs$/)
@@ -86,6 +88,39 @@ test("on a phone, an item opens on its own and Back returns to the list", async 
   await answer.getByRole("button", { name: "Back to Needs you" }).click()
   await expect(list).toBeVisible()
   await noHorizontalScroll(page)
+})
+test("on a phone, Done holds the answer with an Undo toast, then sends it", async ({
+  page,
+}) => {
+  test.skip(!isPhone(page), "the phone layout only")
+  await openApp(page, "/needs")
+  const row = page
+    .getByRole("region", { name: "Open loops" })
+    .getByRole("listitem")
+    .filter({ hasText: /Log in to the Stripe dashboard/ })
+  await row.getByRole("button", { name: "Done" }).click()
+  await expect(
+    page.getByText('"Done" goes to STAR in 5 seconds.')
+  ).toBeVisible()
+  await expect(row.getByText("Sending…")).toBeVisible()
+  await expect(row.getByText("Sent to STAR")).toBeVisible({ timeout: 15_000 })
+  await noHorizontalScroll(page)
+})
+test("on a phone, Undo leaves the row unanswered", async ({ page }) => {
+  test.skip(!isPhone(page), "the phone layout only")
+  await openApp(page, "/needs")
+  const row = page
+    .getByRole("region", { name: "Open loops" })
+    .getByRole("listitem")
+    .filter({ hasText: /Log in to the Stripe dashboard/ })
+  await row.getByRole("button", { name: "Done" }).click()
+  await page
+    .locator("[data-sonner-toast]")
+    .getByRole("button", { name: "Undo" })
+    .click()
+  await page.waitForTimeout(6000)
+  await expect(row.getByRole("button", { name: "Done" })).toBeVisible()
+  await expect(row.getByText("Sent to STAR")).toHaveCount(0)
 })
 test("items from two projects show on /needs, and answering one marks it Sent to STAR", async ({
   page,
@@ -100,7 +135,9 @@ test("items from two projects show on /needs, and answering one marks it Sent to
   const answer = page.getByRole("region", { name: "Answer" })
   await answer.getByRole("radio").first().check()
   await answer.getByRole("button", { name: /Send to STAR/ }).click()
-  await expect(page.getByText(/^Sent to STAR: "try again"/).first()).toBeVisible()
+  await expect(
+    page.getByText(/^Sent to STAR: "try again"/).first()
+  ).toBeVisible()
   if (isPhone(page))
     await page.getByRole("button", { name: "Back to Needs you" }).click()
   await expect(
