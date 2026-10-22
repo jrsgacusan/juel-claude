@@ -295,7 +295,7 @@ Act on the printed object's `wake`:
 | `wake` | Action |
 |---|---|
 | `feedback` | Phase 3 with this object's `new_feedback`, `reviewers` and `cursor`. An item with `kind: hosted-pass` is the hosted reviewer's re-review of `head`, made by editing its summary comment: judge that review first, by the hosted-reviewer row of "Unattended mode" (clean → Phase 4; not clean → its batched fix), and leave the item itself out of Phase 3's replies. An item with `kind: hosted-skip` is a hosted run that reviewed nothing (its `reason` says why): log `<iso> skipped head=<its head> <reason>` in `<item>-hosted.log`, spend no pass on it, and end with the hosted-reviewer row's `ESCALATION item=<item> phase=8 reason=out-of-tries step=hosted-wait`; leave the item out of Phase 3's replies. |
-| `conflict` | The PR conflicts with its base (`merge` is `dirty`): CI and the hosted review do not start on a conflicting head, so waiting is pointless. Run Phase 4 steps 1 to 4 now (merge the base in with `merge-union.sh`, the tests step 3 asks of a push that only merges the base, and under a `star:` brief the push's gate, a carry of the last SAFE when the merge brings no change to a file this branch changes, as `carry-check.sh` decides), add one to this run's base syncs, then wait again on the new head with the same cursor. When step 1 finds nothing to merge (the base is already in, so GitHub's `dirty` is stale), count no sync: wait 60 seconds and run the script again instead of re-entering `--wait`, which would wake `conflict` at once. A conflict `merge-union.sh` cannot resolve ends as in Phase 4 step 1 |
+| `conflict` | The PR conflicts with its base (`merge` is `dirty`): CI and the hosted review do not start on a conflicting head, so waiting is pointless. Run Phase 4 steps 1 to 4 now (merge the base in with `merge-union.sh`, the tests step 3 asks of a push that only merges the base, and under a `star:` brief the push's gate, a carry of the last SAFE when the merge brings no change to a file this branch changes, as `carry-check.sh` decides; push it only as the hold in Phase 4 step 4 allows), add one to this run's base syncs, then wait again on the new head with the same cursor. When step 1 finds nothing to merge (the base is already in, so GitHub's `dirty` is stale), count no sync: wait 60 seconds and run the script again instead of re-entering `--wait`, which would wake `conflict` at once. A conflict `merge-union.sh` cannot resolve ends as in Phase 4 step 1 |
 | `approved` | Phase 4 |
 | `draft` | The PR is approved but is a draft (someone converted it back). Tell the user and stop; under `--unattended`: `ESCALATION item=<item> phase=8 reason=out-of-tries step=pr-draft` |
 | `closed` | Phase 5: report "PR was closed or merged by someone else" and stop |
@@ -387,6 +387,22 @@ In reviewer mode, this phase is the re-review in "Reviewer mode"; the steps belo
 4. `git push <remote> HEAD`. Never force-push. Under a `star:` brief the push is gated first (the
    "a push in Phase 3 or Phase 4" row of "Unattended mode"), and a merge that brings no change to a
    file this branch changes, as `carry-check.sh` decides, carries the last SAFE with no codex round.
+   Under `--unattended` with a hosted reviewer set and not paused, a push that only merges the base
+   branch in (from Phase 4 step 1 or a `conflict` wake) holds first, because a push ends a running pass early
+   and starts another run, so the pass the reviewer is working on never finishes and a run is spent
+   for nothing: while the snapshot's `hosted` is `pending` on the PR's head, keep the merged, gated
+   commit local, wait 60 seconds and run the script again, and push only once `hosted` is no longer
+   `pending`. The wait ends where the hosted-reviewer row's wait ends: 72 hours with no new feedback
+   since the PR was marked ready ends with `ESCALATION item=<item> phase=8 reason=out-of-tries
+   step=hosted-wait`. When the pass that finished is not yet judged, judge it first, as the
+   hosted-reviewer row says, and then push: a clean review keeps its judgement across the push, and a
+   not clean one gets its batched fix in this push. When the passes used (the distinct heads with a
+   `pass` line in `<item>-hosted.log`) equal `maxPasses` and `hostedReviewer.refreshOutsideCap` is
+   false, the push would start a reviewer run that counts as a pass beyond the cap, so push nothing
+   and end with `ESCALATION item=<item> phase=8 reason=out-of-tries step=hosted-review review=<a file
+   saying a push of the base merge on <head> would start a reviewer run that counts as pass <n+1>>`,
+   `<n>` being the passes used. With `refreshOutsideCap` true that push stays as the hosted-reviewer
+   row says: a status refresh that does not count.
 5. Run `sh <script> <pr> --since <cursor>` once more. If new feedback arrived while this phase
    was running, go to Phase 3 with it. Otherwise Phase 5.
 
