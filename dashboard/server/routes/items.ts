@@ -4,6 +4,7 @@ import { HttpError } from "../http.ts";
 import { readBrief } from "../readers/briefs.ts";
 import { isPlainName } from "../readers/files.ts";
 import { readProgress } from "../readers/progress.ts";
+import { readRelease } from "../readers/releases.ts";
 import { readLedger, readQueue } from "../readers/star.ts";
 import type { Router } from "../router.ts";
 
@@ -34,6 +35,20 @@ export function statusOf(
   return "queued";
 }
 
+/** When a done row merged, from its release record; null when there is none or it cannot be read. */
+function mergedAtOf(
+  home: string,
+  project: string,
+  row: LedgerRow,
+): string | null {
+  if (row.state !== "done") return null;
+  try {
+    return readRelease(home, project, row.item).mergedAt;
+  } catch {
+    return null;
+  }
+}
+
 export function itemOf(
   home: string,
   project: string,
@@ -47,6 +62,7 @@ export function itemOf(
     status: statusOf(row, open),
     step: steps.length ? (steps[steps.length - 1]?.text ?? null) : null,
     prUrl: /^https?:\/\//.test(row.pr) ? row.pr : null,
+    mergedAt: mergedAtOf(home, project, row),
   };
 }
 

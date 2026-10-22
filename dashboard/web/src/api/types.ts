@@ -67,6 +67,9 @@ export type ItemRow = {
   status: ItemStatus
   step: string | null
   prUrl: string | null
+  counters?: string
+  round?: string
+  mergedAt?: string | null
 }
 export type ProgressLine = { time: string | null; text: string }
 export type ItemDetail = {

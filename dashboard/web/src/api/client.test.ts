@@ -27,6 +27,15 @@ describe("the API client", () => {
       "application/json"
     )
     expect(post?.body).toBe(JSON.stringify({ text: "go" }))
+    expect(post?.keepalive).toBeUndefined()
+  })
+
+  it("keeps a request alive past the page's unload when asked", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => Promise.resolve(json([])))
+    await sendJson("POST", "/api/projects/a/loops/N-1/answer", { text: "go" }, { keepalive: true })
+    expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBe(true)
   })
   it("throws ApiError with the server's message and status", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

@@ -136,7 +136,7 @@ export function DraftPanel({
               <SelectTrigger
                 id="tracker"
                 aria-label="Tracker"
-                className="h-9 w-full"
+                className={cn("h-9 w-full", chosen === null && "ring-2 ring-wait")}
               >
                 <SelectValue placeholder="Pick one" />
               </SelectTrigger>
@@ -148,6 +148,11 @@ export function DraftPanel({
                 ))}
               </SelectContent>
             </Select>
+          )}
+          {chosen === null && !tracker.isPending && !tracker.isError && (
+            <p className="text-xs font-medium text-wait-fg">
+              Needed before the ticket can be created.
+            </p>
           )}
           <p className="text-xs text-muted-foreground">{`Asked once, then saved for ${project}.`}</p>
           {setTracker.isError && (
@@ -231,7 +236,8 @@ export function DraftPanel({
         )}
         <Button
           size="lg"
-          className="w-full"
+          variant={chosen === null ? "outline" : "answer"}
+          className={cn("w-full", chosen === null && "disabled:opacity-100")}
           disabled={
             chosen === null ||
             !draft ||

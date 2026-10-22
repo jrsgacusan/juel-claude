@@ -12,7 +12,9 @@ const filled = (pool: string) => slots(pool).filter((s) => s.dataset.filled === 
 describe("the Workers card", () => {
   it("shows each pool as one square per slot with n/max, and the busy count", () => {
     render(<WorkersCard workers={pools([1, 4], [3, 3], [1, 3])} />)
-    for (const text of ["Workers", "5 busy", "1/4", "3/3", "1/3"]) expect(screen.getByText(text)).toBeInTheDocument()
+    for (const text of ["Workers", "5 busy", "1 of 4", "3 of 3", "1 of 3"]) expect(screen.getByText(text)).toBeInTheDocument()
+    // Counts are words in the UI face; the mono face is kept for SHAs and paths.
+    expect(screen.getByText("1 of 4")).not.toHaveClass("font-mono")
     expect(slots("Briefing")).toHaveLength(4)
     expect(filled("Briefing")).toHaveLength(1)
     expect(slots("Review")).toHaveLength(3)
@@ -25,7 +27,7 @@ describe("the Workers card", () => {
     render(<WorkersCard workers={pools([0, 4], [0, 0], [0, 3])} />)
     expect(screen.getByText("all free")).toBeInTheDocument()
     expect(slots("Building")).toHaveLength(0)
-    expect(screen.getByText("0/0")).toBeInTheDocument()
+    expect(screen.getByText("0 of 0")).toBeInTheDocument()
   })
 
   it("breathes filled squares and pops only a square that fills while shown", () => {

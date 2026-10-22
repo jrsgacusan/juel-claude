@@ -42,7 +42,7 @@ test("a person step shows its title and what it is for", async ({ page }) => {
     })
   ).toBeVisible()
   await expect(answer.getByText("Your step", { exact: true })).toBeVisible()
-  await expect(answer.getByText("kind: secret")).toBeVisible()
+  await expect(answer.getByText("Secret", { exact: true })).toBeVisible()
   await expect(answer.getByRole("radio", { name: /^done/ })).toBeVisible()
   await expect(answer.getByText("STAR recommends")).toHaveCount(0)
 })

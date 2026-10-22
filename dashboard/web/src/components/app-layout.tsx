@@ -1,9 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { useEffect, useState } from "react"
+import { type CSSProperties, useEffect, useState } from "react"
 import { Link, Outlet, useLocation, useParams } from "react-router"
 import { startEvents } from "@/api/events"
 import { useProjects } from "@/api/queries"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { useDetailOpen } from "@/lib/chrome"
+import { rememberProject } from "@/lib/last-project"
 import { cn } from "@/lib/utils"
 import { isPage, projectPath } from "@/lib/routes"
 import { AppSidebar } from "./app-sidebar"
@@ -16,7 +18,9 @@ import {
   refreshFailed,
 } from "./page-state"
 import { SearchDialog } from "./search-dialog"
+import { useNarrow } from "./list-detail"
 import { SiteHeader } from "./site-header"
+import { TabBar } from "./tab-bar"
 
 export function AppLayout() {
   const { project = "" } = useParams()
@@ -30,6 +34,13 @@ export function AppLayout() {
   const projects = useProjects()
 
   useEffect(() => startEvents(queryClient), [queryClient])
+
+  useEffect(() => {
+    if (project) rememberProject(project)
+  }, [project])
+  const narrow = useNarrow()
+  const detailOpen = useDetailOpen()
+  const barShown = narrow && !detailOpen
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -50,12 +61,14 @@ export function AppLayout() {
     projects.isSuccess && !projects.data.some((p) => p.name === project)
 
   return (
-    <SidebarProvider>
-      <AppSidebar project={project} page={page} />
+    <SidebarProvider
+      style={barShown ? undefined : ({ "--tab-bar-h": "0px" } as CSSProperties)}
+    >
+      {!narrow && <AppSidebar project={project} page={page} />}
       <SidebarInset
         className={cn(
           "min-w-0 overflow-x-clip md:h-[calc(100svh-1rem)] md:overflow-hidden",
-          fills && "max-md:h-dvh"
+          fills && "max-md:h-[calc(100dvh-var(--tab-bar-h))]"
         )}
       >
         <SiteHeader
@@ -66,7 +79,12 @@ export function AppLayout() {
         <StoppedBanner project={project} />
         <ConflictBanner project={project} />
         <ConnectionBanner />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col md:overflow-hidden">
+        <div
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 flex-col md:overflow-hidden",
+            !fills && "max-md:pb-[var(--tab-bar-h)]"
+          )}
+        >
           {refreshFailed(projects) && (
             <RefreshNotice
               what="the projects"
@@ -104,6 +122,7 @@ export function AppLayout() {
           )}
         </div>
       </SidebarInset>
+      {narrow && <TabBar project={project} page={segment} />}
       <SearchDialog
         open={searchOpen}
         onOpenChange={setSearchOpen}

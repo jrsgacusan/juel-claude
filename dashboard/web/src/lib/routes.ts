@@ -6,6 +6,7 @@ export const PAGES = [
   "briefing",
   "evidence",
   "accounts",
+  "more",
 ] as const
 export type Page = (typeof PAGES)[number]
 export const PAGE_LABELS: Record<Page, string> = {
@@ -16,6 +17,7 @@ export const PAGE_LABELS: Record<Page, string> = {
   briefing: "Briefing",
   evidence: "Evidence",
   accounts: "Accounts",
+  more: "More",
 }
 export const isPage = (value: unknown): value is Page =>
   typeof value === "string" && (PAGES as readonly string[]).includes(value)

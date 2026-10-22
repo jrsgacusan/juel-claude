@@ -25,6 +25,11 @@ const MINUTE = 60_000
 
 export const ago = (minutes: number): string =>
   new Date(Date.now() - minutes * MINUTE).toISOString()
+/** As ago, but never before today's midnight, so an item the mock merged "today" stays today at any hour. */
+export const agoToday = (minutes: number): string =>
+  new Date(
+    Math.max(new Date().setHours(0, 0, 0, 0), Date.now() - minutes * MINUTE)
+  ).toISOString()
 const slackTs = (minutes: number): string =>
   ((Date.now() - minutes * MINUTE) / 1000).toFixed(6)
 const today = () => new Date().toISOString().slice(0, 10)
@@ -59,6 +64,8 @@ type ItemSeed = {
   stage: string
   branch: string
   pr?: number
+  counters?: string
+  mergedAgo?: number
   steps: Array<[minutesAgo: number, text: string]>
   criteria?: string[]
   decisions?: string[]
@@ -90,6 +97,8 @@ function item(p: string, s: ItemSeed): ItemDetail {
       status: s.status,
       step: `${token} ${lastText}`,
       prUrl: s.pr ? `https://github.com/example/${p}/pull/${s.pr}` : null,
+      counters: s.counters,
+      mergedAt: s.mergedAgo === undefined ? null : agoToday(s.mergedAgo),
     },
     progress: s.steps.map(([m, text]) => ({ time: ago(m), text })),
     criteria: s.criteria ?? [],
@@ -294,6 +303,7 @@ export function createDb(): MockDb {
           body: [
             "kind: account",
             "SPH-11 and SPH-12 read test-mode events. Only you can sign in.",
+            "also: SPH-12 briefs/sphere-app/SPH-12.md #2 account",
           ],
           options: [opt("Done", "done", true), opt("Can't now", "can't now")],
           suggestion:
@@ -420,6 +430,7 @@ export function createDb(): MockDb {
           stage: "babysit",
           branch: "fix/sph-7-export-focus",
           pr: 209,
+          counters: "tries=3 reached=verifying",
           steps: [
             [180, "Build finished, draft PR #209"],
             [161, "Codex gate passed on round 1"],
@@ -438,6 +449,7 @@ export function createDb(): MockDb {
           stage: "build",
           branch: "feat/sph-9-remove-export-modal",
           pr: 213,
+          counters: "tries=0 reached=building",
           steps: [
             [50, "Plan written, 4 tasks"],
             [31, "Executor done, 6 files changed"],
@@ -454,9 +466,10 @@ export function createDb(): MockDb {
           title: "Saved report views",
           status: "needs-you",
           state: "verifying",
-          stage: "merge",
+          stage: "babysit",
           branch: "feat/sph-5-saved-views",
           pr: 212,
+          counters: "tries=1 reached=verifying",
           steps: [
             [135, "Codex gate passed on round 2"],
             [122, "Greptile 5 of 5 on 4c19d0e"],
@@ -471,6 +484,7 @@ export function createDb(): MockDb {
           stage: "build",
           branch: "feat/sph-11-csv-export",
           pr: 214,
+          counters: "tries=0 reached=building",
           steps: [
             [69, "Plan written, 9 tasks"],
             [52, "Executor done on luna, 14 files changed"],
@@ -493,6 +507,7 @@ export function createDb(): MockDb {
           state: "building",
           stage: "build",
           branch: "fix/sph-13-invoice-timezone",
+          counters: "tries=0 reached=building",
           steps: [
             [36, "Plan written, 5 tasks"],
             [22, "Executor writing the code"],
@@ -506,6 +521,7 @@ export function createDb(): MockDb {
           stage: "babysit",
           branch: "feat/sph-10-invites",
           pr: 211,
+          counters: "tries=0 reached=babysitting",
           steps: [
             [59, "Codex gate passed on round 1"],
             [51, "Marked ready for review"],
@@ -547,9 +563,11 @@ export function createDb(): MockDb {
           title: "Fix invoice rounding",
           status: "merged",
           state: "done",
-          stage: "post",
+          stage: "babysit",
           branch: "fix/sph-8-rounding",
           pr: 207,
+          counters: "tries=0 reached=done",
+          mergedAgo: 10,
           steps: [
             [11, "Merge gate passed on 0b8e4c3"],
             [10, "Merged after the merge gate passed"],
@@ -560,9 +578,11 @@ export function createDb(): MockDb {
           title: "Reports page filters",
           status: "merged",
           state: "done",
-          stage: "post",
+          stage: "babysit",
           branch: "feat/sph-4-filters",
           pr: 205,
+          counters: "tries=0 reached=done",
+          mergedAgo: 150,
           steps: [
             [151, "Merge gate passed on 7d2a91c"],
             [150, "Merged after the merge gate passed"],

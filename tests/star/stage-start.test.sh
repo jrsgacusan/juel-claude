@@ -243,6 +243,37 @@ case "$out" in "failed branch: "*) pass "a brief branch checked out in the main 
 [ "$(L get SPH-20 worktree)" != "$APP" ] && pass "the main checkout is not recorded as the worktree" || fail "worktree cell is the main checkout"
 git -C "$APP" switch -q main
 
+# #181: parallel build starts in one repository all start, and a rename that collides on git's temp log is retried
+reset
+for n in 31 32 33; do L add SPH-$n ref=SPH-$n project=app state=queued >/dev/null; brief SPH-$n; done
+for n in 31 32 33; do ST build SPH-$n > "$TMP/par-$n.out" 2>&1 & done
+wait
+ok=1
+for n in 31 32 33; do
+  case "$(cat "$TMP/par-$n.out")" in "started task="*) ;; *) ok=0; fail "#181 parallel start SPH-$n ($(cat "$TMP/par-$n.out"))" ;; esac
+  [ "$(git -C "$APP/.worktrees/app/SPH-$n" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "feat/sph-$n-x" ] || { ok=0; fail "#181 SPH-$n is not on its brief branch"; }
+done
+[ "$ok" -eq 1 ] && pass "three build starts at once in one repository all start"
+
+REALGIT=$(command -v git)
+cat > "$TMP/bin/git" <<EOF
+#!/bin/sh
+case " \$* " in
+  *" branch -m "*)
+    if [ ! -f "$TMP/rename-failed" ]; then
+      : > "$TMP/rename-failed"
+      echo "error: unable to move logfile logs/refs/heads/orca/x to logs/refs/.tmp-renamed-log: File exists" >&2
+      exit 128
+    fi ;;
+esac
+exec "$REALGIT" "\$@"
+EOF
+chmod +x "$TMP/bin/git"
+reset; rm -f "$TMP/rename-failed"; L add SPH-34 ref=SPH-34 project=app state=queued >/dev/null; brief SPH-34
+out=$(ST build SPH-34)
+case "$out" in "started task="*) [ -f "$TMP/rename-failed" ] && pass "a branch rename that collides on git's temp log is retried once" || fail "#181 the wrapper never failed a rename" ;; *) fail "#181 retry ($out)" ;; esac
+rm -f "$TMP/bin/git"
+
 # a trust hold after the row is written puts the row back and keeps the start replayable
 WT21="$APP/.worktrees/app/SPH-21"; git -C "$APP" worktree add -q -b feat/sph-21-x "$WT21" >/dev/null 2>&1
 L add SPH-21 ref=SPH-21 project=app state=babysit-queued "worktree=$WT21" pr=https://github.com/o/r/pull/21 >/dev/null; brief SPH-21; review SPH-21 1

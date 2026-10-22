@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { apiFetch, apiJson, ApiError, sendJson } from "@/api/client"
 import { paths } from "@/api/paths"
 import type {
@@ -12,7 +12,8 @@ import type {
   SlackState,
 } from "@/api/types"
 import { HOME } from "./fixtures"
-import { getDb, mockEvents, setScenario } from "./state"
+import { dayLabel } from "@/lib/format"
+import { getDb, mockEvents, resetMockState, setScenario } from "./state"
 describe("the mock API", () => {
   it("lists the projects with their open loop counts", async () => {
     const projects = await apiJson<Project[]>(paths.projects())
@@ -125,6 +126,42 @@ describe("the mock API", () => {
       expect(detail.row.item).toBe(row.item)
       expect(detail.progress.length).toBeGreaterThan(0)
     }
+  })
+  it("keeps the mock's two merges on today's date when the tests run just after midnight", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const night = new Date()
+    night.setHours(0, 30, 0, 0)
+    vi.setSystemTime(night)
+    try {
+      resetMockState()
+      const rows = getDb().items[HOME]!.map((d) => d.row)
+      for (const ref of ["SPH-8", "SPH-4"])
+        expect(dayLabel(rows.find((r) => r.item === ref)!.mergedAt ?? "")).toBe("Today")
+    } finally {
+      vi.useRealTimers()
+      resetMockState()
+    }
+  })
+  it("carries counters, mergedAt, fixed stages and the also line (D9)", async () => {
+    const rows = await apiJson<ItemRow[]>(paths.items(HOME))
+    const byItem = (ref: string) => rows.find((row) => row.item === ref)!
+    const minutesAgo = (iso: string | null | undefined) =>
+      Math.round((Date.now() - Date.parse(iso ?? "")) / 60_000)
+    // 10 and 150 minutes ago, but never before today's midnight: the mock's merges stay today's.
+    expect(minutesAgo(byItem("SPH-8").mergedAt)).toBeLessThanOrEqual(10)
+    expect(minutesAgo(byItem("SPH-4").mergedAt)).toBeLessThanOrEqual(150)
+    for (const ref of ["SPH-8", "SPH-4"]) expect(dayLabel(byItem(ref).mergedAt ?? "")).toBe("Today")
+    for (const row of rows.filter((r) => !["SPH-8", "SPH-4"].includes(r.item)))
+      expect(row.mergedAt).toBeNull()
+    for (const ref of ["SPH-7", "SPH-9", "SPH-5", "SPH-11", "SPH-13", "SPH-10", "SPH-8", "SPH-4"])
+      expect(byItem(ref).counters).toMatch(/reached=/)
+    expect(byItem("SPH-5").stage).toBe("babysit")
+    expect(byItem("SPH-8").stage).toBe("babysit")
+    expect(byItem("SPH-4").stage).toBe("babysit")
+    const loops = await apiJson<Loop[]>(paths.loops(HOME))
+    expect(loops.find((l) => l.id === "N-41")?.body).toContain(
+      "also: SPH-12 briefs/sphere-app/SPH-12.md #2 account"
+    )
   })
   it("serves evidence files by kind", async () => {
     const text = await (

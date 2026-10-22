@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore, type ReactNode } from "react"
 import { ChevronLeft } from "lucide-react"
 import { useLocation, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
+import { setDetailOpen } from "@/lib/chrome"
 import { useSearchParam } from "@/lib/use-search-param"
 import { cn } from "@/lib/utils"
 
@@ -68,6 +69,11 @@ export function ListDetail({
   useEffect(() => {
     if (narrow && showDetail) window.scrollTo(0, 0)
   }, [narrow, showDetail])
+  // The phone's tab bar hides while a detail shows.
+  useEffect(() => {
+    setDetailOpen(narrow && showDetail)
+    return () => setDetailOpen(false)
+  }, [narrow, showDetail])
   return (
     <div className={cn("grid min-h-0 flex-1 md:h-full", columns)}>
       <section
@@ -104,5 +110,29 @@ export function ListDetail({
         </section>
       )}
     </div>
+  )
+}
+
+/** The bottom dock of a phone answer: its buttons stay in reach above the safe area. The spacer keeps the last field clear of it. */
+export function AnswerDock({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <div aria-hidden className="h-24" />
+      <div
+        data-slot="answer-dock"
+        className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      >
+        {children}
+      </div>
+    </>
+  )
+}
+
+/** True when a key press came from a place the user types in, so a shortcut key must not act. */
+export function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
   )
 }

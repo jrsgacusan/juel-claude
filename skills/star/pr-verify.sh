@@ -7,8 +7,9 @@
 #   PASS [<note>] | PENDING <what> | MOVED <head> | MERGED <merge sha> | FAIL <what>
 # "PASS approval is on an earlier commit" is still a pass: the repo's review rule is satisfied,
 # but the approval was given before the newest commits; the note is for the person who merges.
-# Green means every check that reported is green AND GitHub's merge state is not BLOCKED or
-# BEHIND, so a required check that has not started yet is PENDING, not a pass.
+# Green means every check that reported is green AND GitHub's merge state is not BLOCKED, and not
+# BEHIND when the base requires up-to-date branches (a strict rule, or one that cannot be read),
+# so a required check that has not started yet is PENDING, not a pass.
 # PENDING means "ask again later" (checks running, mergeable not computed, gh unreachable or
 # its output unreadable). GitHub can show a PR's previous head for a few seconds after a push: when
 # the PR's head is not --head but its branch's tip (gh api .../git/ref/heads/<branch>) already is,
@@ -180,6 +181,13 @@ def rule_lines(d):
             except (OSError, subprocess.TimeoutExpired):
                 pass
     return RULE["lines"]
+
+
+def base_requires_up_to_date(d):
+    """True when the base needs branches up to date (a strict rule), or when that cannot be read."""
+    lines = rule_lines(d)
+    # review-rule.sh reports an unreadable rule as "unknown <why>", and this script's own fallback is a bare "unknown".
+    return lines[0] == "unknown" or lines[0].startswith("unknown ") or "strict" in lines
 
 
 def review_rule(d):
@@ -466,7 +474,7 @@ def main():
     merge_state = str(d.get("mergeStateStatus") or "").upper()
     if merge_state == "BLOCKED":
         out("PENDING merge state: blocked (a required check or review has not reported)")
-    if merge_state == "BEHIND":
+    if merge_state == "BEHIND" and base_requires_up_to_date(d):
         out("PENDING merge state: behind the base branch")
     if a.merge_gate:
         open_threads = threads(d)

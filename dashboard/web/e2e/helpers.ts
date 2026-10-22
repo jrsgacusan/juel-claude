@@ -60,10 +60,11 @@ export async function noHorizontalScroll(page: Page) {
   )
 }
 
-/** On a phone the sidebar is a sheet behind the menu button. */
+/** On a phone the pages beyond Progress and Chat sit on More, behind the tab bar; on a desktop the sidebar is always there. */
 export async function openNav(page: Page) {
-  if (isPhone(page))
-    await page.getByRole("button", { name: "Open the menu" }).click()
+  if (!isPhone(page)) return
+  await page.getByRole("navigation", { name: "Pages" }).getByRole("link", { name: "More" }).click()
+  await expect(page).toHaveURL(/\/more$/)
 }
 
 export const MOD = process.platform === "darwin" ? "Meta" : "Control"

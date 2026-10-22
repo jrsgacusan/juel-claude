@@ -39,7 +39,7 @@
 # failed to needs-you, keeping the stage, when a person item came back for them, else to set-aside with a
 # set-aside queue item "<item> set aside: <old item's title, or stopped before the schema-3 migration>", body
 # "step: migration", options "try again / drop"; reported to post-queued; counters keep only schema 3's keys,
-# live among them, and gain tries=0). Grant files are left alone.
+# live among them, and gain tries=0). Grant files are left alone. Each row keeps its `updated` time.
 #   star-home.sh [--cwd <dir>] import <spec path>
 #                                        copy a spec from outside the folder, with each file under the spec's folder that its text
 #                                        names, into items/<project>/<kebab name>[-<n>]/ and print the copy's path; a spec already
@@ -80,7 +80,9 @@
 # migrate also moves a v2.0.0 gate to v2.1.0's: "model": "gpt-6-astra" becomes "latest-sol", and a
 # string "fallback" (v2.0.0's codex fallback) becomes {"agent": "claude", "model": "opus",
 # "effort": "xhigh"}. Any other gate value is the owner's and is left alone. init and migrate both
-# create every folder, evidence/ included (worktree-clean.sh copies a worktree's evidence there).
+# create the folders (inbox, briefs, reviews, gates, releases, drafts, memory, specs, reports, items,
+# progress, evidence, library, builds; evidence/ is where worktree-clean.sh copies a worktree's evidence)
+# and never grants/, which nothing reads.
 # Exit: 0 ok; 1 not inside a usable git checkout, import with a spec that is not a readable file, no STAR folder, an unreadable star.json
 # or project name, a named file it cannot read, or a copy that fails, register with no STAR folder or a registry it cannot read or write,
 # a STAR folder migrate cannot read, or ledger.sh or loops.sh failing during
@@ -97,7 +99,7 @@ import sys
 from datetime import datetime, timezone
 
 SUBDIRS = ("inbox", "briefs", "reviews", "gates", "releases", "drafts", "memory", "specs", "reports",
-           "items", "grants", "progress", "evidence", "library", "builds")
+           "items", "progress", "evidence", "library", "builds")
 BASES = ("library.base", "notes.base")
 FILES = ("open-loops.md", "ledger.md", "star.json")
 DEFAULTS = {
@@ -489,8 +491,11 @@ def ledger_rows(skill):
     return [l.split("\t") for l in rows.stdout.splitlines() if len(l.split("\t")) >= 6]
 
 
-def ledger_run(skill, *args):
-    done = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, *args], capture_output=True, text=True)
+def ledger_run(skill, *args, now=None):
+    env = dict(os.environ)
+    if now and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?Z", now):
+        env["STAR_NOW"] = now  # the row keeps the updated time it had
+    done = subprocess.run(["sh", os.path.join(skill, "ledger.sh"), "--home", home, *args], capture_output=True, text=True, env=env)
     if done.returncode != 0:
         die(1, f"ledger.sh {' '.join(args[:2])}: " + (done.stderr.strip() or f"exit {done.returncode}"))
     return done.stdout.strip()
@@ -504,6 +509,7 @@ def migrate_ledger(skill, queue_entries, readded, titles, project):
     changed = []
     for cells in ledger_rows(skill):
         item, state = cells[0], cells[1]
+        updated = cells[7] if len(cells) > 7 else None
         new = {"escalated": "needs-you" if item in readded else "set-aside",
                "failed": "needs-you" if item in readded else "set-aside", "reported": "post-queued",
                "brief-ready": "needs-you" if item in waiting else "queued"}.get(state)
@@ -522,7 +528,7 @@ def migrate_ledger(skill, queue_entries, readded, titles, project):
         if "tries" not in kept:
             fields.append("counters.tries=0")
         if fields:
-            ledger_run(skill, "set", item, *fields)
+            ledger_run(skill, "set", item, *fields, now=updated)
             if new:
                 changed.append(item)
     return changed
@@ -613,25 +619,25 @@ def migrate():
     moving, restage = [], []
     for cells in ledger_rows(skill) if from_v1 else []:  # a schema 2 row is already in schema 2's states
         if cells[1] in MOVES:
-            moving.append((cells[0], cells[1]))
+            moving.append((cells[0], cells[1], cells[7] if len(cells) > 7 else None))
             if cells[1] in RUNNING_V1 and cells[5] not in ("", "-") and f"stop {cells[5]}" not in stops:
                 stops.append(f"stop {cells[5]}")
         elif cells[1] not in CLOSED and cells[2] in REMOVED_STAGES:
-            restage.append(cells[0])
+            restage.append((cells[0], cells[7] if len(cells) > 7 else None))
     if stops:  # on disk and printed before any row moves, so a run that stops half way has named them
         tmp = f"{stops_path}.tmp.{os.getpid()}"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write("\n".join(stops) + "\n")
         os.replace(tmp, stops_path)
         announce()
-    for item, old in moving:
+    for item, old, updated in moving:
         new, stage, kind = MOVES[old]
-        ledger_run(skill, "set", item, f"state={new}", f"stage={stage}", "task=-", "dispatch=-")
+        ledger_run(skill, "set", item, f"state={new}", f"stage={stage}", "task=-", "dispatch=-", now=updated)
         record(project, item, old, kind)
         touched.add(item)
     # no state move reaches an escalated or failed row, but v2 cannot start a row at a removed stage
-    for item in restage:
-        ledger_run(skill, "set", item, "stage=build")
+    for item, updated in restage:
+        ledger_run(skill, "set", item, "stage=build", now=updated)
         touched.add(item)
     loops, readded, titles = migrate_queue(skill)
     touched.update(migrate_ledger(skill, queue_items(os.path.join(home, "open-loops.md")), readded, titles, project))

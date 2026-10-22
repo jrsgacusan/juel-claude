@@ -413,5 +413,13 @@ for r in 'reason=merge-conflict' 'reason=unanswered-question' 'reason=gate-red' 
   grep -qF -- "$r" "$SKILL" && fail "AU22 removed reason gone: $r" || pass "AU22 removed reason gone: $r"
 done
 
+# #179: a base-merge push never cuts a running hosted pass short.
+has "#179a the sync push waits for a running pass" 'while the snapshot'"'"'s `hosted` is `pending` or `unknown` on the PR'"'"'s head, keep the merged, gated commits local, wait 60 seconds and run the script again, and push only once `hosted` is neither'
+has "#179e every push a conflict wake or a Phase 4 step 1 sync makes is held, fix included" 'every push a `conflict` wake or Phase 4 step 1 makes (the base merge, and any fix it needed to go green) holds first'
+has "#179f a last pass that is not clean ends in RESCOPE with nothing pushed" 'when it was the last pass (`maxPasses`), push nothing and end with `RESCOPE item=<item> reason=hosted-review`'
+has "#179b a push cuts a running pass short" 'a push ends a running pass early and starts another run'
+has "#179c at a counted cap the push is escalated" 'ESCALATION item=<item> phase=8 reason=out-of-tries step=hosted-review review=<a file saying a push of the base merge on <head> would start a reviewer run that counts as pass <n+1>>'
+has "#179d the conflict wake points at the hold" 'push it only as the hold in Phase 4 step 4 allows'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

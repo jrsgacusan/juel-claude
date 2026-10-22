@@ -3,6 +3,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
   type RefObject,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -24,6 +25,7 @@ import { StarMark } from "@/components/status"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { errorMessage } from "@/lib/errors"
+import { useSearchParam } from "@/lib/use-search-param"
 import { cn } from "@/lib/utils"
 
 /** Takes what is left of the screen under the header and banners (the layout is a dvh-tall column below md), so the thread scrolls in its own box. */
@@ -131,7 +133,14 @@ export function ChatPage() {
   const overview = useOverview(project)
   const projects = useProjects()
   const send = useSendChat(project)
-  const [text, setText] = useState("")
+  // A link can open Chat with a message typed (?draft=): take it once, then drop it from the URL.
+  const [draft, setDraft] = useSearchParam("draft")
+  const [text, setText] = useState(draft ?? "")
+  useEffect(() => {
+    if (draft !== null) setDraft(null)
+    // Once, on arrival: the typed text is the page's own from then on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const pendingRow: ChatMessage | null =
     send.variables && (send.isPending || send.isSuccess)

@@ -23,17 +23,17 @@ assert os.path.isfile(os.path.join(os.path.dirname(sys.argv[1]), "register.tsx")
 PY
 
 # plugin.json: still juel, plus the types and the three toggles
-python3 - "$ROOT/.claude-plugin/plugin.json" 2> "$TMP/err" <<'PY' && pass "plugin.json adds the types and the star_band, star_guards, star_cswap_auto and star_rm_guard toggles" || fail "plugin.json: $(tail -1 "$TMP/err")"
+python3 - "$ROOT/.claude-plugin/plugin.json" 2> "$TMP/err" <<'PY' && pass "plugin.json adds the types and the star_band, star_guards and star_rm_guard toggles" || fail "plugin.json: $(tail -1 "$TMP/err")"
 import json, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
 assert d["name"] == "juel" and d["description"].startswith("Ticket-to-PR workflow skills"), d
 assert "superpowers@claude-plugins-official" in d["dependencies"], d["dependencies"]
 assert d["types"] == "./types/index.d.ts", d.get("types")
 u = d["userConfig"]
-assert sorted(u) == ["star_band", "star_cswap_auto", "star_guards", "star_rm_guard"], sorted(u)
+assert sorted(u) == ["star_band", "star_guards", "star_rm_guard"], sorted(u)
 assert all(u[k]["type"] == "boolean" for k in u), u
 assert u["star_band"]["default"] is True and u["star_guards"]["default"] is True, u
-assert u["star_cswap_auto"]["default"] is True, u
+assert "star_cswap_auto" not in u, u
 assert isinstance(u["star_rm_guard"]["default"], bool), u
 PY
 

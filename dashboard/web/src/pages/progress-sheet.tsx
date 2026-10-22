@@ -5,11 +5,13 @@ import {
   ExternalLink,
   Images,
   LoaderCircle,
+  MessageSquare,
 } from "lucide-react"
+import { useSyncExternalStore } from "react"
 import { Link } from "react-router"
 import { useItem, useLoops } from "@/api/queries"
 import { ErrorState } from "@/components/page-state"
-import { StateBadge } from "@/components/status"
+import { StageRail } from "@/components/stage-rail"
 import { Button } from "@/components/ui/button"
 import {
   Sheet,
@@ -23,7 +25,24 @@ import { age, clock } from "@/lib/format"
 import { itemLabel } from "@/lib/items"
 import { isAnswered } from "@/lib/loops"
 import { projectPath } from "@/lib/routes"
+import { railOf, STAGES, UPCOMING } from "@/lib/stage"
 import { prLabel, statusOf, stepText, TAB_OF } from "@/lib/status"
+import { cn } from "@/lib/utils"
+
+const PHONE = "(max-width: 639px)"
+
+/** Below sm (640 px). Chosen in JS, so a phone never has the wide layout's copy in the DOM. */
+export function usePhone(): boolean {
+  return useSyncExternalStore(
+    (notify) => {
+      const mq = window.matchMedia(PHONE)
+      mq.addEventListener("change", notify)
+      return () => mq.removeEventListener("change", notify)
+    },
+    () => window.matchMedia(PHONE).matches,
+    () => false
+  )
+}
 
 type StepTone = "done" | "run" | "wait" | "stop"
 
@@ -77,24 +96,45 @@ export function ItemSheet({
     ? loops.data?.find((l) => l.item === row.item && !isAnswered(l))
     : undefined
   const pr = row ? prLabel(row) : null
+  const phone = usePhone()
+  const rail = row ? railOf(row) : null
+  // The stages after the current one (or, with none current, after the done ones); a dropped item has none.
+  const ahead =
+    rail && rail.tone !== "muted"
+      ? STAGES.slice(rail.current === null ? rail.done : rail.current + 1)
+      : []
+  const now = row ? stepText(row.step) || statusOf(row.status).label : ""
 
   return (
     <Sheet open={item !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
-        side="right"
-        className="w-full gap-6 overflow-y-auto p-6 sm:max-w-md"
+        side={phone ? "bottom" : "right"}
+        className={cn(
+          "gap-6 overflow-y-auto p-6",
+          phone ? "max-h-[90dvh] rounded-t-2xl pt-3" : "w-full sm:max-w-md"
+        )}
       >
+        {phone && (
+          <div
+            aria-hidden="true"
+            className="mx-auto h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30"
+          />
+        )}
         <SheetHeader className="p-0 pr-12">
-          <span className="font-mono text-xs text-muted-foreground">
-            {row ? itemLabel(row) : item}
-          </span>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span className="font-mono">{row ? itemLabel(row) : item}</span>
+            {pr && <span className="font-mono">{pr}</span>}
+            {row?.updated && (
+              <span className="tabular-nums">{`updated ${age(row.updated)}`}</span>
+            )}
+          </p>
           <SheetTitle className="text-lg leading-snug">
             {row?.title ?? item ?? ""}
           </SheetTitle>
           <SheetDescription className="sr-only">
             The item's branch, PR and step log
           </SheetDescription>
-          {row && <StateBadge status={row.status} />}
+          {rail && <StageRail rail={rail} size="lg" />}
         </SheetHeader>
         {detail.isPending && item !== null && (
           <div className="flex flex-col gap-3">
@@ -112,19 +152,20 @@ export function ItemSheet({
         {detail.data && row && (
           <>
             <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+              <dt className="text-muted-foreground">Now</dt>
+              <dd
+                className={cn(
+                  "break-words",
+                  row.status === "needs-you" && "text-wait-fg"
+                )}
+              >
+                {now}
+              </dd>
               <dt className="text-muted-foreground">Worktree</dt>
-              <dd className="font-mono text-xs leading-5 break-all select-all">
+              <dd className="truncate font-mono text-xs leading-5 select-all">
                 {row.worktree && row.worktree !== "-"
                   ? row.worktree
                   : "Not created yet"}
-              </dd>
-              <dt className="text-muted-foreground">PR</dt>
-              <dd className="font-mono text-xs leading-5">
-                {pr ?? "None yet"}
-              </dd>
-              <dt className="text-muted-foreground">Updated</dt>
-              <dd className="tabular-nums">
-                {row.updated ? age(row.updated) : "Unknown"}
               </dd>
             </dl>
             <div className="flex flex-col gap-3">
@@ -148,6 +189,16 @@ export function ItemSheet({
                     </span>
                   </li>
                 ))}
+                {ahead.map((name) => (
+                  <li key={name} className="relative flex items-start gap-3">
+                    <span className="z-10 grid size-4 place-items-center bg-background">
+                      <span className="size-1.5 rounded-full bg-foreground/20" />
+                    </span>
+                    <span className="min-w-0 flex-1 text-sm leading-5 break-words text-muted-foreground">
+                      {UPCOMING[name as keyof typeof UPCOMING]}
+                    </span>
+                  </li>
+                ))}
               </ol>
             </div>
             <BulletList
@@ -157,7 +208,7 @@ export function ItemSheet({
             <BulletList title="Decisions" lines={detail.data.decisions} />
             <div className="mt-auto flex flex-wrap gap-2">
               {waiting && (
-                <Button asChild>
+                <Button variant="answer" asChild className="pointer-coarse:h-11">
                   <Link
                     to={projectPath(
                       project,
@@ -170,7 +221,7 @@ export function ItemSheet({
                 </Button>
               )}
               {row.prUrl && pr && (
-                <Button variant="outline" asChild>
+                <Button variant="outline" asChild className="pointer-coarse:h-11">
                   <a href={row.prUrl} target="_blank" rel="noreferrer">
                     <ExternalLink />
                     Open PR {pr}
@@ -178,7 +229,7 @@ export function ItemSheet({
                 </Button>
               )}
               {row.status === "merged" && (
-                <Button variant="outline" asChild>
+                <Button variant="outline" asChild className="pointer-coarse:h-11">
                   <Link
                     to={projectPath(project, "evidence", { item: row.item })}
                   >
@@ -187,6 +238,14 @@ export function ItemSheet({
                   </Link>
                 </Button>
               )}
+              <Button variant="outline" asChild className="pointer-coarse:h-11">
+                <Link
+                  to={`${projectPath(project, "chat")}?draft=${encodeURIComponent(`About ${row.item}: `)}`}
+                >
+                  <MessageSquare />
+                  Ask STAR about it
+                </Link>
+              </Button>
             </div>
           </>
         )}

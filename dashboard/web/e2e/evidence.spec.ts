@@ -36,7 +36,7 @@ test("opens an image, a video and a text file full size", async ({ page }) => {
     .click()
   dialog = page.getByRole("dialog", { name: "reports-filters.spec.txt" })
   await expect(dialog.locator("pre")).toContainText("6 passed")
-  await expect(dialog.locator("pre")).toHaveCSS("font-family", /Geist Mono/)
+  await expect(dialog.locator("pre")).toHaveCSS("font-family", /ui-monospace|SFMono-Regular|Menlo/)
   await noHorizontalScroll(page)
 })
 test("pages the merged items and a big file grid, and keeps the page on a phone", async ({

@@ -22,7 +22,7 @@ describe("the project routes", () => {
     renderApp("/sphere-app/nowhere")
     expect(
       await screen.findByText(
-        "The dashboard has Needs you, Progress, Chat, Slack replies, Briefing and Evidence for each project, and Claude accounts."
+        "The dashboard has Needs you, Progress, Chat, Slack replies, Briefing, Evidence and More for each project, and Claude accounts."
       )
     ).toBeInTheDocument()
   })

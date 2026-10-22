@@ -24,6 +24,8 @@ if [ "$1" = api ]; then
     *"/rules/branches/"*)
       [ -n "${STUB_RULES_ERR:-}" ] && { echo "$STUB_RULES_ERR" >&2; exit 1; }
       if [ -n "${STUB_RULES:-}" ]; then cat "$STUB_RULES"; else echo '[]'; fi ;;
+    *"/protection"*)
+      if [ -n "${STUB_PROTECTION:-}" ]; then cat "$STUB_PROTECTION"; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;;
     *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;;
   esac
   exit 0
@@ -333,7 +335,23 @@ oa "an approval by a member still reads approved" "PASS approved" "$OWN" "$OK,$B
 oa "a hosted reviewer still reads hosted" "PASS hosted" "$OWN" "$NOREV" "" "" "--hosted"
 oa "no approval needed still needs the codex PASS" "FAIL no codex PASS for abc1234" "$OWN" "$OK,$BASE,$AUTHOR,$NOAPP,$GREEN,\"comments\":[]"
 oa "no approval needed still needs green checks" "FAIL checks: ci" "$OWN" "$OK,$BASE,$AUTHOR,$NOAPP,\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"COMPLETED\",\"conclusion\":\"FAILURE\"}],\"comments\":[$PASSC]"
-oa "no approval needed still waits for a branch that is behind" "PENDING merge state: behind the base branch" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\""
+STRICT="$TMP/strict-rules.json"
+printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]\n' > "$STRICT"
+oa "no approval needed still waits for a branch that is behind a strict base" "PENDING merge state: behind the base branch" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\"" "$STRICT"
+oa "#180 behind a base that does not require up-to-date branches passes the gate" "PASS no approval required" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\""
+printf '{"required_status_checks":{"strict":true,"contexts":[]}}\n' > "$TMP/protection.json"
+STUB_PROTECTION="$TMP/protection.json"; export STUB_PROTECTION
+oa "#180 behind a base with strict classic protection waits" "PENDING merge state: behind the base branch" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\""
+unset STUB_PROTECTION
+oa "#180 behind with a rule that cannot be read stays pending" "PENDING review rule: unreadable rules" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\"" "$BAD"
+# An approved head reaches the behind check: a rule review-rule.sh cannot read prints "unknown <why>", which must hold.
+APPROVED_GATE="$OK,$BASE,$AUTHOR,$MEMBER_OK,$GREEN,\"comments\":[$PASSC]"
+oa "#180 approved and behind with an unreadable rule stays pending" "PENDING merge state: behind the base branch" "$OWN" "$APPROVED_GATE,\"mergeStateStatus\":\"BEHIND\"" "$BAD"
+STUB_RULES="$BAD"; export STUB_RULES
+t "#180 approved and behind with an unreadable rule stays pending in plain mode" "PENDING merge state: behind the base branch" "$OK,$BASE,$MEMBER_OK,\"mergeStateStatus\":\"BEHIND\",$GREEN"
+unset STUB_RULES
+oa "#180 conflicting and behind on a non-strict base is FAIL conflicts" "FAIL conflicts" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\",\"mergeable\":\"CONFLICTING\""
+t "#180 behind a non-strict base, approved and green, passes" "PASS" "$OK,$BASE,$APPROVED,\"mergeStateStatus\":\"BEHIND\",$GREEN"
 oa "no approval needed never hides changes requested" "FAIL approval: changes requested by ezra" "$OWN" "$OK,$BASE,$AUTHOR,\"reviewDecision\":\"\",\"reviews\":[{\"author\":{\"login\":\"ezra\"},\"state\":\"CHANGES_REQUESTED\",\"submittedAt\":\"2026-10-02T00:00:00Z\"}],$GREEN,\"comments\":[$PASSC]"
 THREADS="$TMP/t2.json"
 oa "no approval needed still needs a reply on every thread" "FAIL 1 finding without a reply from the author" "$OWN" "$NOREV"

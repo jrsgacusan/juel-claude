@@ -37,7 +37,7 @@ export function WorkersCard({ workers }: { workers: Overview["workers"] }) {
         <span className="text-muted-foreground">{busy > 0 ? `${busy} busy` : "all free"}</span>
       </div>
       {pools.map(([name, [n, max]]) => (
-        <div key={name} className="grid grid-cols-[3.75rem_minmax(0,1fr)_2rem] items-center gap-2 text-xs">
+        <div key={name} className="grid grid-cols-[3.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 text-xs">
           <span>{name}</span>
           <div
             role="meter"
@@ -54,11 +54,11 @@ export function WorkersCard({ workers }: { workers: Overview["workers"] }) {
           </div>
           <span
             className={cn(
-              "text-right font-mono text-[11px] tabular-nums",
+              "text-right text-xs tabular-nums",
               n > 0 ? "text-foreground" : "text-muted-foreground"
             )}
           >
-            {n}/{max}
+            {`${n} of ${max}`}
           </span>
         </div>
       ))}

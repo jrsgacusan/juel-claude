@@ -15,7 +15,10 @@ for (const pageName of [
 ] as const)
   for (const scenario of ["loading", "empty", "error"] as const)
     test(`${pageName} ${scenario}`, async ({ page }) => {
-      await openApp(page, `/sphere-app/${pageName}`, scenario as Scenario)
+      // A project's Needs page redirects to the combined one; go there directly, as the redirect can win the race with goInApp's wait.
+      const path =
+        pageName === "needs" ? "/needs?project=sphere-app" : `/sphere-app/${pageName}`
+      await openApp(page, path, scenario as Scenario)
       await expect(
         page.getByTestId(
           scenario === "loading"
@@ -68,10 +71,14 @@ test("on a touch screen the shell's controls are at least 44 px", async ({
   )
   await page.keyboard.press("Escape")
   await atLeast44(page.getByRole("tab").first(), false)
-  await atLeast44(page.getByRole("button", { name: "Open the menu" }))
-  await page.getByRole("button", { name: "Open the menu" }).click()
+  await atLeast44(page.getByRole("button", { name: "Switch project, now sphere-app" }), false)
+  await atLeast44(page.getByRole("button", { name: "Search (⌘K)" }))
+  const bar = page.getByRole("navigation", { name: "Pages" })
+  for (const link of await bar.getByRole("link").all()) await atLeast44(link, false)
+  await bar.getByRole("link", { name: "More" }).click()
+  await expect(page.getByRole("navigation", { name: "Projects" })).toContainText("sphere-api")
   await atLeast44(
-    page.getByRole("list", { name: "Sections" }).getByRole("link").first(),
+    page.getByRole("navigation", { name: "Projects" }).getByRole("link").first(),
     false
   )
 })

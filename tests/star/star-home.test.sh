@@ -29,7 +29,8 @@ HS=$(sh "$SCRIPT" --cwd "$SP" init) && [ "$HS" = "$SP/docs/superpowers/context/s
 # init: creates once, never overwrites, makes git ignore it without touching .gitignore
 H=$(sh "$SCRIPT" --cwd "$APP" init)
 [ "$H" = "$APP/docs/superpowers/context/star" ] && [ -f "$H/open-loops.md" ] && [ -f "$H/ledger.md" ] && [ -f "$H/star.json" ] && pass "init creates the folder from the template" || fail "init"
-for d in inbox briefs reviews gates releases drafts memory specs reports items grants progress evidence; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
+for d in inbox briefs reviews gates releases drafts memory specs reports items progress evidence; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
+[ ! -d "$H/grants" ] && pass "init does not create grants/" || fail "init created grants/"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["project"]=={"name":"app","repo":sys.argv[2]}, d["project"]; assert d["maxParallel"]==3' "$H/star.json" "$APP" && pass "init records the project in star.json" || fail "project block"
 (cd "$APP" && git check-ignore -q "$H/open-loops.md") && pass "git ignores the folder" || fail "folder not ignored"
 [ ! -e "$APP/.gitignore" ] && [ -z "$(cd "$APP" && git status --porcelain)" ] && pass ".gitignore untouched, nothing shows as a change" || fail "repo shows changes: $(cd "$APP" && git status --porcelain)"
@@ -166,6 +167,7 @@ out=$(sh "$SCRIPT" --cwd "$MIG" migrate)
 [ "$out" = "$(printf 'stop ctx_r1\nmigrated schema=3 rows=5 loops=3')" ] && [ ! -e "$HM2/migrate-stops.txt" ] && pass "migrate names the worker to stop, moves five rows, then forgets the stop list" || fail "migrate output ($out)"
 LG() { sh "$ROOT/skills/star/ledger.sh" --home "$HM2" get "$@"; }
 [ "$(LG A state)/$(LG A stage)" = "queued/build" ] && [ "$(LG B state)/$(LG B dispatch)" = "queued/-" ] && [ "$(LG C state)" = "queued" ] && [ "$(LG D state)/$(LG D stage)" = "queued/build" ] && [ "$(LG G state)/$(LG G stage)" = "queued/build" ] && [ "$(LG E state)" = "building" ] && [ "$(LG F state)" = "done" ] && pass "each v1 state lands where the table says" || fail "rows ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM2" list))"
+[ "$(sh "$ROOT/skills/star/ledger.sh" --home "$HM2" list | cut -f8 | sort -u)" = "2026-10-08T12:00:00Z" ] && pass "migrate keeps every row's updated time (schema 1)" || fail "schema 1 updated ($(sh "$ROOT/skills/star/ledger.sh" --home "$HM2" list | cut -f8 | sort -u))"
 grep -q '### D1 Merge under the merge gate' "$HM2/briefs/mig/D.md" && grep -q 'STAR merges it once the merge gate holds' "$HM2/briefs/mig/D.md" && ! grep -qi 'once you say go' "$HM2/briefs/mig/D.md" && pass "a v1 PR that waited for its merge is merged by the merge gate" || fail "ready record ($(cat "$HM2/briefs/mig/D.md"))"
 python3 - "$HM2/star.json" <<'PY' && pass "star.json is schema 3 and keeps the owner's own values" || fail "star.json after migrate"
 import json, sys
@@ -260,6 +262,7 @@ setgate '{"model": "gpt-6-astra", "effort": "high", "fallback": {"agent": "claud
 sh "$SCRIPT" --cwd "$GT" migrate >/dev/null
 python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["gate"]; assert g == {"model": "latest-sol", "effort": "high", "fallback": {"agent": "claude", "model": "fable", "effort": "max"}, "maxRounds": 2}, g' "$HG/star.json" && pass "only astra and a string fallback change; the owner's effort and own fallback stay" || fail "partial gate ($(cat "$HG/star.json"))"
 rmdir "$HG/evidence" && sh "$SCRIPT" --cwd "$GT" migrate >/dev/null && [ -d "$HG/evidence" ] && pass "migrate adds evidence/ to an existing folder (#73)" || fail "evidence folder on migrate"
+rm -rf "$HG/grants"; sh "$SCRIPT" --cwd "$GT" migrate >/dev/null; sh "$SCRIPT" --cwd "$GT" init >/dev/null; [ ! -d "$HG/grants" ] && pass "a deleted grants/ stays deleted through migrate and init" || fail "grants/ came back"
 
 # a moved project: its old entry, whose folder is gone, leaves the registry
 mkrepo "$TMP/mv1"; MV1=$(real "$TMP/mv1")
@@ -508,6 +511,7 @@ PY
 LG2() { sh "$ROOT/skills/star/ledger.sh" --home "$H2" get "$@"; }
 [ "$(LG2 NY state)" = "needs-you" ] && [ "$(LG2 NN state)" = "queued" ] && [ "$(LG2 ES state)/$(LG2 ES stage)" = "needs-you/build" ] && [ "$(LG2 FA state)/$(LG2 FA stage)" = "needs-you/build" ] && [ "$(LG2 RE state)" = "post-queued" ] && [ "$(LG2 VE state)/$(LG2 VE stage)" = "verifying/babysit" ] && pass "C2c: the rows land in the schema-3 states (an escalated or failed row with a re-added person item is needs-you, keeping its stage) and verifying keeps its stage" || fail "C2c ($(sh "$ROOT/skills/star/ledger.sh" --home "$H2" list))"
 [ "$(LG2 VE counters.tries)" = "0" ] && [ "$(LG2 VE counters.batch)" = "B-1" ] && [ "$(LG2 VE counters.parent)" = "X" ] && [ "$(LG2 VE counters.moved)" = "-" ] && [ "$(LG2 VE counters.mergefail)" = "-" ] && [ "$(LG2 ES counters.rescoped)" = "1" ] && [ "$(LG2 ES counters.miss)" = "-" ] && pass "C2c: counters fold to tries=0 and keep batch and parent" || fail "C2c counters ($(LG2 VE counters))"
+[ "$(sh "$ROOT/skills/star/ledger.sh" --home "$H2" list | cut -f8 | sort -u)" = "2026-10-08T12:00:00Z" ] && pass "migrate keeps every row's updated time" || fail "updated ($(sh "$ROOT/skills/star/ledger.sh" --home "$H2" list | cut -f8 | sort -u))"
 open=$(sh "$LS2" --file "$Q2" list)
 for k in go-batch go-merge accept-report restart-or-drop question escalation held; do
   printf '%s\n' "$open" | grep -q "$(printf '\t%s\t' "$k")" && fail "C2d: $k left open"

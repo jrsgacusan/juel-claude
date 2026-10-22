@@ -22,7 +22,7 @@ Every stage is its own Orca task and a fresh worker. The prompts are the Stage t
 needs in one place, so no session hand-rolls it: the host gate, a build's worktree, Claude Code's
 first-run trust dialogs, the prompt file, `task-create` and `worker-start`, writing the row as it goes.
 Run it with `run_in_background: true` and wait for its completion notification: a worktree with a setup
-hook can take longer than the Bash tool's 600 s foreground cap. Agent, model and effort come from
+hook can take longer than the Bash tool's 600 s foreground cap. Parallel starts are safe: `stage-start.sh` holds a lock per repository around the branch step. Agent, model and effort come from
 `stages.<stage>` (else `worker`). A failed `worker-start` is retried once, one effort level lower when the
 effort was refused, or on `worker` when the model was refused (a `fallback` suffix says so).
 `task-create` and `worker-start` carry `--retry-request` ids, so a replay never makes a second task. Every
@@ -289,7 +289,7 @@ moved since babysit last merged it in, most often because STAR merged a sibling 
 When `## Decisions` has no line "synced with <base> at <sha7>", append it and send the row to
 `babysit-queued` (it resumes with `--since <cursor>`; its Phase 4 merges the base in and resolves the
 conflicts itself, spec section 7). This spends no try. When the line is there, syncing did not help: spend a
-try and do the same; at `tries.perStep` the row is set aside.
+try and do the same; at `tries.perStep` the row is set aside. `pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict`, or the rule cannot be read).
 
 ## Report items
 

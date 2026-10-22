@@ -7,6 +7,8 @@
 #   OK carried from <G full sha>: merge of <ref> brings no change to a file this branch changes   exit 0
 #   OK carried from <G full sha>: the merge brings no change to a file this branch changes, except
 #      lines both sides only added (<path>, <path>)                                               exit 0
+#   OK carried from <G full sha>: <M7> has the same tree and parents as <G7>                       exit 0
+#      (M is a twin of the gated merge G, #183: the same tree and the same two parents, in any order)
 #   NO <why>                                                                                       exit 1
 # Exit 64 on bad usage: a missing or unknown flag, or a commit git does not know.
 # <G> must be on <M>'s first-parent line, and every commit on that line after <G> must be a merge
@@ -106,6 +108,12 @@ G, M = commit(o["from"], "from"), commit(o["head"], "head")
 BASE = commit(o["base"], "base") if o.get("base") else None
 if G == M:
     no(f"{M[:7]} is the gated head itself: there is nothing to carry")
+# a twin of the gated merge (#183): the same tree and the same parents, in any order, is the same merge
+if git("rev-parse", M + "^{tree}")[1] == git("rev-parse", G + "^{tree}")[1]:
+    twin = [sorted(git("rev-list", "--parents", "-n", "1", x)[1].split()[1:]) for x in (G, M)]
+    if len(twin[0]) == 2 and twin[0] == twin[1]:
+        print(f"OK carried from {G}: {M[:7]} has the same tree and parents as {G[:7]}")
+        sys.exit(0)
 _, line, _ = git("rev-list", "--first-parent", M)
 if G not in line.split():
     no(f"{G[:7]} is not on {M[:7]}'s first-parent line")

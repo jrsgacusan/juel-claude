@@ -102,10 +102,12 @@ export async function apiJson<T>(
     )
   }
 }
+// keepalive: the request survives the page unloading (a one-tap answer flushed as the tab closes).
 export function sendJson<T>(
   method: "POST" | "PUT",
   path: string,
-  body: unknown
+  body: unknown,
+  options: { keepalive?: boolean } = {}
 ): Promise<T> {
   return apiJson<T>(
     path,
@@ -113,6 +115,7 @@ export function sendJson<T>(
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      ...(options.keepalive ? { keepalive: true } : {}),
     },
     { allowEmpty: true }
   )

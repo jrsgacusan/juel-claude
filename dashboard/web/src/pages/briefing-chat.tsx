@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { FileText, RotateCcw, Trash2 } from "lucide-react"
+import { FileText, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
 import { type ReactNode, useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { ApiError } from "@/api/client"
@@ -11,6 +11,12 @@ import { Markdown } from "@/components/markdown"
 import { StarMark } from "@/components/status"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -225,18 +231,29 @@ export function Conversation({
           </SelectContent>
         </Select>
         {current?.deletable && !briefing.data?.busy && !inFlight && !confirming && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="pointer-coarse:h-11"
-            onClick={() => {
-              setDeleteError(null)
-              setConfirming({ id: current.id, title: current.title })
-            }}
-          >
-            <Trash2 className="size-3.5" />
-            Delete
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="More actions"
+                className="pointer-coarse:size-11"
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => {
+                  setDeleteError(null)
+                  setConfirming({ id: current.id, title: current.title })
+                }}
+              >
+                <Trash2 />
+                Delete briefing
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         {newButton}
       </div>
