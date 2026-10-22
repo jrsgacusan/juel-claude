@@ -80,7 +80,9 @@
 # migrate also moves a v2.0.0 gate to v2.1.0's: "model": "gpt-6-astra" becomes "latest-sol", and a
 # string "fallback" (v2.0.0's codex fallback) becomes {"agent": "claude", "model": "opus",
 # "effort": "xhigh"}. Any other gate value is the owner's and is left alone. init and migrate both
-# create every folder, evidence/ included (worktree-clean.sh copies a worktree's evidence there).
+# create the folders (inbox, briefs, reviews, gates, releases, drafts, memory, specs, reports, items,
+# progress, evidence, library, builds; evidence/ is where worktree-clean.sh copies a worktree's evidence)
+# and never grants/, which nothing reads.
 # Exit: 0 ok; 1 not inside a usable git checkout, import with a spec that is not a readable file, no STAR folder, an unreadable star.json
 # or project name, a named file it cannot read, or a copy that fails, register with no STAR folder or a registry it cannot read or write,
 # a STAR folder migrate cannot read, or ledger.sh or loops.sh failing during
@@ -97,7 +99,7 @@ import sys
 from datetime import datetime, timezone
 
 SUBDIRS = ("inbox", "briefs", "reviews", "gates", "releases", "drafts", "memory", "specs", "reports",
-           "items", "grants", "progress", "evidence", "library", "builds")
+           "items", "progress", "evidence", "library", "builds")
 BASES = ("library.base", "notes.base")
 FILES = ("open-loops.md", "ledger.md", "star.json")
 DEFAULTS = {

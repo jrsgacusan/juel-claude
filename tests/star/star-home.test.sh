@@ -29,7 +29,8 @@ HS=$(sh "$SCRIPT" --cwd "$SP" init) && [ "$HS" = "$SP/docs/superpowers/context/s
 # init: creates once, never overwrites, makes git ignore it without touching .gitignore
 H=$(sh "$SCRIPT" --cwd "$APP" init)
 [ "$H" = "$APP/docs/superpowers/context/star" ] && [ -f "$H/open-loops.md" ] && [ -f "$H/ledger.md" ] && [ -f "$H/star.json" ] && pass "init creates the folder from the template" || fail "init"
-for d in inbox briefs reviews gates releases drafts memory specs reports items grants progress evidence; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
+for d in inbox briefs reviews gates releases drafts memory specs reports items progress evidence; do [ -d "$H/$d" ] || fail "init did not create $d"; done; pass "init creates the subfolders"
+[ ! -d "$H/grants" ] && pass "init does not create grants/" || fail "init created grants/"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["project"]=={"name":"app","repo":sys.argv[2]}, d["project"]; assert d["maxParallel"]==3' "$H/star.json" "$APP" && pass "init records the project in star.json" || fail "project block"
 (cd "$APP" && git check-ignore -q "$H/open-loops.md") && pass "git ignores the folder" || fail "folder not ignored"
 [ ! -e "$APP/.gitignore" ] && [ -z "$(cd "$APP" && git status --porcelain)" ] && pass ".gitignore untouched, nothing shows as a change" || fail "repo shows changes: $(cd "$APP" && git status --porcelain)"
@@ -260,6 +261,7 @@ setgate '{"model": "gpt-6-astra", "effort": "high", "fallback": {"agent": "claud
 sh "$SCRIPT" --cwd "$GT" migrate >/dev/null
 python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["gate"]; assert g == {"model": "latest-sol", "effort": "high", "fallback": {"agent": "claude", "model": "fable", "effort": "max"}, "maxRounds": 2}, g' "$HG/star.json" && pass "only astra and a string fallback change; the owner's effort and own fallback stay" || fail "partial gate ($(cat "$HG/star.json"))"
 rmdir "$HG/evidence" && sh "$SCRIPT" --cwd "$GT" migrate >/dev/null && [ -d "$HG/evidence" ] && pass "migrate adds evidence/ to an existing folder (#73)" || fail "evidence folder on migrate"
+rm -rf "$HG/grants"; sh "$SCRIPT" --cwd "$GT" migrate >/dev/null; sh "$SCRIPT" --cwd "$GT" init >/dev/null; [ ! -d "$HG/grants" ] && pass "a deleted grants/ stays deleted through migrate and init" || fail "grants/ came back"
 
 # a moved project: its old entry, whose folder is gone, leaves the registry
 mkrepo "$TMP/mv1"; MV1=$(real "$TMP/mv1")
