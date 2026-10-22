@@ -20,6 +20,10 @@
 #                                        (star.json has no evidenceChecked) when worktree-clean.sh
 #                                        --evidence-report finds dependency folders in evidence/; the key is
 #                                        set either way, and a failing report leaves it unset,
+#                                        then "migrated slack items=<n>" when it closed <n> >= 1 open
+#                                        slack-reply items (Slack reply drafting is gone, #184) through
+#                                        loops.sh close, on every schema; slack/, slack/redraft/ and
+#                                        drafts/*-slack-*.md are left in place, never moved or deleted,
 #                                        then "current" (schema 3) or "migrated schema=3 rows=<n> loops=<n>"
 #                                        (rows: ledger rows whose state or stage it changed; loops: queue
 #                                        items it closed), then "warn executor.fallback equals
@@ -447,6 +451,25 @@ def person_need(entry):
     return None
 
 
+def migrate_slack():
+    """Close every open slack-reply item (Slack reply drafting is gone, #184). Never touches slack/ or drafts/.
+    Prints "migrated slack items=<n>" when it closed at least one; safe to repeat."""
+    queue = os.path.join(home, "open-loops.md")
+    if not os.path.exists(queue):
+        return
+    loops = os.path.join(os.environ["STAR_SKILL_DIR"], "loops.sh")
+    closed = 0
+    for entry in queue_items(queue):
+        if entry["kind"] != "slack-reply":
+            continue
+        done = subprocess.run(["sh", loops, "--file", queue, "close", entry["id"]], capture_output=True, text=True)
+        if done.returncode != 0:
+            die(1, f"loops.sh close {entry['id']}: " + (done.stderr.strip() or f"exit {done.returncode}"))
+        closed += 1
+    if closed:
+        print(f"migrated slack items={closed}")
+
+
 def migrate_queue(skill):
     """Close the open items of a removed kind (and person items of a removed sub-kind); a person-only need
     among them comes back as a person item, and an answer one of them already holds is kept in its row's brief.
@@ -572,6 +595,7 @@ def migrate():
             print("migrated quiet-hours")
         notes_moved = migrate_notes(data)
         evidence_set = migrate_evidence(data)
+        migrate_slack()
         if gate_moved or quiet_gone or notes_moved or evidence_set:
             write_json(star_path, data)
         print("current")
@@ -639,6 +663,7 @@ def migrate():
     for item, updated in restage:
         ledger_run(skill, "set", item, "stage=build", now=updated)
         touched.add(item)
+    migrate_slack()  # after the stop lines are on disk: a queue it cannot read stops here
     loops, readded, titles = migrate_queue(skill)
     touched.update(migrate_ledger(skill, queue_items(os.path.join(home, "open-loops.md")), readded, titles, project))
     data["schema"] = 3
