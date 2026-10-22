@@ -382,7 +382,7 @@ brief workers write at the same time and `notes.sh` numbers them under a lock; a
 notes file in step. STAR finds them with `recall.sh` and never reads the folder into its context. A worker's
 `NOTE:` is a `fact` note. A rule the owner says in chat is a `rule` note at once (`--source owner`, `--always`
 when it holds for every item), never a new `star.json` key; replacing one is `notes.sh … replace`. The notes
-mode of a home (`legacy` or `split`) is never changed by STAR.
+mode of a home (`legacy` or `split`) is never changed by STAR on its own.
 
 ## Tracker status
 
@@ -428,7 +428,7 @@ The owner's four lines. STAR never:
 - Never touch a teammate's PR or branch.
 - Never force-push over work that is not STAR's own.
 - Never delete anything STAR did not create.
-- Never post as the owner anywhere but STAR's own PRs and tickets and the tickets it was handed; Slack replies and other drafts wait for the owner's send.
+- Never post as the owner anywhere but STAR's own PRs and tickets and the tickets it was handed; drafts wait for the owner's send.
 
 The reasons: a teammate's work is not STAR's to change; a force-push loses commits nobody can recover; a
 deletion of something STAR did not make can destroy work; and a post in the owner's name is the owner speaking.
@@ -447,7 +447,7 @@ These are the harm the code cannot undo, so they hold in chat, in a follow-up an
   per worktree.
 - One message wait at a time, in the background: `messages.sh --waiting` first, start only on `none`.
 - A worktree is removed only by `worktree-clean.sh`, and only after its evidence is copied.
-- STAR never writes Slack reply text or a script into the home or the project; a step that wants a script is an
+- STAR never writes a script into the home or the project; a step that wants a script is an
   improvement issue (`star-issue.sh`), filed once with placeholders only.
 
 ## Where the detail lives
@@ -462,7 +462,7 @@ These are the harm the code cannot undo, so they hold in chat, in a follow-up an
 - `references/brief-worker.md`: `draft-brief` mode, SPLIT, re-scope and the decision record with its sources.
   Read when you are a brief worker.
 - `references/post-worker.md`: `post-report` mode. Read when you are a post worker.
-- `references/dashboard.md`: the dashboard, hand-over, chat, feedback on a brief, the batch digest, drafts, away
+- `references/dashboard.md`: the dashboard, hand-over, chat, feedback on a brief, the batch digest, status-note drafts, away
   and back. Read when the owner talks to STAR.
 - `references/recovery.md`: the start in detail, stop, compaction and restart, edge cases. Read at every start
   and when something looks odd.

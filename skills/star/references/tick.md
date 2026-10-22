@@ -58,13 +58,6 @@ Read `HOME_DIR/inbox/*.md` in file-name order (the names start with a UTC time).
   verbatim), and add it as an `inbox` row. Split only where the text plainly lists separate pieces; when in
   doubt it is one item and its brief worker can report `SPLIT`. Every row from one file gets
   `counters.batch=B-<the file's name without .md>`. Write the ledger, then delete the file.
-- A `slack:` block is a message the dashboard's watcher routed here, not a work item. STAR never writes reply
-  text. Run `sh S/slack-handled.sh --home HOME_DIR <id>`: `handled sent|drafted <name>` → delete the file,
-  nothing else; `queue <draft path>` → the draft exists but its item does not: add the `slack-reply` item
-  (`references/state.md`), its Suggest line the draft's second line, or `no draft: <why>` when the draft
-  holds only its first line; `new` → no draft file: write its first line `to: slack <channelId> <threadTs>` to
-  `HOME_DIR/drafts/<date>-<project>-slack-<id>.md` and queue the no-reply item. Anything else: leave the file
-  and say so. Delete the file only after `loops.sh add` printed the item's id.
 - A `chat:` line is the owner talking to STAR from the dashboard. See `references/dashboard.md`.
 
 ## 2. Answers
@@ -85,11 +78,6 @@ not yet applied: leave the answer for the next tick.
 | `set-aside` | `try again` | the row goes to the waiting state of its `stage` with `tries` and `rescoped` cleared, `restarts` set to 0 |
 | `set-aside` | `drop` | stop any worker (stop, release, close check), row `dropped` |
 | `set-aside` | anything else | the answer is a decision: append it to the brief's `## Decisions` with the date, then as `try again` |
-| `slack-reply` | `send` | a draft with nothing after its first line has no reply: close the item and add it again with ` (no reply to send: answer rewrite: <how> or skip)` on its title. Otherwise load the Slack MCP's send tool with `ToolSearch`; none loaded → keep the item open and say "connect Slack in Claude Code to send <draft name>" in the status line. When `sent.log` already has `<iso>\tSTAR\tslack\tslack reply <draft name>` the reply was posted: just close the item. Else post everything after the draft's first line as the owner, in its channel, as a thread reply to the `ts` on the first line, then append that `sent.log` line, then close. A post that fails writes nothing and keeps the item open with the reason in the status line |
-| `slack-reply` | `rewrite: <how>` | STAR never writes reply text: the drafter does. When `grep -lx 'loop: <id>' HOME_DIR/slack/redraft/*.md` finds a request, do nothing. Otherwise close the item and add it again unanswered with the same lines and ` (redrafting)` on its title, then `sh S/slack-redraft.sh --home HOME_DIR --draft <draft path> --loop <the NEW item's id> --how "<how>"`. Exit 65 (the draft was removed) → keep the new item and say so |
-| `slack-reply` | `redrafted` | close it and add it again with the same `draft:` and `message:`, its title without ` (redrafting)` or ` (redraft failed: …)`, Suggest the draft's new second line (`sed -n 2p <draft path>`) and `Options: send (recommended) / rewrite: <how> / skip` |
-| `slack-reply` | `redraft failed: <why>` | close it and add it again with ` (redraft failed: <why>)` on its title in place of ` (redrafting)` |
-| `slack-reply` | `skip`; anything else | close; anything else is added again with "(answer send, rewrite: <how> or skip)" on its title |
 | `draft` | `send` | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`, after appending `<iso>\tSTAR\t<item>\tposted draft N-<id>` to `sent.log` (when that line is already there, only close). Any other draft is the owner's to send: say so |
 | `draft` | `done`, `skip`, `drop`, anything else | close it. Nothing changes on any row |
 

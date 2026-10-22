@@ -299,8 +299,8 @@ reports `REPORTED`. The row goes to `post-queued`, with no accept step: a post w
 comment on the ticket STAR was handed (`references/post-worker.md`) and reports `POSTED`; the row goes `done`
 and the tracker status becomes Done. No release record is written. `sort-memory-notes` is the one report with
 no ticket: its row goes `done` with no post, and STAR tells the owner in the dashboard chat where the proposal
-is and that `sh S/notes.sh --shelf memory --project <project> apply <path>` applies it. STAR never applies it
-unread.
+is and that `sh S/notes.sh --shelf memory --project <project> apply <path>` applies it. STAR never applies it unread; the owner saying "apply it", in chat or the terminal, is the owner having
+read it.
 
 ## The tracker status
 
