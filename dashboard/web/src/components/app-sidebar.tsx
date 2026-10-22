@@ -27,8 +27,8 @@ import {
 } from "@/components/ui/sidebar"
 import { needsPath, PAGE_LABELS, type Page, projectPath } from "@/lib/routes"
 import { projectStateOf } from "@/lib/status"
-import { cn } from "@/lib/utils"
 import { AwaySwitch } from "./away-switch"
+import { ProjectStateLine } from "./project-state-line"
 import { Dot, StarMark } from "./status"
 import { WorkersCard } from "./workers-card"
 
@@ -47,7 +47,6 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
   const { setOpenMobile } = useSidebar()
   const close = () => setOpenMobile(false)
   const current = projects.data?.find((p) => p.name === project)
-  const state = current ? projectStateOf(current.state) : null
   const away = Boolean(overview.data?.away)
   const slackCount =
     slack.data?.routed.filter((m) => m.project === project).length ?? 0
@@ -74,17 +73,7 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
                   <span className="truncate text-sm font-semibold">
                     {combined ? "All projects" : project}
                   </span>
-                  {state && (
-                    <span
-                      className={cn(
-                        "flex items-center gap-1.5 text-xs",
-                        away ? "text-wait-fg" : "text-muted-foreground"
-                      )}
-                    >
-                      <Dot tone={away ? "wait" : state.tone} pulse={state.pulse} />
-                      {`STAR ${state.label.toLowerCase()}${away ? " · you're away" : ""}`}
-                    </span>
-                  )}
+                  <ProjectStateLine project={current} away={away} />
                 </span>
               </Link>
             </SidebarMenuButton>

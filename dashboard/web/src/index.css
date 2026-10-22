@@ -73,6 +73,8 @@
 }
 
 :root {
+  /* The phone tab bar: 64px bar, 20px gap and the safe area. AppLayout sets it to 0 while the bar is hidden. */
+  --tab-bar-h: calc(5.25rem + env(safe-area-inset-bottom));
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);

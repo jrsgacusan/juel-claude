@@ -4,9 +4,10 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { act, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw/http"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { setConnection } from "@/api/events"
 import type { Project } from "@/api/types"
+import { setDetailOpen } from "@/lib/chrome"
 import { server } from "@/mocks/node"
 import { mockColorScheme, renderApp } from "@/test/render"
 
@@ -99,32 +100,34 @@ describe("the app shell", () => {
     expect(await within(needs).findByText("10")).toBeInTheDocument()
   })
 
-  it("keeps the theme in localStorage, and System follows the OS", async () => {
+  it("keeps the theme in localStorage from the theme menu, and System follows the OS", async () => {
     const os = mockColorScheme(false)
     const { user } = renderApp("/sphere-app/progress")
-    await user.click(await screen.findByLabelText("Dark theme"))
+    await user.click(await screen.findByRole("button", { name: "Theme: System" }))
+    expect(screen.getAllByRole("menuitemradio").map((r) => r.textContent)).toEqual(["System", "Light", "Dark"])
+    await user.click(screen.getByRole("menuitemradio", { name: "Dark" }))
     expect(document.documentElement).toHaveClass("dark")
     expect(localStorage.getItem("star-theme")).toBe("dark")
-    await user.click(screen.getByLabelText("Light theme"))
+    expect(screen.getByRole("button", { name: "Theme: Dark" })).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Theme: Dark" }))
+    await user.click(screen.getByRole("menuitemradio", { name: "Light" }))
     expect(document.documentElement).toHaveClass("light")
-    await user.click(screen.getByLabelText("System theme"))
+    await user.click(screen.getByRole("button", { name: "Theme: Light" }))
+    await user.click(screen.getByRole("menuitemradio", { name: "System" }))
     expect(localStorage.getItem("star-theme")).toBe("system")
     expect(document.documentElement).toHaveClass("light")
     act(() => os.set(true))
     expect(document.documentElement).toHaveClass("dark")
   })
 
-  it("marks the selected theme", async () => {
+  it("marks the selected theme in the menu", async () => {
     mockColorScheme(false)
     const { user } = renderApp("/sphere-app/progress")
-    const dark = await screen.findByLabelText("Dark theme")
-    await user.click(dark)
-    expect(dark).toHaveAttribute("aria-checked", "true")
-    expect(dark.className).toMatch(/aria-checked:bg-accent/)
-    expect(screen.getByLabelText("Light theme")).toHaveAttribute(
-      "aria-checked",
-      "false"
-    )
+    await user.click(await screen.findByRole("button", { name: "Theme: System" }))
+    await user.click(screen.getByRole("menuitemradio", { name: "Dark" }))
+    await user.click(screen.getByRole("button", { name: "Theme: Dark" }))
+    expect(screen.getByRole("menuitemradio", { name: "Dark" })).toHaveAttribute("aria-checked", "true")
+    expect(screen.getByRole("menuitemradio", { name: "Light" })).toHaveAttribute("aria-checked", "false")
   })
 
   it("opens search with Ctrl+K and ⌘K from any page", async () => {
@@ -282,5 +285,93 @@ describe("the app shell", () => {
     expect(container.querySelector("[data-slot=sidebar-inset]")).toHaveClass("overflow-x-clip")
     const search = screen.getByRole("button", { name: "Search (⌘K)" })
     expect(within(search).getByText("Search")).toHaveClass("hidden", "sm:inline")
+  })
+})
+
+const setWidth = (value: number) =>
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value })
+const phone = () => setWidth(390)
+
+describe("the phone shell", () => {
+  afterEach(() => setWidth(1024))
+
+  it("has a Pages nav with four links and no menu button, breadcrumb or theme control", async () => {
+    phone()
+    renderApp("/sphere-app/progress")
+    const nav = await screen.findByRole("navigation", { name: "Pages" })
+    const links = within(nav).getAllByRole("link")
+    expect(links.map((l) => l.getAttribute("href"))).toEqual([
+      "/needs",
+      "/sphere-app/progress",
+      "/sphere-app/chat",
+      "/sphere-app/more",
+    ])
+    for (const link of links) expect(link).toHaveClass("min-h-11")
+    expect(within(links[0]!).getByText("Needs you")).toBeInTheDocument()
+    const badge = await within(links[0]!).findByText("10")
+    expect(badge).toHaveAttribute("data-variant", "count")
+    expect(nav.querySelector("[role=tab]")).toBeNull()
+    expect(screen.queryByRole("button", { name: "Open the menu" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("navigation", { name: /breadcrumb/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /^Theme/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText("Dark theme")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Search (⌘K)" })).toBeInTheDocument()
+  })
+
+  it("marks the current page", async () => {
+    phone()
+    renderApp("/sphere-app/progress")
+    const nav = await screen.findByRole("navigation", { name: "Pages" })
+    expect(within(nav).getByRole("link", { name: "Progress" })).toHaveAttribute("aria-current", "page")
+    expect(within(nav).getByRole("link", { name: "Chat" })).not.toHaveAttribute("aria-current")
+  })
+
+  it("on /needs points Progress at the last project, else the first", async () => {
+    phone()
+    const { router } = renderApp("/needs")
+    let nav = await screen.findByRole("navigation", { name: "Pages" })
+    await waitFor(() =>
+      expect(within(nav).getByRole("link", { name: "Progress" })).toHaveAttribute("href", "/sphere-app/progress"),
+    )
+    await act(() => router.navigate("/sphere-api/chat"))
+    await act(() => router.navigate("/needs"))
+    nav = await screen.findByRole("navigation", { name: "Pages" })
+    expect(within(nav).getByRole("link", { name: "Progress" })).toHaveAttribute("href", "/sphere-api/progress")
+  })
+
+  it("hides the tab bar while a list-detail page shows its detail", async () => {
+    phone()
+    renderApp("/sphere-app/progress")
+    await screen.findByRole("navigation", { name: "Pages" })
+    act(() => setDetailOpen(true))
+    expect(screen.queryByRole("navigation", { name: "Pages" })).not.toBeInTheDocument()
+  })
+
+  it("shows the project switcher, and switching goes to that project's Progress", async () => {
+    phone()
+    const { user, router } = renderApp("/sphere-app/progress")
+    const button = await screen.findByRole("button", { name: "Switch project, now sphere-app" })
+    expect(within(button).getByText("sphere-app")).toHaveClass("truncate")
+    expect(await within(button).findByText("STAR running")).toBeInTheDocument()
+    await user.click(button)
+    const dialog = await screen.findByRole("dialog")
+    expect(within(dialog).getByRole("link", { name: /All projects/ })).toBeInTheDocument()
+    expect(within(dialog).getByRole("link", { name: /sphere-app/ })).toHaveTextContent("9")
+    await user.click(within(dialog).getByRole("link", { name: /sphere-api/ }))
+    await waitFor(() => expect(router.state.location.pathname).toBe("/sphere-api/progress"))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  })
+
+  it("shows All projects in the switcher on the combined page", async () => {
+    phone()
+    renderApp("/needs")
+    expect(await screen.findByRole("button", { name: "Switch project, now All projects" })).toBeInTheDocument()
+  })
+
+  it("keeps the desktop on the sidebar and breadcrumb", async () => {
+    renderApp("/sphere-app/progress")
+    await screen.findByRole("list", { name: "Projects" })
+    expect(screen.queryByRole("navigation", { name: "Pages" })).not.toBeInTheDocument()
+    expect(screen.getByRole("navigation", { name: /breadcrumb/i })).toBeInTheDocument()
   })
 })

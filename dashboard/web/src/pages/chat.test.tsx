@@ -204,7 +204,7 @@ describe("Chat", () => {
     const page = screen.getByRole("heading", { name: "Chat with STAR" }).parentElement!
     expect(page).toHaveClass("flex-1", "min-h-0")
     expect(page.className).not.toContain("calc")
-    expect(page.closest("main")).toHaveClass("max-md:h-dvh")
+    expect(page.closest("main")).toHaveClass("max-md:h-[calc(100dvh-var(--tab-bar-h))]")
   })
 
   it("starts a switched-to project's chat fresh: no carried text, no other project's message", async () => {
