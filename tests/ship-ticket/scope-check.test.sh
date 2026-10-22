@@ -354,5 +354,33 @@ printf 'changed\n' > "$R5/src/x.js"
 out=$(cd "$TMP" && sh "$SCRIPT" "$R5/docs/plans/a.md" "$BASE5" --repo-dir "$R5"); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "ok" ] && pass "#155f a changed file named with several ranges is in scope" || fail "#155f (rc=$rc: $out)"
 
+# 186. A planned path with no root match also matches one changed path that ends with "/<path>" (#186).
+sfx() { # sfx <label> <plan Files lines> <expected output> <changed path>...
+  label=$1; plan=$2; want=$3; shift 3
+  RS="$TMP/sfx"; rm -rf "$RS"; mkdir -p "$RS/docs/plans"
+  git -c init.defaultBranch=main init -q "$RS"; git -C "$RS" config user.email t@example.com
+  git -C "$RS" config user.name t; git -C "$RS" config commit.gpgsign false
+  printf 'x\n' > "$RS/keep"; git -C "$RS" add -A; git -C "$RS" commit -qm base
+  B=$(git -C "$RS" rev-parse HEAD)
+  printf '**Files:**\n%s\n' "$plan" > "$RS/docs/plans/p.md"
+  for f in "$@"; do mkdir -p "$RS/$(dirname "$f")"; printf 'x\n' > "$RS/$f"; done
+  out=$(cd "$TMP" && sh "$SCRIPT" "$RS/docs/plans/p.md" "$B" --repo-dir "$RS"); rc=$?
+  [ "$out" = "$want" ] && pass "#186 $label" || fail "#186 $label (rc=$rc: $out)"
+}
+sfx "the issue's repro: two app-relative paths are ok" \
+  '- Modify: `electron/a.cjs`
+- Modify: `shared/b.cjs`' ok apps/web/electron/a.cjs apps/web/shared/b.cjs
+sfx "an ambiguous suffix excuses neither file" '- Modify: `electron/a.cjs`' \
+  "$(printf 'outside apps/one/electron/a.cjs\noutside apps/two/electron/a.cjs')" \
+  apps/one/electron/a.cjs apps/two/electron/a.cjs
+sfx "a root match wins and the other path is judged on its own" '- Modify: `electron/a.cjs`' \
+  'outside apps/web/electron/a.cjs' electron/a.cjs apps/web/electron/a.cjs
+sfx "a planned directory matches by suffix" '- Modify: `electron/`' ok apps/web/electron/x/y.cjs
+sfx "an ambiguous planned directory excuses neither file" '- Modify: `electron/`' \
+  "$(printf 'outside apps/one/electron/y.cjs\noutside apps/two/electron/y.cjs')" \
+  apps/one/electron/y.cjs apps/two/electron/y.cjs
+sfx "a suffix match needs a / boundary" '- Modify: `electron/a.cjs`' \
+  'outside apps/web/myelectron/a.cjs' apps/web/myelectron/a.cjs
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
