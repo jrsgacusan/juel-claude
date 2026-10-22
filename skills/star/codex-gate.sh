@@ -92,14 +92,24 @@
 # with its place (<path>:<line> or <path>:<line>-<line>, after a hyphen, an en dash or an em
 # dash, or in parentheses) and carries no tag ("findings without [P0]-[P3] tags").
 # The parser stays strict: a tag outside a finding bullet is never read as prose. The fallback's
-# prompt says to write a tag only at the start of a bullet (P1, not [P1], in the verdict paragraph),
-# and a fallback review that is still unreadable runs once more in the same round (#185), its prompt
-# ending with "Your previous review wrote a grade tag outside a finding bullet: "<the first offending
-# line, cut to 160 characters>". Write a [P0] to [P3] tag only at the start of a finding bullet." A
-# round runs the fallback at most twice, counting the #100 denial re-run. An unreadable fallback
-# review after that is "ERROR fallback-unreadable <why>" (same exit code), with both runs kept in the
-# error log; an unreadable codex review keeps "ERROR unreadable review: <why>". The worker waits 10
-# minutes and runs the round again, without spending its one retry on it.
+# prompt says to write a tag only at the start of a bullet, to state any P0 or P1 problem as a tagged
+# finding bullet, and to end the review with exactly one last line, "VERDICT: SAFE" or "VERDICT:
+# NOT-SAFE" (#185). Only a fallback review is held to that line, and the line is neither a note nor a
+# finding. A fallback review with no VERDICT line or more than one ("no VERDICT line", "more than one
+# VERDICT line"), or with VERDICT: NOT-SAFE and no P0 or P1 finding bullet ("VERDICT NOT-SAFE without
+# a P0 or P1 finding"), is unreadable. VERDICT: SAFE beside a P0 or P1 bullet is NOT-SAFE: the bullets
+# win. An unreadable fallback review runs once more in the same round (#185), its prompt ending with
+# a line that names the problem: for a tag outside a finding bullet, "Your previous review wrote a
+# grade tag outside a finding bullet: "<the first offending line, cut to 160 characters>". Write a
+# [P0] to [P3] tag only at the start of a finding bullet."; for an untagged finding bullet, "Your
+# previous review had a finding bullet without a [P0] to [P3] tag: "<line>". Start every finding bullet
+# with its tag."; for a VERDICT problem, a line that names it and repeats the VERDICT rule. A round
+# runs the fallback at most twice, counting the #100 denial re-run. HEAD is checked after each
+# fallback run that is unreadable, before any re-run and before the ERROR below, so a moved HEAD is
+# "ERROR HEAD moved during the review", never a free retry. An unreadable fallback review after the
+# re-run is "ERROR fallback-unreadable <why>" (same exit code), with both runs kept in the error log;
+# an unreadable codex review keeps "ERROR unreadable review: <why>". The worker waits 10 minutes and
+# runs the round again, without spending its one retry on it.
 # post-pass posts two lines on the PR, "Codex gate: PASS (head <sha>, round <k>, <model> <effort>)"
 # and "VERDICT: PASS", the line a project's review rule reads (#84), once per head. A direct call
 # (no --carried-from, and a --review that is not -carried.md) prints already only over a comment by
@@ -191,8 +201,10 @@ NO_WRITE = ["Bash(git * --output*)"]
 # codex review has its own output shape; the fallback is told the shape the parser below reads
 FORMAT = ("Write the review as plain text: first one short paragraph with your overall verdict, then each "
           "finding as one bullet line, \"- [P<n>] <title> — <path>:<line>\", with any detail indented on the "
-          "lines below it. Write a [P0] to [P3] tag only at the start of a finding bullet; anywhere else, "
-          "including the verdict paragraph, write the grade without brackets (P1, not [P1]). Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, "
+          "lines below it. Write a [P0] to [P3] tag only at the start of a finding bullet: outside a finding "
+          "bullet, never write a [P0] to [P3] tag; state any P0 or P1 problem as a tagged finding bullet. "
+          "Then end the review with exactly one last line, `VERDICT: SAFE` or `VERDICT: NOT-SAFE`, NOT-SAFE when "
+          "you found any P0 or P1. Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, "
           "git rev-parse, git merge-base and git cat-file, one command per call with no pipe, redirect, && or "
           "||: any other command is refused, and a refused command fails the review. Search with Grep and find "
           "files with Glob, never git grep, grep or rg. Single-quote any argument that holds a shell "
@@ -688,6 +700,14 @@ def head():
     return r.stdout.strip().lower() if r.returncode == 0 else ""
 
 
+def head_unmoved():
+    """ERROR when HEAD is not the commit the round started on."""
+    after = head()
+    if after != before:
+        error(f"HEAD moved during the review ({before[:7]} to {after[:7] or '?'})")
+    return after
+
+
 def pinned_base():
     """The full sha --base names as the round starts (#113): the prompt and the review name it, so a fetch
     during the round cannot move what the round reviews."""
@@ -891,17 +911,39 @@ def stopped(signum, _frame):
 # the line a fallback run's prompt gets when its previous review wrote a tag outside a finding bullet (#185)
 RETAG = ("Your previous review wrote a grade tag outside a finding bullet: \"{}\". Write a [P0] to [P3] tag only at "
          "the start of a finding bullet.")
+UNTAGGED = ("Your previous review had a finding bullet without a [P0] to [P3] tag: \"{}\". Start every finding bullet "
+            "with its tag.")
+VERDICT_RULE = ("End the review with exactly one last line, VERDICT: SAFE or VERDICT: NOT-SAFE "
+                "(NOT-SAFE when you found any P0 or P1).")
+NO_VERDICT, TWO_VERDICTS = "no VERDICT line", "more than one VERDICT line"
+NOT_SAFE_BARE = "VERDICT NOT-SAFE without a P0 or P1 finding"
+# the correction line for each reason a fallback review is unreadable (#185); {} is the offending line when there is one
+CORRECTIONS = {
+    "a finding in a shape the gate cannot read": RETAG,
+    "findings without [P0]-[P3] tags": UNTAGGED,
+    NO_VERDICT: "Your previous review had no VERDICT line. " + VERDICT_RULE,
+    TWO_VERDICTS: "Your previous review had more than one VERDICT line. " + VERDICT_RULE,
+    NOT_SAFE_BARE: ("Your previous review ended VERDICT: NOT-SAFE but had no P0 or P1 finding bullet. State every P0 or "
+                    "P1 problem as a finding bullet that starts with its [P0] or [P1] tag, or end with VERDICT: SAFE. "
+                    + VERDICT_RULE),
+}
+VERDICT_LINE = re.compile(r"^\s*VERDICT:\s*(SAFE|NOT-SAFE)\s*$")
 
 
-def parse_review(text):
+def parse_review(text, fallback=False):
     """(findings, overall, why, offending): why is None when the review is readable, else the reason it is not;
     offending is the first line that made it unreadable. Strict on purpose: a tag outside a finding bullet is
-    never read as prose, since a real P1 written that way must not pass as SAFE."""
-    findings, overall, current, listing = [], [], None, False
+    never read as prose, since a real P1 written that way must not pass as SAFE. A fallback review (#185) must
+    also end with one VERDICT: SAFE or VERDICT: NOT-SAFE line: it is neither a note nor a finding, a missing or
+    doubled one is unreadable, NOT-SAFE needs a P0 or P1 bullet behind it, and SAFE never outweighs one."""
+    findings, overall, current, listing, verdicts = [], [], None, False, []
     odd_tag = untagged = header = None
     for line in text.splitlines():
         tag = TAG.match(line)
-        if tag:
+        said = VERDICT_LINE.match(line) if fallback else None
+        if said:
+            verdicts.append(said.group(1))
+        elif tag:
             title, _, where = tag.group(2).rpartition(" — ")
             current = {"p": int(tag.group(1)), "title": (title or tag.group(2)).strip(),
                        "where": where.strip() if title else "", "body": []}
@@ -922,6 +964,10 @@ def parse_review(text):
         return findings, overall, "a finding in a shape the gate cannot read", odd_tag
     if untagged or (listing and not findings):
         return findings, overall, "findings without [P0]-[P3] tags", untagged or header or ""
+    if fallback and len(verdicts) != 1:
+        return findings, overall, TWO_VERDICTS if verdicts else NO_VERDICT, ""
+    if fallback and verdicts == ["NOT-SAFE"] and not any(f["p"] <= 1 for f in findings):
+        return findings, overall, NOT_SAFE_BARE, ""
     return findings, overall, None, ""
 
 
@@ -973,10 +1019,13 @@ if used is None:
         error(f"gate-down {short}: {why}; claude: {failed[:160]}")
     with open(raw_path, "w", encoding="utf-8") as f:  # the raw file holds the review, not the JSON around it
         f.write(text)
-    _, _, bad, line = parse_review(text)
-    if bad and runs < 2:  # once more in the same round, told the offending line (#185)
+    _, _, bad, line = parse_review(text, fallback=True)
+    if bad:
+        head_unmoved()  # a moved HEAD is ERROR HEAD moved, never a free retry (#185)
+    if bad and runs < 2:  # once more in the same round, told what was wrong (#185)
         keep_output(text)
-        rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"], [RETAG.format(" ".join(line.split())[:160])]),
+        fix = CORRECTIONS[bad].format(" ".join(line.split())[:160])
+        rc, output, tail = attempt(claude_cmd(fb["model"], fb["effort"], [fix]),
                                    label + " (again, after an unreadable review)", "claude", fb["model"])
         if rc < 0:
             error(f"claude review stopped by signal {-rc}")
@@ -985,15 +1034,14 @@ if used is None:
             error(f"gate-down {short}: {why}; claude: {failed[:160]}")
         with open(raw_path, "w", encoding="utf-8") as f:
             f.write(text)
-        _, _, bad, line = parse_review(text)
+        _, _, bad, line = parse_review(text, fallback=True)
     if bad:
+        head_unmoved()
         error(f"fallback-unreadable {bad}")
     used = (f"claude:{fb['model']}", fb["effort"], short)
-after = head()
-if after != before:
-    error(f"HEAD moved during the review ({before[:7]} to {after[:7] or '?'})")
+after = head_unmoved()
 
-findings, overall, bad, _ = parse_review(text)
+findings, overall, bad, _ = parse_review(text, fallback=used[0].startswith("claude:"))
 if bad:
     error("unreadable review: " + bad)
 p0 = sum(1 for f in findings if f["p"] == 0)

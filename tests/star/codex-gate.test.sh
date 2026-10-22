@@ -76,6 +76,7 @@ line=$(sed -n "${n}p" "$STUB_DIR/claude-plan" 2>/dev/null)
 rc=${line%% *}; rest=${line#* }; fixture=${rest%% *}; err=${rest#"$fixture"}
 # claude -p --output-format json prints one JSON object; a <name>.txt fixture is wrapped as a clean result,
 # <name>.json is printed as written, and raw-<name> prints <name>.txt unwrapped (prose, though JSON was asked for)
+if [ "$fixture" = move-head ]; then git -c user.email=t@t -c user.name=t commit -q --allow-empty -m moved; fixture=claude-tag-in-verdict.json; fi
 case "$fixture" in
   -) ;;
   *.json) cat "$STUB_FIX/$fixture" ;;
@@ -213,7 +214,7 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR empty review" ] && [ "$(cat "$TMP/n")" = 1 ] && pass "an empty review is ERROR, not retried" || fail "empty ($rc $out)"
 
 # capacity: two retries on Sol, then the Claude fallback (#41, #64)
-reset; plan "1 - Selected model is at capacity. Please try a different model." "1 - Selected model is at capacity." "1 - stream error: 503 Service Unavailable"; cplan "0 safe"
+reset; plan "1 - Selected model is at capacity. Please try a different model." "1 - Selected model is at capacity." "1 - stream error: 503 Service Unavailable"; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 3 ] && [ "$(grep -c 'model="gpt-6.1-sol"' "$TMP/calls")" = 3 ] && pass "capacity is retried twice on Sol, then Claude reviews" || fail "capacity ($out, $(cat "$TMP/n") calls)"
 c=$(cat "$TMP/claude-calls")
@@ -232,10 +233,10 @@ case "$allowed" in *"git -C *"*) false ;; *"git -C $APPREAL diff)"*) true ;; *) 
   && ! printf '%s' "$allowed" | grep -qE 'git (-C|-c) \*|git \*' \
   && pass "the -C allow rules hold the worktree path, with no git -C * rule that could match another subcommand" || fail "-C rules ($allowed)"
 grep -q '^Gate: claude:opus xhigh (fallback: sol at capacity) · base main' "$R1" && pass "the review names the fallback and why it ran" || fail "fallback gate line ($(grep '^Gate:' "$R1"))"
-reset; plan "1 - You've hit your usage limit. Try again at Oct 18th, 2026 6:00 PM."; cplan "0 safe"
+reset; plan "1 - You've hit your usage limit. Try again at Oct 18th, 2026 6:00 PM."; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit goes to Claude at once, with no retry (#64)" || fail "usage limit ($out, $(cat "$TMP/n") calls)"
-reset; plan "1 - You've hit your usage limit."; cplan "0 p1"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-p1"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && pass "the fallback's review is read by the same rules: a P1 is NOT-SAFE" || fail "fallback p1 ($out)"
 reset; plan "1 - You've hit your usage limit."; cplan "1 - API Error: 529 Overloaded"
@@ -275,7 +276,7 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-clean.json"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "a clean JSON result still gives a verdict, and the raw file holds the review text" || fail "clean json fallback ($rc $out)"
-reset; cplan "0 safe"
+reset; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-terra)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ ! -f "$TMP/n" ] && grep -q '^Gate: claude:opus xhigh (fallback: cannot resolve latest-terra)' "$R1" && pass "a Sol name that does not resolve goes straight to the fallback" || fail "unresolved goes to fallback ($out)"
 cp "$H/star.json" "$TMP/star.json.orig2"
@@ -284,7 +285,7 @@ reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol at capacity: at capacity; no fallback is set" ] && [ ! -f "$TMP/claude-calls" ] && pass "fallback null: no Claude run, gate-down" || fail "fallback null ($rc $out)"
 printf '{"gate": {"model": "latest-sol", "effort": "xhigh", "fallback": "latest-sol"}}\n' > "$H/star.json"
-reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; cplan "0 safe"
+reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"; cplan "0 claude-safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 grep -qF -- '--model opus --effort xhigh' "$TMP/claude-calls" && pass "a v2.0.0 string fallback means the Claude default" || fail "string fallback ($(cat "$TMP/claude-calls" 2>/dev/null))"
 cp "$TMP/star.json.orig2" "$H/star.json"
@@ -516,7 +517,7 @@ rm -f "$TMP/n" "$TMP/calls"; plan "0 safe"; printf '1. Disposition: moved to ITE
 G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
 ! grep -q 'No `-fix.md` exists' "$P2" && pass "with a -fix.md the prompt adds no such sentence" || fail "fix.md present"
 # the fallback can read the evidence folder too
-reset; plan "1 - You've hit your usage limit."; cplan "0 safe"; mkdir -p "$TMP/ev2"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"; mkdir -p "$TMP/ev2"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --evidence "$TMP/ev2" >/dev/null
 grep -qF -- "--add-dir $H $TMP/ev2 --allowedTools" "$TMP/claude-calls" && pass "the Claude fallback gets the evidence folder as a readable directory" || fail "fallback evidence dir ($(tail -n 1 "$TMP/claude-calls"))"
 
@@ -562,7 +563,7 @@ rules() { # rules <command>...: "git <command> *" for each, then its two -C rule
   dash_c "$APPREAL" "$@"
   [ "$APP" = "$APPREAL" ] || dash_c "$APP" "$@"
 }
-reset; plan "1 - You've hit your usage limit."; cplan "0 safe"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 call=$(grep -F -- '--allowedTools' "$TMP/claude-calls")
 allowed=$(printf '%s\n' "$call" | sed -e 's/.*--allowedTools //' -e 's/ --disallowedTools.*//')
@@ -574,7 +575,7 @@ grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Single-quote
 grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Use only Read, Grep, Glob, git diff, git show, git log, git ls-tree, git ls-files, git rev-parse, git merge-base and git cat-file, one command per call' && pass "the fallback is told it may also use git ls-tree, ls-files, rev-parse, merge-base and cat-file (#100)" || fail "tool list ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
 
 # lane c: a denied fallback run is asked once more inside the round (#100)
-reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 safe"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "one denial, then a clean run in the same round, gives a verdict (#100)" || fail "denial then clean ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
 grep -qxF 'Your previous run was denied: git diff --word-diff=porcelain --word-diff-regex=[^[:space:]&]+ origin/main...HEAD -- package.json. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" \
@@ -588,7 +589,7 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: Bash was denied: git -C /repo diff main...HEAD" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && [ ! -f "$R1" ] \
   && [ "$(grep -c '^--- stdout$' "$H/reviews/app/ITEM-1-r1-error-1.log")" = 2 ] && grep -qF 'origin/dev docs/decisions/' "$H/reviews/app/ITEM-1-r1-error-1.log" \
   && pass "a second denial is gate-down, read from the second run, with both runs kept in the error log (#100)" || fail "two denials ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
-reset; plan "1 - You've hit your usage limit."; cplan "0 claude-is-error.json" "0 safe"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-is-error.json" "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: API Error: 529 Overloaded" ] && [ "$(cat "$TMP/claude-n")" = 1 ] && pass "a fallback failure that is not a denial is gate-down at once, with no second run (#100)" || fail "no retry without a denial ($rc $out)"
 
@@ -658,10 +659,10 @@ git -C "$APP" update-ref refs/heads/main "$MAINSHA"
 reset
 
 # lane b: the fallback searches with Grep and Glob, and a denied git grep is sent there (#117)
-reset; plan "1 - You've hit your usage limit."; cplan "0 safe"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'any other command is refused, and a refused command fails the review. Search with Grep and find files with Glob, never git grep, grep or rg. Single-quote any argument' && pass "the fallback is told to search with Grep and Glob, never git grep, grep or rg (#117)" || fail "search rule ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
-reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-grep.json" "0 safe"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-grep.json" "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit whose fallback was denied git grep still ends in a verdict, not gate-down (#117)" || fail "git grep denial ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
 grep -qxF 'Your previous run was denied: git grep -n chain origin/main -- package.json. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" && pass "the retry sends the denied git grep to Grep and Glob (#117)" || fail "git grep retry line ($(grep 'denied' "$TMP/claude-calls"))"
@@ -718,24 +719,24 @@ reset; mkdir -p "$H/reviews/app"; vline "$HEAD2"; plan "0 safe"
 G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
 grep -qF 'Review the whole change.' "$SP" && pass "since: a head dropped by a rewrite reviews the whole change" || fail "since rewritten ($(cat "$SP"))"
 gc reset -q --hard "$HEAD"
-reset; plan "1 - You are out of credits for this workspace."; cplan "0 safe"
+reset; plan "1 - You are out of credits for this workspace."; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "out of credits goes to Claude at once" || fail "credits ($out)"
-reset; plan "1 - Your credit balance is too low"; cplan "0 safe"
+reset; plan "1 - Your credit balance is too low"; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "credit balance goes to Claude at once" || fail "balance ($out)"
 
 # audit lane C: usage-limit words count only in codex's last lines, not in quoted diff content
 { printf '+ the credit balance is shown here\n'; i=1; while [ "$i" -le 30 ]; do printf 'reviewing line %s\n' "$i"; i=$((i + 1)); done; } > "$TMP/fix/quoted-usage.txt"
-reset; plan "1 quoted-usage error: 401 Unauthorized"; cplan "0 safe"
+reset; plan "1 quoted-usage error: 401 Unauthorized"; cplan "0 claude-safe"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR codex review failed: error: 401 Unauthorized" ] && [ ! -f "$TMP/claude-calls" ] && pass "a usage word in quoted diff content is a plain failure, with no fallback" || fail "quoted usage ($rc $out)"
 
 # lane c: an unreadable fallback review is steered, run once more, then named (#185)
 UNREAD="ERROR fallback-unreadable a finding in a shape the gate cannot read"
-reset; plan "1 - You've hit your usage limit."; cplan "0 safe"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
-grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'only at the start of a finding bullet' && grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'P1, not [P1]' && pass "the fallback is told a tag belongs only at the start of a finding bullet (#185)" || fail "tag rule ($(cat "$TMP/claude-calls"))"
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'only at the start of a finding bullet' && ! grep -qF 'P1, not [P1]' "$TMP/claude-calls" && pass "the fallback is told a tag belongs only at the start of a finding bullet (#185)" || fail "tag rule ($(cat "$TMP/claude-calls"))"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-tag-in-verdict.json" "0 claude-clean.json"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] \
@@ -759,6 +760,70 @@ out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 claude-tag-in-verdict.json"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "$UNREAD" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && pass "a denied run then an unreadable one gets no third run: ERROR fallback-unreadable (#185)" || fail "denied then unreadable ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) runs)"
+
+# lane c: the fallback ends its review with one VERDICT line, and the gate reads it (#185)
+V='End the review with exactly one last line, VERDICT: SAFE or VERDICT: NOT-SAFE (NOT-SAFE when you found any P0 or P1).'
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+sp=$(grep -F -- '--append-system-prompt' "$TMP/claude-calls")
+printf '%s' "$sp" | grep -qF 'end the review with exactly one last line, `VERDICT: SAFE` or `VERDICT: NOT-SAFE`' \
+  && printf '%s' "$sp" | grep -qF 'NOT-SAFE when you found any P0 or P1' \
+  && printf '%s' "$sp" | grep -qF 'outside a finding bullet, never write a [P0] to [P3] tag; state any P0 or P1 problem as a tagged finding bullet' \
+  && ! printf '%s' "$sp" | grep -qF 'without brackets' \
+  && pass "the fallback is told to end with one VERDICT line and never to tag outside a bullet (#185)" || fail "verdict rule ($sp)"
+mkdir -p "$TMP/fix"; cp "$FIX"/*.txt "$TMP/fix/"
+printf 'Not safe: a [P1] data loss in src/b.ts when the queue is empty.\n\nVERDICT: NOT-SAFE\n' > "$TMP/fix/prose-p1-tagged.txt"
+printf 'Not safe: a P1 data loss in src/b.ts when the queue is empty.\n' > "$TMP/fix/prose-p1-plain.txt"
+reset; plan "1 - You've hit your usage limit."; cplan "0 prose-p1-tagged" "0 prose-p1-plain"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR fallback-unreadable no VERDICT line" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && [ ! -f "$R1" ] \
+  && pass "an unbracketed P1 in prose with no VERDICT line is never SAFE: ERROR fallback-unreadable no VERDICT line (#185)" || fail "prose p1 rerun ($rc $out)"
+reset; plan "1 - You've hit your usage limit."; cplan "0 prose-p1-plain"
+GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+grep -qxF "Your previous review had no VERDICT line. $V" "$TMP/claude-calls" && pass "the re-run for a missing VERDICT line names it and repeats the rule (#185)" || fail "no-verdict correction ($(cat "$TMP/claude-calls"))"
+printf 'Not safe: P1 data loss in src/b.ts.\n\n- [P1] Data loss — src/b.ts:9\n\nVERDICT: NOT-SAFE\n' > "$TMP/fix/prose-p1-fixed.txt"
+reset; plan "1 - You've hit your usage limit."; cplan "0 prose-p1-tagged" "0 prose-p1-fixed"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && case "$out" in "NOT-SAFE round=1 findings=1 p0=0 p1=1 "*) true ;; *) false ;; esac && pass "a re-run that tags the P1 bullet and says VERDICT: NOT-SAFE is NOT-SAFE (#185)" || fail "prose p1 fixed ($rc $out)"
+printf 'Two verdicts.\n\nVERDICT: SAFE\nVERDICT: NOT-SAFE\n' > "$TMP/fix/two-verdicts.txt"
+reset; plan "1 - You've hit your usage limit."; cplan "0 two-verdicts"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR fallback-unreadable more than one VERDICT line" ] && [ "$(cat "$TMP/claude-n")" = 2 ] \
+  && grep -qxF "Your previous review had more than one VERDICT line. $V" "$TMP/claude-calls" \
+  && pass "two VERDICT lines are unreadable, re-run once with the rule repeated (#185)" || fail "two verdicts ($rc $out)"
+printf 'Only a nit.\n\n- [P2] A slow loop — src/a.ts:3\n\nVERDICT: NOT-SAFE\n' > "$TMP/fix/notsafe-p2.txt"
+reset; plan "1 - You've hit your usage limit."; cplan "0 notsafe-p2"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 69 ] && [ "$out" = "ERROR fallback-unreadable VERDICT NOT-SAFE without a P0 or P1 finding" ] && [ "$(cat "$TMP/claude-n")" = 2 ] \
+  && grep -qxF "Your previous review ended VERDICT: NOT-SAFE but had no P0 or P1 finding bullet. State every P0 or P1 problem as a finding bullet that starts with its [P0] or [P1] tag, or end with VERDICT: SAFE. $V" "$TMP/claude-calls" \
+  && pass "VERDICT: NOT-SAFE with only a P2 bullet is unreadable, re-run once with the rule repeated (#185)" || fail "notsafe p2 ($rc $out)"
+printf 'Fine.\n\n- [P1] Data loss — src/b.ts:9\n\nVERDICT: SAFE\n' > "$TMP/fix/safe-p1.txt"
+reset; plan "1 - You've hit your usage limit."; cplan "0 safe-p1"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 1 ] \
+  && ! grep -q 'VERDICT: SAFE' "$R1" && pass "VERDICT: SAFE with a [P1] bullet is NOT-SAFE: the bullets win (#185)" || fail "safe with p1 ($rc $out)"
+# the VERDICT line is neither a note nor a finding
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
+G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+! grep -q 'VERDICT: ' "$R1" && sed -n '/^## Notes/,/^$/p' "$R1" | grep -qF 'The change adds the CSV export' && pass "the VERDICT line is not copied into the review's notes (#185)" || fail "verdict in notes ($(cat "$R1"))"
+# a codex review needs no VERDICT line
+reset; plan "0 safe"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "a codex review needs no VERDICT line (#185)" || fail "codex no verdict ($out)"
+# an untagged bullet gets its own correction line
+printf 'Looks fine.\n\n- Data loss — src/b.ts:9\n\nVERDICT: NOT-SAFE\n' > "$TMP/fix/untagged-claude.txt"
+reset; plan "1 - You've hit your usage limit."; cplan "0 untagged-claude" "0 claude-safe"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] \
+  && grep -qxF 'Your previous review had a finding bullet without a [P0] to [P3] tag: "- Data loss — src/b.ts:9". Start every finding bullet with its tag.' "$TMP/claude-calls" \
+  && [ "$(grep -c 'wrote a grade tag outside' "$TMP/claude-calls")" = 0 ] \
+  && pass "an untagged finding bullet gets a correction line that names the missing tag (#185)" || fail "untagged correction ($rc $out / $(cat "$TMP/claude-calls"))"
+# HEAD moving during the first fallback run is HEAD moved, with no re-run
+reset; plan "1 - You've hit your usage limit."; cplan "0 move-head" "0 claude-tag-in-verdict.json"
+out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
+git -C "$APP" reset -q --hard "$HEAD"
+[ "$rc" -eq 69 ] && case "$out" in "ERROR HEAD moved during the review ("*" to "*")") true ;; *) false ;; esac && [ "$(cat "$TMP/claude-n")" = 1 ] \
+  && pass "HEAD moving during the first fallback run is ERROR HEAD moved, with one claude run (#185)" || fail "head moved in run 1 ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) runs)"
 
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
