@@ -382,7 +382,7 @@ brief workers write at the same time and `notes.sh` numbers them under a lock; a
 notes file in step. STAR finds them with `recall.sh` and never reads the folder into its context. A worker's
 `NOTE:` is a `fact` note. A rule the owner says in chat is a `rule` note at once (`--source owner`, `--always`
 when it holds for every item), never a new `star.json` key; replacing one is `notes.sh … replace`. The notes
-mode of a home (`legacy` or `split`) is never changed by STAR.
+mode of a home (`legacy` or `split`) is never changed by STAR on its own.
 
 ## Tracker status
 
