@@ -665,6 +665,26 @@ describe("Needs you sections", () => {
     expect(phoneList.querySelectorAll("[aria-current]")).toHaveLength(0)
   })
 
+  it("keeps a held row's layout still, and ignores a tap on Undo right after the answer tap", async () => {
+    phone()
+    const { paths } = recordPosts()
+    renderApp("/needs")
+    await screen.findByText(STRIPE)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true })
+    fireEvent.click(within(rowOf(STRIPE)).getByRole("button", { name: "Done" }))
+    const row = rowOf(STRIPE)
+    // The held state sits in the action row, not in the row's own button.
+    const open = within(row).getByRole("button", { name: STRIPE })
+    expect(within(open).queryByText("Sending…")).not.toBeInTheDocument()
+    expect(within(row).getByRole("button", { name: "Sending…" })).toBeDisabled()
+    const undo = within(row).getByRole("button", { name: "Undo" })
+    // A double tap's second half lands within 400 ms and must not cancel the answer.
+    fireEvent.click(undo)
+    act(() => vi.advanceTimersByTime(5100))
+    vi.useRealTimers()
+    await waitFor(() => expect(paths).toEqual(["/api/projects/sphere-app/loops/N-41/answer"]))
+  })
+
   it("an answer sent from the detail cancels the one-tap answer still held for that loop", async () => {
     phone()
     const { paths, bodies } = recordPosts()

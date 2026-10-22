@@ -1,5 +1,5 @@
 import { Check } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router"
 import { type QueryClient, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
@@ -40,6 +40,7 @@ import {
 import {
   HOLD_MS,
   holdAnswer,
+  type PendingState,
   undoAnswer,
   usePending,
 } from "@/lib/pending-answers"
@@ -121,14 +122,23 @@ function undoTap(loop: ProjectLoop) {
 
 const TAP = "h-11 min-w-0 flex-1 px-3 text-[15px] whitespace-normal"
 
+// A tap on Undo this soon after the answer tap is the second half of a double tap, not an Undo.
+const UNDO_GUARD_MS = 400
+
 function RowActions({
   loop,
   onOpen,
+  held,
 }: {
   loop: ProjectLoop
   onOpen: () => void
+  held: PendingState
 }) {
   const qc = useQueryClient()
+  const heldAt = useRef(0)
+  useEffect(() => {
+    if (held === "held") heldAt.current = Date.now()
+  }, [held])
   const primary = primaryOf(loop)
   const secondary = secondaryOf(loop)
   const isSlack = loop.kind === "slack-reply"
@@ -152,7 +162,26 @@ function RowActions({
         </div>
       )}
       <div className="flex gap-2">
-        {isSlack ? (
+        {held ? (
+          // Same two slots as the answer buttons, so nothing under the thumb moves.
+          <>
+            <Button variant="answer" className={TAP} disabled>
+              Sending…
+            </Button>
+            {held === "held" && (
+              <Button
+                variant="outline"
+                className={TAP}
+                onClick={() => {
+                  if (Date.now() - heldAt.current < UNDO_GUARD_MS) return
+                  undoTap(loop)
+                }}
+              >
+                Undo
+              </Button>
+            )}
+          </>
+        ) : isSlack ? (
           <>
             {primary && reply && (
               <Button
@@ -257,9 +286,9 @@ function LoopRow({
         <span className="line-clamp-2 text-sm leading-snug font-medium break-words">
           {loop.title}
         </span>
-        {pending ? (
+        {pending && !narrow ? (
           <Badge variant="run">Sending…</Badge>
-        ) : (
+        ) : pending ? null : (
           answered && (
             <Badge variant="done">
               <Check className="size-3" />
@@ -268,19 +297,8 @@ function LoopRow({
           )
         )}
       </button>
-      {narrow && pending === "held" && (
-        <div className="px-3 pb-3">
-          <Button
-            variant="outline"
-            className="h-11 w-full"
-            onClick={() => undoTap(loop)}
-          >
-            Undo
-          </Button>
-        </div>
-      )}
-      {narrow && !pending && !answered && loop.kind !== "error" && (
-        <RowActions loop={loop} onOpen={onSelect} />
+      {narrow && (pending || (!answered && loop.kind !== "error")) && (
+        <RowActions loop={loop} onOpen={onSelect} held={pending} />
       )}
     </li>
   )
