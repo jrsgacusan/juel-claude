@@ -69,36 +69,192 @@ function mockPhone() {
 }
 
 describe("Progress", () => {
-  it("shows four summary cards and the item table", async () => {
+  it("shows one summary line and the item table with a Stage column", async () => {
     renderApp("/sphere-app/progress")
-    const summary = await screen.findByRole("region", { name: "Summary" })
-    expect(within(summary).getByText("Build slots")).toBeInTheDocument()
-    expect(within(summary).getByText("3 of 3")).toBeInTheDocument()
-    expect(within(summary).getByText("Waiting on you")).toBeInTheDocument()
-    expect(within(summary).getByText("3")).toBeInTheDocument()
-    expect(within(summary).getByText("In review")).toBeInTheDocument()
-    expect(within(summary).getByText("Merged today")).toBeInTheDocument()
     expect(
-      screen.getByText(/^2 building, 1 in review, \d merged today$/)
+      await screen.findByText("3 of 3 build slots busy.")
     ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("region", { name: "Summary" })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("img", { name: "3 of 3 busy" })).toBeInTheDocument()
+    expect(screen.getByText("1 in review, 2 merged today.")).toBeInTheDocument()
     expect(screen.getByText("Review gate up")).toBeInTheDocument()
-    for (const name of ["Item", "Status", "Current step", "PR", "Updated"]) {
+    for (const name of ["Item", "Stage", "PR", "Updated"]) {
       expect(screen.getByRole("columnheader", { name })).toBeInTheDocument()
     }
+    expect(
+      screen.queryByRole("columnheader", { name: "Status" })
+    ).not.toBeInTheDocument()
     expect(rows()).toHaveLength(7)
     expect(
       screen.queryByRole("navigation", { name: "Item pages" })
     ).not.toBeInTheDocument()
-    expect(screen.getByText("Codex gate, round 2 of 3")).toBeInTheDocument()
+    const sph11 = rows().find((r) =>
+      within(r).queryByText("Codex gate, round 2 of 3")
+    )
+    expect(sph11).toBeDefined()
+    expect(
+      within(sph11!).getByRole("img", { name: /^Stage 3 of 5, Gate/ })
+    ).toBeInTheDocument()
     expect(screen.getByText("#214")).toBeInTheDocument()
-    expect(screen.getAllByText("None yet").length).toBeGreaterThan(0)
+    expect(screen.queryByText("None yet")).not.toBeInTheDocument()
+  })
+
+  it("says Couldn't load the workers when the overview fails", async () => {
+    server.use(
+      http.get("*/api/projects/:p/overview", () =>
+        HttpResponse.json(
+          { error: "Could not read star.json" },
+          { status: 502 }
+        )
+      )
+    )
+    renderApp("/sphere-app/progress")
+    expect(
+      await screen.findByText("Couldn't load the workers.")
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("img", { name: /busy$/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/build slots busy/)).not.toBeInTheDocument()
+  })
+
+  it("calls out the loop that blocks most, with a link to Needs you, and only when one waits", async () => {
+    const { user, router } = renderApp("/sphere-app/progress")
+    const callout = await screen.findByText(/^SPH-7 waits on you: /)
+    expect(callout).toHaveTextContent(
+      "SPH-7 waits on you: The merge gate failed twice on e3f1a92. 8 more wait on you."
+    )
+    const link = screen.getByRole("link", { name: "Open Needs you" })
+    expect(link).toHaveAttribute("data-variant", "answer")
+    expect(link).toHaveAttribute("href", "/needs?project=sphere-app")
+    await user.click(link)
+    await waitFor(() =>
+      expect(
+        router.state.location.pathname + router.state.location.search
+      ).toBe("/needs?project=sphere-app")
+    )
+  })
+
+  it("has no callout when the project has no unanswered loops", async () => {
+    getDb().loops["sphere-app"] = []
+    renderApp("/sphere-app/progress")
+    await screen.findByText("3 of 3 build slots busy.")
+    expect(screen.queryByText(/waits? on you/)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("link", { name: "Open Needs you" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("puts a needs-you row's step text in the wait tone", async () => {
+    const { user } = renderApp("/sphere-app/progress")
+    await user.click(await screen.findByRole("tab", { name: /^Blocked\s*3$/ }))
+    expect(
+      screen.getByText("Asked: widen the scope to the public API?")
+    ).toHaveClass("text-wait-fg")
+  })
+
+  it("reads a queued row with no step as waiting for a slot", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-14"
+    )!
+    row.row.step = null
+    row.row.state = "queued"
+    renderApp("/sphere-app/progress")
+    expect(
+      await screen.findByText("Queued for a build slot")
+    ).toBeInTheDocument()
+  })
+
+  it("shows Report and no rail for a report item, and the status label for an unknown state", async () => {
+    const items = getDb().items["sphere-app"]!
+    const report = items.find((d) => d.row.item === "SPH-13")!
+    report.row.stage = "post"
+    report.row.state = "posting"
+    const odd = items.find((d) => d.row.item === "SPH-15")!
+    odd.row.state = "mystery"
+    odd.row.step = null
+    renderApp("/sphere-app/progress")
+    const reportRow = (
+      await screen.findByRole("button", { name: /^SPH-13 / })
+    ).closest("tr")!
+    expect(within(reportRow).getByText("Report")).toBeInTheDocument()
+    expect(
+      within(reportRow).getByText("Executor writing the code")
+    ).toBeInTheDocument()
+    expect(within(reportRow).queryByRole("img")).not.toBeInTheDocument()
+    const oddRow = screen
+      .getByRole("button", { name: /^SPH-15 / })
+      .closest("tr")!
+    expect(within(oddRow).queryByRole("img")).not.toBeInTheDocument()
+    expect(within(oddRow).getByText("Briefing")).toBeInTheDocument()
+  })
+
+  it("shows Dropped for a dropped row", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-13"
+    )!
+    row.row.state = "dropped"
+    row.row.status = "dropped"
+    row.row.step = null
+    const { user } = renderApp("/sphere-app/progress")
+    await user.click(await screen.findByRole("tab", { name: /^All\s*11$/ }))
+    const tr = screen.getByRole("button", { name: /^SPH-13 / }).closest("tr")!
+    expect(within(tr).getByText("Dropped")).toBeInTheDocument()
+  })
+
+  it("lists what merged today by mergedAt, under the table, hidden on the Merged tab", async () => {
+    const { user } = renderApp("/sphere-app/progress")
+    const list = await screen.findByRole("list", { name: "Merged today" })
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2)
+    expect(list.closest("table")).toBeNull()
+    for (const ref of ["SPH-8", "SPH-4"]) {
+      const li = within(list).getByText(ref).closest("li")!
+      expect(
+        within(li).getByRole("link", { name: "Evidence" })
+      ).toHaveAttribute("href", `/sphere-app/evidence?item=${ref}`)
+    }
+    const sph8 = within(list).getByText("SPH-8").closest("li")!
+    expect(within(sph8).getByRole("link", { name: /#207/ })).toHaveAttribute(
+      "href",
+      "https://github.com/example/sphere-app/pull/207"
+    )
+    expect(within(sph8).getByText("Fix invoice rounding")).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: /^Merged\s*2$/ }))
+    expect(
+      screen.queryByRole("list", { name: "Merged today" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("does not count a row merged yesterday but updated today as merged today", async () => {
+    const row = getDb().items["sphere-app"]?.find(
+      (d) => d.row.item === "SPH-4"
+    )!
+    row.row.mergedAt = new Date(Date.now() - 48 * 3600_000).toISOString()
+    row.row.updated = new Date().toISOString()
+    renderApp("/sphere-app/progress")
+    expect(
+      await screen.findByText("1 in review, 1 merged today.")
+    ).toBeInTheDocument()
+    const list = screen.getByRole("list", { name: "Merged today" })
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1)
+    expect(within(list).queryByText("SPH-4")).not.toBeInTheDocument()
+  })
+
+  it("does not count a merged row with no mergedAt", async () => {
+    for (const d of getDb().items["sphere-app"] ?? [])
+      if (d.row.status === "merged") d.row.mergedAt = null
+    renderApp("/sphere-app/progress")
+    expect(
+      await screen.findByText("1 in review, 0 merged today.")
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole("list", { name: "Merged today" })
+    ).not.toBeInTheDocument()
   })
 
   it("filters by tab and by ref or title", async () => {
     const { user } = renderApp("/sphere-app/progress")
-    await user.click(
-      await screen.findByRole("tab", { name: /^Needs you\s*3$/ })
-    )
+    await user.click(await screen.findByRole("tab", { name: /^Blocked\s*3$/ }))
     expect(rows()).toHaveLength(4)
     await user.click(screen.getByRole("tab", { name: /^Merged\s*2$/ }))
     expect(rows()).toHaveLength(3)
@@ -112,9 +268,7 @@ describe("Progress", () => {
 
   it("opens a row's sheet with its branch, PR and step log, and links to Needs you", async () => {
     const { user, router } = renderApp("/sphere-app/progress")
-    await user.click(
-      await screen.findByRole("tab", { name: /^Needs you\s*3$/ })
-    )
+    await user.click(await screen.findByRole("tab", { name: /^Blocked\s*3$/ }))
     await user.click(screen.getByText("Remove the old export modal"))
     const sheet = await screen.findByRole("dialog")
     expect(router.state.location.search).toBe("?item=SPH-9")
@@ -301,24 +455,6 @@ describe("Progress", () => {
     ).toBeInTheDocument()
   })
 
-  it("shows a dash, not 0 of 0, when the workers could not be read", async () => {
-    server.use(
-      http.get("*/api/projects/:p/overview", () =>
-        HttpResponse.json(
-          { error: "Could not read star.json" },
-          { status: 502 }
-        )
-      )
-    )
-    renderApp("/sphere-app/progress")
-    const summary = await screen.findByRole("region", { name: "Summary" })
-    expect(within(summary).getByText("–")).toBeInTheDocument()
-    expect(
-      within(summary).getByText("Couldn't load the workers")
-    ).toBeInTheDocument()
-    expect(within(summary).queryByText("0 of 0")).not.toBeInTheDocument()
-  })
-
   it("closes a sheet for an item that is gone with a clear message", async () => {
     renderApp("/sphere-app/progress?item=SPH-99")
     const sheet = await screen.findByRole("dialog")
@@ -348,7 +484,7 @@ describe("Progress pages", () => {
     expect(running).toHaveAttribute("aria-selected", "true")
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
       "Running 22",
-      "Needs you 2",
+      "Blocked 2",
       "Merged 1",
       "All 25",
     ])
@@ -449,8 +585,11 @@ describe("Progress pages", () => {
     })
     expect(first).toHaveTextContent("R-01")
     expect(first).toHaveTextContent("Export batch 1")
-    expect(first).toHaveTextContent("Building")
-    expect(first).toHaveTextContent("None yet")
+    expect(first).not.toHaveTextContent("Building")
+    expect(first).not.toHaveTextContent("None yet")
+    expect(
+      within(first).getByRole("img", { name: /^Stage 2 of 5, Build/ })
+    ).toBeInTheDocument()
     expect(
       within(list).getByRole("button", { name: "R-05 Export batch 5" })
     ).toHaveTextContent("#305")
@@ -499,11 +638,9 @@ describe("Progress pages", () => {
     ])
   })
 
-  it("lets the tabs scroll and puts the stat cards in two columns", async () => {
+  it("lets the tabs scroll", async () => {
     renderApp("/sphere-app/progress")
-    const summary = await screen.findByRole("region", { name: "Summary" })
-    expect(summary).toHaveClass("grid-cols-2")
-    expect(summary).toHaveClass("lg:grid-cols-4")
+    await screen.findByRole("tablist")
     expect(screen.getByRole("tablist").parentElement).toHaveClass(
       "overflow-x-auto",
       "overflow-y-hidden"
@@ -527,10 +664,6 @@ describe("Progress pages", () => {
     expect(badge).toHaveClass("whitespace-normal")
     expect(badge).not.toHaveClass("whitespace-nowrap")
     expect(badge).not.toHaveClass("h-5")
-    const building = within(screen.getByRole("table")).getAllByText(
-      "Building"
-    )[0]
-    expect(building).toHaveClass("whitespace-nowrap")
   })
 
   it("keeps the sheet's title clear of the close button and its worktree path readable", async () => {
@@ -556,10 +689,13 @@ describe("Progress pages", () => {
     act(() =>
       mockEvents.emit({ type: "change", project: "sphere-app", what: "ledger" })
     )
-    const badge = await within(screen.getByRole("table")).findByText(
-      "In review"
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "R-03 Export batch 3" })
+          .closest("tr")
+      ).toHaveClass("motion-row-in")
     )
-    expect(badge.closest("tr")).toHaveClass("motion-row-in")
     expect(document.querySelectorAll(".motion-row-in")).toHaveLength(1)
     await user.click(next())
     expect(document.querySelector(".motion-row-in")).toBeNull()
@@ -579,8 +715,13 @@ describe("Progress pages", () => {
     act(() =>
       mockEvents.emit({ type: "change", project: "sphere-app", what: "ledger" })
     )
-    const badge = await within(list).findByText("In review")
-    expect(badge.closest("li")).toHaveClass("motion-row-in")
+    await waitFor(() =>
+      expect(
+        within(list)
+          .getByRole("button", { name: "R-04 Import batch 4" })
+          .closest("li")
+      ).toHaveClass("motion-row-in")
+    )
     expect(list).toHaveClass("motion-fade-in")
   })
 
