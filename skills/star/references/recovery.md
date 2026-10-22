@@ -93,6 +93,7 @@ items unbuilt until /juel:star runs again: <items>`.
   second reply, and every start answers each pending message whose inbox file is gone.
 - **An older STAR folder.** The start's first step, `star-home.sh migrate`, brings it to the current schema.
   Grant files and old counters stay on disk, unread; nothing is deleted. The notes mode is left as it is.
+  A schema-3 home may delete an old `grants/` folder and the `grant` line in a brief's frontmatter: nothing reads them.
   Standing orders saved in `star.json` as free-text keys are not reread as rules: STAR reads its rules from
   notes and the project's instructions only, and a standing order the owner still wants comes back as a rule
   note (`notes.sh add --kind rule --source owner`).

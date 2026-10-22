@@ -333,8 +333,8 @@ instead of built.
 
 ## The merge gate
 
-Every merge needs all of: a codex PASS on the exact head; every required check green; GitHub's merge state not
-blocked, behind or dirty; and a reply from the author on every unresolved review thread someone else opened.
+Every merge needs all of: a codex PASS on the exact head; every required check green; GitHub's merge state not blocked or dirty, and not behind when the base requires up-to-date
+branches; and a reply from the author on every unresolved review thread someone else opened.
 The gate is `sh S/pr-verify.sh <pr url> --head <head> --merge-gate --brief <brief> --home HOME_DIR [--hosted
 <login>]`, with `--hosted` passed only when `hostedReviewer` is set and not paused (by `hostedReviewer.paused`
 or by the project's `CLAUDE.md` or `AGENTS.md`). A project with a hosted reviewer also needs its passes. A project
