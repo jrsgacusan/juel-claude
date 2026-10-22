@@ -15,7 +15,6 @@ test("a changed path maps to what changed; lock and temp files map to nothing", 
   assert.deepEqual(whatOf("ledger.md"), ["ledger"]);
   assert.deepEqual(whatOf("progress/issue-1.log"), ["progress"]);
   assert.deepEqual(whatOf("evidence/issue-4/a/b.png"), ["evidence"]);
-  assert.deepEqual(whatOf("drafts"), ["drafts"]);
   assert.deepEqual(whatOf("other/x.json"), []);
   assert.deepEqual(whatOf("briefings/b1/draft.json"), ["briefings"]);
   assert.deepEqual(whatOf("open-loops.md.lock"), []);
@@ -27,7 +26,6 @@ test("a changed path maps to what changed; lock and temp files map to nothing", 
     "ledger",
     "progress",
     "evidence",
-    "drafts",
     "briefings",
     "chat",
   ]);
@@ -107,9 +105,9 @@ test("a watch that errors later falls back to polling too", async () => {
   );
   try {
     await sleep(200);
-    fs.mkdirSync(path.join(home, "drafts"));
-    fs.writeFileSync(path.join(home, "drafts", "d.md"), "to: pr x\nhi\n");
-    await until(events, (e) => e["what"] === "drafts");
+    fs.mkdirSync(path.join(home, "progress"));
+    fs.writeFileSync(path.join(home, "progress", "d.log"), "x\n");
+    await until(events, (e) => e["what"] === "progress");
     assert.ok(
       lines.some((l) => l.includes("watch p failed (gone)")),
       lines.join("\n"),
@@ -169,7 +167,6 @@ test("a burst of changes makes one event per what; a change fs.watch did not nam
     assert.deepEqual(events.map((e) => e["what"]).sort(), [
       "briefings",
       "chat",
-      "drafts",
       "evidence",
       "ledger",
       "loops",

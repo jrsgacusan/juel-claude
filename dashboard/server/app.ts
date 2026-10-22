@@ -15,7 +15,6 @@ import { loopRoutes } from "./routes/loops.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { evidenceRoutes } from "./routes/evidence.ts";
 import { itemRoutes } from "./routes/items.ts";
-import { draftRoutes } from "./routes/drafts.ts";
 import { fileRoutes } from "./routes/files.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { serveStatic } from "./static.ts";
@@ -87,7 +86,6 @@ export async function startApp(opts: AppOptions): Promise<App> {
   itemRoutes(router, ctx);
   evidenceRoutes(router, ctx);
   fileRoutes(router, ctx);
-  draftRoutes(router, ctx);
   searchRoutes(router, ctx);
   const dist = opts.webDist ?? WEB_DIST;
 

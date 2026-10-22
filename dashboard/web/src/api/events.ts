@@ -62,8 +62,6 @@ export function keysFor(event: ChangeEvent): QueryKey[] {
       return [scoped("items"), scoped("item"), scoped("overview"), ["projects"]]
     case "evidence":
       return [scoped("evidence")]
-    case "drafts":
-      return [["draft"]]
     case "briefings":
       return [scoped("briefings"), scoped("briefing")]
     case "chat":

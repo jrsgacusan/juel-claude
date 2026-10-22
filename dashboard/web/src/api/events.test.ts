@@ -70,9 +70,6 @@ describe("the event stream", () => {
     expect(keysFor({ type: "change", project: p, what: "evidence" })).toEqual([
       ["evidence", p],
     ])
-    expect(keysFor({ type: "change", project: p, what: "drafts" })).toEqual([
-      ["draft"],
-    ])
     expect(keysFor({ type: "change", project: p, what: "briefings" })).toEqual([
       ["briefings", p],
       ["briefing", p],

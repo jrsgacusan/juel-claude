@@ -113,7 +113,6 @@ export type EvidenceDetail = {
   record: EvidenceRecord
   groups: EvidenceGroup[]
 }
-export type DraftRequest = { text: string }
 export type SearchResult = {
   group: string
   title: string
@@ -127,7 +126,6 @@ export type ChangeWhat =
   | "ledger"
   | "progress"
   | "evidence"
-  | "drafts"
   | "briefings"
   | "chat"
   | "accounts"
