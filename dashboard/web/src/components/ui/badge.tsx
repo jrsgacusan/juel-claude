@@ -18,6 +18,7 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
+        count: "border-transparent bg-answer text-answer-foreground tabular-nums",
         wait: "border-wait-line bg-wait-bg text-wait-fg",
         run: "border-run-line bg-run-bg text-run-fg",
         done: "border-done-line bg-done-bg text-done-fg",

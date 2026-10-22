@@ -4,6 +4,9 @@ import { setConnection } from "@/api/events"
 import { server } from "@/mocks/node"
 import { resetMockState } from "@/mocks/state"
 import { setConflict } from "@/lib/conflict"
+import { resetChrome } from "@/lib/chrome"
+import { resetLastProject } from "@/lib/last-project"
+import { resetPendingAnswers } from "@/lib/pending-answers"
 import { clearPendingBriefings } from "@/lib/pending-briefing"
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest"
 
@@ -50,6 +53,9 @@ afterEach(() => {
   document.documentElement.className = ""
   setConflict(null)
   clearPendingBriefings()
+  resetLastProject()
+  resetPendingAnswers()
+  resetChrome()
   setConnection("connecting")
   server.resetHandlers()
   resetMockState()
