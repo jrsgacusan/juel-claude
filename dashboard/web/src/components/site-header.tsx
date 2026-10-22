@@ -10,11 +10,11 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
-import { Separator } from "@/components/ui/separator"
-import { SidebarTrigger } from "@/components/ui/sidebar"
 import { isPage, PAGE_LABELS, projectPath } from "@/lib/routes"
 import { AccountsChip } from "./accounts-chip"
-import { ThemeSwitch } from "./theme-switch"
+import { useNarrow } from "./list-detail"
+import { ProjectSwitcher } from "./project-switcher"
+import { ThemeButton } from "./theme-button"
 
 export function SiteHeader({
   project,
@@ -25,13 +25,29 @@ export function SiteHeader({
   page: string
   onSearch: () => void
 }) {
+  const narrow = useNarrow()
+  const frame =
+    "sticky top-0 z-20 box-content flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4 md:static"
+  if (narrow)
+    return (
+      <header className={frame}>
+        <ProjectSwitcher project={project} />
+        <div className="ml-auto flex items-center gap-1.5">
+          <AccountsChip project={project} />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onSearch}
+            aria-label="Search (⌘K)"
+            className="size-11"
+          >
+            <Search />
+          </Button>
+        </div>
+      </header>
+    )
   return (
-    <header className="sticky top-0 z-20 box-content flex h-14 shrink-0 items-center gap-2 border-b bg-background px-3 pt-[env(safe-area-inset-top)] sm:px-4 md:static">
-      <SidebarTrigger className="md:hidden" aria-label="Open the menu" />
-      <Separator
-        orientation="vertical"
-        className="mr-1 data-[orientation=vertical]:h-4 md:hidden"
-      />
+    <header className={frame}>
       <Breadcrumb className="min-w-0">
         <BreadcrumbList className="flex-nowrap">
           <BreadcrumbItem className="hidden sm:inline-flex">
@@ -64,7 +80,7 @@ export function SiteHeader({
           <Kbd className="hidden sm:inline-flex">⌘K</Kbd>
         </Button>
         <AccountsChip project={project} />
-        <ThemeSwitch />
+        <ThemeButton />
       </div>
     </header>
   )

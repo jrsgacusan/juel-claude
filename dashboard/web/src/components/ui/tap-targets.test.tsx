@@ -43,7 +43,7 @@ describe("tap targets on a coarse pointer, desktop sizes kept", () => {
     expect(screen.getByRole("tablist")).toHaveClass("group-data-horizontal/tabs:h-9", "pointer-coarse:group-data-horizontal/tabs:h-auto")
     expect(screen.getByRole("tab", { name: "Running" })).toHaveClass("pointer-coarse:min-h-11")
   })
-  it("the header search button and the theme switch", () => {
+  it("the header search button and the theme button", () => {
     render(
       <QueryClientProvider client={createQueryClient()}>
         <MemoryRouter>
@@ -56,7 +56,6 @@ describe("tap targets on a coarse pointer, desktop sizes kept", () => {
       </QueryClientProvider>
     )
     expect(screen.getByRole("button", { name: "Search (⌘K)" })).toHaveClass("h-8", "pointer-coarse:size-11", "sm:pointer-coarse:w-64")
-    for (const name of ["System theme", "Light theme", "Dark theme"])
-      expect(screen.getByRole("radio", { name })).toHaveClass("h-8", "pointer-coarse:h-11", "pointer-coarse:min-w-11")
+    expect(screen.getByRole("button", { name: "Theme: System" })).toHaveClass("h-8", "pointer-coarse:size-11")
   })
 })
