@@ -12,7 +12,6 @@ import type {
   Overview,
   Project,
   SearchResult,
-  SlackState,
   Tracker,
   TrackerInfo,
 } from "@/api/types"
@@ -30,9 +29,6 @@ export const agoToday = (minutes: number): string =>
   new Date(
     Math.max(new Date().setHours(0, 0, 0, 0), Date.now() - minutes * MINUTE)
   ).toISOString()
-const slackTs = (minutes: number): string =>
-  ((Date.now() - minutes * MINUTE) / 1000).toFixed(6)
-const today = () => new Date().toISOString().slice(0, 10)
 
 export type MockBriefing = { summary: BriefingSummary; briefing: Briefing }
 export type MockDb = {
@@ -43,7 +39,6 @@ export type MockDb = {
   evidence: Record<string, EvidenceDetail[]>
   /** File bodies by "<project>/<path inside the STAR folder>". */
   files: Record<string, { type: string; body: string }>
-  slack: SlackState
   briefings: Record<string, MockBriefing[]>
   trackers: Record<string, TrackerInfo>
   trackerConnected: Record<string, Partial<Record<Tracker, boolean>>>
@@ -156,67 +151,6 @@ function evidence(
 
 export function createDb(): MockDb {
   const files: MockDb["files"] = {}
-  const ria = slackTs(3)
-  const marco = slackTs(25)
-  const lea = slackTs(60)
-  const riaId = `C0SPHERE-${ria}`
-  const marcoId = `D0MARCO-${marco}`
-  const leaId = `C0RELEASES-${lea}`
-  const draft = (id: string) => `drafts/${today()}-${HOME}-slack-${id}.md`
-  const replies: Array<
-    [id: string, channelId: string, ts: string, reply: string]
-  > = [
-    [
-      riaId,
-      "C0SPHERE",
-      ria,
-      "Not today. It's in final review now, and I expect it merged tomorrow morning, before the demo.",
-    ],
-    [
-      marcoId,
-      "D0MARCO",
-      marco,
-      "Yes, it's mine (SPH-12). I'll share the new copy here before it ships.",
-    ],
-    [
-      leaId,
-      "C0RELEASES",
-      lea,
-      "None yet. It's SPH-13, being built now. I'll post the PR here once it's open.",
-    ],
-  ]
-  for (const [id, channelId, ts, reply] of replies) {
-    files[`${HOME}/${draft(id)}`] = {
-      type: "text/markdown; charset=utf-8",
-      body: `to: slack ${channelId} ${ts}\n${reply}`,
-    }
-  }
-  const slackLoop = (
-    id: string,
-    minutes: number,
-    from: string,
-    channel: string,
-    text: string,
-    msgId: string,
-    reply: string
-  ): Loop => ({
-    id,
-    kind: "slack-reply",
-    item: "slack",
-    title: `${from} in ${channel}: ${text.slice(0, 60)}`,
-    body: [
-      `draft: ${draft(msgId)}`,
-      `message: https://example.slack.com/archives/${msgId.split("-")[0]}/p${msgId.split("-")[1]?.replace(".", "")}`,
-    ],
-    options: [
-      opt("Send the draft", "send", true),
-      opt("Make it shorter", "rewrite: shorter"),
-      opt("Skip", "skip"),
-    ],
-    suggestion: `Send: "${reply}"`,
-    answer: "",
-    askedAt: ago(minutes),
-  })
 
   const db: MockDb = {
     files,
@@ -351,33 +285,6 @@ export function createDb(): MockDb {
           answer: "",
           askedAt: ago(6),
         },
-        slackLoop(
-          "N-48",
-          60,
-          "Lea",
-          "#releases",
-          "which PR fixes the invoice time zone?",
-          leaId,
-          replies[2]?.[3] ?? ""
-        ),
-        slackLoop(
-          "N-47",
-          25,
-          "Marco",
-          "a DM",
-          "can you look at the invite email copy before it goes out?",
-          marcoId,
-          replies[1]?.[3] ?? ""
-        ),
-        slackLoop(
-          "N-45",
-          3,
-          "Ria",
-          "#sphere-eng",
-          "hey, is the CSV export landing today? sales wants to demo it tomorrow",
-          riaId,
-          replies[0]?.[3] ?? ""
-        ),
         {
           id: "N-39",
           kind: "waiting",
@@ -593,69 +500,6 @@ export function createDb(): MockDb {
       "juel-claude": [],
     },
     evidence: { "sphere-app": [], "sphere-api": [], "juel-claude": [] },
-    slack: {
-      paused: false,
-      status: {
-        connected: true,
-        lastCheck: ago(2),
-        error: null,
-        model: "haiku",
-        workspace: null,
-      },
-      routed: [
-        {
-          id: riaId,
-          project: HOME,
-          from: "Ria",
-          channel: "#sphere-eng",
-          text: "hey, is the CSV export landing today? sales wants to demo it tomorrow",
-          permalink: `https://example.slack.com/archives/C0SPHERE/p${ria.replace(".", "")}`,
-          thread: [],
-          draftPath: draft(riaId),
-          loopId: "N-45",
-        },
-        {
-          id: marcoId,
-          project: HOME,
-          from: "Marco",
-          channel: "a DM",
-          text: "can you look at the invite email copy before it goes out?",
-          permalink: `https://example.slack.com/archives/D0MARCO/p${marco.replace(".", "")}`,
-          thread: ["Marco: the new invite email, is that yours?"],
-          draftPath: draft(marcoId),
-          loopId: "N-47",
-        },
-        {
-          id: leaId,
-          project: HOME,
-          from: "Lea",
-          channel: "#releases",
-          text: "which PR fixes the invoice time zone?",
-          permalink: `https://example.slack.com/archives/C0RELEASES/p${lea.replace(".", "")}`,
-          thread: [
-            "You: Invoice rounding fix is out in #207:\n• the PR: https://github.com/example/sphere-app/pull/207\n• the notes: <https://example.com/notes/invoice-rounding|release notes>",
-          ],
-          draftPath: draft(leaId),
-          loopId: "N-48",
-        },
-      ],
-      unrouted: [
-        {
-          id: `C0GENERAL-${slackTs(18)}`,
-          from: "Ana",
-          channel: "#general",
-          text: "anyone around for a quick call at 3 about the pricing page?",
-          permalink: "https://example.slack.com/archives/C0GENERAL/p1",
-        },
-        {
-          id: `C0OPS-${slackTs(40)}`,
-          from: "Sam",
-          channel: "#ops",
-          text: "who owns the staging deploy this week?",
-          permalink: "https://example.slack.com/archives/C0OPS/p1",
-        },
-      ],
-    },
     briefings: {
       "sphere-app": [
         {
@@ -920,14 +764,6 @@ export function createDb(): MockDb {
       route: "progress?item=SPH-11",
     },
     {
-      group: "Slack",
-      title: "Ria: is the CSV export landing today?",
-      sub: "#sphere-eng, draft ready",
-      ref: "3m",
-      project: HOME,
-      route: `slack?draft=${encodeURIComponent(draft(riaId).split("/").pop() ?? "")}`,
-    },
-    {
       group: "Briefings",
       title: "Export reports as CSV",
       sub: "Briefed yesterday, became SPH-11",
@@ -950,14 +786,6 @@ export function createDb(): MockDb {
       ref: "SPH-8",
       project: HOME,
       route: "evidence?item=SPH-8",
-    },
-    {
-      group: "Slack",
-      title: "Lea: which PR fixes the invoice time zone?",
-      sub: "#releases, draft ready",
-      ref: "1h",
-      project: HOME,
-      route: `slack?draft=${encodeURIComponent(draft(leaId).split("/").pop() ?? "")}`,
     },
     {
       group: "Items",

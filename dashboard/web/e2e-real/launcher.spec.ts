@@ -38,13 +38,12 @@ test("the URL opens the page, and the API refuses a request without the token", 
   expect(res.status).toBe(401)
 })
 
-test("the server loads both modules and logs no module error", async () => {
+test("the server loads the briefing module and logs no module error", async () => {
   await expect
     .poll(() => dashboardLog(e2e().home))
-    .toMatch(/\[slack\] slack check: 2 found, 1 routed, 1 unrouted/)
+    .toContain("module briefing loaded")
   const text = dashboardLog(e2e().home)
   expect(text).toContain("module briefing loaded")
-  expect(text).toContain("module slack loaded")
   expect(logProblems(e2e().home)).toEqual([])
 })
 

@@ -44,7 +44,7 @@ const COMPONENTS: Components = {
   blockquote: ({ children }) => (
     <blockquote className="border-l-2 pl-3 text-muted-foreground">{children}</blockquote>
   ),
-  // Never an <img>: text that echoes Slack or ticket content must not make the phone fetch from another host.
+  // Never an <img>: text that echoes ticket content must not make the phone fetch from another host.
   img: ({ src, alt }) =>
     src && /^https?:\/\//i.test(src) ? (
       <a

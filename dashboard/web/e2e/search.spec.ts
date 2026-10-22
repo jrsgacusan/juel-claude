@@ -8,7 +8,7 @@ test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
   await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeVisible()
   await page.keyboard.press(`${MOD}+k`)
   const input = page.getByPlaceholder(
-    "Search items, decisions, Slack, briefings and evidence"
+    "Search items, decisions, briefings and evidence"
   )
   await input.fill("csv")
   const dialog = page.getByRole("dialog")
@@ -16,7 +16,6 @@ test("⌘K from Needs you: grouped, highlighted, arrows and Enter", async ({
     "Items",
     "Needs you",
     "Decisions",
-    "Slack",
     "Briefings",
     "Evidence",
   ])
@@ -39,7 +38,7 @@ test("Ctrl+K from Progress with Every project on", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Search (⌘K)" })).toBeVisible()
   await page.keyboard.press("Control+k")
   await page
-    .getByPlaceholder("Search items, decisions, Slack, briefings and evidence")
+    .getByPlaceholder("Search items, decisions, briefings and evidence")
     .fill("csv")
   await page.getByRole("switch", { name: "Search every project" }).click()
   const dialog = page.getByRole("dialog")
@@ -54,7 +53,7 @@ test("the search button opens it too", async ({ page }) => {
   await page.getByRole("button", { name: "Search (⌘K)" }).click()
   await expect(
     page.getByPlaceholder(
-      "Search items, decisions, Slack, briefings and evidence"
+      "Search items, decisions, briefings and evidence"
     )
   ).toBeVisible()
   await noHorizontalScroll(page)
@@ -67,7 +66,7 @@ test("on a phone the switch sits above the results and nothing hides under the k
   await openApp(page)
   await page.getByRole("button", { name: "Search (⌘K)" }).click()
   const input = page.getByPlaceholder(
-    "Search items, decisions, Slack, briefings and evidence"
+    "Search items, decisions, briefings and evidence"
   )
   await expect(input).toHaveCSS("font-size", "16px")
   await input.fill("csv")

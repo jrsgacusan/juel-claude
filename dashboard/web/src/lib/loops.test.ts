@@ -30,10 +30,9 @@ const loop = (over: Partial<Loop> = {}): Loop => ({
 })
 
 describe("loop kinds", () => {
-  it("groups person and set-aside as hold, slack-reply as slack and the rest as other", () => {
+  it("groups person and set-aside as hold and the rest as other", () => {
     expect(groupOf("person")).toBe("hold")
     expect(groupOf("set-aside")).toBe("hold")
-    expect(groupOf("slack-reply")).toBe("slack")
     expect(groupOf("draft")).toBe("other")
     expect(groupOf("error")).toBe("other")
     expect(groupOf("whatever")).toBe("other")

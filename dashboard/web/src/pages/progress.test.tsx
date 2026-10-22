@@ -123,7 +123,7 @@ describe("Progress", () => {
     const { user, router } = renderApp("/sphere-app/progress")
     const callout = await screen.findByText(/^SPH-7 waits on you: /)
     expect(callout).toHaveTextContent(
-      "SPH-7 waits on you: The merge gate failed twice on e3f1a92. 8 more wait on you."
+      "SPH-7 waits on you: The merge gate failed twice on e3f1a92. 5 more wait on you."
     )
     const link = screen.getByRole("link", { name: "Open Needs you" })
     expect(link).toHaveClass("pointer-coarse:h-11")

@@ -11,7 +11,6 @@ export type Scenario =
   | "loading"
   | "conflict"
   | "stopped"
-  | "slack-off"
 const SCENARIOS = [
   "default",
   "empty",
@@ -19,7 +18,6 @@ const SCENARIOS = [
   "loading",
   "conflict",
   "stopped",
-  "slack-off",
 ]
 let failBriefingTurn = false
 const isScenario = (value: unknown): value is Scenario =>

@@ -20,17 +20,14 @@ describe("More", () => {
     const pages = screen.getByRole("navigation", { name: "sphere-app" })
     const links = within(pages).getAllByRole("link")
     expect(links.map((l) => l.getAttribute("href"))).toEqual([
-      "/sphere-app/slack",
       "/sphere-app/briefing",
       "/sphere-app/evidence",
       "/sphere-app/accounts",
     ])
-    expect(within(links[0]!).getByText("Slack replies")).toBeInTheDocument()
-    expect(within(links[0]!).getByText(/^\d+ to route$/)).toBeInTheDocument()
-    expect(await within(links[3]!).findByText("main, 54% left")).toBeInTheDocument()
+    expect(await within(links[2]!).findByText("main, 54% left")).toBeInTheDocument()
     const projects = screen.getByRole("navigation", { name: "Projects" })
     expect(within(projects).getByRole("link", { name: /sphere-app/ })).toHaveAttribute("href", "/sphere-app/more")
-    expect(within(projects).getByLabelText("9 need you")).toHaveAttribute("data-variant", "wait")
+    expect(within(projects).getByLabelText("6 need you")).toHaveAttribute("data-variant", "wait")
     const system = screen.getByRole("radio", { name: "System theme" })
     expect(screen.getByRole("radio", { name: "Light theme" })).toBeInTheDocument()
     const dark = screen.getByRole("radio", { name: "Dark theme" })

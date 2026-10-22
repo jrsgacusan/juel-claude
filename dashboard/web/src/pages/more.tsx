@@ -1,13 +1,12 @@
 import {
   ChevronRight,
   Images,
-  MessageSquare,
   PenLine,
 } from "lucide-react"
 import type { ComponentType, ReactNode } from "react"
 import { Link, useParams } from "react-router"
 import { activeOf, leftOf, useAccounts } from "@/api/accounts"
-import { useOverview, useProjects, useSlack } from "@/api/queries"
+import { useOverview, useProjects } from "@/api/queries"
 import { AwaySwitch } from "@/components/away-switch"
 import { Badge } from "@/components/ui/badge"
 import { Dot } from "@/components/status"
@@ -68,11 +67,9 @@ export function MorePage() {
   const { project = "" } = useParams()
   const projects = useProjects()
   const overview = useOverview(project)
-  const slack = useSlack()
   const accounts = useAccounts().data
   const current = projects.data?.find((p) => p.name === project)
 
-  const unrouted = slack.data?.unrouted.length ?? 0
   const active = accounts?.installed ? activeOf(accounts) : null
   const left = active ? leftOf(active.sevenDay) : null
   const accountsNote = active
@@ -95,12 +92,6 @@ export function MorePage() {
           {project}
         </h2>
         <ul className={groupClass}>
-          <PageLink
-            to={projectPath(project, "slack")}
-            icon={MessageSquare}
-            label="Slack replies"
-            note={unrouted > 0 ? `${unrouted} to route` : undefined}
-          />
           <PageLink to={projectPath(project, "briefing")} icon={PenLine} label="Briefing" />
           <PageLink to={projectPath(project, "evidence")} icon={Images} label="Evidence" />
           <PageLink

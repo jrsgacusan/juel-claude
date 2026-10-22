@@ -27,4 +27,4 @@ testing the old build. The temp folder is `$TMPDIR/star-e2e-*`, kept with `STAR_
 failed launch names it.
 
 Mock scenarios for a dev session: set `localStorage['star-mock']` to `empty`, `error`, `loading`,
-`conflict`, `stopped` or `slack-off` and reload.
+`conflict` or `stopped` and reload.

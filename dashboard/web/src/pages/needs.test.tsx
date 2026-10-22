@@ -25,20 +25,17 @@ describe("Needs you", () => {
   it("lists every project's open loops with tab counts, the person step first", async () => {
     renderApp("/needs")
     expect(
-      await screen.findByRole("button", { name: /^All\s*10$/ })
+      await screen.findByRole("button", { name: /^All\s*7$/ })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: /^Holds up work\s*4$/ })
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: /^Slack\s*3$/ })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: /^Other\s*3$/ })
     ).toBeInTheDocument()
     const list = screen.getByRole("region", { name: "Open loops" })
     const entries = within(list).getAllByRole("listitem")
-    expect(entries).toHaveLength(10)
+    expect(entries).toHaveLength(7)
     expect(entries[0]).toHaveTextContent(
       "Log in to the Stripe dashboard and enable test mode"
     )
@@ -88,7 +85,7 @@ describe("Needs you", () => {
     expect(screen.getByText("Only juel-claude")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Show every project" }))
     expect(
-      await screen.findByRole("button", { name: /^All\s*10$/ })
+      await screen.findByRole("button", { name: /^All\s*7$/ })
     ).toBeInTheDocument()
     expect(router.state.location.search).toBe("")
     expect(screen.queryByText("Only juel-claude")).not.toBeInTheDocument()
@@ -158,11 +155,12 @@ describe("Needs you", () => {
 
   it("filters the list by tab", async () => {
     const { user } = renderApp("/needs")
-    await user.click(await screen.findByRole("button", { name: /^Slack\s*3$/ }))
+    await user.click(await screen.findByRole("button", { name: /^Other\s*3$/ }))
     const list = screen.getByRole("region", { name: "Open loops" })
     const entries = within(list).getAllByRole("listitem")
     expect(entries).toHaveLength(3)
-    for (const entry of entries) expect(entry).toHaveTextContent("Slack reply")
+    for (const entry of entries)
+      expect(entry).not.toHaveTextContent("Your step")
   })
 
   it("shows a person step, STAR's pick and the options, and sends with Ctrl+Enter", async () => {
@@ -317,35 +315,6 @@ describe("Needs you", () => {
     expect(within(detail).queryByText(/^Sent "/)).not.toBeInTheDocument()
   })
 
-  it("a Slack reply's detail is the Slack editor, with no options and no Edit the draft link", async () => {
-    renderApp("/needs?project=sphere-app&loop=N-45")
-    const detail = await screen.findByRole("region", { name: "Answer" })
-    expect(
-      await within(detail).findByText(
-        "hey, is the CSV export landing today? sales wants to demo it tomorrow"
-      )
-    ).toBeInTheDocument()
-    expect(
-      await within(detail).findByLabelText("Your reply")
-    ).toBeInTheDocument()
-    expect(
-      within(detail).getByRole("button", { name: "Skip" })
-    ).toBeInTheDocument()
-    expect(
-      within(detail).getByRole("button", { name: "Send reply" })
-    ).toHaveAttribute("data-variant", "answer")
-    expect(
-      within(detail).getByLabelText("Ask the drafter to rewrite it")
-    ).toBeInTheDocument()
-    expect(
-      within(detail).getByRole("button", { name: "Shorter" })
-    ).toBeInTheDocument()
-    expect(within(detail).queryAllByRole("radio")).toHaveLength(0)
-    expect(
-      within(detail).queryByRole("link", { name: /Edit the draft/ })
-    ).not.toBeInTheDocument()
-  })
-
   it("has loading, empty and error states", async () => {
     setScenario("loading")
     const first = renderApp("/needs")
@@ -359,7 +328,7 @@ describe("Needs you", () => {
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        "When STAR waits on one of your steps, a draft or a Slack reply, it shows here."
+        "When STAR waits on one of your steps, or a draft to check, it shows here."
       )
     ).toBeInTheDocument()
     second.unmount()
@@ -457,7 +426,7 @@ describe("Needs you", () => {
 
   it("refreshes when STAR changes the queue (a loops event)", async () => {
     renderApp("/needs")
-    await screen.findByRole("button", { name: /^All\s*10$/ })
+    await screen.findByRole("button", { name: /^All\s*7$/ })
     await waitFor(() => expect(getConnection()).toBe("open"))
     getDb().loops["sphere-app"]?.push({
       id: "N-50",
@@ -477,27 +446,27 @@ describe("Needs you", () => {
       await screen.findByText("A new question from the build worker")
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: /^All\s*11$/ })
+      screen.getByRole("button", { name: /^All\s*8$/ })
     ).toBeInTheDocument()
   })
 
   it("on a phone, shows the list, opens an item on its own, and Back keeps the tab", async () => {
     phone()
     const { user, router } = renderApp("/needs")
-    await user.click(await screen.findByRole("button", { name: /^Slack\s*3$/ }))
+    await user.click(await screen.findByRole("button", { name: /^Other\s*3$/ }))
     const list = screen.getByRole("region", { name: "Open loops" })
     expect(
       screen.queryByRole("region", { name: "Answer" })
     ).not.toBeInTheDocument()
     await user.click(
-      within(list).getByRole("button", { name: /Lea in #releases/ })
+      within(list).getByRole("button", { name: /SPH-5 needs an approval/ })
     )
     const detail = await screen.findByRole("region", { name: "Answer" })
     expect(
-      await within(detail).findByText("which PR fixes the invoice time zone?")
+      await within(detail).findByText(/SPH-5 passed every gate/)
     ).toBeInTheDocument()
     expect(router.state.historyAction).toBe("PUSH")
-    expect(router.state.location.search).toBe("?loop=sphere-app%2FN-48")
+    expect(router.state.location.search).toBe("?loop=sphere-app%2FN-39")
     expect(
       screen.queryByRole("region", { name: "Open loops" })
     ).not.toBeInTheDocument()
@@ -506,7 +475,7 @@ describe("Needs you", () => {
     )
     const again = await screen.findByRole("region", { name: "Open loops" })
     expect(router.state.location.search).toBe("")
-    expect(screen.getByRole("button", { name: /^Slack\s*3$/ })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /^Other\s*3$/ })).toHaveAttribute(
       "aria-pressed",
       "true"
     )
@@ -563,23 +532,6 @@ describe("Needs you", () => {
     expect(send).toHaveAttribute("data-variant", "answer")
     expect(within(detail).getByText("sphere-app")).toBeInTheDocument()
   })
-
-  it("shows a Slack item's message with its bullets and links", async () => {
-    const lea = getDb().slack.routed.find((m) => m.from === "Lea")
-    if (!lea) throw new Error("fixture Lea missing")
-    lea.text =
-      "which PR fixes the invoice time zone?\n• the bug: https://github.com/example/sphere-app/issues/88\n• the PR, if there is one"
-    renderApp("/needs?project=sphere-app&loop=N-48")
-    const detail = await screen.findByRole("region", { name: "Answer" })
-    expect(
-      await within(detail).findByRole("link", {
-        name: "https://github.com/example/sphere-app/issues/88",
-      })
-    ).toHaveAttribute("target", "_blank")
-    expect(
-      within(within(detail).getByRole("list")).getAllByRole("listitem")
-    ).toHaveLength(2)
-  })
 })
 
 const recordPosts = () => {
@@ -615,30 +567,27 @@ describe("Needs you sections", () => {
     const { user } = renderApp("/needs")
     const list = await screen.findByRole("region", { name: "Open loops" })
     expect(
-      await screen.findByRole("button", { name: /^All\s*10$/ })
+      await screen.findByRole("button", { name: /^All\s*7$/ })
     ).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: /^Holds up work\s*4$/ })
     ).toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: /^Slack\s*3$/ })
-    ).toBeInTheDocument()
-    expect(
       screen.getByRole("button", { name: /^Other\s*3$/ })
     ).toBeInTheDocument()
     expect(
-      within(list).getByText("10 open across 2 projects. 4 hold up work.")
+      within(list).getByText("7 open across 2 projects. 4 hold up work.")
     ).toBeInTheDocument()
     const headings = within(list)
       .getAllByRole("heading", { level: 2 })
       .map((h) => h.textContent)
-    expect(headings).toEqual(["Holds up work 4", "Slack replies 3", "Other 3"])
-    await user.click(screen.getByRole("button", { name: /^Slack\s*3$/ }))
+    expect(headings).toEqual(["Holds up work 4", "Other 3"])
+    await user.click(screen.getByRole("button", { name: /^Other\s*3$/ }))
     expect(
       within(list)
         .getAllByRole("heading", { level: 2 })
         .map((h) => h.textContent)
-    ).toEqual(["Slack replies 3"])
+    ).toEqual(["Other 3"])
     expect(within(list).getAllByRole("listitem")).toHaveLength(3)
   })
 
@@ -827,36 +776,6 @@ describe("Needs you sections", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("the Ria row shows the draft with Send reply and Edit; a long list gets Open; errors get no buttons", async () => {
-    phone()
-    const { paths, bodies } = recordPosts()
-    const { user, router } = renderApp("/needs")
-    await screen.findByText(STRIPE)
-    const ria = rowOf(/Ria in #sphere-eng/)
-    expect(
-      await within(ria).findByText("Your reply, drafted by STAR")
-    ).toBeInTheDocument()
-    expect(
-      await within(ria).findByText(/It's in final review now/)
-    ).toBeInTheDocument()
-    expect(
-      within(ria).getByRole("button", { name: "Edit" })
-    ).toBeInTheDocument()
-    fireEvent.click(
-      await within(ria).findByRole("button", { name: "Send reply" })
-    )
-    await waitFor(
-      () =>
-        expect(paths).toEqual(["/api/projects/sphere-app/loops/N-45/answer"]),
-      { timeout: 8000 }
-    )
-    await waitFor(() => expect(bodies).toEqual(['{"text":"send"}']))
-    await user.click(
-      within(rowOf(/Lea in #releases/)).getByRole("button", { name: "Edit" })
-    )
-    expect(router.state.location.search).toBe("?loop=sphere-app%2FN-48")
-  }, 15000)
-
   it("a loop with more than two options gets Open, and an unreadable queue gets no buttons", async () => {
     getDb().loops["sphere-app"]?.push({
       id: "N-60",
@@ -911,22 +830,6 @@ describe("Needs you detail", () => {
     expect(chips).toHaveClass("md:flex-wrap", "[scrollbar-width:none]")
     const hold = within(chips).getByRole("button", { name: /Holds up work/ })
     expect(hold.querySelector("[data-slot=badge]")).toHaveAttribute("data-variant", "wait")
-  })
-
-  it("opens the routed message of the loop's own project when another project has the same loop id", async () => {
-    const db = getDb()
-    db.slack.routed.unshift({
-      ...db.slack.routed[0]!,
-      id: "other-project-msg",
-      project: "juel-claude",
-      from: "Zed",
-      text: "a message from another project",
-      draftPath: "drafts/missing.md",
-    })
-    renderApp("/needs?project=sphere-app&loop=N-45")
-    const detail = await screen.findByRole("region", { name: "Answer" })
-    const reply = await within(detail).findByRole("textbox", { name: "Your reply" })
-    await waitFor(() => expect((reply as HTMLTextAreaElement).value).toMatch(/Not today/))
   })
 
   it("on a phone puts the sent status above the answer dock, so the dock never covers it", async () => {
@@ -1029,24 +932,5 @@ describe("Needs you detail", () => {
       within(dock).getByRole("button", { name: /Send to STAR/ })
     ).toHaveAttribute("data-variant", "answer")
     expect(within(detail).queryByText("⌘↵")).not.toBeInTheDocument()
-  })
-
-  it("on a phone a Slack reply's Skip and Send reply sit in the dock", async () => {
-    phone()
-    renderApp("/needs?project=sphere-app&loop=N-45")
-    const detail = await screen.findByRole("region", { name: "Answer" })
-    const dock = await waitFor(() => {
-      const el = detail.querySelector(
-        "[data-slot='answer-dock']"
-      ) as HTMLElement
-      expect(el).not.toBeNull()
-      return el
-    })
-    expect(
-      within(dock).getByRole("button", { name: "Skip" })
-    ).toBeInTheDocument()
-    expect(
-      within(dock).getByRole("button", { name: "Send reply" })
-    ).toBeInTheDocument()
   })
 })

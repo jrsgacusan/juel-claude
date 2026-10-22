@@ -3,12 +3,11 @@ import {
   Inbox,
   ListChecks,
   MessageCircle,
-  MessageSquare,
   PenLine,
   type LucideIcon,
 } from "lucide-react"
 import { Link, NavLink } from "react-router"
-import { useOverview, useProjects, useSlack } from "@/api/queries"
+import { useOverview, useProjects } from "@/api/queries"
 import {
   Sidebar,
   SidebarContent,
@@ -18,7 +17,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSkeleton,
@@ -38,7 +36,6 @@ import { WorkersCard } from "./workers-card"
 const NAV: Array<{ page: Page; icon: LucideIcon }> = [
   { page: "progress", icon: ListChecks },
   { page: "chat", icon: MessageCircle },
-  { page: "slack", icon: MessageSquare },
   { page: "briefing", icon: PenLine },
   { page: "evidence", icon: Images },
 ]
@@ -46,7 +43,6 @@ const NAV: Array<{ page: Page; icon: LucideIcon }> = [
 export function AppSidebar({ project, page }: { project: string; page: Page }) {
   const projects = useProjects()
   const overview = useOverview(project)
-  const slack = useSlack()
   const { setOpenMobile } = useSidebar()
   const close = () => setOpenMobile(false)
   const current = projects.data?.find((p) => p.name === project)
@@ -60,8 +56,6 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
       ? last
       : (names[0] ?? "")
     : project
-  const slackCount =
-    slack.data?.routed.filter((m) => m.project === sectionsProject).length ?? 0
   const total = (projects.data ?? []).reduce(
     (sum, p) => sum + (typeof p.needsYou === "number" ? p.needsYou : 0),
     0
@@ -135,9 +129,6 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
                         <span>{PAGE_LABELS[target]}</span>
                       </NavLink>
                     </SidebarMenuButton>
-                    {target === "slack" && slackCount > 0 && (
-                      <SidebarMenuBadge>{slackCount}</SidebarMenuBadge>
-                    )}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>

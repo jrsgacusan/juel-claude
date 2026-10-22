@@ -5,7 +5,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ApiError, isConflictMarkers, sendJson } from "@/api/client"
 import { paths } from "@/api/paths"
-import { keys, useAllLoops, useDraftText, useSlack } from "@/api/queries"
+import { keys, useAllLoops } from "@/api/queries"
 import type { AnswerResponse, LoopOption, ProjectLoop } from "@/api/types"
 import {
   EmptyState,
@@ -21,7 +21,6 @@ import {
   useListSelection,
   useNarrow,
 } from "@/components/list-detail"
-import { replyOf } from "@/components/slack-reply-editor"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -50,7 +49,6 @@ import { LoopDetail } from "./needs-detail"
 type Chip = "all" | LoopGroup
 const GROUPS: Array<{ id: LoopGroup; chip: string; heading: string }> = [
   { id: "hold", chip: "Holds up work", heading: "Holds up work" },
-  { id: "slack", chip: "Slack", heading: "Slack replies" },
   { id: "other", chip: "Other", heading: "Other" },
 ]
 
@@ -141,26 +139,9 @@ function RowActions({
   }, [held])
   const primary = primaryOf(loop)
   const secondary = secondaryOf(loop)
-  const isSlack = loop.kind === "slack-reply"
-  const slack = useSlack()
-  const message = isSlack
-    ? slack.data?.routed.find(
-        (m) => m.loopId === loop.id && m.project === loop.project
-      )
-    : undefined
-  const draft = useDraftText(loop.project, message?.draftPath ?? null)
-  const reply = draft.data !== undefined ? replyOf(draft.data).trim() : ""
-  if (!primary && !isSlack) return null
+  if (!primary) return null
   return (
     <div className="flex flex-col gap-2 px-3 pb-3">
-      {isSlack && reply && (
-        <div className="rounded-lg border bg-muted px-3 py-2 text-sm leading-5">
-          <span className="mb-0.5 block text-xs font-medium text-muted-foreground">
-            Your reply, drafted by STAR
-          </span>
-          <span className="line-clamp-3 break-words">{reply}</span>
-        </div>
-      )}
       <div className="flex gap-2">
         {held ? (
           // Same two slots as the answer buttons, so nothing under the thumb moves.
@@ -180,21 +161,6 @@ function RowActions({
                 Undo
               </Button>
             )}
-          </>
-        ) : isSlack ? (
-          <>
-            {primary && reply && (
-              <Button
-                variant="answer"
-                className={TAP}
-                onClick={() => tapAnswer(qc, loop, primary, "Send reply")}
-              >
-                Send reply
-              </Button>
-            )}
-            <Button variant="outline" className={TAP} onClick={onOpen}>
-              Edit
-            </Button>
           </>
         ) : (
           <>
@@ -454,7 +420,7 @@ export function NeedsPage() {
         )}
         <EmptyState
           title="Nothing needs you right now."
-          body="When STAR waits on one of your steps, a draft or a Slack reply, it shows here."
+          body="When STAR waits on one of your steps, or a draft to check, it shows here."
         />
       </>
     )

@@ -128,7 +128,6 @@ export type ChangeWhat =
   | "progress"
   | "evidence"
   | "drafts"
-  | "slack"
   | "briefings"
   | "chat"
   | "accounts"
@@ -148,39 +147,6 @@ export type BriefingEvent = {
   draft?: TicketDraft | null
 }
 export type StarEvent = ChangeEvent | BriefingEvent
-export type SlackStatus = {
-  connected: boolean
-  lastCheck: string | null
-  error: string | null
-  model: string | null
-  workspace?: string | null
-}
-export type RoutedMessage = {
-  id: string
-  project: string
-  from: string
-  channel: string
-  text: string
-  permalink: string
-  thread: string[]
-  draftPath: string | null
-  loopId: string | null
-}
-export type UnroutedMessage = {
-  id: string
-  from: string
-  channel: string
-  text: string
-  permalink: string
-}
-export type SlackState = {
-  status: SlackStatus
-  routed: RoutedMessage[]
-  unrouted: UnroutedMessage[]
-  /** True while the "Check Slack" switch is off (spec 3.14). */
-  paused: boolean
-}
-export type RouteRequest = { project: string }
 export type BriefingSummary = {
   id: string
   title: string

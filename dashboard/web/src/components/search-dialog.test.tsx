@@ -10,7 +10,7 @@ import {
 import { describe, expect, it } from "vitest"
 import { setScenario } from "@/mocks/state"
 import { resultPath, SearchDialog } from "./search-dialog"
-const PLACEHOLDER = "Search items, decisions, Slack, briefings and evidence"
+const PLACEHOLDER = "Search items, decisions, briefings and evidence"
 function Page() {
   const { project = "" } = useParams()
   const location = useLocation()
@@ -44,7 +44,6 @@ describe("SearchDialog", () => {
       "Items",
       "Needs you",
       "Decisions",
-      "Slack",
       "Briefings",
       "Evidence",
     ])

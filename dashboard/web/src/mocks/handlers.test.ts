@@ -9,7 +9,6 @@ import type {
   Overview,
   Project,
   ProjectLoop,
-  SlackState,
 } from "@/api/types"
 import { HOME } from "./fixtures"
 import { dayLabel } from "@/lib/format"
@@ -18,21 +17,18 @@ describe("the mock API", () => {
   it("lists the projects with their open loop counts", async () => {
     const projects = await apiJson<Project[]>(paths.projects())
     expect(projects.map((p) => [p.name, p.state, p.needsYou])).toEqual([
-      ["sphere-app", "running", 9],
+      ["sphere-app", "running", 6],
       ["sphere-api", "idle", 0],
       ["juel-claude", "stopped", 1],
     ])
   })
-  it("orders the loops blocked first, then Slack, then the rest", async () => {
+  it("orders the loops blocked first, then the rest", async () => {
     const loops = await apiJson<Loop[]>(paths.loops(HOME))
     expect(loops.map((l) => l.id)).toEqual([
       "N-38",
       "N-41",
       "N-44",
       "N-43",
-      "N-48",
-      "N-47",
-      "N-45",
       "N-39",
       "N-46",
     ])
@@ -48,9 +44,6 @@ describe("the mock API", () => {
       "sphere-app/N-44",
       "juel-claude/N-7",
       "sphere-app/N-38",
-      "sphere-app/N-45",
-      "sphere-app/N-47",
-      "sphere-app/N-48",
       "sphere-app/N-39",
       "sphere-app/N-43",
       "sphere-app/N-46",
@@ -95,7 +88,7 @@ describe("the mock API", () => {
     expect(res).toEqual({ recorded: true, nudged: true })
     expect(getDb().loops[HOME]?.find((l) => l.id === "N-41")?.answer).toBe("go")
     const projects = await apiJson<Project[]>(paths.projects())
-    expect(projects[0]?.needsYou).toBe(8)
+    expect(projects[0]?.needsYou).toBe(5)
   })
   it("answers 409 in the conflict scenario", async () => {
     setScenario("conflict")
@@ -112,7 +105,6 @@ describe("the mock API", () => {
   it("serves empty lists and errors by scenario", async () => {
     setScenario("empty")
     expect(await apiJson<Loop[]>(paths.loops(HOME))).toEqual([])
-    expect((await apiJson<SlackState>(paths.slack())).routed).toEqual([])
     setScenario("error")
     const err = await apiJson(paths.items(HOME)).catch((e: unknown) => e)
     expect(err).toBeInstanceOf(ApiError)
@@ -176,22 +168,6 @@ describe("the mock API", () => {
       paths.file(HOME, "evidence/SPH-4/clear-all.webm")
     )
     expect(video.headers.get("Content-Type")).toBe("video/webm")
-  })
-  it("saves a Slack draft's reply text under its first line", async () => {
-    const slack = await apiJson<SlackState>(paths.slack())
-    const ria = slack.routed.find((m) => m.from === "Ria")
-    expect(ria?.draftPath).toBeTruthy()
-    const name = (ria?.draftPath ?? "").split("/").pop() ?? ""
-    await sendJson("PUT", paths.draft(HOME, name), {
-      text: "Not today, tomorrow morning.",
-    })
-    const file = await (
-      await apiFetch(paths.file(HOME, ria?.draftPath ?? ""))
-    ).text()
-    expect(file.split("\n")[0]).toMatch(/^to: slack C0SPHERE /)
-    expect(file.split("\n").slice(1).join("\n")).toBe(
-      "Not today, tomorrow morning."
-    )
   })
   it("streams events to an open /api/events reader", async () => {
     const res = await apiFetch(paths.events())
