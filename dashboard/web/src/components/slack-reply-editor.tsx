@@ -36,6 +36,7 @@ export function SlackReplyEditor({
   rewrite,
   onRewrite,
   dock = false,
+  onBeforeAnswer,
 }: {
   project: string
   message: RoutedMessage
@@ -43,6 +44,8 @@ export function SlackReplyEditor({
   rewrite: AskedRewrite | null
   onRewrite: (asked: AskedRewrite) => void
   dock?: boolean
+  // Runs just before the editor answers the loop (Needs you cancels a held one-tap answer here).
+  onBeforeAnswer?: () => void
 }) {
   const draft = useDraftText(project, message.draftPath)
   const loops = useLoops(project)
@@ -99,6 +102,7 @@ export function SlackReplyEditor({
     onSuccess?: () => void
   ) => {
     if (!message.loopId) return
+    onBeforeAnswer?.()
     try {
       const res = await answer.mutateAsync({ id: message.loopId, text })
       if (mark) onDone(mark)

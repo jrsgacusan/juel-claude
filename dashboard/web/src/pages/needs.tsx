@@ -568,6 +568,7 @@ export function NeedsPage() {
               onSent={(text, nudged) =>
                 setSent((s) => ({ ...s, [keyOf(selected)]: { text, nudged } }))
               }
+              onCancelHeld={() => undoTap(selected)}
             />
           )
         }

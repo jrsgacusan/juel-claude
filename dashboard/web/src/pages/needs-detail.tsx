@@ -28,6 +28,7 @@ import {
   subkindOf,
   visibleBody,
 } from "@/lib/loops"
+import { usePending } from "@/lib/pending-answers"
 import { railOf } from "@/lib/stage"
 import { stepText } from "@/lib/status"
 
@@ -82,6 +83,7 @@ export function LoopDetail({
   sentNudged,
   serverAnswer,
   onSent,
+  onCancelHeld,
 }: {
   project: string
   loop: ProjectLoop
@@ -89,6 +91,8 @@ export function LoopDetail({
   sentNudged?: boolean
   serverAnswer: string | null
   onSent: (text: string, nudged: boolean) => void
+  // Cancels a one-tap answer still held for this loop, so an answer sent here is the only one STAR gets.
+  onCancelHeld?: () => void
 }) {
   const answer = useAnswer(project)
   const slack = useSlack()
@@ -97,6 +101,7 @@ export function LoopDetail({
   const [reply, setReply] = useState("")
   const sending = useRef(false)
   const lastSent = useRef<string | null>(null)
+  const pending = usePending(`${project}/${loop.id}`)
   const { label, icon: Icon } = kindOf(loop.kind)
   const body = visibleBody(loop)
   const subkind = subkindOf(loop.body)
@@ -121,6 +126,11 @@ export function LoopDetail({
       toast("Pick an answer or write one first.")
       return
     }
+    if (pending === "sending") {
+      toast("A one-tap answer for this item is already on its way to STAR.")
+      return
+    }
+    onCancelHeld?.()
     sending.current = true
     let res: { nudged: boolean }
     try {
@@ -258,6 +268,7 @@ export function LoopDetail({
           project={project}
           message={message}
           onDone={(mark) => onSent(mark === "Sent" ? "send" : "skip", true)}
+          onBeforeAnswer={onCancelHeld}
           rewrite={rewrite}
           onRewrite={setRewrite}
           dock={narrow}

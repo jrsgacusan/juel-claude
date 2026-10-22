@@ -665,6 +665,25 @@ describe("Needs you sections", () => {
     expect(phoneList.querySelectorAll("[aria-current]")).toHaveLength(0)
   })
 
+  it("an answer sent from the detail cancels the one-tap answer still held for that loop", async () => {
+    phone()
+    const { paths, bodies } = recordPosts()
+    renderApp("/needs")
+    await screen.findByText(STRIPE)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true })
+    fireEvent.click(within(rowOf(STRIPE)).getByRole("button", { name: "Done" }))
+    expect(await screen.findByText('"Done" goes to STAR in 5 seconds.')).toBeInTheDocument()
+    fireEvent.click(within(rowOf(STRIPE)).getByRole("button", { name: new RegExp(STRIPE) }))
+    const detail = await screen.findByRole("region", { name: "Answer" })
+    fireEvent.click(within(detail).getByRole("radio", { name: /Can't now/ }))
+    fireEvent.click(within(detail).getByRole("button", { name: /Send to STAR/ }))
+    await waitFor(() => expect(bodies).toEqual(['{"text":"can\'t now"}']))
+    act(() => vi.advanceTimersByTime(6000))
+    vi.useRealTimers()
+    await new Promise((r) => setTimeout(r, 50))
+    expect(paths).toEqual(["/api/projects/sphere-app/loops/N-41/answer"])
+  })
+
   it("on a phone a tap on Done holds the answer, then posts it once and shows Sent to STAR", async () => {
     phone()
     const { paths, bodies } = recordPosts()
