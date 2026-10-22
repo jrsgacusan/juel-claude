@@ -59,6 +59,8 @@
 # dispatch. Nothing is written to the row before a hold. A previous terminal that a readable,
 # untruncated `orca terminal list --limit 500` no longer lists is gone, whatever worker-show still
 # reports (#119): no line, nothing closed, no hold.
+# The branch step holds a per-repository lock, so parallel starts in one repository are safe; a rename
+# that collides on git's `.tmp-renamed-log` is retried once (#181).
 # In order: for build, the brief's notBefore (a value that is not a date is "failed brief");
 # the host gate (nothing starts while one of its four checks fails); the previous dispatch's
 # terminal; for build and babysit, live terminals in the worktree, once it is known; then, with no
@@ -509,6 +511,13 @@ def build_worktree(fm):
     if proc.returncode != 0 or not wt or not os.path.isdir(wt):
         out("failed worktree: " + why(proc))
     ledger("set", item, f"worktree={wt}")
+    # the branch step holds a per-repository lock: git renames branches through one shared temp log (#181)
+    lock = git("rev-parse", "--git-common-dir")
+    lock_dir = lock.stdout.strip() if lock.returncode == 0 else ""
+    if lock_dir:
+        lock_fd = os.open(os.path.join(os.path.realpath(os.path.join(repo, lock_dir)), "juel-stage-start.lock"),
+                          os.O_RDWR | os.O_CREAT, 0o644)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
     current = git("rev-parse", "--abbrev-ref", "HEAD", cwd=wt).stdout.strip()
     if current != branch:
         if git("show-ref", "--verify", "--quiet", f"refs/heads/{branch}").returncode == 0:
@@ -529,8 +538,13 @@ def build_worktree(fm):
                 git("branch", "-D", current)
         else:
             r = git("branch", "-m", branch, cwd=wt)
+            if r.returncode != 0 and ".tmp-renamed-log" in r.stderr:
+                # a rename that collided on git's temp log is retried once, from the HEAD as it is now
+                r = git("branch", "-m", branch, cwd=wt)
             if r.returncode != 0:
                 out(f"failed branch: git branch -m {branch}: {why(r)}")
+    if lock_dir:
+        os.close(lock_fd)
     exclude_if_inside(wt)
     copy_env(wt)
     return wt
