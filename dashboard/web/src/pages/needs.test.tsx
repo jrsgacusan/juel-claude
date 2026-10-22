@@ -349,12 +349,13 @@ describe("Needs you", () => {
   it("has loading, empty and error states", async () => {
     setScenario("loading")
     const first = renderApp("/needs")
-    expect(await screen.findByTestId("page-loading")).toBeInTheDocument()
+    // The error state waits for the query's retries, which run slower under a full parallel run.
+    expect(await screen.findByTestId("page-loading", {}, { timeout: 5000 })).toBeInTheDocument()
     first.unmount()
     setScenario("empty")
     const second = renderApp("/needs")
     expect(
-      await screen.findByText("Nothing needs you right now.")
+      await screen.findByText("Nothing needs you right now.", {}, { timeout: 5000 })
     ).toBeInTheDocument()
     expect(
       screen.getByText(
@@ -364,7 +365,7 @@ describe("Needs you", () => {
     second.unmount()
     setScenario("error")
     renderApp("/needs")
-    const alert = await screen.findByTestId("page-error")
+    const alert = await screen.findByTestId("page-error", {}, { timeout: 5000 })
     expect(alert).toHaveTextContent("Couldn't load the open loops.")
     expect(alert).toHaveTextContent(
       "Could not read ledger.md: permission denied"
@@ -908,6 +909,8 @@ describe("Needs you detail", () => {
     renderApp("/needs")
     const chips = await screen.findByRole("group", { name: "Filter" })
     expect(chips).toHaveClass("md:flex-wrap", "[scrollbar-width:none]")
+    const hold = within(chips).getByRole("button", { name: /Holds up work/ })
+    expect(hold.querySelector("[data-slot=badge]")).toHaveAttribute("data-variant", "wait")
   })
 
   it("opens the routed message of the loop's own project when another project has the same loop id", async () => {

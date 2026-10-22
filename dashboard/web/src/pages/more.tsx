@@ -141,7 +141,7 @@ export function MorePage() {
                   {projectStateOf(p.state).label}
                 </span>
                 {typeof p.needsYou === "number" && p.needsYou > 0 && (
-                  <Badge variant="count" aria-label={`${p.needsYou} need you`}>
+                  <Badge variant="wait" aria-label={`${p.needsYou} need you`}>
                     {p.needsYou}
                   </Badge>
                 )}

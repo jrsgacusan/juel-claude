@@ -338,7 +338,7 @@ function Chips({
         >
           {chip.label}{" "}
           {chip.id === "hold" ? (
-            <Badge variant="count">{count(chip.id)}</Badge>
+            <Badge variant="wait">{count(chip.id)}</Badge>
           ) : (
             <span className="tabular-nums opacity-70">{count(chip.id)}</span>
           )}

@@ -378,6 +378,9 @@ describe("the phone shell", () => {
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByRole("link", { name: /All projects/ })).toBeInTheDocument()
     expect(within(dialog).getByRole("link", { name: /sphere-app/ })).toHaveTextContent("9")
+    // A project row's count is the pale wait tone; solid amber is for the total and for answering.
+    expect(within(dialog).getByLabelText("9 need you")).toHaveAttribute("data-variant", "wait")
+    expect(within(within(dialog).getByRole("link", { name: /All projects/ })).getByText("10")).toHaveAttribute("data-variant", "count")
     await user.click(within(dialog).getByRole("link", { name: /sphere-api/ }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/sphere-api/progress"))
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
