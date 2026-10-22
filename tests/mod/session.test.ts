@@ -32,10 +32,10 @@ type World = {
   ps: string
   /** cswap list calls made */
   listed: number
-  /** commands the mod started detached (`cswap auto`) */
-  started: string[][]
-  /** while true, a started cswap auto exits at once instead of showing up in ps */
-  isStartDying: boolean
+  /** argv of every cswap call */
+  cswapCalls: string[][]
+  /** first argument of every process run */
+  firsts: string[]
   /** while true, the guard's `$.clock.now()` is refused, which fails the guard's handler */
   isClockDown: boolean
 }
@@ -67,8 +67,8 @@ function world(on: On, handle: string, root = ROOT, isClockBroken = false, env: 
     cswap: null,
     ps: '',
     listed: 0,
-    started: [],
-    isStartDying: false,
+    cswapCalls: [],
+    firsts: [],
     isClockDown: false,
   }
   // An empty handle stands for a session outside Orca: the variable is unset.
@@ -84,8 +84,10 @@ function world(on: On, handle: string, root = ROOT, isClockBroken = false, env: 
     const out = (stdout: string, exitCode = 0) => ({
       value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
     })
+    w.firsts.push(e.argv[0] ?? '')
     if (e.argv[0]?.endsWith('cswap')) {
       w.listed += 1
+      w.cswapCalls.push(e.argv.slice(1))
       return w.cswap === null ? out('', 127) : out(w.cswap)
     }
     if (e.argv[0] === 'ps') {
@@ -95,15 +97,6 @@ function world(on: On, handle: string, root = ROOT, isClockBroken = false, env: 
       if (e.argv[1] !== 'eww') return out(lines.map(([pid, line]) => `${pid} ${line.replace(/\s[A-Z_][A-Z0-9_]*=\S+/g, '')}`).join('\n'))
       const asked = (e.argv[e.argv.indexOf('-p') + 1] ?? '').split(',')
       return out(lines.filter(([pid]) => asked.includes(pid)).map(([pid, line]) => `${pid} ${line}`).join('\n'))
-    }
-    if (e.argv[0] === 'python3') {
-      // the detach launcher: python3 -c <script> <argv...>
-      const argv = e.argv.slice(3)
-      w.started.push(argv)
-      // the started loop inherits the session's environment, and with it its Claude login
-      const login = env['CLAUDE_CONFIG_DIR'] ? ` CLAUDE_CONFIG_DIR=${env['CLAUDE_CONFIG_DIR']}` : ''
-      if (!w.isStartDying) w.ps += `/Users/me/.local/bin/${argv.join(' ')}${login}\n`
-      return out('')
     }
     if (e.argv[0] === 'crontab') return out('', 1)
     const at = e.argv.indexOf('set-answer')
@@ -226,7 +219,7 @@ test('the band lists three items at a time, and the next one moves up after a se
   await ui.unmount()
 })
 
-test("the band shows cswap's accounts and its auto-switch, read once a minute", { options: { star_cswap_auto: false } }, async ($, on) => {
+test("the band shows cswap's accounts and its auto-switch, read once a minute", async ($, on) => {
   const { clock, w } = world(on, 'term_A')
   w.cswap = CSWAP_LIST
   w.ps = '/Users/me/.local/bin/cswap auto --threshold 80\n'
@@ -251,7 +244,7 @@ test("the band shows cswap's accounts and its auto-switch, read once a minute", 
   await ui.unmount()
 })
 
-test("the band draws cswap's full payload exactly as the short one", { options: { star_cswap_auto: false } }, async ($, on) => {
+test("the band draws cswap's full payload exactly as the short one", async ($, on) => {
   const { clock, w } = world(on, 'term_A')
   w.cswap = CSWAP_LIST_FULL
   w.ps = '/Users/me/.local/bin/cswap auto --threshold 80\n'
@@ -277,64 +270,21 @@ test("a session whose login cswap does not manage says none is in use", async ($
   await ui.unmount()
 })
 
-test("STAR's session starts cswap auto when it is off, and the band says so", async ($, on) => {
+test('STAR never starts cswap auto', async ($, on) => {
   const { clock, w } = world(on, 'term_A')
   w.cswap = CSWAP_LIST
+  w.ps = ''
   await start($)
   await clock.settle()
-  expect(w.started).toEqual([['cswap', 'auto']])
-  expect(w.toasts).toEqual(['Started cswap auto: it switches accounts before one hits its limit'])
-  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
-  expect(await ui.find({ type: 'Text', text: ' auto on (cswap auto)' })).toBeDefined()
-  // running now: the next reads start nothing more
-  await clock.advance(65_000)
-  expect(w.started.length).toBe(1)
-  await ui.unmount()
-})
-
-test("a cswap auto for another Claude login does not count: STAR starts one for its own", async ($, on) => {
-  const sphere = { CLAUDE_CONFIG_DIR: '/Users/me/.claude-sphere', HOME: '/Users/me' }
-  const { clock, w } = world(on, 'term_A', ROOT, false, sphere)
-  w.cswap = CSWAP_LIST
-  w.ps = '/Users/me/.local/bin/cswap auto CLAUDE_CONFIG_DIR=/Users/me/.claude-personal\n'
-  await start($)
+  await clock.advance(11 * 60_000)
   await clock.settle()
-  expect(w.started).toEqual([['cswap', 'auto']])
-  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
-  expect(await ui.find({ type: 'Text', text: ' auto on (cswap auto)' })).toBeDefined()
-  await ui.unmount()
-})
-
-test('a cswap auto that does not stay up is started again only after ten minutes', async ($, on) => {
-  const { clock, w } = world(on, 'term_A')
-  w.cswap = CSWAP_LIST
-  w.isStartDying = true
-  await start($)
-  await clock.settle()
-  expect(w.started.length).toBe(1)
+  expect(w.firsts).not.toContain('python3')
+  expect(w.cswapCalls.length).toBeGreaterThan(0)
+  for (const argv of w.cswapCalls) expect(argv).toEqual(['list', '--json'])
   expect(w.toasts).toEqual([])
-  await clock.advance(5 * 60_000)
-  expect(w.started.length).toBe(1)
-  await clock.advance(5 * 60_000)
-  expect(w.started.length).toBe(2)
-})
-
-test('cswap auto is not started while a dry run of it runs', async ($, on) => {
-  const { clock, w } = world(on, 'term_A')
-  w.cswap = CSWAP_LIST
-  w.ps = '/Users/me/.local/bin/cswap auto --dry-run\n'
-  await start($)
-  await clock.settle()
-  expect(w.started).toEqual([])
-})
-
-test('cswap auto is not started with star_cswap_auto off', { options: { star_cswap_auto: false } }, async ($, on) => {
-  const { clock, w } = world(on, 'term_A')
-  w.cswap = CSWAP_LIST
-  await start($)
-  await clock.settle()
-  await clock.advance(65_000)
-  expect(w.started).toEqual([])
+  const ui = await $.ui.mount({ plugin: 'juel', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await ui.find({ type: 'Text', text: ' auto off' })).toBeDefined()
+  await ui.unmount()
 })
 
 test('without cswap the band has no accounts row', async ($, on) => {

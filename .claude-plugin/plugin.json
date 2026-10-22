@@ -29,12 +29,6 @@
       "description": "Refuse a direct gh pr merge in STAR's coordinator and workers, and reading review, evidence, report or log files into the coordinator",
       "default": true
     },
-    "star_cswap_auto": {
-      "type": "boolean",
-      "title": "Start cswap auto with STAR",
-      "description": "When cswap is installed and its auto-switch is off, STAR's session starts cswap auto in the background; it keeps running after STAR stops",
-      "default": true
-    },
     "star_rm_guard": {
       "type": "boolean",
       "title": "STAR rm guard",

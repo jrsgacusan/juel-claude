@@ -34,8 +34,6 @@ const TICK_MS = 5_000
 // adding traffic of its own. Without cswap, look again now and then, in case it gets installed.
 const ACCOUNTS_MS = 60_000
 const NO_CSWAP_MS = 600_000
-// A cswap auto loop the mod started that did not stay up is started again at most this often.
-const AUTO_RETRY_MS = 600_000
 const ROLE_TTL_MS = 60_000
 
 type Place = {
@@ -59,9 +57,6 @@ let isWaking = false
 let accountsAt = 0
 let isReadingAccounts = false
 let hasCswap = true
-/** star_cswap_auto: start cswap auto whenever STAR's band finds it off */
-let isAutoStarting = false
-let autoTriedAt = -AUTO_RETRY_MS
 
 async function realOf($: Api, path: string): Promise<string | undefined> {
   return $.fs.stat(path, { resolve: true }).then(s => s.realPath).catch(() => undefined)
@@ -242,17 +237,13 @@ function actionsFor($: Api): BandActions {
 }
 
 /** `cswap list --json`, from PATH or uv's default bin folder; undefined when cswap is not installed. */
-async function cswapList($: Api, home: string): Promise<{ bin: string; stdout: string } | undefined> {
+async function cswapList($: Api, home: string): Promise<string | undefined> {
   for (const bin of ['cswap', ...(home ? [`${home}/.local/bin/cswap`] : [])]) {
     const run = await $.process.run([bin, 'list', '--json'], { timeoutMs: 20_000 }).catch(() => undefined)
-    if (run && run.exitCode !== 127) return { bin, stdout: run.stdout }
+    if (run && run.exitCode !== 127) return run.stdout
   }
   return undefined
 }
-
-// A child in a session of its own (setsid), its output to /dev/null: cswap keeps its own log. It
-// outlives this session, as STAR's caffeinate does, so accounts keep switching after STAR stops.
-const DETACH = 'import subprocess, sys; d = subprocess.DEVNULL; subprocess.Popen(sys.argv[1:], stdin=d, stdout=d, stderr=d, start_new_session=True)'
 
 const PS_LINE = /^\s*(\d+)\s+(.*)$/
 
@@ -314,19 +305,8 @@ async function refreshAccounts($: Api): Promise<void> {
       $.process.run(['crontab', '-l'], { timeoutMs: 10_000 }).then(r => (r.exitCode === 0 ? r.stdout : '')).catch(() => ''),
       menubarSettings($, home),
     ])
-    const parsed = parseAccounts(listed.stdout)
-    let auto = autoOf(procs, menubar, crontab, mine, home)
-    // Fully off for this login (no loop, not even a dry run; no menu bar or cron doing it) and
-    // accounts to switch between: start the loop. It inherits this session's CLAUDE_CONFIG_DIR, so
-    // it switches this login. One that does not stay up is tried again only after AUTO_RETRY_MS.
-    if (isAutoStarting && auto.state === 'off' && parsed.ok && parsed.value.length > 1 && now - autoTriedAt >= AUTO_RETRY_MS) {
-      autoTriedAt = now
-      const run = await $.process.run(['python3', '-c', DETACH, listed.bin, 'auto'], { timeoutMs: 10_000 }).catch(() => undefined)
-      if (run?.exitCode === 0) {
-        auto = autoOf(await cswapProcs($), menubar, crontab, mine, home)
-        if (auto.state === 'on') void $.ui.toast('Started cswap auto: it switches accounts before one hits its limit')
-      }
-    }
+    const parsed = parseAccounts(listed)
+    const auto = autoOf(procs, menubar, crontab, mine, home)
     await update($, accounts, prev =>
       parsed.ok
         ? { ...auto, accounts: parsed.value, problem: '' }
@@ -368,7 +348,6 @@ const commandOfCall = (e: { tool: string; command?: unknown }): string =>
 
 export const register: Register = (on, options) => {
   const isBandOn = options['star_band'] !== false
-  isAutoStarting = options['star_cswap_auto'] !== false
   const isGuardOn = options['star_guards'] !== false
   const isRmOn = options['star_rm_guard'] === true
 
