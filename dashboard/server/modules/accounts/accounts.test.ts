@@ -125,7 +125,7 @@ test("without claudeConfigDir it is the server's CLAUDE_CONFIG_DIR, then ~/.clau
   await mkdir(join(w.home, '.juel'))
   await writeFile(join(w.home, '.juel', 'dashboard.json'), JSON.stringify({ claudeConfigDir: '/Users/me/.claude-sphere' }))
   assert.equal(await seen(), 'list --json|/Users/me/.claude-sphere')
-  await writeFile(join(w.home, '.juel', 'dashboard.json'), JSON.stringify({ slack: {} }))
+  await writeFile(join(w.home, '.juel', 'dashboard.json'), JSON.stringify({ theme: {} }))
   process.env.CLAUDE_CONFIG_DIR = '/Users/me/.claude-env'
   assert.equal(await seen(), 'list --json|/Users/me/.claude-env')
   delete process.env.CLAUDE_CONFIG_DIR

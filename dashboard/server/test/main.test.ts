@@ -276,7 +276,7 @@ test("a start keeps every other key of dashboard.json", async () => {
     }
   }
   assert.notEqual(port, 0, "no free test port");
-  const others = { claudeConfigDir: "/Users/me/.claude-personal", slack: { everyMin: 30 } };
+  const others = { claudeConfigDir: "/Users/me/.claude-personal", theme: { dense: true } };
   fs.mkdirSync(path.join(home, ".juel"));
   fs.writeFileSync(path.join(home, ".juel", "dashboard.json"),
     JSON.stringify({ port, token: "abcdefabcdefabcdefabcdefabcdef12", pid: 999_999, ...others }));
@@ -286,7 +286,7 @@ test("a start keeps every other key of dashboard.json", async () => {
     assert.equal(c.port, port);
     const all = JSON.parse(fs.readFileSync(path.join(home, ".juel", "dashboard.json"), "utf8")) as Record<string, unknown>;
     assert.equal(all["claudeConfigDir"], others.claudeConfigDir);
-    assert.deepEqual(all["slack"], others.slack);
+    assert.deepEqual(all["theme"], others.theme);
   } finally {
     await stop(child);
     fs.rmSync(tmp, { recursive: true, force: true });

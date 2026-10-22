@@ -16,7 +16,7 @@ test("a changed path maps to what changed; lock and temp files map to nothing", 
   assert.deepEqual(whatOf("progress/issue-1.log"), ["progress"]);
   assert.deepEqual(whatOf("evidence/issue-4/a/b.png"), ["evidence"]);
   assert.deepEqual(whatOf("drafts"), ["drafts"]);
-  assert.deepEqual(whatOf("slack/x.json"), ["slack"]);
+  assert.deepEqual(whatOf("other/x.json"), []);
   assert.deepEqual(whatOf("briefings/b1/draft.json"), ["briefings"]);
   assert.deepEqual(whatOf("open-loops.md.lock"), []);
   assert.deepEqual(whatOf("open-loops.md.tmp.123"), []);
@@ -28,7 +28,6 @@ test("a changed path maps to what changed; lock and temp files map to nothing", 
     "progress",
     "evidence",
     "drafts",
-    "slack",
     "briefings",
     "chat",
   ]);
@@ -175,7 +174,6 @@ test("a burst of changes makes one event per what; a change fs.watch did not nam
       "ledger",
       "loops",
       "progress",
-      "slack",
     ]);
   } finally {
     w.close();

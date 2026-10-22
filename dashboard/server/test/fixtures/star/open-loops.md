@@ -15,14 +15,6 @@ kind: set-aside
 Options: try again / drop
 Answer:
 
-### N-4 · app · slack · Ria in #eng: is the CSV export landing today?
-kind: slack-reply
-draft: drafts/2026-10-15-app-slack-C1-1700000000.000100.md
-message: https://example.slack.com/archives/C1/p1700000000000100
-Suggest: Not today. It's in final review now.
-Options: send (recommended) / rewrite: <how> / skip
-Answer:
-
 ### N-5 · app · issue-2 · add the Stripe webhook secret to .env.local
 kind: person
 kind: secret
@@ -40,7 +32,7 @@ Answer:
 
 ### N-7 · app · issue-1 · which date format?
 kind: draft
-drafts/2026-10-15-app-slack-C1-1700000000.000100.md
+drafts/2026-10-15-app-status-issue-1.md
 Options: send / drop
 Answer: ISO 8601
 

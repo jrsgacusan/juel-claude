@@ -21,7 +21,7 @@ export function writeConfig(dir: string, config: DashboardConfig): void {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, "dashboard.json");
   const tmp = `${file}.tmp.${process.pid}`;
-  // every other key (claudeConfigDir, slack) survives a start
+  // every other key (claudeConfigDir) survives a start
   const next = { ...(readConfig(dir) ?? {}), ...config };
   fs.writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`, {
     mode: 0o600,

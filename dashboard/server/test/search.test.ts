@@ -34,14 +34,6 @@ test("search finds items, open loops and decision headings in one project", asyn
         route: "/app/progress?item=issue-1",
       },
       {
-        group: "Needs you",
-        title: "Ria in #eng: is the CSV export landing today?",
-        sub: "slack-reply",
-        ref: "N-4",
-        project: "app",
-        route: "/app/needs?loop=N-4",
-      },
-      {
         group: "Decisions",
         title: "CSV over XLSX (2026-10-15, decided by the brief worker)",
         sub: "issue-1 D1",
@@ -55,19 +47,9 @@ test("search finds items, open loops and decision headings in one project", asyn
   }
 });
 
-test("search finds Slack drafts, briefings and evidence file names", async () => {
+test("search finds briefings and evidence file names", async () => {
   const env = await setup();
   try {
-    assert.deepEqual(await find(env, "q=final%20review&project=app"), [
-      {
-        group: "Slack",
-        title: "Not today. It's in final review now.",
-        sub: "2026-10-15-app-slack-C1-1700000000.000100.md",
-        ref: "C1-1700000000.000100",
-        project: "app",
-        route: "/app/slack?draft=2026-10-15-app-slack-C1-1700000000.000100.md",
-      },
-    ]);
     assert.deepEqual(
       (await find(env, "q=SAVED&project=app")).map((h) => [
         h.group,
