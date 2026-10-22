@@ -668,6 +668,7 @@ describe("Needs you sections", () => {
   it("on a phone a tap on Done holds the answer, then posts it once and shows Sent to STAR", async () => {
     phone()
     const { paths, bodies } = recordPosts()
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
     renderApp("/needs")
     await screen.findByText(STRIPE)
     vi.useFakeTimers({
@@ -696,6 +697,9 @@ describe("Needs you sections", () => {
     expect(paths).toEqual(["/api/projects/sphere-app/loops/N-41/answer"])
     await waitFor(() => expect(bodies).toEqual(['{"text":"done"}']))
     expect(loopAnswer("N-41")).toBe("done")
+    // Sent with keepalive, so a tab closed during the flush still delivers it.
+    const answerCall = fetchSpy.mock.calls.find(([url]) => String(url).endsWith("/loops/N-41/answer"))
+    expect(answerCall?.[1]?.keepalive).toBe(true)
   })
 
   it("Undo cancels the post for good", async () => {

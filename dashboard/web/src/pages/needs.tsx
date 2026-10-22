@@ -66,7 +66,8 @@ async function postAnswer(
 ): Promise<void> {
   const { project, id } = loop
   try {
-    await sendJson<AnswerResponse>("POST", paths.answer(project, id), { text })
+    // keepalive: a hold flushed on pagehide must still reach STAR after the page is gone.
+    await sendJson<AnswerResponse>("POST", paths.answer(project, id), { text }, { keepalive: true })
   } catch (error) {
     if (isConflictMarkers(error)) setConflict(project)
     else {
