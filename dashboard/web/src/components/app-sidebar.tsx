@@ -25,8 +25,11 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { Badge } from "@/components/ui/badge"
+import { useLastProject } from "@/lib/last-project"
 import { needsPath, PAGE_LABELS, type Page, projectPath } from "@/lib/routes"
 import { projectStateOf } from "@/lib/status"
+import { cn } from "@/lib/utils"
 import { AwaySwitch } from "./away-switch"
 import { ProjectStateLine } from "./project-state-line"
 import { Dot, StarMark } from "./status"
@@ -48,9 +51,17 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
   const close = () => setOpenMobile(false)
   const current = projects.data?.find((p) => p.name === project)
   const away = Boolean(overview.data?.away)
-  const slackCount =
-    slack.data?.routed.filter((m) => m.project === project).length ?? 0
   const combined = project === ""
+  const last = useLastProject()
+  const names = projects.data?.map((p) => p.name) ?? []
+  // On /needs there is no project: keep the last-opened one's pages, else the first project's.
+  const sectionsProject = combined
+    ? last && names.includes(last)
+      ? last
+      : (names[0] ?? "")
+    : project
+  const slackCount =
+    slack.data?.routed.filter((m) => m.project === sectionsProject).length ?? 0
   const total = (projects.data ?? []).reduce(
     (sum, p) => sum + (typeof p.needsYou === "number" ? p.needsYou : 0),
     0
@@ -92,23 +103,32 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
                   </NavLink>
                 </SidebarMenuButton>
                 {total > 0 && (
-                  <SidebarMenuBadge className="rounded-md border border-wait-line bg-wait-bg text-wait-fg">
+                  <Badge
+                    variant="count"
+                    className="pointer-events-none absolute top-1.5 right-1 h-5 min-w-5 rounded-md px-1"
+                  >
                     {total}
-                  </SidebarMenuBadge>
+                  </Badge>
                 )}
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {!combined && (
+        {sectionsProject !== "" && (
           <SidebarGroup>
+            <SidebarGroupLabel asChild>
+              <h2>{sectionsProject}</h2>
+            </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu aria-label="Sections">
                 {NAV.map(({ page: target, icon: Icon }) => (
                   <SidebarMenuItem key={target}>
-                    <SidebarMenuButton asChild isActive={page === target}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={!combined && page === target}
+                    >
                       <NavLink
-                        to={projectPath(project, target)}
+                        to={projectPath(sectionsProject, target)}
                         onClick={close}
                       >
                         <Icon />
@@ -150,7 +170,12 @@ export function AppSidebar({ project, page }: { project: string; page: Page }) {
                     >
                       <Dot tone={projectStateOf(p.state).tone} />
                       <span className="flex-1 truncate">{p.name}</span>
-                      <span className="text-xs text-muted-foreground">
+                      <span
+                        className={cn(
+                          "text-xs text-muted-foreground",
+                          p.state === "running" && "sr-only"
+                        )}
+                      >
                         {projectStateOf(p.state).label}
                       </span>
                       {typeof p.needsYou === "number" && p.needsYou > 0 && (

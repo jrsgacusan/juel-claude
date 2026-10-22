@@ -42,7 +42,7 @@ describe("the app shell", () => {
       "href",
       "/needs"
     )
-    expect(await within(needs).findByText("10")).toBeInTheDocument()
+    expect(await within(needs).findByText("10")).toHaveAttribute("data-variant", "count")
     const sections = screen.getByRole("list", { name: "Sections" })
     expect(within(sections).queryByText("Needs you")).not.toBeInTheDocument()
     expect(
@@ -54,11 +54,32 @@ describe("the app shell", () => {
     expect(within(projects).queryByLabelText("0 need you")).not.toBeInTheDocument()
   })
 
-  it("on the combined page the sidebar says All projects and has no project pages", async () => {
-    renderApp("/needs")
+  it("on the combined page the sidebar says All projects, and keeps the last project's pages", async () => {
+    const { router } = renderApp("/sphere-app/progress")
+    await screen.findByRole("list", { name: "Sections" })
+    await act(() => router.navigate("/needs"))
     expect((await screen.findAllByText("All projects")).length).toBeGreaterThan(0)
-    expect(screen.queryByRole("list", { name: "Sections" })).not.toBeInTheDocument()
+    const sections = await screen.findByRole("list", { name: "Sections" })
+    expect(screen.getByRole("heading", { name: "sphere-app" })).toBeInTheDocument()
+    expect(within(sections).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Progress",
+      "Chat",
+      "Slack replies",
+      "Briefing",
+      "Evidence",
+    ])
+    expect(within(sections).getByRole("link", { name: "Progress" })).toHaveAttribute("href", "/sphere-app/progress")
+    for (const link of within(sections).getAllByRole("link")) expect(link).not.toHaveAttribute("aria-current")
     expect(await screen.findByRole("list", { name: "Projects" })).toBeInTheDocument()
+  })
+
+  it("on the combined page with no last project the sidebar uses the first project's pages", async () => {
+    renderApp("/needs")
+    expect(await screen.findByRole("heading", { name: "sphere-app" })).toBeInTheDocument()
+    expect(within(await screen.findByRole("list", { name: "Sections" })).getByRole("link", { name: "Chat" })).toHaveAttribute(
+      "href",
+      "/sphere-app/chat",
+    )
   })
 
   it("uses the first listed project when none are running", async () => {
@@ -79,9 +100,9 @@ describe("the app shell", () => {
   it("lists every project with its state, and switches project on the same page", async () => {
     const { user, router } = renderApp("/sphere-app/progress")
     const projects = await screen.findByRole("list", { name: "Projects" })
-    expect(within(projects).getByText("Running")).toBeInTheDocument()
-    expect(within(projects).getByText("Idle")).toBeInTheDocument()
-    expect(within(projects).getByText("Stopped")).toBeInTheDocument()
+    expect(within(projects).getByText("Running")).toHaveClass("sr-only")
+    expect(within(projects).getByText("Idle")).not.toHaveClass("sr-only")
+    expect(within(projects).getByText("Stopped")).not.toHaveClass("sr-only")
     await user.click(within(projects).getByText("juel-claude"))
     await waitFor(() =>
       expect(router.state.location.pathname).toBe("/juel-claude/progress")
