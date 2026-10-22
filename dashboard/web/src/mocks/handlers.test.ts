@@ -126,6 +126,25 @@ describe("the mock API", () => {
       expect(detail.progress.length).toBeGreaterThan(0)
     }
   })
+  it("carries counters, mergedAt, fixed stages and the also line (D9)", async () => {
+    const rows = await apiJson<ItemRow[]>(paths.items(HOME))
+    const byItem = (ref: string) => rows.find((row) => row.item === ref)!
+    const minutesAgo = (iso: string | null | undefined) =>
+      Math.round((Date.now() - Date.parse(iso ?? "")) / 60_000)
+    expect(minutesAgo(byItem("SPH-8").mergedAt)).toBeCloseTo(10, -1)
+    expect(minutesAgo(byItem("SPH-4").mergedAt)).toBeCloseTo(150, -1)
+    for (const row of rows.filter((r) => !["SPH-8", "SPH-4"].includes(r.item)))
+      expect(row.mergedAt).toBeNull()
+    for (const ref of ["SPH-7", "SPH-9", "SPH-5", "SPH-11", "SPH-13", "SPH-10", "SPH-8", "SPH-4"])
+      expect(byItem(ref).counters).toMatch(/reached=/)
+    expect(byItem("SPH-5").stage).toBe("babysit")
+    expect(byItem("SPH-8").stage).toBe("babysit")
+    expect(byItem("SPH-4").stage).toBe("babysit")
+    const loops = await apiJson<Loop[]>(paths.loops(HOME))
+    expect(loops.find((l) => l.id === "N-41")?.body).toContain(
+      "also: SPH-12 briefs/sphere-app/SPH-12.md #2 account"
+    )
+  })
   it("serves evidence files by kind", async () => {
     const text = await (
       await apiFetch(paths.file(HOME, "evidence/SPH-8/rounding.test.txt"))
