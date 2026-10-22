@@ -59,7 +59,12 @@ describe("body lines", () => {
     expect(alsoItems(["x"])).toEqual([])
   })
   it("drops kind and also lines and keeps the rest in order", () => {
-    const body = ["kind: account", "first", "also: SPH-12 a.md #2 account", "second"]
+    const body = [
+      "kind: account",
+      "first",
+      "also: SPH-12 a.md #2 account",
+      "second",
+    ]
     expect(visibleBody(loop({ body }))).toEqual(["first", "second"])
   })
   it("labels the subkinds", () => {
@@ -74,13 +79,19 @@ describe("body lines", () => {
 
 describe("one-tap options", () => {
   it("picks the recommended option as primary, else the first", () => {
-    expect(primaryOf(loop({ options: [opt("A"), opt("B", true)] }))?.label).toBe("B")
+    expect(
+      primaryOf(loop({ options: [opt("A"), opt("B", true)] }))?.label
+    ).toBe("B")
     expect(primaryOf(loop({ options: [opt("A"), opt("B")] }))?.label).toBe("A")
     expect(primaryOf(loop())).toBeNull()
   })
   it("picks the second option as secondary only when there are exactly two", () => {
-    expect(secondaryOf(loop({ options: [opt("A", true), opt("B")] }))).toMatchObject({ label: "B" })
-    expect(secondaryOf(loop({ options: [opt("A"), opt("B"), opt("C")] }))).toBe("open")
+    expect(
+      secondaryOf(loop({ options: [opt("A", true), opt("B")] }))
+    ).toMatchObject({ label: "B" })
+    expect(secondaryOf(loop({ options: [opt("A"), opt("B"), opt("C")] }))).toBe(
+      "open"
+    )
     expect(secondaryOf(loop({ options: [opt("A")] }))).toBeNull()
     expect(secondaryOf(loop())).toBeNull()
   })

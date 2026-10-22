@@ -106,3 +106,18 @@ export function ListDetail({
     </div>
   )
 }
+
+/** The bottom dock of a phone answer: its buttons stay in reach above the safe area. The spacer keeps the last field clear of it. */
+export function AnswerDock({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <div aria-hidden className="h-24" />
+      <div
+        data-slot="answer-dock"
+        className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      >
+        {children}
+      </div>
+    </>
+  )
+}

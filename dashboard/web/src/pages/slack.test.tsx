@@ -338,6 +338,15 @@ describe("Slack replies", () => {
     expect(router.state.location.search).toBe("")
   })
 
+  it("on a phone, no message looks selected until the URL names one", async () => {
+    phone()
+    renderApp("/sphere-app/slack")
+    const list = await screen.findByRole("region", { name: "Messages" })
+    expect(within(list).getAllByRole("button")).toHaveLength(5)
+    for (const row of within(list).getAllByRole("button"))
+      expect(row).not.toHaveAttribute("aria-current")
+  })
+
   it("on a phone, a loop sent from Needs you opens its message, and Back stays on the page", async () => {
     phone()
     const { user, router } = renderApp("/sphere-app/slack?loop=N-47")
