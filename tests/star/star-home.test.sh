@@ -543,6 +543,15 @@ sh "$LSL" --file "$HSL2/open-loops.md" add --kind slack-reply --project sl2 --it
 out=$(sh "$SCRIPT" --cwd "$SL2" migrate)
 [ "$out" = "$(printf 'migrated slack items=1\nmigrated schema=3 rows=0 loops=0')" ] && pass "B1: on a schema 2 home the slack line comes before the schema-3 line" || fail "B1 schema 2 ($out)"
 
+# #184: on a schema 3 home a queue loops.sh cannot read does not block the start: one warn line, then current
+mkrepo "$TMP/sl3"; SL3=$(real "$TMP/sl3"); HSL3=$(sh "$SCRIPT" --cwd "$SL3" init)
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["schema"]=3; d["evidenceChecked"]="2026-10-01T00:00:00Z"; json.dump(d,open(p,"w"))' "$HSL3/star.json"
+printf '# Open loops\n\n<<<<<<< HEAD\n## Open\n=======\n## Open\n>>>>>>> main\n' > "$HSL3/open-loops.md"
+sl3=$(cksum < "$HSL3/open-loops.md")
+out=$(sh "$SCRIPT" --cwd "$SL3" migrate 2>/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | sed -n 1p | cut -c1-27)" = "warn slack items unchecked:" ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "current" ] && [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 2 ] && pass "B1: a schema 3 home with a corrupt queue prints the warn line, then current, exit 0" || fail "B1 corrupt queue ($rc $out)"
+[ "$sl3" = "$(cksum < "$HSL3/open-loops.md")" ] && pass "B1: the corrupt queue file is unchanged byte for byte" || fail "B1 corrupt queue changed"
+
 # Review fixes (lane 2): set-aside rows get a queue item, answers reach the brief, live survives, whole words only
 mkrepo "$TMP/s3"; S3=$(real "$TMP/s3"); H3b=$(sh "$SCRIPT" --cwd "$S3" init)
 python3 - "$H3b/star.json" <<'PY'
