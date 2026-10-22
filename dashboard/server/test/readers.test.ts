@@ -8,7 +8,6 @@ import { isPlainName, listFiles, readText } from "../readers/files.ts";
 import { kindOf } from "../readers/evidence.ts";
 import { readProgress } from "../readers/progress.ts";
 import { readRelease } from "../readers/releases.ts";
-import { slackDrafts } from "../readers/drafts.ts";
 import { readBriefings } from "../readers/briefings.ts";
 import { awayPendingOf, readLedger, readQueue, readStar, tickOf } from "../readers/star.ts";
 import { Unreadable } from "../http.ts";
@@ -23,7 +22,7 @@ test("the ledger, queue and star.json read through hooks/star.ts", () => {
   const q = readQueue(FIXTURE);
   assert.deepEqual(
     q.needs.map((n) => n.id),
-    ["N-3", "N-4", "N-5", "N-6", "N-7"],
+    ["N-3", "N-5", "N-6", "N-7"],
   );
   assert.equal(tickOf(q.resume), "2026-10-15T08:00:00Z");
   assert.equal(tickOf({ "last tick": "-" }), null);
@@ -147,13 +146,6 @@ test("progress lines, release records, evidence kinds, drafts and briefings", ()
     "text",
     "video",
     "image",
-  ]);
-  assert.deepEqual(slackDrafts(FIXTURE), [
-    {
-      name: "2026-10-15-app-slack-C1-1700000000.000100.md",
-      to: "to: slack C1 1700000000.000100",
-      reply: "Not today. It's in final review now.",
-    },
   ]);
   assert.deepEqual(readBriefings(FIXTURE), [
     { id: "b1", title: "Saved report views" },

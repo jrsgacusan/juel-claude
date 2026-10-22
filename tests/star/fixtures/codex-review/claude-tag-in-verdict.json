@@ -1,0 +1,13 @@
+{
+ "type": "result",
+ "subtype": "success",
+ "is_error": false,
+ "duration_ms": 41873,
+ "num_turns": 3,
+ "result": "No [P0] or [P1] findings, so ITEM-1 can merge.\n\n- [P2] A slow loop \u2014 src/a.ts:3\n\nVERDICT: SAFE",
+ "stop_reason": "end_turn",
+ "session_id": "00000000-0000-0000-0000-000000000000",
+ "total_cost_usd": 0.31,
+ "permission_denials": [],
+ "terminal_reason": "completed"
+}

@@ -21,9 +21,4 @@ kind: secret
 Options: done / can't now
 Answer:
 
-### N-3 · sample · slack-C0E2E-1760000000.000100 · Reply to Ria in #eng
-kind: slack-reply
-draft: drafts/2026-10-16-sample-slack-C0E2E-1760000000.000100.md
-Answer:
-
 ## Waiting on others

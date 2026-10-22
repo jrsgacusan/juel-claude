@@ -495,7 +495,6 @@ qa escalation ES needs-human-input "The Stripe API key is missing" >/dev/null
 qa held FA "PR #12 waits for an approval from someone other than you" "x" >/dev/null
 qa person NN "Confirm the id" "kind: confirm-id" >/dev/null
 qa person NY "Paste the Stripe key" "kind: secret" >/dev/null
-qa slack-reply FA "Reply to Ana" "draft: /d/1.md" >/dev/null
 mkdir -p "$H2/grants/s2"; printf 'go\n' > "$H2/grants/s2/go-1.md"
 out=$(sh "$SCRIPT" --cwd "$S2" migrate)
 [ "$out" = "migrated schema=3 rows=5 loops=8" ] && pass "C2b: migrate prints the schema-3 line" || fail "C2b line ($out)"
@@ -518,10 +517,40 @@ for k in go-batch go-merge accept-report restart-or-drop question escalation hel
 done
 printf '%s\n' "$open" | grep -q 'Confirm the id' && fail "C2d: the confirm-id person item is open"
 [ "$(grep -c 'Answer: closed by the schema-3 migration' "$H2/open-loops-archive.md")" -eq 8 ] && pass "C2d: the removed-kind items are closed with the migration answer" || fail "C2d archive ($(grep -c 'Answer: closed by' "$H2/open-loops-archive.md"))"
-[ "$(printf '%s\n' "$open" | grep -c "$(printf '\tperson\t')")" -eq 3 ] && grep -q 'kind: secret' "$Q2" && grep -q 'kind: approval' "$Q2" && printf '%s\n' "$open" | grep -q "Paste the Stripe key" && printf '%s\n' "$open" | grep -q "$(printf '\tslack-reply\t')" && pass "C2d: the API-key escalation is a secret person item, the approval held is an approval one, the secret and slack-reply stay" || fail "C2d person items ($open)"
+[ "$(printf '%s\n' "$open" | grep -c "$(printf '\tperson\t')")" -eq 3 ] && grep -q 'kind: secret' "$Q2" && grep -q 'kind: approval' "$Q2" && printf '%s\n' "$open" | grep -q "Paste the Stripe key" && pass "C2d: the API-key escalation is a secret person item, the approval held is an approval one, the secret stays" || fail "C2d person items ($open)"
 [ -f "$H2/grants/s2/go-1.md" ] && pass "C2g: grant files are still there" || fail "C2g"
 sum1=$(cat "$H2/star.json" "$H2/ledger.md" "$Q2" "$H2/open-loops-archive.md" | cksum)
 [ "$(sh "$SCRIPT" --cwd "$S2" migrate)" = "current" ] && [ "$sum1" = "$(cat "$H2/star.json" "$H2/ledger.md" "$Q2" "$H2/open-loops-archive.md" | cksum)" ] && pass "C2e: a second migrate prints current and changes no file" || fail "C2e"
+
+# #184: migrate closes every open slack-reply item and leaves slack/ and drafts/ alone, on a current home too
+mkrepo "$TMP/sl"; SL=$(real "$TMP/sl"); HSL=$(sh "$SCRIPT" --cwd "$SL" init)
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["schema"]=3; d["evidenceChecked"]="2026-10-01T00:00:00Z"; json.dump(d,open(p,"w"))' "$HSL/star.json"
+LSL="$ROOT/skills/star/loops.sh"
+sh "$LSL" --file "$HSL/open-loops.md" add --kind slack-reply --project sl --item X --title "Reply to Ana" --body "draft: /d/1.md" >/dev/null
+sh "$LSL" --file "$HSL/open-loops.md" add --kind person --project sl --item X --title "Confirm the id" --body "kind: confirm-id" >/dev/null
+mkdir -p "$HSL/slack/redraft" "$HSL/drafts"; printf 'r\n' > "$HSL/slack/redraft/x.md"; printf 'd\n' > "$HSL/drafts/2026-10-15-app-slack-C1-1.md"
+sl1=$(cat "$HSL/slack/redraft/x.md" "$HSL/drafts/2026-10-15-app-slack-C1-1.md" | cksum)
+out=$(sh "$SCRIPT" --cwd "$SL" migrate)
+[ "$out" = "$(printf 'migrated slack items=1\ncurrent')" ] && pass "B1: migrate closes the open slack-reply item and prints migrated slack items=1 before current" || fail "B1 line ($out)"
+list=$(sh "$LSL" --file "$HSL/open-loops.md" list)
+! printf '%s\n' "$list" | grep -q "$(printf '\tslack-reply\t')" && printf '%s\n' "$list" | grep -q 'Confirm the id' && pass "B1: the slack-reply item is closed, the person item stays" || fail "B1 list ($list)"
+[ "$sl1" = "$(cat "$HSL/slack/redraft/x.md" "$HSL/drafts/2026-10-15-app-slack-C1-1.md" | cksum)" ] && pass "B1: slack/ and the slack drafts are untouched" || fail "B1 files changed"
+[ "$(sh "$SCRIPT" --cwd "$SL" migrate)" = "current" ] && pass "B1: a second migrate prints no slack line" || fail "B1 twice"
+# the same on a schema 2 home: the slack line comes before the schema-3 line
+mkrepo "$TMP/sl2"; SL2=$(real "$TMP/sl2"); HSL2=$(sh "$SCRIPT" --cwd "$SL2" init)
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["schema"]=2; d["evidenceChecked"]="2026-10-01T00:00:00Z"; [d.pop(k) for k in ("tries","mergeMethod","baseBranch","ownerBranches")]; json.dump(d,open(p,"w"))' "$HSL2/star.json"
+sh "$LSL" --file "$HSL2/open-loops.md" add --kind slack-reply --project sl2 --item X --title "Reply to Bo" --body "x" >/dev/null
+out=$(sh "$SCRIPT" --cwd "$SL2" migrate)
+[ "$out" = "$(printf 'migrated slack items=1\nmigrated schema=3 rows=0 loops=0')" ] && pass "B1: on a schema 2 home the slack line comes before the schema-3 line" || fail "B1 schema 2 ($out)"
+
+# #184: on a schema 3 home a queue loops.sh cannot read does not block the start: one warn line, then current
+mkrepo "$TMP/sl3"; SL3=$(real "$TMP/sl3"); HSL3=$(sh "$SCRIPT" --cwd "$SL3" init)
+python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["schema"]=3; d["evidenceChecked"]="2026-10-01T00:00:00Z"; json.dump(d,open(p,"w"))' "$HSL3/star.json"
+printf '# Open loops\n\n<<<<<<< HEAD\n## Open\n=======\n## Open\n>>>>>>> main\n' > "$HSL3/open-loops.md"
+sl3=$(cksum < "$HSL3/open-loops.md")
+out=$(sh "$SCRIPT" --cwd "$SL3" migrate 2>/dev/null); rc=$?
+[ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | sed -n 1p | cut -c1-27)" = "warn slack items unchecked:" ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "current" ] && [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 2 ] && pass "B1: a schema 3 home with a corrupt queue prints the warn line, then current, exit 0" || fail "B1 corrupt queue ($rc $out)"
+[ "$sl3" = "$(cksum < "$HSL3/open-loops.md")" ] && pass "B1: the corrupt queue file is unchanged byte for byte" || fail "B1 corrupt queue changed"
 
 # Review fixes (lane 2): set-aside rows get a queue item, answers reach the brief, live survives, whole words only
 mkrepo "$TMP/s3"; S3=$(real "$TMP/s3"); H3b=$(sh "$SCRIPT" --cwd "$S3" init)

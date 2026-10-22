@@ -42,14 +42,14 @@ describe("the app shell", () => {
       "href",
       "/needs"
     )
-    expect(await within(needs).findByText("10")).toHaveAttribute("data-variant", "count")
+    expect(await within(needs).findByText("7")).toHaveAttribute("data-variant", "count")
     const sections = screen.getByRole("list", { name: "Sections" })
     expect(within(sections).queryByText("Needs you")).not.toBeInTheDocument()
     expect(
       needs.compareDocumentPosition(sections) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     const projects = screen.getByRole("list", { name: "Projects" })
-    expect(await within(projects).findByLabelText("9 need you")).toBeInTheDocument()
+    expect(await within(projects).findByLabelText("6 need you")).toBeInTheDocument()
     expect(within(projects).getByLabelText("1 need you")).toBeInTheDocument()
     expect(within(projects).queryByLabelText("0 need you")).not.toBeInTheDocument()
   })
@@ -64,7 +64,6 @@ describe("the app shell", () => {
     expect(within(sections).getAllByRole("link").map((link) => link.textContent)).toEqual([
       "Progress",
       "Chat",
-      "Slack replies",
       "Briefing",
       "Evidence",
     ])
@@ -118,7 +117,7 @@ describe("the app shell", () => {
     expect(within(crumbs).getByText("sphere-app")).toBeInTheDocument()
     expect(within(crumbs).getByText("Progress")).toBeInTheDocument()
     const needs = screen.getByRole("list", { name: "Needs you" })
-    expect(await within(needs).findByText("10")).toBeInTheDocument()
+    expect(await within(needs).findByText("7")).toBeInTheDocument()
   })
 
   it("keeps the theme in localStorage from the theme menu, and System follows the OS", async () => {
@@ -157,7 +156,7 @@ describe("the app shell", () => {
     await user.keyboard("{Control>}k{/Control}")
     expect(
       await screen.findByPlaceholderText(
-        "Search items, decisions, Slack, briefings and evidence"
+        "Search items, decisions, briefings and evidence"
       )
     ).toBeInTheDocument()
     await user.keyboard("{Escape}")
@@ -165,7 +164,7 @@ describe("the app shell", () => {
     await user.keyboard("{Meta>}k{/Meta}")
     expect(
       await screen.findByPlaceholderText(
-        "Search items, decisions, Slack, briefings and evidence"
+        "Search items, decisions, briefings and evidence"
       )
     ).toBeInTheDocument()
   })
@@ -282,11 +281,11 @@ describe("the app shell", () => {
     expect(screen.queryByText("Next tick in 3 min")).not.toBeInTheDocument()
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument()
   })
-  it("lists Chat between Progress and Slack replies", async () => {
+  it("lists Chat between Progress and Briefing", async () => {
     renderApp("/sphere-app/chat")
     const sections = await screen.findByRole("list", { name: "Sections" })
     expect(within(sections).getAllByRole("link").map((link) => link.textContent))
-      .toEqual(["Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
+      .toEqual(["Progress", "Chat", "Briefing", "Evidence"])
     const chat = within(sections).getByRole("link", { name: "Chat" })
     expect(chat).toHaveAttribute("href", "/sphere-app/chat")
     expect(chat).toHaveAttribute("aria-current", "page")
@@ -329,7 +328,7 @@ describe("the phone shell", () => {
     ])
     for (const link of links) expect(link).toHaveClass("min-h-11")
     expect(within(links[0]!).getByText("Needs you")).toBeInTheDocument()
-    const badge = await within(links[0]!).findByText("10")
+    const badge = await within(links[0]!).findByText("7")
     expect(badge).toHaveAttribute("data-variant", "count")
     expect(nav.querySelector("[role=tab]")).toBeNull()
     expect(screen.queryByRole("button", { name: "Open the menu" })).not.toBeInTheDocument()
@@ -377,10 +376,10 @@ describe("the phone shell", () => {
     await user.click(button)
     const dialog = await screen.findByRole("dialog")
     expect(within(dialog).getByRole("link", { name: /All projects/ })).toBeInTheDocument()
-    expect(within(dialog).getByRole("link", { name: /sphere-app/ })).toHaveTextContent("9")
+    expect(within(dialog).getByRole("link", { name: /sphere-app/ })).toHaveTextContent("6")
     // A project row's count is the pale wait tone; solid amber is for the total and for answering.
-    expect(within(dialog).getByLabelText("9 need you")).toHaveAttribute("data-variant", "wait")
-    expect(within(within(dialog).getByRole("link", { name: /All projects/ })).getByText("10")).toHaveAttribute("data-variant", "count")
+    expect(within(dialog).getByLabelText("6 need you")).toHaveAttribute("data-variant", "wait")
+    expect(within(within(dialog).getByRole("link", { name: /All projects/ })).getByText("7")).toHaveAttribute("data-variant", "count")
     await user.click(within(dialog).getByRole("link", { name: /sphere-api/ }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/sphere-api/progress"))
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())

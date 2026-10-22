@@ -80,6 +80,9 @@ describe("the paste-token form", () => {
     await user.click(submitButton())
     expect(await screen.findByText("Projects loaded")).toBeInTheDocument()
     expect(localStorage.getItem("star-token")).toBe("0123abcd")
+    const links = document.head.querySelectorAll('link[rel="manifest"]')
+    expect(links).toHaveLength(1)
+    expect(links[0]?.getAttribute("href")).toBe("/manifest.webmanifest?t=0123abcd")
   })
   it("shows the form again with an error when the server refuses the pasted token", async () => {
     serverAccepts("feedface") // a token no test saves: the module keeps a saved one in memory for the file

@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { errorMessage } from "@/lib/errors"
+import { linkManifest } from "@/lib/manifest-link"
 
 type QueryLike = {
   error: unknown
@@ -123,6 +124,7 @@ export function TokenForm({ place }: { place: "page" | "banner" }) {
     setChecking(false)
     if (result === "accepted") {
       saveToken(token)
+      linkManifest(token)
       reconnectEvents()
       void client.invalidateQueries()
       setValue("")

@@ -42,8 +42,7 @@ gates/<project>/<item>.json            the gate manifest
 releases/<date>-<project>-<item>.md    release records (release-record.sh)
 evidence/<item>/        the item's evidence, copied from its worktree before worktree-clean.sh removes it
 builds/<item>/          the build's specs and plans, copied the same way
-drafts/                 drafts of Slack replies, status notes and issues
-slack/redraft/          requests for the drafter to write a draft again
+drafts/                 drafts of status notes and issues
 memory/<project>/       one note per file (notes.sh), memory/<project>.always.md the notes every worker reads
 library/<project>/      decisions that apply beyond one item (library.sh)
 issues.log, ids.json, index.db, library.base, notes.base
@@ -128,13 +127,12 @@ else `origin`.
 the owner typed. The owner answers on an item's `Answer:` line (or in the dashboard, or by telling
 STAR), and STAR records it with `loops.sh set-answer <id> "<text>"` and acts on it in the same turn.
 
-STAR creates four kinds of item and no other:
+STAR creates three kinds of item and no other:
 
 | Kind | Title | Body lines | Options |
 |---|---|---|---|
 | `person` | the thing only a person can do, one line | `kind: secret\|account\|screen\|approval\|access`, then what it is for | `done / can't now` |
 | `set-aside` | `<item> set aside: <one-line reason>` | `step: <step>`, plus `review: <path>` when there is one | `try again / drop` |
-| `slack-reply` | `<from> in <channel>: <first 60 characters>` | `draft: <path>`, `message: <permalink>`, `Suggest: <the reply's first line, or "no draft: <why>">` | `send (recommended) / rewrite: <how> / skip` |
 | `draft` | what the draft is, or `by hand: <action>` for a worker's `HELD` line | the draft path, or `action: <action>` | `send / drop`, or `done / skip` |
 
 ```sh

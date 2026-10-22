@@ -4,7 +4,6 @@ import type { Ctx } from "../app.ts";
 import { HttpError } from "../http.ts";
 import { allDecisions, readBrief } from "../readers/briefs.ts";
 import { readBriefings } from "../readers/briefings.ts";
-import { slackDrafts } from "../readers/drafts.ts";
 import { listFiles } from "../readers/files.ts";
 import { readProgress } from "../readers/progress.ts";
 import { recall } from "../readers/recall.ts";
@@ -61,16 +60,6 @@ async function searchProject(p: Project, q: string): Promise<Hit[]> {
       d.id,
       `${base}/progress?item=${enc(d.item)}`,
     );
-  for (const d of slackDrafts(p.home)) {
-    const id = /-slack-(.+)\.md$/.exec(d.name)?.[1] ?? d.name;
-    add(
-      "Slack",
-      (d.reply.split("\n")[0] ?? "").slice(0, 80),
-      d.name,
-      id,
-      `${base}/slack?draft=${enc(d.name)}`,
-    );
-  }
   for (const b of readBriefings(p.home))
     add("Briefings", b.title, b.id, b.id, `${base}/briefing?id=${enc(b.id)}`);
   let items: string[] = [];

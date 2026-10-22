@@ -11,7 +11,6 @@ import { NeedsRedirect } from "@/pages/needs-redirect"
 import { NotFound } from "@/pages/not-found"
 import { ProgressPage } from "@/pages/progress"
 import { RootRedirect } from "@/pages/root-redirect"
-import { SlackPage } from "@/pages/slack"
 
 // Real page paths per project (brief D1). The dashboard server answers index.html for every
 // non-/api path, so a reload of /<project>/progress lands here.
@@ -43,7 +42,6 @@ export const routes: RouteObject[] = [
         errorElement: <RouteError />,
       },
       { path: "chat", Component: ChatPage, errorElement: <RouteError /> },
-      { path: "slack", Component: SlackPage, errorElement: <RouteError /> },
       {
         path: "briefing",
         Component: BriefingPage,

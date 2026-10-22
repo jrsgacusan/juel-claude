@@ -390,5 +390,9 @@ for r in 'reason=merge-conflict' 'reason=unanswered-question' 'reason=gate-red' 
   grep -qF -- "$r" "$SKILL" && fail "AU14 removed reason gone: $r" || pass "AU14 removed reason gone: $r"
 done
 
+# an unreadable fallback review is retried without spending the round (#185)
+has "FU1 an ERROR fallback-unreadable waits and does not spend the retry" 'An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.'
+has "FU2 the third ERROR fallback-unreadable on a round is review-tool" 'The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`.'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

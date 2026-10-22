@@ -72,11 +72,3 @@ export const dateTime = (iso: string | null | undefined): string => {
   if (!isValidTime(iso)) return ""
   return `${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(iso))}, ${clock(iso)}`
 }
-
-/** The time of a Slack message id "<channelId>-<ts>", or null. */
-export function slackTime(id: string): string | null {
-  const ts = Number(id.slice(id.lastIndexOf("-") + 1))
-  return id.includes("-") && Number.isFinite(ts) && ts > 0
-    ? new Date(ts * 1000).toISOString()
-    : null
-}

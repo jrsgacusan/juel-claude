@@ -27,7 +27,14 @@
 # dropped: one range or several, each comma with optional spaces around it, and a trailing comma (a
 # bare token in a list); so is a "::<anything>" suffix (a pytest node id such as
 # tests/test_b.py::test_foo).
-# A path ending in "/" names everything under it. Never outside: paths under .superpowers/ (the
+# A path ending in "/" names everything under it. A planned path is matched from the repository's
+# root first, and a root match always wins (#186). One that matches no changed path from the root
+# also matches a changed path that ends with "/<planned path>" (a plan written relative to an app
+# folder, `electron/a.cjs` for apps/web/electron/a.cjs), but only when exactly one changed path does:
+# with two or more, none is excused by suffix and each is judged on its own. A planned directory with
+# no root match likewise names everything under "<prefix>/<dir>/", but only when exactly one distinct
+# <prefix> has changed paths under it. A suffix match needs a "/" boundary (myelectron/ is not
+# electron/). --print shows planned paths as written. Never outside: paths under .superpowers/ (the
 # executor's ledger), and the plan's own folder when the plan sits in the repository (only the plan
 # file itself when that folder is the repository's top). Only files are checked, never line ranges:
 # ranges drift as earlier tasks edit a file, and the review reads the hunks.
@@ -282,9 +289,22 @@ else:
 merged = set()
 for m in merges:  # what each merge brought in: its changes against its first parent
     merged |= listed("diff", "--no-renames", "--name-only", "-z", f"{m}^1", m)
+# A planned path with no root match may match by suffix, when exactly one changed path fits (#186).
+suffixed, suffix_folders = set(), []
+for f in files - changed:
+    hits = [c for c in changed if c.endswith("/" + f)]
+    if len(hits) == 1:
+        suffixed.add(hits[0])
+for d in folders:
+    if any(c.startswith(d) for c in changed):
+        continue
+    prefixes = {c[:m.start()] for c in changed for m in re.finditer("/" + re.escape(d), c)}
+    if len(prefixes) == 1:
+        suffix_folders.append(prefixes.pop() + "/" + d)
 outside = sorted(p for p in changed
                  if p not in skip_files and not any(p.startswith(d) for d in skip_folders)
-                 and p not in files and not any(p.startswith(d) for d in folders))
+                 and p not in files and not any(p.startswith(d) for d in folders)
+                 and p not in suffixed and not any(p.startswith(d) for d in suffix_folders))
 for p in outside:
     print(f"outside-merged {p}" if p in merged else f"outside {p}")
 if outside:

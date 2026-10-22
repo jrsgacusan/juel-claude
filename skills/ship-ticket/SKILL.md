@@ -590,6 +590,8 @@ with `<step>` one of:
    message: for a stalled gate, `stalled gate: <the stalled line>`; for a failed install,
    `dependencies did not install: <one line>`; for a review, its `ERROR` line, whole.
    An `ERROR base-moved` never counts: the gate loop's step 6 merges the base and runs the round again.
+   An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.
+   The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`. The gate's Claude fallback ran because Sol was at capacity, and its format slip says nothing about the code, so it does not spend the round's one retry.
    An `ERROR gate-down …` line that `codex-gate.sh` itself printed ends as
    `reason=out-of-tries step=gate-down`, reported as
    `ESCALATION item=<item> phase=<n> reason=out-of-tries step=gate-down review=<the file holding its ERROR line>`:
@@ -1340,6 +1342,8 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    item 2 says, commit the merge, push (never force), read the PR's merge state as "Gate once per PR"
    says, then run the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and
    it casts no vote toward `tries.perStep`.
+   An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.
+   The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`. The gate's Claude fallback ran because Sol was at capacity, and its format slip says nothing about the code, so it does not spend the round's one retry.
    Any other `ERROR …`: wait 10 minutes (foreground waits of at most 540 s) and run the same round once more
    (an `ERROR` leaves no `<item>-r<k>.md`, so the round number does not move); a second `ERROR` is
    `ESCALATION item=<item> phase=7 reason=out-of-tries step=review-tool review=<the file holding its ERROR line>`, the line

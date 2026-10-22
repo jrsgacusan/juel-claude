@@ -5,22 +5,20 @@ import {
   CirclePause,
   FilePen,
   KeyRound,
-  MessageSquare,
 } from "lucide-react"
 import type { Loop, LoopOption } from "@/api/types"
 
-export type LoopGroup = "hold" | "slack" | "other"
+export type LoopGroup = "hold" | "other"
 
 // Kinds that hold up work come first in Needs you; the page keeps the server's order inside a group.
 const HOLD = new Set(["person", "set-aside"])
 
 export const groupOf = (kind: string): LoopGroup =>
-  HOLD.has(kind) ? "hold" : kind === "slack-reply" ? "slack" : "other"
+  HOLD.has(kind) ? "hold" : "other"
 
 const KINDS: Record<string, { label: string; icon: LucideIcon }> = {
   person: { label: "Your step", icon: KeyRound },
   "set-aside": { label: "Set aside", icon: CirclePause },
-  "slack-reply": { label: "Slack reply", icon: MessageSquare },
   draft: { label: "Draft to check", icon: FilePen },
   error: { label: "Unreadable", icon: CircleAlert },
 }
@@ -65,13 +63,11 @@ export function alsoItems(body: string[]): string[] {
   })
 }
 
-/** The body lines to show: never blank, kind:, also:, Options: or Suggest: lines; for a slack-reply, never its draft: and message: lines (the page shows the draft and the message itself). */
+/** The body lines to show: never blank, kind:, also:, Options: or Suggest: lines. */
 export function visibleBody(loop: Loop): string[] {
   return loop.body.filter((line) => {
     const text = line.trim()
     if (/^(options|suggest|kind|also):/i.test(text)) return false
-    if (loop.kind === "slack-reply" && /^(draft|message):/i.test(text))
-      return false
     return text.length > 0
   })
 }

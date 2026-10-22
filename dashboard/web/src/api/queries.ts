@@ -8,7 +8,6 @@ import {
 import { setConflict } from "@/lib/conflict"
 import {
   ApiError,
-  apiFetch,
   apiJson,
   isConflictMarkers,
   sendJson,
@@ -29,7 +28,6 @@ import type {
   Project,
   ProjectLoop,
   SearchResult,
-  SlackState,
   Tracker,
   TrackerInfo,
 } from "./types"
@@ -42,8 +40,6 @@ export const keys = {
   item: (p: string, item: string) => ["item", p, item] as const,
   evidence: (p: string) => ["evidence", p] as const,
   evidenceItem: (p: string, item: string) => ["evidence", p, item] as const,
-  slack: ["slack"] as const,
-  draft: (p: string, draftPath: string) => ["draft", p, draftPath] as const,
   briefings: (p: string) => ["briefings", p] as const,
   briefing: (p: string, id: string) => ["briefing", p, id] as const,
   tracker: (p: string) => ["tracker", p] as const,
@@ -118,18 +114,6 @@ export const useEvidenceItem = (p: string, item: string | null) =>
     queryFn: () => apiJson<EvidenceDetail>(paths.evidenceItem(p, item ?? "")),
     enabled: item !== null,
   })
-export const useSlack = () =>
-  useQuery({
-    queryKey: keys.slack,
-    queryFn: () => apiJson<SlackState>(paths.slack()),
-  })
-export const useDraftText = (p: string, draftPath: string | null) =>
-  useQuery({
-    queryKey: keys.draft(p, draftPath ?? ""),
-    queryFn: async () =>
-      (await apiFetch(paths.file(p, draftPath ?? ""))).text(),
-    enabled: draftPath !== null,
-  })
 export const useBriefings = (p: string) =>
   useQuery({
     queryKey: keys.briefings(p),
@@ -172,29 +156,6 @@ export function useAnswer(p: string) {
         void qc.invalidateQueries({ queryKey: keys.allLoops })
       }
     },
-  })
-}
-const basename = (path: string) => path.split("/").pop() ?? path
-export function useSaveDraft(p: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ draftPath, text }: { draftPath: string; text: string }) =>
-      sendJson<unknown>("PUT", paths.draft(p, basename(draftPath)), { text }),
-    onSuccess: (_data, { draftPath, text }) => {
-      qc.setQueryData<string>(
-        keys.draft(p, draftPath),
-        (old) => `${(old ?? "").split("\n")[0]}\n${text}`
-      )
-      return qc.invalidateQueries({ queryKey: keys.draft(p, draftPath) })
-    },
-  })
-}
-export function useRouteMessage() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, project }: { id: string; project: string }) =>
-      sendJson<unknown>("POST", paths.slackRoute(id), { project }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.slack }),
   })
 }
 export function useNewBriefing(p: string) {

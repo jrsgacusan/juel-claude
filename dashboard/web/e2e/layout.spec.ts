@@ -5,7 +5,6 @@ test("every page fits the width", async ({ page }) => {
   for (const path of [
     "/needs",
     "/sphere-app/progress?item=SPH-11",
-    "/sphere-app/slack",
     "/sphere-app/briefing",
     "/sphere-app/evidence?item=SPH-4",
     "/sphere-app/accounts",
@@ -68,7 +67,6 @@ test("makes no request outside its own origin", async ({ page, baseURL }) => {
   for (const path of [
     "/needs",
     "/sphere-app/progress",
-    "/sphere-app/slack",
     "/sphere-app/briefing",
     "/sphere-app/evidence",
     "/sphere-app/accounts",
@@ -111,17 +109,17 @@ test("on a phone the header has the switcher and Search, no breadcrumb, menu but
   await noHorizontalScroll(page)
 })
 
-test("on a desktop the sidebar lists Chat between Progress and Slack replies, and keeps the last project's pages on Needs you", async ({
+test("on a desktop the sidebar lists Chat between Progress and Briefing, and keeps the last project's pages on Needs you", async ({
   page,
 }) => {
   test.skip(isPhone(page), "the phone has the tab bar instead")
   await openApp(page)
   const sections = page.getByRole("list", { name: "Sections" })
   await expect(sections.getByRole("link"))
-    .toHaveText(["Progress", "Chat", "Slack replies", "Briefing", "Evidence"])
+    .toHaveText(["Progress", "Chat", "Briefing", "Evidence"])
   await goInApp(page, "/needs")
   await expect(page.getByRole("heading", { name: "sphere-app" })).toBeVisible()
-  await expect(sections.getByRole("link")).toHaveCount(5)
+  await expect(sections.getByRole("link")).toHaveCount(4)
   await sections.getByRole("link", { name: "Chat", exact: true }).click()
   await expect(page).toHaveURL(/\/sphere-app\/chat$/)
 })

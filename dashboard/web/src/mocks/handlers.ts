@@ -13,7 +13,6 @@ import { chatHandlers } from "./chat"
 import { accountsHandlers } from "./accounts"
 import { controlHandlers } from "./control"
 import { briefingsExtraHandlers } from "./briefings-extra"
-import { slackExtraHandlers } from "./slack-extra"
 import clipUrl from "./assets/clip.webm?url"
 
 const API = "*/api"
@@ -74,7 +73,6 @@ export const handlers = [
   ...accountsHandlers,
   ...controlHandlers,
   ...briefingsExtraHandlers,
-  ...slackExtraHandlers,
   http.get(`${API}/projects`, () => {
     const db = getDb()
     const stopped = getScenario() === "stopped"
@@ -109,7 +107,7 @@ export const handlers = [
     const gate = await pageGate()
     if (gate) return gate
     const rank = (kind: string) =>
-      kind === "person" ? 0 : kind === "set-aside" ? 1 : kind === "slack-reply" ? 2 : 3
+      kind === "person" ? 0 : kind === "set-aside" ? 1 : 2
     const num = (id: string) => Number(id.slice(2)) || 0
     const db = getDb()
     const rows = isEmpty()
@@ -219,23 +217,6 @@ export const handlers = [
       })
     return fail(404, `No file ${path}`)
   }),
-  http.put(`${API}/projects/:p/drafts/:name`, async ({ params, request }) => {
-    const p = projectOf(params)
-    const message = getDb().slack.routed.find(
-      (candidate) =>
-        candidate.project === p &&
-        candidate.draftPath?.split("/").pop() === String(params.name)
-    )
-    if (!message?.draftPath) return fail(404, "No draft")
-    const body = await bodyJson(request)
-    const text = typeof body.text === "string" ? body.text : ""
-    const file = getDb().files[`${p}/${message.draftPath}`]
-    if (file) file.body = `${file.body.split("\n")[0]}\n${text}`
-    mockEvents.later(50, () =>
-      mockEvents.emit({ type: "change", project: p, what: "drafts" })
-    )
-    return json({ saved: true })
-  }),
   http.get(`${API}/search`, async ({ request }) => {
     const gate = await pageGate()
     if (gate) return gate
@@ -265,47 +246,6 @@ export const handlers = [
             Connection: "keep-alive",
           },
         })
-  ),
-  http.get(`${API}/slack`, async () => {
-    const gate = await pageGate()
-    if (gate) return gate
-    const db = getDb()
-    return json({
-      status: {
-        ...db.slack.status,
-        connected:
-          getScenario() === "slack-off" ? false : db.slack.status.connected,
-      },
-      routed: isEmpty() ? [] : db.slack.routed,
-      unrouted: isEmpty() ? [] : db.slack.unrouted,
-      paused: db.slack.paused,
-    })
-  }),
-  http.post(`${API}/slack/:id/route`, async ({ params, request }) => {
-    const id = String(params.id)
-    const body = await bodyJson(request)
-    const project = typeof body.project === "string" ? body.project : "none"
-    const index = getDb().slack.unrouted.findIndex(
-      (candidate) => candidate.id === id
-    )
-    if (index < 0) return fail(404, "No unrouted message")
-    const [message] = getDb().slack.unrouted.splice(index, 1)
-    if (project !== "none" && message)
-      getDb().slack.routed.push({
-        ...message,
-        project,
-        thread: [],
-        draftPath: null,
-        loopId: null,
-      })
-    mockEvents.later(50, () =>
-      mockEvents.emit({ type: "change", what: "slack" })
-    )
-    return json({ routed: true })
-  }),
-  http.post(
-    `${API}/slack/check`,
-    () => new HttpResponse(null, { status: 202 })
   ),
   http.get(`${API}/projects/:p/briefings`, async ({ params }) => {
     const gate = await pageGate()

@@ -3,7 +3,6 @@ import {
   GitPullRequest,
   Image,
   Inbox,
-  MessageSquare,
   PenLine,
   Scale,
   Search,
@@ -34,7 +33,6 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   Items: GitPullRequest,
   "Needs you": Inbox,
   Decisions: Scale,
-  Slack: MessageSquare,
   Briefings: PenLine,
   Evidence: Image,
 }
@@ -73,14 +71,14 @@ export function SearchDialog({
       >
         <DialogTitle className="sr-only">Search</DialogTitle>
         <DialogDescription className="sr-only">
-          Search items, decisions, Slack, briefings and evidence
+          Search items, decisions, briefings and evidence
         </DialogDescription>
         {/* cmdk would filter again what the server already matched (brief D8). */}
         <Command shouldFilter={false} className="rounded-none">
           <CommandInput
             value={query}
             onValueChange={setQuery}
-            placeholder="Search items, decisions, Slack, briefings and evidence"
+            placeholder="Search items, decisions, briefings and evidence"
           />
           <div className="flex justify-end border-b px-3 py-1.5 text-xs text-muted-foreground">
             <label className="flex items-center gap-2 pointer-coarse:min-h-11">

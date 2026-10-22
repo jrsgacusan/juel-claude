@@ -58,7 +58,7 @@ export async function writeNew(path: string, content: string): Promise<boolean> 
   }
 }
 
-/** Writes an inbox file through a temp file and hard link, so STAR never reads half a file and the link never overwrites (follow-up M4, as slack/inbox.ts does). */
+/** Writes an inbox file through a temp file and hard link, so STAR never reads half a file and the link never overwrites (follow-up M4). */
 export async function linkNew(path: string, content: string): Promise<boolean> {
   await mkdir(dirname(path), { recursive: true })
   const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${hex4()}.tmp`)

@@ -20,6 +20,15 @@
 #                                        (star.json has no evidenceChecked) when worktree-clean.sh
 #                                        --evidence-report finds dependency folders in evidence/; the key is
 #                                        set either way, and a failing report leaves it unset,
+#                                        then "migrated slack items=<n>" when it closed <n> >= 1 open
+#                                        slack-reply items (Slack reply drafting is gone, #184) through
+#                                        loops.sh close, on every schema; slack/, slack/redraft/ and
+#                                        drafts/*-slack-*.md are left in place, never moved or deleted,
+#                                        (schema 1 and 2: a loops.sh failure ends the run; schema 3: it
+#                                        prints "warn slack items unchecked: <loops.sh's reason>" in that
+#                                        place, after any "migrated slack items" line, and the run goes on
+#                                        to "current", exit 0, queue untouched; the next start tries again;
+#                                        close exit 4, already closed, counts as closed),
 #                                        then "current" (schema 3) or "migrated schema=3 rows=<n> loops=<n>"
 #                                        (rows: ledger rows whose state or stage it changed; loops: queue
 #                                        items it closed), then "warn executor.fallback equals
@@ -86,7 +95,7 @@
 # Exit: 0 ok; 1 not inside a usable git checkout, import with a spec that is not a readable file, no STAR folder, an unreadable star.json
 # or project name, a named file it cannot read, or a copy that fails, register with no STAR folder or a registry it cannot read or write,
 # a STAR folder migrate cannot read, or ledger.sh or loops.sh failing during
-# migrate (the message names it); 64 usage.
+# migrate (the message names it; on a schema 3 home the slack step only warns); 64 usage.
 STAR_SKILL_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
 import fcntl
 import hashlib
@@ -409,12 +418,23 @@ def migrate_evidence(data):
     return True
 
 
-def queue_items(queue):
+class QueueUnchecked(Exception):
+    """loops.sh could not list or close; the message is its one-line reason."""
+
+
+def one_line(done):
+    return " ".join((done.stderr.strip() or f"exit {done.returncode}").split())
+
+
+def queue_items(queue, soft=False):
     """The open queue items with their title and body: [{id, kind, project, item, state, title, text, sub}].
-    Read straight from open-loops.md (loops.sh list has no body); every write goes through loops.sh."""
+    Read straight from open-loops.md (loops.sh list has no body); every write goes through loops.sh.
+    soft: a list that fails raises QueueUnchecked instead of ending the run."""
     loops = os.path.join(os.environ["STAR_SKILL_DIR"], "loops.sh")
     listed = subprocess.run(["sh", loops, "--file", queue, "list"], capture_output=True, text=True)
     if listed.returncode != 0:
+        if soft:
+            raise QueueUnchecked(one_line(listed))
         die(1, "loops.sh list: " + (listed.stderr.strip() or f"exit {listed.returncode}"))
     bodies, current = {}, None
     for line in open(queue, encoding="utf-8", errors="surrogateescape").read().split("\n"):
@@ -445,6 +465,35 @@ def person_need(entry):
         if any(re.search(r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", entry["text"]) for w in words):
             return need
     return None
+
+
+def migrate_slack(soft=False):
+    """Close every open slack-reply item (Slack reply drafting is gone, #184). Never touches slack/ or drafts/.
+    Prints "migrated slack items=<n>" when it closed at least one; safe to repeat.
+    soft (a schema 3 home): a queue loops.sh cannot list or close prints "warn slack items unchecked: <reason>"
+    and goes on, so a broken queue does not block STAR's start; the next start tries again."""
+    queue = os.path.join(home, "open-loops.md")
+    if not os.path.exists(queue):
+        return
+    loops = os.path.join(os.environ["STAR_SKILL_DIR"], "loops.sh")
+    closed = 0
+    try:
+        for entry in queue_items(queue, soft):
+            if entry["kind"] != "slack-reply":
+                continue
+            done = subprocess.run(["sh", loops, "--file", queue, "close", entry["id"]], capture_output=True, text=True)
+            if done.returncode not in (0, 4):  # 4: already closed
+                if soft:
+                    raise QueueUnchecked(f"loops.sh close {entry['id']}: " + one_line(done))
+                die(1, f"loops.sh close {entry['id']}: " + (done.stderr.strip() or f"exit {done.returncode}"))
+            closed += 1
+    except QueueUnchecked as why:
+        if closed:
+            print(f"migrated slack items={closed}")
+        print(f"warn slack items unchecked: {why}")
+        return
+    if closed:
+        print(f"migrated slack items={closed}")
 
 
 def migrate_queue(skill):
@@ -572,6 +621,7 @@ def migrate():
             print("migrated quiet-hours")
         notes_moved = migrate_notes(data)
         evidence_set = migrate_evidence(data)
+        migrate_slack(soft=True)
         if gate_moved or quiet_gone or notes_moved or evidence_set:
             write_json(star_path, data)
         print("current")
@@ -639,6 +689,7 @@ def migrate():
     for item, updated in restage:
         ledger_run(skill, "set", item, "stage=build", now=updated)
         touched.add(item)
+    migrate_slack()  # after the stop lines are on disk: a queue it cannot read stops here
     loops, readded, titles = migrate_queue(skill)
     touched.update(migrate_ledger(skill, queue_items(os.path.join(home, "open-loops.md")), readded, titles, project))
     data["schema"] = 3

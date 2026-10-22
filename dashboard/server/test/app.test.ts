@@ -169,7 +169,7 @@ test("GET /api/projects lists each project with its state; a broken or deleted o
       state: "running",
       terminal: "term_star",
       lastTick: "2026-10-15T08:00:00Z",
-      needsYou: 4,
+      needsYou: 3,
     });
     assert.equal(list.find((p) => p["name"] === "quiet")?.["state"], "idle");
     assert.deepEqual(
@@ -269,7 +269,7 @@ test("GET /api/projects/:p/overview has the resume block, counts, pools and flag
   }
 });
 
-test("GET /api/projects/:p/loops: person first, then set-aside, Slack, the rest, oldest first, picks parsed", async () => {
+test("GET /api/projects/:p/loops: person first, then set-aside, the rest, oldest first, picks parsed", async () => {
   const env = await setup();
   try {
     const loops = (await (
@@ -277,7 +277,7 @@ test("GET /api/projects/:p/loops: person first, then set-aside, Slack, the rest,
     ).json()) as Record<string, unknown>[];
     assert.deepEqual(
       loops.map((l) => l["id"]),
-      ["N-5", "N-6", "N-3", "N-4", "N-7"],
+      ["N-5", "N-6", "N-3", "N-7"],
     );
     assert.deepEqual(loops[0], {
       id: "N-5",
@@ -306,14 +306,7 @@ test("GET /api/projects/:p/loops: person first, then set-aside, Slack, the rest,
       "step: 1",
       "> kind: secret",
     ]);
-    assert.equal(loops[4]?.["answer"], "ISO 8601");
-    const slack = loops[3] as Record<string, unknown>;
-    assert.equal(slack["suggestion"], "Not today. It's in final review now.");
-    assert.deepEqual(slack["options"], [
-      { label: "send", answer: "send", recommended: true },
-      { label: "rewrite: …", answer: "rewrite: ", recommended: false },
-      { label: "skip", answer: "skip", recommended: false },
-    ]);
+    assert.equal(loops[3]?.["answer"], "ISO 8601");
     const q = path.join(env.star, "open-loops.md");
     fs.writeFileSync(
       q,
@@ -341,7 +334,7 @@ test("GET /api/projects/:p/loops: person first, then set-aside, Slack, the rest,
     ).json()) as { id: string }[];
     assert.deepEqual(
       ordered.map((l) => l.id),
-      ["N-5", "N-6", "N-12", "N-3", "N-4", "N-7", "N-10"],
+      ["N-5", "N-6", "N-12", "N-3", "N-7", "N-10"],
     );
     fs.appendFileSync(path.join(env.star, "open-loops.md"), "<<<<<<< HEAD\n");
     const broken = await env.api("/api/projects/app/loops");
@@ -373,8 +366,6 @@ test("GET /api/loops lists every project's items by rank, then project, then num
         "beta/N-6",
         "app/N-3",
         "beta/N-3",
-        "app/N-4",
-        "beta/N-4",
         "app/N-7",
         "beta/N-7",
       ],
@@ -401,7 +392,7 @@ test("GET /api/loops: one unreadable queue is one error entry and the other proj
       title: string;
       id?: string;
     }[];
-    assert.equal(loops.filter((l) => l.project === "app").length, 5);
+    assert.equal(loops.filter((l) => l.project === "app").length, 4);
     const broken = loops.filter((l) => l.project === "beta");
     assert.equal(broken.length, 1);
     assert.equal(broken[0]?.kind, "error");

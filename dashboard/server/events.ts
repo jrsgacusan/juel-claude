@@ -63,8 +63,6 @@ export const WHATS = [
   "ledger",
   "progress",
   "evidence",
-  "drafts",
-  "slack",
   "briefings",
   "chat",
 ] as const;
@@ -72,8 +70,6 @@ export type What = (typeof WHATS)[number];
 const FOLDERS: Readonly<Record<string, What>> = {
   progress: "progress",
   evidence: "evidence",
-  drafts: "drafts",
-  slack: "slack",
   briefings: "briefings",
   chat: "chat",
 };
@@ -112,8 +108,6 @@ export function signatures(home: string): Record<string, string> {
     ledger: stamp(path.join(home, "ledger.md")),
     progress: tree("progress"),
     evidence: tree("evidence"),
-    drafts: tree("drafts"),
-    slack: tree("slack"),
     briefings: tree("briefings"),
     chat: tree("chat"),
   };

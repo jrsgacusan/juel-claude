@@ -11,8 +11,8 @@ export default defineConfig(({ command }) => ({
       "@": resolve(import.meta.dirname, "./src"),
     },
   },
-  // The build has no public folder at all, so the MSW worker never reaches dist/ (brief D3).
-  publicDir: command === "serve" ? "dev-public" : false,
+  // The build's public folder holds only the home-screen icons, so the MSW worker (in dev-public) still never reaches dist/ (brief D3).
+  publicDir: command === "serve" ? "dev-public" : "app-public",
   server:
     process.env.VITE_MOCK === "off"
       ? {

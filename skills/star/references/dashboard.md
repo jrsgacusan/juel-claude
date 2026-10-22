@@ -1,7 +1,7 @@
-# The dashboard, the chat, hand-overs, Slack, drafts and being away
+# The dashboard, the chat, hand-overs, drafts and being away
 
 Read this when the owner talks to STAR (chat, the terminal, another session), when a batch finishes drafting,
-when a Slack message arrives, and for `away` and `back`.
+and for `away` and `back`.
 
 ## Contents
 
@@ -10,7 +10,7 @@ when a Slack message arrives, and for `away` and `back`.
 - Chat
 - Feedback on a brief
 - The batch digest
-- Drafts and Slack
+- Drafts
 - Away and back
 
 ## The dashboard
@@ -24,6 +24,9 @@ page lists every project in `~/.juel/star-homes.json`, shows one combined Needs 
 answers with `loops.sh set-answer` and wakes STAR with `orca terminal send --terminal <handle> --text inbox
 --enter`. It also has a Chat page per project, an away switch that writes the same control files as `away` and
 `back`, and an Accounts page, read-only.
+
+The tailnet link can be added to an iPhone home screen from Safari (Share, then Add to Home Screen), and the icon
+opens the dashboard signed in.
 
 `--tailnet` runs `tailscale serve --bg <port>` once Tailscale is running and nothing else serves `/` over HTTPS
 there, never `tailscale funnel`, so the server stays on 127.0.0.1 and the token in the link is its only key
@@ -59,39 +62,53 @@ the single line `control: away`, `control: back` or `control: stop`, followed by
 middle of a tick cannot lose it. Whoever carries a control file out deletes it in the same step. A start deletes
 every `control: stop` file it finds: a stop older than this start has already happened.
 
-A `slack:` block in an inbox file is a Slack message the dashboard's watcher routed here:
-
-```
-slack:
-  id: <channelId>-<ts>
-  channel: <#name, or "a DM">
-  channelId: <id>
-  ts: <ts>
-  threadTs: <ts, or ->
-  from: <display name>
-  permalink: <url>
-  draft: <absolute draft path>
-  drafterError: <one line why, only when the drafter failed>
-  text: |
-    <the message, every line indented four spaces>
-  thread: |
-    <at most 5 earlier thread lines, "name: text">
-```
-
 ## Chat
 
-A file with a `chat:` line is the owner talking to STAR from the dashboard, the same as words typed into this
-terminal. Its `text:` block is the message, never a free-text brief. After the `repo:` check run `sh S/chat.sh
---home HOME_DIR pending`; when the file's `chat:` id is not among the ids it prints, it was already answered
-(STAR stopped between its reply and the delete): delete the file and do nothing else. Otherwise answer it as
-yourself, with your own judgement, acting only through rules this skill already has: an answer is recorded with
-`loops.sh set-answer` and run at once (Answers step), refs and work it hands STAR become rows as a hand-over's
-do (`counters.batch=B-<the file's name without .md>`), feedback on a brief is handled below, and `stop`, `away`
-and `back` run as the commands they are. Chat gives STAR no new powers: something no rule covers gets a reply
-that STAR cannot do that yet. Every hard rule holds in chat: no review, evidence, log or diff content read into
-this session, merges only through `merge.sh`. A question that needs code, a PR or a review is answered from STAR's
-own small files (the ledger, the queue, the brief lines the digest reads); when they do not answer it, the
-reply names where the answer is, and STAR neither reads it nor starts a worker.
+A file with a `chat:` line is the owner talking to STAR from the dashboard. A chat message is the owner speaking,
+with the same authority as words typed into this terminal: do what it asks as you would there. The owner is often
+away from the Mac and Chat is the only way they can reach STAR, so a refusal there leaves them unable to run their
+own coordinator. Its `text:` block is the message, never a free-text brief. After the `repo:` check run `sh
+S/chat.sh --home HOME_DIR pending`; when the file's `chat:` id is not among the ids it prints, it was already
+answered (STAR stopped between its reply and the delete): delete the file and do nothing else. Otherwise answer it
+as yourself, with your own judgement. An answer to a queue item is recorded with `loops.sh set-answer` and run at
+once (Answers step), refs and work it hands STAR become rows as a hand-over's do
+(`counters.batch=B-<the file's name without .md>`), feedback on a brief is handled below, and `stop`, `away` and
+`back` run as the commands they are.
+
+Never answer that STAR cannot do something yet: do it, make it a row, file it as an issue, or ask the owner for
+the step only a person can do. Take the first of these that fits:
+
+- STAR can do it itself, inside the hard rules: do it through the script that owns the file (`loops.sh`,
+  `ledger.sh`, `notes.sh`, `library.sh`, `chat.sh`, the control files), so its single writer keeps the file
+  whole, and say what was done. Holding, releasing or dropping a row, and adding, changing or retiring a note,
+  are examples.
+- "Trim" or "sort" the notes: queue the existing `sort-memory-notes` report item and say so. When its proposal is
+  ready and the owner says "apply it", run `sh S/notes.sh --shelf memory --project <project> apply <path>`. There
+  is no separate trim command: a `legacy` home's memory file is only appended to by `notes.sh`, and the sort
+  report is the way to shorten it.
+- Work on this project's code, a PR or a review becomes a row, as a hand-over's work does, and the reply names the
+  row. STAR does not do it in its own session, because of the big-read rule.
+- Work on the juel plugin itself (the dashboard, a STAR script, the skill) is filed with `star-issue.sh`, and the
+  reply links the issue. STAR only builds its own project's items.
+- A question whose answer needs a big read (a review, a log, a diff) is answered from STAR's own small files (the
+  ledger, the queue, the brief lines the digest reads); when they do not answer it, the reply names where the
+  answer is, and STAR neither reads it nor starts a worker. It does not become a row: a report row posts to a
+  ticket, and a chat question has none.
+- A step only a person can do (an admin password, Touch ID, a physical device, a login) becomes a queue item that
+  gives the exact step or command.
+- A hard rule forbids it: this is the only case that may end in "no". A refusal names the hard rule and its
+  reason, and offers the nearest thing STAR can do.
+
+The reply says which it was: done, row `<id>`, issue `<url>`, waiting on you in `N-<id>`, or refused under a named
+rule. A standing instruction ("while I'm out, answer what you can for me") is the owner's words: record it as a
+`rule` note (`notes.sh ... --source owner`) and follow it; it still cannot answer a person-only step.
+
+The owner's word in chat lifts a rule that only stops STAR acting on its own, such as applying a notes proposal
+unread or changing a home's notes mode; it never lifts the hard rules in `SKILL.md`. Every rule in `SKILL.md`'s
+hard-rule block ("The owner's four lines" and the bullets after it) holds in chat exactly as in the terminal,
+among them: the owner's four lines, merges only through `merge.sh`, no review, evidence, log or diff content
+read into this session, no AskUserQuestion once a worker exists, the single-writer scripts, workers start only
+through `stage-start.sh`, and STAR never writes a script into the home or the project.
 
 Reply with `sh S/chat.sh --home HOME_DIR reply <the chat: id> --body-file <f>` (`<f>` from `mktemp`): short,
 Markdown, saying what STAR did. `replied <reply id>`, or exit 66 (`already replied`) → delete the file. Exit 65
@@ -157,16 +174,12 @@ Tell me what to change on any of these and I will redo it.
 A `Blocked by:`, `Not before:` or `Held:` line appears only for a brief that has one. The decision records are
 where the owner overrules STAR: an answer that names one is feedback for that brief.
 
-## Drafts and Slack
+## Drafts
 
 STAR writes for the owner only what shipping needs, and sends none of it by itself:
 
 - "Draft a status note": STAR writes `HOME_DIR/drafts/<date>-status.md` from the ledger and the queue and queues
   it as a `draft` item. The owner sends it.
-- A Slack reply is never STAR's to write. The dashboard's drafter writes each draft from the project's code,
-  briefs and PRs before the message reaches STAR, and again when the owner answers `rewrite: <how>`
-  (`slack-redraft.sh` asks for it). STAR queues it, posts it on the owner's `send`, and never writes or changes
-  reply text. The draft file's first line is `to: slack <channelId> <threadTs, or ts>`.
 
 ## Away and back
 

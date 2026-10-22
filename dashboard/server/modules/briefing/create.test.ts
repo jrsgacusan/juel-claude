@@ -153,7 +153,7 @@ test('linear: a headless haiku run allowed only the create tools, when one is co
 })
 
 test('linear with no create tool connected stops the run and writes the spec item', async () => {
-  await play(w, 'claude', [{ lines: [init('C1', ['Read', 'mcp__slack__post'])], wait: true }])
+  await play(w, 'claude', [{ lines: [init('C1', ['Read', 'mcp__other__post'])], wait: true }])
   const started = Date.now()
   const outcome = await createTicket(ctx('linear'))
   assert.ok(Date.now() - started < 5000, 'the run was stopped at init, not left until the fake gives up after 10 s')

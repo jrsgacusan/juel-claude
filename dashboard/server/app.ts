@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { Hub, watchHomes } from "./events.ts";
 import type { WatchFn } from "./events.ts";
 import { HttpError, Unreadable, readJson, sendJson, whyOf } from "./http.ts";
+import { manifestFor } from "./manifest.ts";
 import { loadModules } from "./modules.ts";
 import { nudge } from "./orca.ts";
 import { LOOPS_SH, MODULES_DIR, WEB_DIST } from "./paths.ts";
@@ -14,7 +15,6 @@ import { loopRoutes } from "./routes/loops.ts";
 import { projectRoutes } from "./routes/projects.ts";
 import { evidenceRoutes } from "./routes/evidence.ts";
 import { itemRoutes } from "./routes/items.ts";
-import { draftRoutes } from "./routes/drafts.ts";
 import { fileRoutes } from "./routes/files.ts";
 import { searchRoutes } from "./routes/search.ts";
 import { serveStatic } from "./static.ts";
@@ -86,7 +86,6 @@ export async function startApp(opts: AppOptions): Promise<App> {
   itemRoutes(router, ctx);
   evidenceRoutes(router, ctx);
   fileRoutes(router, ctx);
-  draftRoutes(router, ctx);
   searchRoutes(router, ctx);
   const dist = opts.webDist ?? WEB_DIST;
 
@@ -95,6 +94,24 @@ export async function startApp(opts: AppOptions): Promise<App> {
     res: http.ServerResponse,
     url: URL,
   ): Promise<void> {
+    if (url.pathname === "/manifest.webmanifest") {
+      if (req.method !== "GET") {
+        sendJson(res, 405, { error: "GET only" });
+        return;
+      }
+      // The token goes into start_url only when this request already presented it.
+      const t = url.searchParams.getAll("t");
+      const signedIn = t.length === 1 && tokenOk(t[0], opts.token);
+      const body = JSON.stringify(
+        manifestFor(signedIn ? `/?t=${encodeURIComponent(opts.token)}` : "/"),
+      );
+      res.writeHead(200, {
+        "content-type": "application/manifest+json; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(body);
+      return;
+    }
     if (url.pathname !== "/api" && !url.pathname.startsWith("/api/")) {
       serveStatic(req, res, dist);
       return;
@@ -171,7 +188,7 @@ export async function startApp(opts: AppOptions): Promise<App> {
         sendJson(res, 502, { error: `${err.file}: ${err.why}` });
       else {
         log(
-          `error on ${req.method ?? ""} ${req.url ?? ""}: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+          `error on ${req.method ?? ""} ${url.pathname}: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
         );
         sendJson(res, 500, {
           error: err instanceof Error ? err.message : String(err),
