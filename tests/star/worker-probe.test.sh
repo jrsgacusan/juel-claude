@@ -575,22 +575,46 @@ cat > "$TMP/bin/claude" <<'EOF6'
 exit "${STUB_CLAUDE_RC:-1}"
 EOF6
 chmod +x "$TMP/bin/claude"
+# the stub login shell is the worker's profile: its startup files default CLAUDE_CONFIG_DIR to STUB_SHELL_CFG
+cat > "$TMP/loginsh" <<'EOF7'
+#!/bin/sh
+[ -n "${STUB_SHELL_CFG:-}" ] && CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR:-$STUB_SHELL_CFG} && export CLAUDE_CONFIG_DIR
+exec /bin/sh "$@"
+EOF7
+chmod +x "$TMP/loginsh"
 ZARGS=""
 printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
 printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s,"worktreePath":"%s"}]}}\n' "$(ms_ago 2)" "$LINKED" > "$TMP/list.json"
 printf '{"result":{"terminal":{"source":"screen","tail":["Not logged in · Please run /login"]}}}\n' > "$TMP/screen.json"
-out=$(z env STAR_LOGIN_SHELL=/bin/sh CLAUDE_CONFIG_DIR=/cfg/work STUB_CLAUDE_RC=1); check "#206 a logged-out config dir is named" "stuck: login: /cfg/work logged out"
-out=$(z env STAR_LOGIN_SHELL=/bin/sh CLAUDE_CONFIG_DIR=/cfg/work STUB_CLAUDE_RC=0); check "#206 a signed-in config dir is named" "stuck: login: /cfg/work signed in"
-out=$(z env STAR_LOGIN_SHELL=/bin/sh CLAUDE_CONFIG_DIR= HOME=/home/x STUB_CLAUDE_RC=1); check "#206 an unset CLAUDE_CONFIG_DIR is \$HOME/.claude" "stuck: login: /home/x/.claude logged out"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=1); check "#206 a logged-out config dir is named" "stuck: login: /cfg/work logged out"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0); check "#206 a signed-in config dir is named" "stuck: login: /cfg/work signed in"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" HOME=/home/x STUB_CLAUDE_RC=1); check "#206 an unset CLAUDE_CONFIG_DIR is \$HOME/.claude" "stuck: login: /home/x/.claude logged out"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" CLAUDE_CONFIG_DIR=/wrong STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0); check "#206 a CLAUDE_CONFIG_DIR in the probe's own environment never reaches the login shell" "stuck: login: /cfg/work signed in"
 out=$(z env STAR_LOGIN_SHELL=/bin/false); check "#206 a check that cannot run is the plain line" "stuck: login"
 out=$(z env STAR_LOGIN_SHELL=/no/such/shell); check "#206 a missing shell is the plain line" "stuck: login"
-out=$(z env STAR_LOGIN_SHELL=/bin/sh CLAUDE_CONFIG_DIR=/cfg/work STUB_CLAUDE_RC=0 STUB_WANT_DIR="$(cd "$LINKED" && pwd -P)"); check "#206 the check runs in the terminal's worktree when --worktree is not given" "stuck: login: /cfg/work signed in"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0 STUB_WANT_DIR="$(cd "$LINKED" && pwd -P)"); check "#206 the check runs in the terminal's worktree when --worktree is not given" "stuck: login: /cfg/work signed in"
 ZARGS="--item B-1 --home $HB --worktree $MAINCO"
-out=$(z env STAR_LOGIN_SHELL=/bin/sh CLAUDE_CONFIG_DIR=/cfg/work STUB_CLAUDE_RC=0 STUB_WANT_DIR="$(cd "$MAINCO" && pwd -P)"); check "#206 the check runs in --worktree when it is given" "stuck: login: /cfg/work signed in"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0 STUB_WANT_DIR="$(cd "$MAINCO" && pwd -P)"); check "#206 the check runs in --worktree when it is given" "stuck: login: /cfg/work signed in"
 ZARGS=""
 printf '{"result":{"terminal":{"source":"screen","tail":["Credit balance too low"]}}}\n' > "$TMP/screen.json"
-out=$(z env STAR_LOGIN_SHELL=/bin/sh CLAUDE_CONFIG_DIR=/cfg/work STUB_CLAUDE_RC=0); check "#206 only a login screen runs the check" "stuck: usage limit"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0); check "#206 only a login screen runs the check" "stuck: usage limit"
 
+# #207: the screen holder is "<project>/<item>" (project from star.json) or the bare item
+SCR="$ROOT/skills/ship-ticket/screen-lock.sh"
+export JUEL_SCREEN_LOCK="$TMP/screen.lock" JUEL_SCREEN_LOCK_POLL=0.2
+HS="$TMP/homeS"; mkdir -p "$HS/progress"; : > "$HS/progress/ITEM-1.log"; printf '{"project":{"name":"projB"}}\n' > "$HS/star.json"
+rm -f "$TMP/screen.json"
+sleep 300 & WS=$!
+prs() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$HS"; }
+for h in projB/ITEM-1 ITEM-1; do
+  sh "$SCR" acquire --holder "$h" --pid $WS --wait-max 2 >/dev/null
+  out=$(prs); check "#207 a screen held by $h is this row's" "ok holds-screen 0"
+  sh "$SCR" release --holder "$h" >/dev/null
+done
+sh "$SCR" acquire --holder projA/ITEM-1 --pid $WS --wait-max 2 >/dev/null
+out=$(prs); check "#207 a screen held by another project's item of the same name is not this row's" "ok"
+sh "$SCR" release --holder projA/ITEM-1 >/dev/null; kill $WS 2>/dev/null; wait $WS 2>/dev/null
+unset JUEL_SCREEN_LOCK JUEL_SCREEN_LOCK_POLL
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

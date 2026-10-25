@@ -681,6 +681,29 @@ bl BLK-7 queued '[BLK-8]'; L add BLK-8 ref=BLK-8 project=app state=done >/dev/nu
 WTB7="$APP/.worktrees/app/BLK-7"; trust "$APP" "$WTB7"
 reset; out=$(ST build BLK-7); case "$out" in "started "*) pass "a done blocker is cleared" ;; *) fail "done blocker ($out)" ;; esac
 
+# review fix S7 (#189): one read of the ledger resolves every blocker; a read that fails leaves it open
+cp -R "$S" "$TMP/S2"
+cat > "$TMP/S2/ledger.sh" <<EOF8
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$TMP/ledger-calls"
+case " \$* " in *" list "*) [ -f "$TMP/list-fail" ] && exit 1 ;; esac
+exec sh "$S/ledger.sh" "\$@"
+EOF8
+ST2() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca STAR_FREE_GB=16 \
+        STAR_AGENTS=3 STAR_SWAP_GB=1 STAR_DISK_GB=500 STAR_TRUST_POLL=0.01 CLAUDE_CONFIG_DIR="$TMP/cfg" sh "$TMP/S2/stage-start.sh" --home "$H" "$@"; }
+L add BLK-D ref=BLK-D project=app state=done >/dev/null
+bl BLK-7 queued '[BLK-D]'
+reset; rm -f "$TMP/ledger-calls"; touch "$TMP/list-fail"
+out=$(ST2 build BLK-7); [ "$out" = "wait BLK-D" ] && [ ! -f "$TMP/calls" ] && pass "S7 a ledger list that fails leaves the blocker open" || fail "list fails ($out)"
+rm -f "$TMP/list-fail" "$TMP/ledger-calls"
+L add BLK-P ref=BLK-P project=app state=dropped >/dev/null
+L add BLK-Pa ref=BLK-Pa project=app state=building counters.parent=BLK-P >/dev/null
+L add BLK-Pb ref=BLK-Pb project=app state=done counters.parent=BLK-P >/dev/null
+bl BLK-7 queued '[BLK-P]'
+reset; out=$(ST2 build BLK-7); [ "$out" = "wait BLK-Pa" ] && pass "S7 with the ledger readable the split parts are still resolved" || fail "S7 split ($out)"
+g=$(grep -c ' get BLK-P' "$TMP/ledger-calls"); l=$(grep -c ' list' "$TMP/ledger-calls")
+[ "$g" = 0 ] && [ "$l" -le 1 ] && pass "S7 the blockers are resolved from one list, not one get per row" || fail "S7 reads (get=$g list=$l)"
+
 # lane e: release, stop and tell (#197, #198)
 reset; show ctx_rl1 term_rl1 owned - true 0 "$APP" released
 out=$(ST release ctx_rl1)
@@ -725,5 +748,15 @@ reset; printf '{"ok":false,"error":{"message":"no mailbox"}}\n' > "$TMP/send-out
 out=$(ST tell ctx_tl4 "s" "b"); case "$out" in "FAIL tell ctx_tl4: "*) ! grep -q 'terminal send' "$TMP/calls" && pass "a dispatch with no terminal at all is a FAIL line" || fail "no terminal sent" ;; *) fail "no terminal ($out)" ;; esac
 reset; out=$(ST tell ctx_tl5 "-dash subject" "-dash body"); [ "$out" = "sent mailbox" ] && grep -q -- '--subject -dash subject --body -dash body' "$TMP/calls" && pass "a subject or body that starts with a dash is text, not a flag" || fail "dash ($out)"
 reset; out=$(ST tell ctx_tl5 "only subject" 2>&1); case "$out" in "stage-start.sh: usage"*) pass "tell without a body is a usage error" ;; *) fail "tell usage ($out)" ;; esac
+reset; out=$(ST --home "$TMP/no-such-home" stop ctx_st9); case "$out" in "FAIL stop ctx_st9: "*) [ ! -f "$TMP/calls" ] && pass "S5 a processed.log that cannot be written is a FAIL line, before worker-stop runs" || fail "S5 worker-stop ran" ;; *) fail "S5 ($out)" ;; esac
+reset; printf 'connection reset by peer\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl6"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl6.json"
+out=$(ST tell ctx_tl6 "s" "b"); [ "$out" = "FAIL tell ctx_tl6: no answer from orchestration send (it may have been delivered)" ] && ! grep -q 'terminal send' "$TMP/calls" && pass "S9 an unreadable answer from send is a FAIL, and nothing is typed" || fail "S9 unreadable ($out)"
+reset; : > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl6"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl6.json"
+out=$(ST tell ctx_tl6 "s" "b"); [ "$out" = "FAIL tell ctx_tl6: no answer from orchestration send (it may have been delivered)" ] && ! grep -q 'terminal send' "$TMP/calls" && pass "S9 a send that exits non-zero with no output is a FAIL, nothing typed" || fail "S9 empty ($out)"
+reset; printf '{"error":{"message":"no mailbox"}}\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl6"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl6.json"
+out=$(ST tell ctx_tl6 "s" "b"); [ "$out" = "sent terminal term_agt" ] && pass "S9 a non-zero exit with a JSON body is a refusal: the terminal gets the text" || fail "S9 json refusal ($out)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

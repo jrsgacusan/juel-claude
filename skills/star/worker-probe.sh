@@ -7,7 +7,8 @@
 #          | stuck: <label>[: <line>] | prompt bounded <terminal> <path>...
 #          | stalled: model at capacity | stalled: usage-limit until <time> | stalled: api error
 #          | gate-gone r<k> | gone | unknown <why>
-#     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39).
+#     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39): the holder
+#     is "<project>/<item>" (project from star.json's project.name) or the bare item (#207).
 # "gate-gone r<k>" (with --item and --home, for a worker that is not settled) means the newest gate
 # round's <H>/reviews/<project>/<item>-r<k>.run names a pid (and gate pid) that is not alive while
 # no verdict file <item>-r<k>.md exists: the codex gate died. The project is star.json's
@@ -25,9 +26,10 @@
 # stuck phrases; a usage limit without "continuing automatically" stays "stuck: usage limit".
 # "stuck: login" is followed by the worker's own login state (#206): the user's shell (STAR_LOGIN_SHELL,
 # else $SHELL, else /bin/sh) runs `claude auth status` with -ic, stdin from /dev/null and a 30 s timeout, in
-# the --worktree, else the terminal's worktreePath (orca terminal list), else the current folder. It
+# the --worktree, else the terminal's worktreePath (orca terminal list), else the current folder, with
+# CLAUDE_CONFIG_DIR removed from its environment so the folder and shell startup pick the profile. It
 # prints "stuck: login: <config dir> logged out" (non-zero) or "stuck: login: <config dir> signed in"
-# (zero), the dir being CLAUDE_CONFIG_DIR, else $HOME/.claude. A check that cannot run (no STAR_CFG= line,
+# (zero), the dir being the shell's CLAUDE_CONFIG_DIR, else $HOME/.claude. A check that cannot run (no STAR_CFG= line,
 # a timeout, no such shell) leaves the plain "stuck: login".
 # "stalled: api error" (#123) is a worker that Claude Code left at an empty prompt under its own
 # "API Error: <message>" row (a connection lost or a server error mid-response, the row starting
@@ -383,9 +385,11 @@ def login_line():
     when the check cannot run."""
     shell = os.environ.get("STAR_LOGIN_SHELL") or os.environ.get("SHELL") or "/bin/sh"
     check = "printf 'STAR_CFG=%s\\n' \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"; claude auth status >/dev/null 2>&1"
+    # Without our CLAUDE_CONFIG_DIR: the worker's folder and shell startup decide the profile (#206).
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
     try:
         proc = subprocess.run([shell, "-ic", check], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              timeout=30, cwd=worker_folder())
+                              timeout=30, cwd=worker_folder(), env=env)
     except (OSError, subprocess.TimeoutExpired):
         return "stuck: login"
     config = next((l[len("STAR_CFG="):].strip() for l in proc.stdout.splitlines() if l.startswith("STAR_CFG=")), "")
@@ -552,7 +556,8 @@ if re.search(YES_NO, last_line, re.IGNORECASE) and not last_line.lstrip().starts
 
 
 def screen_suffix():
-    """" holds-screen <m>" when --item holds the machine's screen lock (#39)."""
+    """" holds-screen <m>" when --item holds the machine's screen lock (#39): its holder label is
+    "<project>/<item>" (project from star.json's project.name) or the bare item (#207)."""
     if "item" not in opts:
         return ""
     script = os.path.join(os.environ["STAR_SKILLS_DIR"], "ship-ticket", "screen-lock.sh")
@@ -561,7 +566,13 @@ def screen_suffix():
     except (OSError, subprocess.TimeoutExpired):
         return ""
     m = re.match(r"held by (\S+) since (\S+)", status)
-    if not m or m.group(1) != "_".join(opts["item"].split()):
+    label = "_".join(opts["item"].split())
+    try:
+        project = json.load(open(os.path.join(opts["home"], "star.json"), encoding="utf-8"))["project"]["name"]
+    except (OSError, ValueError, KeyError, TypeError):
+        project = None
+    mine = {label} | ({"_".join(project.split()) + "/" + label} if isinstance(project, str) and project else set())
+    if not m or m.group(1) not in mine:
         return ""
     try:
         since = datetime.fromisoformat(m.group(2).replace("Z", "+00:00")).timestamp()

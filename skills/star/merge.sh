@@ -9,7 +9,8 @@
 #                            check" and "expected" in it (any case): a required check has not
 #                            reported on the head, and the PR is not merged: nothing is wrong, ask
 #                            again later (#167). <name> is the first double-quoted name in the
-#                            error, else "required checks". It is printed even when the PR state
+#                            error message (stderr, or the message field of the JSON body gh api
+#                            prints), never a JSON key, else "required checks". It is printed even when the PR state
 #                            cannot be read afterwards, since GitHub refused the merge
 #   PENDING merge state: behind the base branch
 #                            the merge was refused, the head is the one given and the PR is BEHIND
@@ -46,7 +47,10 @@
 # merge state). MERGED when GitHub says merged, even if the call errored (gh can fail after the
 # merge went through). A call that errored on a PR that is not merged is classified from that read:
 # PENDING check <name> not reported (above); FAIL head moved only when the head read differs from
-# --head (when the read failed, from the error text); PENDING merge state: behind the base branch
+# --head (when the read failed, from the error text: "was modified", "HTTP 409" or
+# "match-head-commit", never gh's "head branch is not up to date", the BEHIND refusal); on the REST
+# path, a 422, 403 or 429 or any "rate limit" text is FAIL merge: <first line>, decided before the
+# BEHIND rule, since a refusal that is not about the PR's state is never "behind"; PENDING merge state: behind the base branch
 # when the state is BEHIND; FAIL merge: conflicts with the base when it is DIRTY or the error says
 # so; else FAIL merge: <first line>. A call that worked, followed by a state that
 # cannot be read, prints nothing and exits 69: the merge may or may not have happened, and the
@@ -249,7 +253,21 @@ def rest_merge_allowed():
     return rule.returncode == 0 and not words & {"strict", "queue", "unknown"}
 
 
-if rest_merge_allowed():
+def error_text(proc):
+    """What the call said: stderr, plus the message field of the JSON body gh api prints on stdout
+    (its other keys are not text), else stdout as it is."""
+    out_text = proc.stdout or ""
+    try:
+        body = json.loads(out_text)
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        out_text = body["message"] if isinstance(body.get("message"), str) else ""
+    return (proc.stderr or "") + out_text
+
+
+via_rest = rest_merge_allowed()
+if via_rest:
     mg = run(["gh", "api", "-X", "PUT", f"repos/{url.group(1)}/pulls/{number}/merge", "-f", f"sha={head}", "-f", f"merge_method={method}"], 300)
 else:
     mg = run(["gh", "pr", "merge", pr, f"--{method}", "--match-head-commit", head], 300)
@@ -260,7 +278,7 @@ if state == "MERGED":
     post_comment()
     out("MERGED " + ((s.get("mergeCommit") or {}).get("oid") or "unknown"))
 if mg.returncode != 0:
-    said = (mg.stderr or "") + (mg.stdout or "")
+    said = error_text(mg)
     if re.search(r"required status check", said, re.I) and re.search(r"expected", said, re.I):
         quoted = re.search(r'"([^"]+)"', said)
         out(f"PENDING check {quoted.group(1) if quoted else 'required checks'} not reported")
@@ -270,8 +288,10 @@ if mg.returncode != 0:
         # The PR was read again: only a different head is a moved head.
         if now_head != head:
             out("FAIL head moved")
-    elif re.search(r"head (branch|commit|ref)|match-head-commit|was modified|HTTP 409", said, re.I):
+    elif re.search(r"match-head-commit|was modified|HTTP 409", said, re.I):
         out("FAIL head moved")
+    if via_rest and re.search(r"HTTP (422|403|429)|rate limit", said, re.I):
+        out("FAIL merge: " + first(mg))
     if merge_state == "BEHIND":
         out("PENDING merge state: behind the base branch")
     if merge_state == "DIRTY" or re.search(r"merge conflict|conflicts? with", said, re.I):

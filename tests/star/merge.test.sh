@@ -29,7 +29,7 @@ case "$1 $2" in
   "api -X") # the REST merge: rest-status picks the answer, rest-err is its message
     case "$(cat "$STUB_DIR/rest-status" 2>/dev/null)" in
       200) echo '{"merged":true}'; exit 0 ;;
-      *) echo "{\"message\":\"x\"}"; cat "$STUB_DIR/rest-err" >&2; exit 1 ;;
+      *) if [ -f "$STUB_DIR/rest-body" ]; then cat "$STUB_DIR/rest-body"; else echo "{\"message\":\"x\"}"; fi; cat "$STUB_DIR/rest-err" >&2; exit 1 ;;
     esac ;;
   "api "*) case "$2" in *rules/branches*) if [ -f "$STUB_DIR/rules.json" ]; then cat "$STUB_DIR/rules.json"; else echo '[]'; fi ;; *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;; esac ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
@@ -40,7 +40,7 @@ state() { # state <GitHub's word for the PR after the merge call> [merge state] 
   printf '{"state":"%s","mergeCommit":{"oid":"9e8d7c6b5a49382716051423324150617e8f9a0b"},"headRefOid":"%s","mergeStateStatus":"%s"}\n' "$1" "${3:-$HEAD}" "${2:-CLEAN}" > "$TMP/state.json"
 }
 pre() { printf '{"headRefOid":"%s","mergeStateStatus":"%s"}\n' "$HEAD" "$1" > "$TMP/pre.json"; }
-reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json" "$TMP/rest-status" "$TMP/rest-err" "$TMP/comment-fail"; pre CLEAN; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[],"baseRefName":"dev"}\n' > "$TMP/pr.json"; state MERGED; }
+reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json" "$TMP/rest-status" "$TMP/rest-err" "$TMP/rest-body" "$TMP/comment-fail"; pre CLEAN; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[],"baseRefName":"dev"}\n' > "$TMP/pr.json"; state MERGED; }
 M() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" "$@"; }
 
 reset; out=$(M)
@@ -217,5 +217,22 @@ reset; pre BEHIND; echo 405 > "$TMP/rest-status"; printf 'gh: Required status ch
 out=$(M); [ "$out" = "PENDING check ci not reported" ] && pass "#193 REST 405 for a required check is PENDING check" || fail "#193 rest 405 check ($out)"
 reset; pre BEHIND; echo 422 > "$TMP/rest-status"; printf 'gh: Validation Failed (HTTP 422)\n' > "$TMP/rest-err"; state OPEN
 out=$(M); [ "$out" = "FAIL merge: gh: Validation Failed (HTTP 422)" ] && pass "#193 REST 422 is FAIL merge with its first line" || fail "#193 rest 422 ($out)"
+# review fixes: S1 a refusal that is not about the PR's state is never "behind"
+for pair in "422:gh: Validation Failed (HTTP 422)" "403:gh: Resource not accessible (HTTP 403)" "429:gh: Too Many Requests (HTTP 429)" "403:gh: API rate limit exceeded for user"; do
+  reset; pre BEHIND; echo "${pair%%:*}" > "$TMP/rest-status"; printf '%s\n' "${pair#*:}" > "$TMP/rest-err"; state OPEN BEHIND
+  out=$(M); [ "$out" = "FAIL merge: ${pair#*:}" ] && pass "S1 REST ${pair%%:*} (${pair#*:}) is FAIL merge even when the PR reads BEHIND" || fail "S1 $pair ($out)"
+done
+# S3: gh's own "not up to date" text is the BEHIND misread, never a moved head, when the PR cannot be read
+reset; printf 'GraphQL: Head branch is not up to date with the base branch (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN BEHIND; touch "$TMP/state-fail"
+out=$(M); [ "$out" = "FAIL merge: GraphQL: Head branch is not up to date with the base branch (mergePullRequest)" ] && pass "S3 an unreadable PR with gh's not-up-to-date text is not head moved" || fail "S3 ($out)"
+reset; printf 'gh: Head branch was modified (HTTP 409)\n' > "$TMP/merge-err"; touch "$TMP/state-fail"
+out=$(M); [ "$out" = "FAIL head moved" ] && pass "S3 HTTP 409 with an unreadable PR is head moved" || fail "S3 409 ($out)"
+reset; printf 'GraphQL: expected head sha didnt match (match-head-commit)\n' > "$TMP/merge-err"; touch "$TMP/state-fail"
+out=$(M); [ "$out" = "FAIL head moved" ] && pass "S3 match-head-commit with an unreadable PR is head moved" || fail "S3 match ($out)"
+# S6: the check name comes from the message, never from a JSON key
+reset; pre BEHIND; echo 405 > "$TMP/rest-status"; : > "$TMP/rest-err"; printf '{"message":"Required status check is expected.","status":"405"}\n' > "$TMP/rest-body"; state OPEN BEHIND
+out=$(M); [ "$out" = "PENDING check required checks not reported" ] && pass "S6 a message with no quoted name gives required checks, not a JSON key" || fail "S6 key ($out)"
+reset; pre BEHIND; echo 405 > "$TMP/rest-status"; : > "$TMP/rest-err"; printf '{"message":"Required status check \\"ci/build\\" is expected.","status":"405"}\n' > "$TMP/rest-body"; state OPEN BEHIND
+out=$(M); [ "$out" = "PENDING check ci/build not reported" ] && pass "S6 the name is read from the JSON body's message field" || fail "S6 body ($out)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

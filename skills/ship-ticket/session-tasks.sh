@@ -4,14 +4,15 @@
 # One line per task whose first non-blank line under its "### Task <N>" heading is **Run:** session,
 # in plan order:
 #   session <N>
-# With --ledger, then:
+# With --ledger, then, unless the ledger is another plan's (foreign, below), which proves nothing about
+# this one and prints no ran, until or next line:
 #   ran <N>      a session task the ledger marks "Task <N>: complete" without "(session": the
 #                executor ran it, so the run failed
 #   until <N>    the first session task the ledger does not mark complete: the dispatch stops before it
 #   next <N>     the first task of any kind, in plan order, with no "Task <N>: complete" line: where the
 #                executor resumes (#196, #203)
 #   next none    in its place, when every task is complete
-#   foreign <p>  in its place, when the ledger's first line ("# SDD ledger — plan: <p>") names a plan
+#   foreign <p>  alone after the session lines, when the ledger's first line ("# SDD ledger — plan: <p>") names a plan
 #                file whose name differs from this plan's: the ledger is another plan's
 # A ledger that does not exist yet is empty. Without --ledger, a plan with no session task prints nothing.
 # Exit: 0; 1 when any "ran" line or a "foreign" line was printed; 64 usage or a plan that cannot be read.
@@ -76,6 +77,10 @@ try:
                 done[m.group(1)] = m.group(2).startswith(' (session')
 except OSError:
     pass
+foreign = named is not None and os.path.basename(named) != os.path.basename(plan)
+if foreign:
+    print(f'foreign {named}')
+    sys.exit(1)
 ran = [n for n in session if n in done and not done[n]]
 for n in ran:
     print(f'ran {n}')
@@ -83,11 +88,7 @@ for n in session:
     if n not in done:
         print(f'until {n}')
         break
-foreign = named is not None and os.path.basename(named) != os.path.basename(plan)
-if foreign:
-    print(f'foreign {named}')
-else:
-    left = [n for n in tasks if n not in done]
-    print(f'next {left[0]}' if left else 'next none')
-sys.exit(1 if ran or foreign else 0)
+left = [n for n in tasks if n not in done]
+print(f'next {left[0]}' if left else 'next none')
+sys.exit(1 if ran else 0)
 PY

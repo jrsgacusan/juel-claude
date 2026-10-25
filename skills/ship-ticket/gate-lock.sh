@@ -86,7 +86,8 @@
 # all (a lock file or the queue cannot be opened or locked); 64 on bad usage; 77 with
 # "gate-lock.sh: <holder> holds the screen lock: release it first (the order is gate, then screen,
 # #207)" when --holder names a worker that holds the screen lock (screen-lock.sh, next to this
-# file): nothing runs and no gate lock is taken, so a worker never holds the screen while it waits
+# file; the label is matched whole, never by its part after the last "/", since two projects may
+# each have an issue-12): nothing runs and no gate lock is taken, so a worker never holds the screen while it waits
 # in the gate queue. Release the screen, run the gate again. A nested gate is never refused.
 GATE_LOCK_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
 import fcntl
@@ -223,8 +224,8 @@ if held_by_our_gate():
 
 def holds_screen():
     """True when --holder names the worker that holds the screen lock (#207): the order is gate, then
-    screen. screen-lock.sh stores the label with spaces turned to "_"; STAR's "<project>/<item>"
-    label may be stored whole or as its part after the last "/"."""
+    screen. screen-lock.sh stores the label with spaces turned to "_"; it is matched whole, never by its
+    part after the last "/", since two projects may each have an "issue-12"."""
     if not holder_given:
         return False
     try:
@@ -232,7 +233,7 @@ def holds_screen():
                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30).stdout.split()
     except (OSError, subprocess.SubprocessError):
         return False  # cannot tell: the gate is not refused over it
-    return out[:2] == ["held", "by"] and len(out) > 2 and out[2] in (holder, holder.rsplit("/", 1)[-1])
+    return out[:2] == ["held", "by"] and len(out) > 2 and out[2] == holder
 
 
 if holds_screen():

@@ -377,9 +377,15 @@ err=$(sh "$SCRIPT" --holder star/item-7 --wait-max 1 -- sh -c "echo ran > '$TMP/
 case "$err" in *"star/item-7 holds the screen lock: release it first (the order is gate, then screen, #207)"*) pass "#207 the message names the holder and the order" ;; *) fail "#207 message ($err)" ;; esac
 free && pass "#207 the refusal took no gate lock" || fail "#207 the refusal left the gate lock held"
 sh "$SCREEN" release --holder star/item-7 >/dev/null 2>&1
+sh "$SCREEN" acquire --holder issue-12 --pid "$sw" --wait-max 2 >/dev/null
+sh "$SCRIPT" --holder projB/issue-12 --wait-max 1 -- sh -c "echo ran > '$TMP/s77b.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/s77b.ran" ] && pass "#207 a screen held by the bare item does not refuse projB/item (the label is matched whole)" || fail "#207 suffix collision ($rc)"
+sh "$SCREEN" release --holder issue-12 >/dev/null 2>&1
+sh "$SCREEN" acquire --holder projB/issue-12 --pid "$sw" --wait-max 2 >/dev/null
+sh "$SCRIPT" --holder projB/issue-12 --wait-max 1 -- sh -c "echo ran > '$TMP/s77g.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 77 ] && [ ! -e "$TMP/s77g.ran" ] && pass "#207 a screen held by projB/item refuses projB/item" || fail "#207 whole label ($rc)"
+sh "$SCREEN" release --holder projB/issue-12 >/dev/null 2>&1
 sh "$SCREEN" acquire --holder item-7 --pid "$sw" --wait-max 2 >/dev/null
-sh "$SCRIPT" --holder star/item-7 --wait-max 1 -- sh -c "echo ran > '$TMP/s77b.ran'" 2>/dev/null; rc=$?
-[ "$rc" -eq 77 ] && [ ! -e "$TMP/s77b.ran" ] && pass "#207 a screen lock under the part after the last / matches too" || fail "#207 short holder ($rc)"
 sh "$SCRIPT" --holder other --wait-max 1 -- sh -c "echo ran > '$TMP/s77c.ran'" 2>/dev/null; rc=$?
 [ "$rc" -eq 0 ] && [ -e "$TMP/s77c.ran" ] && pass "#207 another holder is not refused" || fail "#207 other holder ($rc)"
 sh "$SCRIPT" -- sh -c "echo ran > '$TMP/s77d.ran'" 2>/dev/null; rc=$?
