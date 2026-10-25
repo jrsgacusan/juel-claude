@@ -134,6 +134,12 @@ through `orca computer`, under the screen lock), `auto: api` or `auto: cli`. A c
 `## Person-only steps`. A check no tool can run is not left for later: find an automated check that proves the
 same criterion and record why it is enough. Write `none` when there is nothing to check live.
 
+**A question only a test run would settle.** The main checkout has no installed dependencies, and the brief
+worker installs nothing, so it cannot run even one repo test (#202). A question about current behaviour that
+only a run would answer goes into `## Approach` as the build's first step: `Run <command> to confirm
+<question>; if <result>, <what the build does>`. The brief still decides the rest on the likelier reading and
+records that as a decision, so the build confirms a step instead of waiting on an answer.
+
 ## Decisions are taken, not asked
 
 Every question the item leaves open that a builder would otherwise ask (a product call, a library, a name, a
