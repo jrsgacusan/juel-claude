@@ -382,5 +382,30 @@ sfx "an ambiguous planned directory excuses neither file" '- Modify: `electron/`
 sfx "a suffix match needs a / boundary" '- Modify: `electron/a.cjs`' \
   'outside apps/web/myelectron/a.cjs' apps/web/myelectron/a.cjs
 
+# #199 a plan's **Shared files:** block names files every task may change
+RH="$TMP/shared"; mkdir -p "$RH/tests/contract" "$RH/tests/helpers" "$RH/src" "$RH/docs/plans"
+git -c init.defaultBranch=main init -q "$RH"
+git -C "$RH" config user.email t@example.com; git -C "$RH" config user.name t; git -C "$RH" config commit.gpgsign false
+printf 'x\n' > "$RH/src/a.sh"; printf 'x\n' > "$RH/tests/helpers/stub-api.ts"; printf 'x\n' > "$RH/tests/contract/c.ts"
+git -C "$RH" add -A; git -C "$RH" commit -qm base; BH=$(git -C "$RH" rev-parse HEAD)
+cat > "$RH/docs/plans/p.md" <<'EOF'
+# A plan
+
+**Shared files:**
+- Test: `tests/contract/`
+- Modify: `tests/helpers/stub-api.ts`
+
+### Task 1: one
+
+**Files:**
+- Modify: `src/a.sh`
+EOF
+printf 'y\n' >> "$RH/src/a.sh"; printf 'y\n' >> "$RH/tests/helpers/stub-api.ts"; printf 'y\n' >> "$RH/tests/contract/c.ts"
+out=$(cd "$TMP" && sh "$SCRIPT" "$RH/docs/plans/p.md" "$BH" --repo-dir "$RH"); rc=$?
+[ "$out" = ok ] && [ "$rc" -eq 0 ] && pass "#199 files only the Shared files block names are ok" || fail "#199 shared files block (rc=$rc: $out)"
+grep -v 'Shared files\|tests/contract/\|stub-api' "$RH/docs/plans/p.md" > "$RH/docs/plans/q.md"
+out=$(cd "$TMP" && sh "$SCRIPT" "$RH/docs/plans/q.md" "$BH" --repo-dir "$RH"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -qF 'outside tests/helpers/stub-api.ts' && pass "#199 without the block the same files are outside" || fail "#199 control (rc=$rc: $out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
