@@ -607,13 +607,17 @@ or does not cover, end with `RESCOPE item=<item> reason=brief review=<a file nam
 needs and why the brief excludes it>`.
 
 **Conflicts.** A merge of the base branch that conflicts (an `existingPr` brief's first merge, a
-gate round's `ERROR base-moved`) goes through `merge-union.sh` first. When it leaves conflicts: if
-a `## Decisions` entry names those files and a resolution, apply it as written; otherwise resolve
-them yourself, keeping both changes' intent, from both items' briefs and `## Decisions` and the
-sibling PR's diff and description, and record the resolution as a `## Decisions` line. Then run
-the regression gate and the codex gate on the result. Failing those gates spends tries, and ends
-as `reason=out-of-tries step=conflict`. By hand, a conflict `merge-union.sh` cannot resolve still
-stops the merge for the user.
+gate round's `ERROR base-moved`) follows the conflict rule of `juel:babysit-pr` Phase 4 step 1
+(`../babysit-pr/SKILL.md` from this file): resolve the conflicted files yourself, keeping both
+changes' intent, from both items' briefs and `## Decisions` and the sibling PR's diff and
+description. If a `## Decisions` entry names those files and a resolution, apply it as written;
+otherwise record your resolution as a `## Decisions` line. A lockfile is never merged by hand: take
+the base's version, run the project's install command to regenerate it, and stage the result. Then
+run the regression gate and the codex gate on the result. Failing those gates spends tries, and
+ends as `reason=out-of-tries step=conflict`, as does a binary file, a delete/rename conflict or a
+file added on both sides with no clear union. By hand, stage the resolution without committing,
+show the user the resolved hunks of each file (`git diff --cached -- <files>`) and ask before
+committing and pushing.
 
 **Red CI.** Before the PR is marked ready, for each failing check on its head:
 1. Rerun it once. Green means a flake: go on.
@@ -1337,8 +1341,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    `RESCOPE item=<item> reason=gate review=<the last review's path> tooling=all`.
 6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.
    Fetch the base and merge it in as `juel:babysit-pr`'s Phase 4 step 1 does (`../babysit-pr/SKILL.md`
-   from this file: `merge-union.sh` resolves a mechanical conflict; any other conflict follows
-   "Conflicts" above), run the sweep as "Gate once per PR"
+   from this file; a conflict follows "Conflicts" above), run the sweep as "Gate once per PR"
    item 2 says, commit the merge, push (never force), read the PR's merge state as "Gate once per PR"
    says, then run the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and
    it casts no vote toward `tries.perStep`.
