@@ -16,7 +16,7 @@ the files.
   `processed.log`, and only then acknowledge the delivery. A message already in `processed.log` is skipped.
   Every row write a message causes also sets `last=<message id>`; a message whose id is already the row's
   `last=` is applied: do not match it again, count nothing, do only what comes after the row
-  (`worker-release`, `processed.log`, the ack). That is what makes a replay safe.
+  (`stage-start.sh release`, `processed.log`, the ack). That is what makes a replay safe.
 - **Match by dispatch, not by name.** A message belongs to the row whose `dispatch` cell equals the message's
   dispatch id (the third field of its `msg` line); the `item=` in its first line must then be that row's
   item. A message changes no row, and is only named in the status line, when its dispatch is in no row (or
@@ -27,8 +27,9 @@ the files.
 - **One message, one order of effects:** queue items first (`loops.sh add` returns the open item's id when it
   is already there), then `NOTE` and `SENT` appends (each line carries the time the message was sent, so a
   replay writes the identical line: skip one the file has), then the row with its `last=`, then for a settled
-  `worker_done` `worker-release` and the close check, then `<dispatch> released <iso>` in `processed.log`,
-  then the message's own line, then the ack. A stop anywhere in that order replays into the same end state.
+  `worker_done` `sh S/stage-start.sh --home HOME_DIR release <dispatch>` (it runs `worker-release` and the close
+  check), then `<dispatch> released <iso>` in `processed.log`,
+  then the message's own line, then the ack. When `release` prints `FAIL release <dispatch>: …`, stop there: no `released` line, no ack, the row as it is, the failure in the status line; the next tick replays the message and runs `release` again. A stop anywhere in that order replays into the same end state.
 - STAR reads at most 12 lines of a report. It never opens a review, evidence, log or diff file and never
   reads a worker's screen: scripts do that and give one line back.
 
@@ -76,14 +77,14 @@ not yet applied: leave the answer for the next tick.
 | `person` | `can't now` or `no` | append the same line ending `→ can't now (<N-id>)` unless the brief has it, and leave the item open with the answer on it. The row stays `needs-you`. STAR never asks it again, and skips this item's answer on later ticks |
 | `person` | words that decline the step ("I don't want to install it") | it is feedback on the brief: append `- <date> person-only step declined: <title> → <answer>` under `## Feedback`, close the item, close the row's other open `person` items, row `inbox`: the brief stage plans without the step (`--feedback`) |
 | `set-aside` | `try again` | the row goes to the waiting state of its `stage` with `tries` and `rescoped` cleared, `restarts` set to 0 |
-| `set-aside` | `drop` | stop any worker (stop, release, close check), row `dropped` |
+| `set-aside` | `drop` | `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` for any worker (it stops, releases and runs the close check), row `dropped` |
 | `set-aside` | anything else | the answer is a decision: append it to the brief's `## Decisions` with the date, then as `try again` |
 | `draft` | `send` | a draft whose first line is `to: pr <url>` is posted with `gh pr comment <url> --body-file <the rest>`, after appending `<iso>\tSTAR\t<item>\tposted draft N-<id>` to `sent.log` (when that line is already there, only close). Any other draft is the owner's to send: say so |
 | `draft` | `done`, `skip`, `drop`, anything else | close it. Nothing changes on any row |
 
 A worker that is still running when its row's answer arrives never gets a second worker: a `drop` stops it
 first; any other answer for a running row is appended to the brief's `## Decisions` and sent with
-`orca orchestration send --to dispatch:<id> --subject "decision" --body "<answer>" --json`, and the row stays.
+`sh S/stage-start.sh --home HOME_DIR tell <dispatch> "decision" "<answer>"`, and the row stays.
 A `briefing` row's answer goes to the brief's feedback side file (`references/dashboard.md`).
 
 ## 3. Messages
@@ -112,9 +113,8 @@ an improvement issue. `unknown <why>` is a tick, named in the status line.
 
 First the PR check. For every row that has a PR and is `queued`, `building`, `babysit-queued`, `set-aside`
 or `needs-you`: `sh S/pr-verify.sh <pr url> --head <head, or 0000000 when none is recorded>`. Only two answers
-matter. `MERGED <sha>`: the owner merged early. Stop the row's worker if it has one (record, stop, release,
-close check), then handle it as the verdict `MERGED` (`references/stages.md`). `FAIL closed`: stop and
-release the worker, row `set-aside` with "PR was closed without a merge". Every other answer is ignored here.
+matter. `MERGED <sha>`: the owner merged early. Stop the row's worker if it has one (`sh S/stage-start.sh --home HOME_DIR stop <dispatch>`: it records, stops, releases and runs the close check), then handle it as the verdict `MERGED` (`references/stages.md`). `FAIL closed`: `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` for
+the worker, row `set-aside` with "PR was closed without a merge". Every other answer is ignored here.
 So no slot ever goes to an item whose PR is already merged or closed.
 
 A `needs-you` row with no open `person` item (an item closed by hand, or lost) goes back to the waiting
@@ -124,9 +124,13 @@ the owner's order waits by itself, and a chat message "lift the hold on <item>" 
 
 Then, for each free slot, the row next in line (pools: `references/state.md`): `sh S/stage-start.sh
 [--home HOME_DIR] <stage> <item>`, run with `run_in_background: true`. Act on its line as
-`references/stages.md` ("Starting a stage") says. A `queued` row starts only when every item its brief's
-`blockedBy` names is `done` or `dropped` (#37) and its `notBefore` has passed (#87); `stage-start.sh build`
-checks both and prints `wait until <iso>` before then. A row waiting on a blocker is named in the status line.
+`references/stages.md` ("Starting a stage") says. A `queued` or `babysit-queued` row starts only when
+every item its brief's `blockedBy` names is cleared and its `notBefore` has passed (#87). An item is cleared when
+its row is `done`, or `dropped` with every row whose `parent=` names it cleared in turn (a SPLIT's parts, a
+re-scope's follow-up, #189); a dropped row with no such rows clears (#37), and a name with no row is open.
+`stage-start.sh build` and `babysit` check this and print `wait until <iso>` or `wait <item>` before any start
+(#205): the row keeps its waiting state, the status line says `<row> waits on <item>`, and the slot goes to the
+next row. `blockedBy` is never rewritten on a SPLIT: the parts take the parent's place by `parent=`.
 
 ## 5. Housekeeping
 

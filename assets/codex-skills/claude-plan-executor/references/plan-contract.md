@@ -29,6 +29,17 @@ is dropped when the path is matched. The executor changes nothing outside these 
 caller's scope check (`skills/ship-ticket/scope-check.sh` in the juel plugin) reverts any changed
 file no block names.
 
+**Optional header blocks.** Before the first task a plan may carry:
+
+- `**Shared files:**`, then list lines in the `**Files:**` syntax. Every task may change what it
+  names (tests that assert a contract several tasks change, a harness stub). The scope check treats
+  them as named. A task may also change a file another task's block names when its own test needs
+  it.
+- `**Scratch:**` followed by backticked folder paths (``**Scratch:** `docs/superpowers/`, `tmp/` ``).
+  A git-ignored path under one may be written by any step with no `**Files:**` entry, is never
+  committed, and never fails its task (report `not committed: <path> is scratch`).
+  `.superpowers/` is always scratch. A path under it that git does not ignore is not scratch.
+
 A task with the line `**Run:** session` right under its heading is run by the calling session,
 never by the executor: the executor stops before it with `stopped at task <N>: run by the session`,
 and the session's ledger line for it reads `Task <N>: complete (session, …)`.
@@ -44,8 +55,8 @@ When invoked, the agent should:
 5. state deviations, blockers, and incomplete items clearly
 
 The executor never runs `git add -f`, and never commits a path the repository ignores.
-A task whose `**Files:**` block names a path the repository ignores fails, and the run stops
-there with `task <N> failed: planned file <path> is git-ignored (<source>:<line>:<pattern>)`.
+A task whose `**Files:**` block names a path the repository ignores fails, and the run stops there with `task <N> failed: planned file <path> is git-ignored (<source>:<line>:<pattern>)`.
+A path under `**Scratch:**` is the exception: it is written, never committed, and fails nothing.
 
 ## Fix-round plans
 
@@ -60,7 +71,8 @@ such a plan is context, not a checklist, and "already implemented" is never a re
 ## Progress ledger
 
 The executor records each finished task in
-`<repo root>/.superpowers/sdd/<plan file name without .md>/progress.md`. It is the ledger
+`<repo root>/.superpowers/sdd/<plan file name without .md>/progress.md`, the whole name, `-vN`
+included: a revised plan has its own ledger. It is the ledger
 `superpowers:executing-plans` keeps, in the same format, so a run that stopped part way resumes
 from it on any executor: the same line again, the fallback model, or a Claude session.
 
@@ -68,7 +80,9 @@ from it on any executor: the same line again, the fallback model, or a Claude se
     Task 1: complete (commits a1b2c3d..d4e5f6a, tests: npm test -- hooks → 1/1 pass)
     Task 2: complete (uncommitted, tests: npm test -- recovery → 8/8 pass)
 
-A run starts at the first task with no `complete` line, and checks that task's state before it
+A run reads the ledger first. Its first line must name this plan's file; any other first line is
+another plan's ledger, left alone while a fresh one starts. A run starts at the first task with no
+`complete` line, even when earlier tasks are marked `**Run:** session`, and checks that task's state before it
 edits anything. The dispatcher makes sure `.superpowers/` is git-ignored before the first dispatch.
 
 ## Model Guidance

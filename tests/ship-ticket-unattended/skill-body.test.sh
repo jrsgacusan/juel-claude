@@ -189,7 +189,14 @@ grep -q 'window that paints' "$SKILL" && fail "EL18 no 'window that paints' desc
 # lane f: the worker skills carry, resume, scope, and read decisions (#77, #78, #81, #83, #89, #90)
 g "L77a the executor resumes from the shared ledger" '`<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`'
 g "L77b the ledger is git-ignored before the first dispatch" 'git rev-parse --git-path info/exclude'
-g "L77c a capacity retry needs no hand-written resume prompt" 'never write a resume prompt by hand'
+has "L77c the resume and stop clauses come only from session-tasks.sh" 'the resume and stop clauses come only from `session-tasks.sh`, never written by hand'
+g "I1 the dispatch line carries the resume clause verbatim" ' Resume at task <N>: the ledger marks every task before it complete.'
+g "S203 the ledger is created before the first dispatch" 'create it with exactly one line, `# SDD ledger — plan: <the plan path as the dispatch'
+g "S188 an exit 0 with the plan unfinished is handled" '**An executor that exits 0 with the plan unfinished**'
+g "S188b a sandbox-only failure is finished in the session" 'sandbox-only failure: <command>'
+g "S207a the lock order is gate, then screen" 'The order of the two locks is gate, then screen (#207)'
+g "S207b exit 77 is mapped" 'Exit 77 means this holder still has the screen lock'
+g "S207c screen-wait is a progress step" '| `screen-wait` |'
 g "L78a the scope check runs after the plan" 'sh <scope-check.sh> <the plan> <that sha>'
 g "L78b out-of-scope files are restored in one commit" '`revert: out-of-scope edits in <files>`'
 g "L78c every plan task names its files" 'Every task has a `**Files:**` block naming each file it changes'
@@ -377,8 +384,9 @@ has "AU5 settings read tries in place of gate.maxRounds" 'its `tries` (`perStep`
 has "AU6 missing acceptance criteria are not a stop" 'Missing acceptance criteria are not a stop: STAR writes them into the brief.'
 has "AU7 a brief violation is a RESCOPE" 'RESCOPE item=<item> reason=brief review=<a file naming what the work needs and why the brief excludes it>'
 has "AU8 the gate cap runs tries.perStep rounds" 'after `tries.perStep` rounds in this run'
-has "AU9 a conflict is resolved, recorded and gated" 'resolve them yourself, keeping both changes'"'"' intent'
-has "AU10 By hand a conflict that is not mechanical is still shown" 'By hand, a conflict `merge-union.sh` cannot resolve still stops the merge for the user.'
+has "AU9 a conflict is resolved, recorded and gated, by babysit-pr's rule" 'resolve the conflicted files yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
+has "AU10 By hand the resolved hunks are shown before the commit" 'show the user the resolved hunks of each file (`git diff --cached -- <files>`) and ask before committing and pushing'
+! grep -q 'merge-uni[o]n' "$SKILL" && pass "AU10b the retired script is gone" || fail "AU10b retired script named"
 has "AU11 red CI proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<base head> url=<url>'
 has "AU11b a name with a space or = is quoted" 'check="test (ubuntu-latest)"'
 has "AU11c base is the PR base branch's current head" '`baseRefOid`'
@@ -393,6 +401,22 @@ done
 # an unreadable fallback review is retried without spending the round (#185)
 has "FU1 an ERROR fallback-unreadable waits and does not spend the retry" 'An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.'
 has "FU2 the third ERROR fallback-unreadable on a round is review-tool" 'The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`.'
+
+# review fixes, lane 2 (#195, #196, #207, #205)
+has "RF2a a docsRoot outside the repo gets no Scratch line" 'carries `` **Scratch:** `<docsRoot>/` `` only when the docsRoot is inside the repository'
+has "RF2b a docsRoot outside the repo is the session's" 'A docsRoot outside the repository is the session'"'"'s: no plan step writes there'
+has "RF2c a docsRoot file the plan needs is written by the session" 'a step that needs a docsRoot file says the session writes it'
+has "RF2d every dispatch rebuilds the line" 'Every dispatch rebuilds the line: the first, and each after a session task, the unfinished-plan rule and the capacity rule'
+has "RF2e the unfinished-plan rule checks for the planned-file stop first" 'first look for a `task <N> failed: planned file` line'
+has "RF2f the planned-file stop is never re-dispatched" 'is never dispatched again'
+has "RF2g a fix plan carries the Scratch line and the rules block, Phase 6" 'carries `**Base:** spec implemented at <the evidence head>; apply only the tasks below.`, the `**Scratch:**` line and the `## Execution rules` block (Phase 3)'
+has "RF2h a fix plan carries the Scratch line and the rules block, Phase 7" 'carries `**Base:** spec implemented at <the full head>; apply only the tasks below.`, the `**Scratch:**` line and the `## Execution rules` block (Phase 3)'
+has "RF2i a resumed build's plan carries them too" 'and, like every plan, the `**Scratch:**` line and the `## Execution rules` block'
+has "RF2j the rules block lets any task change a Shared files file" 'Any task may change a file the **Shared files:** block names.'
+has "RF2k the screen lock shares the gate lock's label" 'there it is `--holder "<star.project>/<item>"`, the label the gate lock uses'
+has "RF2l two projects may each have an issue-12 (screen)" 'two projects may each have an `issue-12`, and one label must name one holder'
+has "RF2m an inherited defect adds a NOTE" 'NOTE: inherited from <base>: <one line>'
+has "RF2n the inherited NOTE is the report's one own NOTE" 'it is the report'"'"'s one `NOTE` of your own'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

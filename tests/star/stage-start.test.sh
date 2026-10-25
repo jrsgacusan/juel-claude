@@ -76,7 +76,19 @@ case "$1 $2" in
     if [ -f "$STUB_DIR/dialog-always" ] || [ "$n" -le "$(cat "$STUB_DIR/dialog-reads" 2>/dev/null || echo 0)" ]; then
       echo '{"ok":true,"result":{"screen":"Do you trust the files in this folder?  1. Yes, proceed  2. No, exit"}}'
     else echo '{"ok":true,"result":{"screen":"> ready"}}'; fi ;;
-  "terminal send") echo '{"ok":true}' ;;
+  "terminal send")
+    # a terminal send answers from term-send-out when a test sets it (agent_prompt_blocked, a dead pane)
+    if [ -f "$STUB_DIR/term-send-out" ]; then cat "$STUB_DIR/term-send-out"; exit 1; fi
+    echo '{"ok":true}' ;;
+  "orchestration worker-release")
+    if [ -f "$STUB_DIR/release-out" ]; then cat "$STUB_DIR/release-out"; [ -f "$STUB_DIR/release-exit" ] && exit 1; exit 0; fi
+    echo '{"ok":true,"result":{"status":"released"}}' ;;
+  "orchestration worker-stop")
+    if [ -f "$STUB_DIR/stop-out" ]; then cat "$STUB_DIR/stop-out"; exit 1; fi
+    echo '{"ok":true,"result":{"stopped":true}}' ;;
+  "orchestration send")
+    if [ -f "$STUB_DIR/send-out" ]; then cat "$STUB_DIR/send-out"; exit 1; fi
+    echo '{"ok":true,"result":{"messageId":"msg_1"}}' ;;
   "terminal close")
     [ -f "$STUB_DIR/close-fail" ] && { echo '{"ok":false,"error":{"message":"terminal is busy"}}'; exit 1; }
     echo '{"ok":true}' ;;
@@ -110,7 +122,7 @@ EOF
 chmod +x "$TMP/bin/orca"
 reset() { rm -f "$TMP/calls" "$TMP/ws" "$TMP"/ws-fail-* "$TMP/tr" "$TMP/dialog-always" "$TMP/dialog-reads" "$TMP/task-fail" \
                 "$TMP"/show-*.json "$TMP/terminals.json" "$TMP/close-fail" "$TMP/list-all.json" "$TMP/list-all-fail" \
-                "$TMP"/screen-*.json; }
+                "$TMP"/screen-*.json "$TMP/term-send-out" "$TMP/release-out" "$TMP/release-exit" "$TMP/stop-out" "$TMP/send-out"; rm -f "$H/processed.log"; }
 ST() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca STAR_FREE_GB=${FREE:-16} \
        STAR_AGENTS=${AGENTS:-3} STAR_SWAP_GB=${SWAP:-1} STAR_DISK_GB=${DISK:-500} \
        STAR_TRUST_POLL=0.01 CLAUDE_CONFIG_DIR="$TMP/cfg" sh "$SCRIPT" --home "$H" "$@"; }
@@ -631,5 +643,120 @@ grep -q -- "--out $H/briefs/app/SPH-82.md --feedback --task-title" "$TMP/calls" 
 reset; ST brief SPH-11 >/dev/null
 grep -o -- '--retry-request [^ ]*' "$TMP/calls" | cut -d' ' -f2 | grep -vqiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' && fail "#163 a request id Orca refuses ($(grep -o -- '--retry-request [^ ]*' "$TMP/calls"))" || pass "#163 every request id is a UUID"
 [ "$(rq star-SPH-11-brief-r0-s1)" != "$(python3 -c 'import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, "juel-star:/elsewhere/star#star-SPH-11-brief-r0-s1"))')" ] && pass "#163 another folder gets another id" || fail "#163 folder in the id"
+# lane e: blockedBy holds a build or a babysit until every blocker is cleared (#189, #205)
+bl() { # bl <item> <state> <blockedBy list>: a row whose brief names those blockers
+  L add "$1" ref="$1" project=app state="$2" >/dev/null 2>&1 || L set "$1" state="$2" >/dev/null
+  mkdir -p "$H/briefs/app"
+  printf -- '---\njuel_brief: 1\nbranch: feat/%s-x\nbaseBranch: main\ndeliverable: pr\nblockedBy: %s\n---\n## Work item\nx\n' "$(echo "$1" | tr 'A-Z' 'a-z')" "$3" > "$H/briefs/app/$1.md"
+}
+L add BLK-1 ref=BLK-1 project=app state=building >/dev/null
+bl BLK-2 queued '[BLK-1]'
+reset; out=$(ST build BLK-2)
+[ "$out" = "wait BLK-1" ] && [ ! -f "$TMP/calls" ] && [ "$(L get BLK-2 state)" = "queued" ] && [ "$(L get BLK-2 counters.start)" = "-" ] && pass "a build waits on a blocker that is building, and nothing is written" || fail "open blocker ($out)"
+bl BLK-2 queued '[BLK-9, BLK-1]'
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-9" ] && pass "a blocker with no row is open, and the first open one is named" || fail "no row ($out)"
+bl BLK-2 queued '[BLK-1] # waits for the schema'
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-1" ] && pass "a trailing comment on the blockedBy line is ignored" || fail "comment ($out)"
+# a SPLIT drops the blocker and adds parts that carry parent= (#189)
+L set BLK-1 state=dropped >/dev/null
+L add BLK-1a ref=BLK-1a project=app state=inbox counters.parent=BLK-1 >/dev/null
+L add BLK-1b ref=BLK-1b project=app state=done counters.parent=BLK-1 >/dev/null
+bl BLK-2 queued '[BLK-1]'
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-1a" ] && [ ! -f "$TMP/calls" ] && pass "a dropped blocker waits on its open parts (#189)" || fail "split part open ($out)"
+L add BLK-1a1 ref=BLK-1a1 project=app state=building counters.parent=BLK-1a >/dev/null
+L set BLK-1a state=dropped >/dev/null
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-1a1" ] && pass "a dropped part waits on its own parts, recursively" || fail "recursive ($out)"
+bl BLK-3 babysit-queued '[BLK-1]'
+reset; out=$(ST babysit BLK-3); [ "$out" = "wait BLK-1a1" ] && [ ! -f "$TMP/calls" ] && [ "$(L get BLK-3 state)" = "babysit-queued" ] && pass "a babysit waits on the same blockers (#205)" || fail "babysit blocker ($out)"
+L set BLK-1a1 state=done >/dev/null
+WTB2="$APP/.worktrees/app/BLK-2"; trust "$APP" "$WTB2"
+reset; out=$(ST build BLK-2); case "$out" in "started "*) pass "every part done: the blocker is cleared and the build starts" ;; *) fail "cleared ($out)" ;; esac
+bl BLK-4 queued '[BLK-5]'; L add BLK-5 ref=BLK-5 project=app state=dropped >/dev/null
+WTB4="$APP/.worktrees/app/BLK-4"; trust "$APP" "$WTB4"
+reset; out=$(ST build BLK-4); case "$out" in "started "*) pass "a dropped blocker with no parts is cleared (#37)" ;; *) fail "dropped, no parts ($out)" ;; esac
+bl BLK-6 queued '[]'
+WTB6="$APP/.worktrees/app/BLK-6"; trust "$APP" "$WTB6"
+reset; out=$(ST build BLK-6); case "$out" in "started "*) pass "an empty blockedBy list blocks nothing" ;; *) fail "empty list ($out)" ;; esac
+bl BLK-7 queued '[BLK-8]'; L add BLK-8 ref=BLK-8 project=app state=done >/dev/null
+WTB7="$APP/.worktrees/app/BLK-7"; trust "$APP" "$WTB7"
+reset; out=$(ST build BLK-7); case "$out" in "started "*) pass "a done blocker is cleared" ;; *) fail "done blocker ($out)" ;; esac
+
+# review fix S7 (#189): one read of the ledger resolves every blocker; a read that fails leaves it open
+cp -R "$S" "$TMP/S2"
+cat > "$TMP/S2/ledger.sh" <<EOF8
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$TMP/ledger-calls"
+case " \$* " in *" list "*) [ -f "$TMP/list-fail" ] && exit 1 ;; esac
+exec sh "$S/ledger.sh" "\$@"
+EOF8
+ST2() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca STAR_FREE_GB=16 \
+        STAR_AGENTS=3 STAR_SWAP_GB=1 STAR_DISK_GB=500 STAR_TRUST_POLL=0.01 CLAUDE_CONFIG_DIR="$TMP/cfg" sh "$TMP/S2/stage-start.sh" --home "$H" "$@"; }
+L add BLK-D ref=BLK-D project=app state=done >/dev/null
+bl BLK-7 queued '[BLK-D]'
+reset; rm -f "$TMP/ledger-calls"; touch "$TMP/list-fail"
+out=$(ST2 build BLK-7); [ "$out" = "wait BLK-D" ] && [ ! -f "$TMP/calls" ] && pass "S7 a ledger list that fails leaves the blocker open" || fail "list fails ($out)"
+rm -f "$TMP/list-fail" "$TMP/ledger-calls"
+L add BLK-P ref=BLK-P project=app state=dropped >/dev/null
+L add BLK-Pa ref=BLK-Pa project=app state=building counters.parent=BLK-P >/dev/null
+L add BLK-Pb ref=BLK-Pb project=app state=done counters.parent=BLK-P >/dev/null
+bl BLK-7 queued '[BLK-P]'
+reset; out=$(ST2 build BLK-7); [ "$out" = "wait BLK-Pa" ] && pass "S7 with the ledger readable the split parts are still resolved" || fail "S7 split ($out)"
+g=$(grep -c ' get BLK-P' "$TMP/ledger-calls"); l=$(grep -c ' list' "$TMP/ledger-calls")
+[ "$g" = 0 ] && [ "$l" -le 1 ] && pass "S7 the blockers are resolved from one list, not one get per row" || fail "S7 reads (get=$g list=$l)"
+
+# lane e: release, stop and tell (#197, #198)
+reset; show ctx_rl1 term_rl1 owned - true 0 "$APP" released
+out=$(ST release ctx_rl1)
+[ "$out" = "released ctx_rl1; closed term_rl1" ] && grep -q '^orchestration worker-release --dispatch ctx_rl1 --json$' "$TMP/calls" && ! grep -q -- '--run' "$TMP/calls" && pass "release passes only --dispatch and appends the close line (#197)" || fail "release ($out; $(cat "$TMP/calls"))"
+reset; printf '{"ok":true,"result":{"status":"retained"}}\n' > "$TMP/release-out"; show ctx_rl2 term_rl2 user_owned user_takeover false 1 "$APP" retained running
+out=$(ST release ctx_rl2); [ "$out" = "retained ctx_rl2; kept term_rl2 (running)" ] && pass "release prints Orca's status, then what close kept" || fail "retained ($out)"
+reset; printf '{"ok":true,"result":{"status":"already_released"}}\n' > "$TMP/release-out"
+out=$(ST release ctx_rl3); [ "$out" = "already_released ctx_rl3; none" ] && pass "already_released, and a dispatch with no terminal, print none" || fail "already_released ($out)"
+reset; printf '{"ok":true,"result":{"status":"release_pending"}}\n' > "$TMP/release-out"
+out=$(ST release ctx_rl3); [ "$out" = "release_pending ctx_rl3; none" ] && pass "release_pending is Orca's status as it is" || fail "release_pending ($out)"
+reset; printf '{"ok":false,"error":{"message":"Unknown flag --run"}}\n' > "$TMP/release-out"; touch "$TMP/release-exit"
+out=$(ST release ctx_rl4); [ "$out" = "FAIL release ctx_rl4: Unknown flag --run" ] && ! grep -q 'worker-show' "$TMP/calls" && pass "ok: false is one FAIL line, and the close check is skipped" || fail "release fail ($out)"
+reset; printf '{"ok":true,"result":{"status":"release_unknown","message":"Orca could not tell"}}\n' > "$TMP/release-out"; touch "$TMP/release-exit"
+out=$(ST release ctx_rl5); case "$out" in "FAIL release ctx_rl5: "*) pass "release_unknown (exit 1) is a FAIL line" ;; *) fail "release_unknown ($out)" ;; esac
+reset; printf '{"ok":true,"result":{"status":"released"}}\n' > "$TMP/release-out"; touch "$TMP/release-exit"
+out=$(ST release ctx_rl6); case "$out" in "FAIL release ctx_rl6: "*) pass "a non-zero exit is a FAIL line even when the JSON says ok" ;; *) fail "exit 1 ($out)" ;; esac
+
+reset; show ctx_st1 term_st1 owned - true 0 "$APP" released
+out=$(ST stop ctx_st1)
+[ "$out" = "stopped ctx_st1; released ctx_st1; closed term_st1" ] && pass "stop stops, then releases" || fail "stop ($out)"
+grep -q '^orchestration worker-stop --dispatch ctx_st1 --json$' "$TMP/calls" && ! grep -q -- '--run' "$TMP/calls" && pass "worker-stop gets only --dispatch" || fail "stop call ($(cat "$TMP/calls"))"
+[ "$(grep -c '^ctx_st1 stopped ' "$H/processed.log")" = 1 ] && grep -Eq '^ctx_st1 stopped [0-9]{4}-[0-9]{2}-[0-9]{2}T' "$H/processed.log" && pass "processed.log says stopped, with an iso time" || fail "processed.log ($(cat "$H/processed.log" 2>&1))"
+out=$(ST stop ctx_st1); [ "$(grep -c '^ctx_st1 ' "$H/processed.log")" = 1 ] && pass "a second stop writes no second line" || fail "stop twice ($(cat "$H/processed.log"))"
+reset; printf '{"ok":false,"error":{"message":"dispatch not found"}}\n' > "$TMP/stop-out"
+out=$(ST stop ctx_st2); [ "$out" = "FAIL stop ctx_st2: dispatch not found" ] && ! grep -q worker-release "$TMP/calls" && grep -q '^ctx_st2 stopped ' "$H/processed.log" && pass "a failed stop is one FAIL line, nothing is released, the log was written first" || fail "stop fail ($out)"
+
+reset
+out=$(ST tell ctx_tl1 "nudge" "the schema changed")
+[ "$out" = "sent mailbox" ] && grep -q -- '^orchestration send --to dispatch:ctx_tl1 --subject nudge --body the schema changed --json$' "$TMP/calls" && ! grep -q 'terminal send' "$TMP/calls" && pass "tell addresses dispatch:<id> (#198)" || fail "tell mailbox ($out; $(cat "$TMP/calls"))"
+reset; printf '{"ok":false,"error":{"message":"Terminal ctx_tl2 has no live pane or durable Run/Dispatch mailbox"}}\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl2","assigneeHandle":"term_asg"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl2.json"
+out=$(ST tell ctx_tl2 "nudge" "the schema changed")
+[ "$out" = "sent terminal term_agt" ] && grep -q -- '^terminal send --terminal term_agt --text nudge: the schema changed --enter --json$' "$TMP/calls" && pass "a refused send falls back to the worker's terminal" || fail "tell fallback ($out; $(cat "$TMP/calls"))"
+reset; printf '{"ok":false,"error":{"message":"no mailbox"}}\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl3","assigneeHandle":"term_asg"},"worker":{}}}\n' > "$TMP/show-ctx_tl3.json"
+out=$(ST tell ctx_tl3 "s" "b"); [ "$out" = "sent terminal term_asg" ] && pass "with no agentTerminalHandle, the assignee handle is used" || fail "assignee ($out)"
+printf '{"ok":false,"error":{"code":"agent_prompt_blocked","message":"a prompt is open"}}\n' > "$TMP/term-send-out"
+out=$(ST tell ctx_tl3 "s" "b"); [ "$out" = "busy term_asg" ] && pass "agent_prompt_blocked prints busy for the next tick" || fail "busy ($out)"
+printf '{"ok":false,"error":{"message":"terminal not found"}}\n' > "$TMP/term-send-out"
+out=$(ST tell ctx_tl3 "s" "b"); [ "$out" = "FAIL tell ctx_tl3: terminal not found" ] && pass "a terminal send that fails is one FAIL line" || fail "tell fail ($out)"
+reset; printf '{"ok":false,"error":{"message":"no mailbox"}}\n' > "$TMP/send-out"
+out=$(ST tell ctx_tl4 "s" "b"); case "$out" in "FAIL tell ctx_tl4: "*) ! grep -q 'terminal send' "$TMP/calls" && pass "a dispatch with no terminal at all is a FAIL line" || fail "no terminal sent" ;; *) fail "no terminal ($out)" ;; esac
+reset; out=$(ST tell ctx_tl5 "-dash subject" "-dash body"); [ "$out" = "sent mailbox" ] && grep -q -- '--subject -dash subject --body -dash body' "$TMP/calls" && pass "a subject or body that starts with a dash is text, not a flag" || fail "dash ($out)"
+reset; out=$(ST tell ctx_tl5 "only subject" 2>&1); case "$out" in "stage-start.sh: usage"*) pass "tell without a body is a usage error" ;; *) fail "tell usage ($out)" ;; esac
+reset; out=$(ST --home "$TMP/no-such-home" stop ctx_st9); case "$out" in "FAIL stop ctx_st9: "*) [ ! -f "$TMP/calls" ] && pass "S5 a processed.log that cannot be written is a FAIL line, before worker-stop runs" || fail "S5 worker-stop ran" ;; *) fail "S5 ($out)" ;; esac
+reset; printf 'connection reset by peer\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl6"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl6.json"
+out=$(ST tell ctx_tl6 "s" "b"); [ "$out" = "FAIL tell ctx_tl6: no answer from orchestration send (it may have been delivered)" ] && ! grep -q 'terminal send' "$TMP/calls" && pass "S9 an unreadable answer from send is a FAIL, and nothing is typed" || fail "S9 unreadable ($out)"
+reset; : > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl6"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl6.json"
+out=$(ST tell ctx_tl6 "s" "b"); [ "$out" = "FAIL tell ctx_tl6: no answer from orchestration send (it may have been delivered)" ] && ! grep -q 'terminal send' "$TMP/calls" && pass "S9 a send that exits non-zero with no output is a FAIL, nothing typed" || fail "S9 empty ($out)"
+reset; printf '{"error":{"message":"no mailbox"}}\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl6"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl6.json"
+out=$(ST tell ctx_tl6 "s" "b"); [ "$out" = "sent terminal term_agt" ] && pass "S9 a non-zero exit with a JSON body is a refusal: the terminal gets the text" || fail "S9 json refusal ($out)"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

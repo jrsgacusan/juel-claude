@@ -28,7 +28,7 @@ grep -qF '## Decisions' "$SKILL" && pass "R1 a decision settles the finding it a
 grep -qF 'one command with its arguments' "$SKILL" && pass "R2 the gate line never leaves part of a command outside the lock" || fail "R2 gate command form"
 grep -q 'id: orca' "$SKILL" && grep -q 'id: python3' "$SKILL" && pass "R3 orca and python3 are declared" || fail "R3 requirements"
 grep -qF -- '| `--executor <session|codex>` |' "$SKILL" && pass "X5 receive-review takes the executor choice" || fail "X5 --executor"
-grep -q 'merge-union.sh' "$SKILL" && pass "U3 mechanical conflicts are resolved before asking" || fail "U3 merge-union"
+! grep -q 'merge-uni[o]n' "$SKILL" && pass "U3 the retired script is gone" || fail "U3 retired script named"
 # lane e: #89 a plan's gate lines never carry --progress: the executor's sandbox cannot write STAR's folder
 grep -qF 'A plan step'"'"'s `gate-lock.sh` line never carries `--progress`' "$SKILL" && pass "#89 plan gate lines never carry --progress" || fail "#89 the --progress rule for plan gate lines"
 grep -qF -- '--progress <star.home>' "$SKILL" && fail "#89 a plan gate line is told to write STAR's progress log" || pass "#89 no plan gate line writes STAR's progress log"
@@ -75,6 +75,8 @@ grep -qF '| `claude-mods` | cli | `claude --version` prints 2.1.287 or later | o
 grep -qF 'claude --version 2>/dev/null || echo "CLAUDE_VERSION=unknown"' "$D" && pass "MOD2 doctor: Phase 1 records the Claude Code version" || fail "MOD2 doctor: Phase 1 records the Claude Code version"
 # lane c: #158 the stop and the check at the dispatch
 has() { tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF -- "$2" && pass "$1" || fail "$1"; }
+has "U3b the conflict rule is babysit-pr's, in its words" 'resolve the conflicted files yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
+has "U3c by hand the resolved hunks are shown before the commit" '(`git diff --cached -- <files>`) and ask via `AskUserQuestion` before committing'
 has "C158i names session-tasks.sh" 'session-tasks.sh'
 has "C158j the dispatch prompt carries the stop sentence" ' Stop before task <N>: the session runs it.'
 has "C158k a ran line is a failed run" '`ran <N>` line is a failed run'
@@ -82,11 +84,13 @@ has "C158l an unattended run stops with a STOPPED line babysit escalates" 'print
 ! grep -qF 'ESCALATION item=<item> phase=4 reason=codex-failed needs=the executor ran session task' "$SKILL" && pass "C158l2 no ESCALATION line of its own" || fail "C158l2 ESCALATION line in receive-review-and-execute"
 # lane e: STAR autonomy
 has "AU1 an unattended conflict applies a Decisions entry as written" 'if a `## Decisions` entry names those files and a resolution, apply it as written'
-has "AU2 otherwise it resolves from both briefs and the sibling PR" 'resolve them yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
+has "AU2 otherwise it resolves from both briefs and the sibling PR" 'resolve the conflicted files yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
 has "AU3 the resolution is recorded in Decisions" 'record the resolution as a `## Decisions` line'
 has "AU4 the caller runs the gates on the result" 'the caller runs the regression gate and the codex gate on the result'
-has "AU5 By hand the rule stays" 'By hand, the rule stays: never resolve a conflict that is not mechanical.'
+has "AU5 a lockfile is regenerated, never merged by hand" 'A lockfile is never merged by hand: take the base'"'"'s version, run the project'"'"'s install command to regenerate it, and stage the result.'
 has "AU6 the four internal words stay for babysit" 'AMBIGUOUS:'
 has "AU7 the fallback equal to the executor is no fallback" 'resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session'
+grep -qF -- '- Conflicts: list every conflicted file' "$SKILL" && ! grep -qF -- 'Conflicts: STOP' "$SKILL" && pass "T12 a conflict lists the files, no STOP" || fail "T12 conflict STOP wording"
+has "FX195 a fix plan carries the Scratch line and the Execution rules block" 'the `**Scratch:**` line (only when the docsRoot is inside the repository) and the `## Execution rules` block, exactly as `juel:ship-ticket`'"'"'s Phase 3 gives them'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

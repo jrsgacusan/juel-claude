@@ -27,6 +27,8 @@
 # dropped: one range or several, each comma with optional spaces around it, and a trailing comma (a
 # bare token in a list); so is a "::<anything>" suffix (a pytest node id such as
 # tests/test_b.py::test_foo).
+# A plan's **Shared files:** block (header lines in this same syntax) names files every task may change;
+# it is read like any other Create:/Modify:/Test:/Delete: line (#199).
 # A path ending in "/" names everything under it. A planned path is matched from the repository's
 # root first, and a root match always wins (#186). One that matches no changed path from the root
 # also matches a changed path that ends with "/<planned path>" (a plan written relative to an app

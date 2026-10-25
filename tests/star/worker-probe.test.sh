@@ -5,6 +5,8 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SCRIPT="$ROOT/skills/star/worker-probe.sh"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fails=0
+# the login check (#206) runs the user's shell: tests that expect a plain "stuck: login" get a shell that prints nothing
+STAR_LOGIN_SHELL=/bin/false; export STAR_LOGIN_SHELL
 [ -f "$SCRIPT" ] || { echo "FAIL worker-probe.sh missing"; exit 1; }
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/orca" <<'EOF'
@@ -204,7 +206,9 @@ out=$(pr); [ "$out" = "ok" ] && pass_p=1 || pass_p=0
 age "$TMP/home/progress/ITEM-1.log" 45
 out=$(pr); [ "$out" = "stale 45 term_w1" ] && echo "ok   no progress for 45 minutes is stale" || { echo "FAIL stale ($out)"; fails=$((fails + 1)); }
 out=$(pr --deadline 60); [ "$out" = "ok" ] && echo "ok   the deadline can be raised" || { echo "FAIL deadline ($out)"; fails=$((fails + 1)); }
-WT="$TMP/wt"; mkdir -p "$WT"; (cd "$WT" && git init -q . && GIT_COMMITTER_DATE="2026-10-07T11:55:00Z" git -c user.email=t@t -c user.name=t commit -q --allow-empty -m work)
+# a build's worktree is a linked one (#191): a main checkout given as --worktree is read as none
+WTMAIN="$TMP/wt-main"; mkdir -p "$WTMAIN"; (cd "$WTMAIN" && git init -q . && GIT_COMMITTER_DATE="2026-10-07T11:55:00Z" git -c user.email=t@t -c user.name=t commit -q --allow-empty -m work)
+WT="$TMP/wt"; (cd "$WTMAIN" && git worktree add -q -b wt "$WT")
 # the worktree root and its files are backdated, so only the case's own commit or file sets the time
 age "$WT" 120
 out=$(pr --worktree "$WT"); [ "$out" = "ok" ] && echo "ok   a commit 5 minutes ago is progress" || { echo "FAIL commit progress ($out)"; fails=$((fails + 1)); }
@@ -466,6 +470,151 @@ printf 'VERDICT item=ITEM-D2 round=2 SAFE findings=0 head=abc1234\n' > "$HD2/rev
 out=$(d2); case "$out" in gate-gone*) echo "FAIL D2c ($out)"; fails=$((fails + 1)) ;; *) echo "ok   D2c a verdict file means no gate-gone, even with a dead pid" ;; esac
 rm -f "$HD2/reviews/p/ITEM-D2-r2.run" "$HD2/reviews/p/ITEM-D2-r2.md"
 out=$(d2); case "$out" in gate-gone*) echo "FAIL D2d ($out)"; fails=$((fails + 1)) ;; *) echo "ok   D2d no run file means no gate-gone" ;; esac
+
+# #187, #191: Orca 1.4.230 names the terminal agentTerminalHandle; the dispatch record has assigneeHandle
+cat > "$TMP/bin/orca" <<'EOF5'
+#!/bin/sh
+case "$*" in
+  *"terminal read"*) cat "$STUB_DIR/screen.json" ;;
+  *"terminal list"*) cat "$STUB_DIR/list.json" ;;
+  *worker-show*) cat "$STUB_DIR/show.json" ;;
+  *worker-read*) cat "$STUB_DIR/read.json" ;;
+  *) echo "unexpected: $*" >&2; exit 9 ;;
+esac
+EOF5
+NOW187=2026-10-07T12:00:00Z
+ms_ago() { echo $((1791374400000 - $1 * 60000)); }
+z() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=$NOW187 "$@" sh "$SCRIPT" ctx_1 $ZARGS 2>&1; }
+check() { if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi; }
+ZARGS=""
+printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s}]}}\n' "$(ms_ago 40)" > "$TMP/list.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["working on it"]}}}))' > "$TMP/read.json"
+printf '{"result":{"terminal":{"source":"screen","tail":["working on it"]}}}\n' > "$TMP/screen.json"
+out=$(z env); check "#187 the camelCase agentTerminalHandle is the terminal" "quiet 40 term_c1"
+printf '{"result":{"terminals":[{"handle":"term_a1","lastOutputAt":%s}]}}\n' "$(ms_ago 40)" > "$TMP/list.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running"},"dispatch":{"status":"running","assigneeHandle":"term_a1"}}}\n' > "$TMP/show.json"
+out=$(z env); check "#187 the dispatch's assigneeHandle is the terminal when the worker has none" "quiet 40 term_a1"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running","assigneeHandle":"term_a1"}}}\n' > "$TMP/show.json"
+printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s},{"handle":"term_a1","lastOutputAt":%s}]}}\n' "$(ms_ago 40)" "$(ms_ago 2)" > "$TMP/list.json"
+out=$(z env); check "#187 the worker's handle wins over the dispatch's" "quiet 40 term_c1"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agent_terminal_handle":"term_c1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
+out=$(z env); check "#187 the snake_case handle still works" "quiet 40 term_c1"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
+
+printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s}]}}\n' "$(ms_ago 2)" > "$TMP/list.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
+# #187: a screen read that comes back as stream or screen-unavailable is the accumulated output
+sc() { # sc <name> <expected> <source> <line>...
+  name=$1; want=$2; src=$3; shift 3
+  python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"source":sys.argv[1],"tail":sys.argv[2:]}}}))' "$src" "$@" > "$TMP/screen.json"
+  out=$(z env); check "$name" "$want"
+}
+sc "#187 a usage-limit line in a stream tail is stuck" "stuck: usage limit" stream "working" "Usage limit reached · limit resets 3pm"
+sc "#187 a login line in a screen-unavailable tail is stuck" "stuck: login" screen-unavailable "Please run /login"
+sc "#187 a capacity line in a stream tail is a stall" "stalled: model at capacity" stream "API Error: 529 overloaded_error"
+sc "#187 a stream tail with nothing blocking is ok" "ok" stream "working on it"
+APIRULE187="────────────────────"
+sc "#187 an API error in a stream tail is not a stall: that rule needs the rendered screen" "ok" stream "  ⎿  API Error: Connection lost mid-response." "$APIRULE187" "❯ " "$APIRULE187"
+sc "#187 a dialog in a stream tail is not read: old output keeps it" "ok" stream "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["Please run /login"]}}}))' > "$TMP/read.json"
+sc "#187 a clean stream tail falls back to worker-read" "stuck: login" stream "working on it"
+sc "#187 an empty stream tail falls back to worker-read" "stuck: login" stream
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["working on it"]}}}))' > "$TMP/read.json"
+
+# #187: a usage limit that resumes by itself
+sc "#187 a limit that continues automatically is a stall with the time" "stalled: usage-limit until 3pm" screen "working" "Usage limit reached · limit resets 3pm · Continuing automatically at 3pm"
+sc "#187 the time stops at the next separator" "stalled: usage-limit until 3pm (Europe/Amsterdam)" screen "Usage limit reached · Continuing automatically at 3pm (Europe/Amsterdam) · esc to cancel"
+sc "#187 the time is cut at 40 characters" "stalled: usage-limit until 0123456789012345678901234567890123456789" screen "Usage limit reached · Continuing automatically at 0123456789012345678901234567890123456789ABCDEF"
+sc "#187 a usage limit that does not continue stays stuck" "stuck: usage limit" screen "Usage limit reached · limit resets 3pm"
+sc "#187 continuing automatically without a usage limit is nothing" "ok" screen "Continuing automatically at 3pm"
+sc "#187 the usage-limit stall is read before the stuck phrases" "stalled: usage-limit until 3pm" screen "Please run /login" "Usage limit reached · Continuing automatically at 3pm"
+
+# #191: a brief or post worker changes nothing in a worktree, but its terminal streams
+HB="$TMP/home-hb"; mkdir -p "$HB"
+printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s}]}}\n' "$(ms_ago 40)" > "$TMP/list.json"
+printf '{"result":{"terminal":{"source":"screen","tail":["working on it"]}}}\n' > "$TMP/screen.json"
+ZARGS="--item B-1 --home $HB"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running","lastHeartbeatAt":"2026-10-07T11:55:00Z"}}}\n' > "$TMP/show.json"
+out=$(z env); check "#191 a heartbeat 5 minutes ago is progress for a worker with no worktree" "ok"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running","lastHeartbeatAt":%s}}}\n' "$(ms_ago 5)" > "$TMP/show.json"
+out=$(z env); check "#191 a heartbeat in epoch milliseconds counts too" "ok"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running","lastHeartbeatAt":"2026-10-07T11:10:00Z"}}}\n' > "$TMP/show.json"
+out=$(z env); check "#191 the newest of heartbeat and terminal output decides: both old is stale" "stale 40 term_c1"
+printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s}]}}\n' "$(ms_ago 3)" > "$TMP/list.json"
+out=$(z env); check "#191 terminal output 3 minutes ago is progress" "ok"
+mkdir -p "$HB/progress"; : > "$HB/progress/B-1.log"; touch -t 202610071100 "$HB/progress/B-1.log"
+out=$(z env); check "#191 an old progress log does not hide fresh terminal output" "ok"
+rm -rf "$HB/progress"
+printf '{"result":{"terminals":[]}}\n' > "$TMP/list.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running","lastHeartbeatAt":"2026-10-07T11:10:00Z"}}}\n' > "$TMP/show.json"
+out=$(z env); check "#191 an unlisted terminal is skipped as a progress source: the heartbeat decides" "stale 50 term_c1"
+
+# #191: a --worktree that is the main checkout is read as none
+MAINCO="$TMP/mainco"; mkdir -p "$MAINCO"
+(cd "$MAINCO" && git init -q . && GIT_COMMITTER_DATE="2026-10-07T11:00:00Z" git -c user.email=t@t -c user.name=t commit -q --allow-empty -m work)
+touch -t 202610071100 "$MAINCO"
+LINKED="$TMP/linked"
+(cd "$MAINCO" && git worktree add -q -b linked "$LINKED" 2>/dev/null)
+(cd "$LINKED" && GIT_COMMITTER_DATE="2026-10-07T11:00:00Z" git -c user.email=t@t -c user.name=t commit -q --amend --allow-empty -m work)
+touch -t 202610071100 "$LINKED"
+printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s}]}}\n' "$(ms_ago 2)" > "$TMP/list.json"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
+ZARGS="--item B-1 --home $HB --worktree $MAINCO"
+out=$(z env); check "#191 a main-checkout --worktree is ignored: the terminal's output is progress" "ok"
+ZARGS="--item B-1 --home $HB --worktree $LINKED"
+out=$(z env); check "#191 a linked worktree is still read: its old commit and no change is stale" "stale 60 term_c1"
+ZARGS="--item B-1 --home $HB --worktree $TMP/not-a-folder"
+out=$(z env); check "#191 a --worktree that is not a folder reads as none" "ok"
+
+# #206: the login check runs in the worker's own environment
+cat > "$TMP/bin/claude" <<'EOF6'
+#!/bin/sh
+# STUB_WANT_DIR, when set, is the folder the check must run in
+[ -n "${STUB_WANT_DIR:-}" ] && [ "$(pwd -P)" != "$STUB_WANT_DIR" ] && exit 3
+exit "${STUB_CLAUDE_RC:-1}"
+EOF6
+chmod +x "$TMP/bin/claude"
+# the stub login shell is the worker's profile: its startup files default CLAUDE_CONFIG_DIR to STUB_SHELL_CFG
+cat > "$TMP/loginsh" <<'EOF7'
+#!/bin/sh
+[ -n "${STUB_SHELL_CFG:-}" ] && CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR:-$STUB_SHELL_CFG} && export CLAUDE_CONFIG_DIR
+exec /bin/sh "$@"
+EOF7
+chmod +x "$TMP/loginsh"
+ZARGS=""
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_c1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
+printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s,"worktreePath":"%s"}]}}\n' "$(ms_ago 2)" "$LINKED" > "$TMP/list.json"
+printf '{"result":{"terminal":{"source":"screen","tail":["Not logged in · Please run /login"]}}}\n' > "$TMP/screen.json"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=1); check "#206 a logged-out config dir is named" "stuck: login: /cfg/work logged out"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0); check "#206 a signed-in config dir is named" "stuck: login: /cfg/work signed in"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" HOME=/home/x STUB_CLAUDE_RC=1); check "#206 an unset CLAUDE_CONFIG_DIR is \$HOME/.claude" "stuck: login: /home/x/.claude logged out"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" CLAUDE_CONFIG_DIR=/wrong STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0); check "#206 a CLAUDE_CONFIG_DIR in the probe's own environment never reaches the login shell" "stuck: login: /cfg/work signed in"
+out=$(z env STAR_LOGIN_SHELL=/bin/false); check "#206 a check that cannot run is the plain line" "stuck: login"
+out=$(z env STAR_LOGIN_SHELL=/no/such/shell); check "#206 a missing shell is the plain line" "stuck: login"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0 STUB_WANT_DIR="$(cd "$LINKED" && pwd -P)"); check "#206 the check runs in the terminal's worktree when --worktree is not given" "stuck: login: /cfg/work signed in"
+ZARGS="--item B-1 --home $HB --worktree $MAINCO"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0 STUB_WANT_DIR="$(cd "$MAINCO" && pwd -P)"); check "#206 the check runs in --worktree when it is given" "stuck: login: /cfg/work signed in"
+ZARGS=""
+printf '{"result":{"terminal":{"source":"screen","tail":["Credit balance too low"]}}}\n' > "$TMP/screen.json"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=0); check "#206 only a login screen runs the check" "stuck: usage limit"
+
+# #207: the screen holder is "<project>/<item>" (project from star.json) or the bare item
+SCR="$ROOT/skills/ship-ticket/screen-lock.sh"
+export JUEL_SCREEN_LOCK="$TMP/screen.lock" JUEL_SCREEN_LOCK_POLL=0.2
+HS="$TMP/homeS"; mkdir -p "$HS/progress"; : > "$HS/progress/ITEM-1.log"; printf '{"project":{"name":"projB"}}\n' > "$HS/star.json"
+rm -f "$TMP/screen.json"
+sleep 300 & WS=$!
+prs() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca sh "$SCRIPT" ctx_1 --item ITEM-1 --home "$HS"; }
+for h in projB/ITEM-1 ITEM-1; do
+  sh "$SCR" acquire --holder "$h" --pid $WS --wait-max 2 >/dev/null
+  out=$(prs); check "#207 a screen held by $h is this row's" "ok holds-screen 0"
+  sh "$SCR" release --holder "$h" >/dev/null
+done
+sh "$SCR" acquire --holder projA/ITEM-1 --pid $WS --wait-max 2 >/dev/null
+out=$(prs); check "#207 a screen held by another project's item of the same name is not this row's" "ok"
+sh "$SCR" release --holder projA/ITEM-1 >/dev/null; kill $WS 2>/dev/null; wait $WS 2>/dev/null
+unset JUEL_SCREEN_LOCK JUEL_SCREEN_LOCK_POLL
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

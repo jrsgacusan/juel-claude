@@ -5,19 +5,32 @@
 #   worker-probe.sh <dispatch> [--item <item> --home <H> [--worktree <path>] [--deadline <minutes>]]
 #     ->   ok | quiet <m> <terminal> | stale <m> <terminal> | settled <state> [<reason>]
 #          | stuck: <label>[: <line>] | prompt bounded <terminal> <path>...
-#          | stalled: model at capacity | stalled: api error | gate-gone r<k> | gone | unknown <why>
-#     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39).
+#          | stalled: model at capacity | stalled: usage-limit until <time> | stalled: api error
+#          | gate-gone r<k> | gone | unknown <why>
+#     ok, quiet and stale end with " holds-screen <m>" when --item holds the screen lock (#39): the holder
+#     is "<project>/<item>" (project from star.json's project.name) or the bare item (#207).
 # "gate-gone r<k>" (with --item and --home, for a worker that is not settled) means the newest gate
 # round's <H>/reviews/<project>/<item>-r<k>.run names a pid (and gate pid) that is not alive while
 # no verdict file <item>-r<k>.md exists: the codex gate died. The project is star.json's
 # project.name, else every folder under reviews.
 # <reason> follows only a failed settlement, when Orca gives one (agent_prompt_stalled: the agent
 # never took its prompt, most often because Claude Code's trust dialog was on screen).
-# "stuck" labels: usage limit, login, trust dialog, model switch, confirmation dialog, waiting for
+# "stuck" labels: usage limit, login (see below), trust dialog, model switch, confirmation dialog, waiting for
 # input (a "press enter", a y/n or a password prompt). "stalled: model at capacity" is a capacity,
 # overload or rate-limit error on screen: recoverable without the user (#41). The error type names
 # overloaded_error and rate_limit_error count only on a line that also has "api error", an
 # "error:" prefix or a 4xx/5xx status, so code or docs that name them are not a stall.
+# "stalled: usage-limit until <time>" (#187) is a row that matches the usage-limit phrases and also says
+# "continuing automatically at <time>" (Claude Code resumes by itself): <time> is the text after "at", up
+# to a "·" or the end, trimmed, 40 characters at most. It is read after the capacity check and before the
+# stuck phrases; a usage limit without "continuing automatically" stays "stuck: usage limit".
+# "stuck: login" is followed by the worker's own login state (#206): the user's shell (STAR_LOGIN_SHELL,
+# else $SHELL, else /bin/sh) runs `claude auth status` with -ic, stdin from /dev/null and a 30 s timeout, in
+# the --worktree, else the terminal's worktreePath (orca terminal list), else the current folder, with
+# CLAUDE_CONFIG_DIR removed from its environment so the folder and shell startup pick the profile. It
+# prints "stuck: login: <config dir> logged out" (non-zero) or "stuck: login: <config dir> signed in"
+# (zero), the dir being the shell's CLAUDE_CONFIG_DIR, else $HOME/.claude. A check that cannot run (no STAR_CFG= line,
+# a timeout, no such shell) leaves the plain "stuck: login".
 # "stalled: api error" (#123) is a worker that Claude Code left at an empty prompt under its own
 # "API Error: <message>" row (a connection lost or a server error mid-response, the row starting
 # with Claude Code's "⎿", "⏺" or "●"): read only on the rendered screen, after the capacity check
@@ -53,9 +66,15 @@
 #     (/private)/tmp/claude-<uid>/<project>/<session>/scratchpad/<something>, by its text and by its
 #     realpath. The worktree or scratchpad root itself is not bounded.
 # <operands> are those paths, normalized and space-separated. A check that fails is the stuck line.
+# The terminal is worker.agentTerminalHandle (Orca 1.4.230), else
+# worker.agent_terminal_handle, else dispatch.assigneeHandle (#187, #191).
 # With --item and --home, progress decides: the newest of <H>/progress/<item>.log, the worktree's
-# last commit and the files the worktree has changed. No progress for --deadline minutes (default
-# 30) is "stale <m> <terminal>". Without them, or with no progress source at all, the terminal
+# last commit and the files the worktree has changed. With no --worktree (a brief or post worker changes
+# nothing in a worktree), or a --worktree that is a main checkout (its git-dir is its git-common-dir; a
+# build's own worktree is always a linked one), the newest of the log, the dispatch's lastHeartbeatAt
+# (ISO or epoch milliseconds) and the terminal's lastOutputAt (orca terminal list; skipped when the
+# terminal is not listed, and used only next to a log or a heartbeat: alone, the terminal rule below
+# decides) (#191). No progress for --deadline minutes (default 30) is "stale <m> <terminal>". Without them, or with no progress source at all, the terminal
 # decides: no output for STAR_QUIET_MINUTES (default 15) is "quiet <m> <terminal>".
 # "gone" means Orca said dispatch_not_found (after an Orca restart) and nothing else: empty,
 # shapeless or failing output is "unknown" and says nothing about the worker, so it never
@@ -65,7 +84,10 @@
 # worker has a terminal; #114: Orca 1.4.198's worker-read returns the hook transcript, which never
 # shows a prompt), else worker-read's terminal tail and its newest transcript message when it is
 # short (a top-level messages list, or transcript.messages[-1].blocks[*].text). A screen that cannot
-# be read, or that Orca reports as anything but "screen", falls back to worker-read. Ordinary work
+# be read falls back to worker-read. A read whose source is "stream" or "screen-unavailable" (the
+# accumulated output) is checked for the capacity, usage-limit and stuck phrases first (#187), then
+# worker-read is read as well; the rules that need a rendered screen (the API error stall, the
+# bounded prompt, the dialogs) never use it. Ordinary work
 # that mentions "login", "rate limit" or "switch to main" does not match.
 # STAR_NOW (ISO UTC) overrides the clock, for tests.
 # Exit: 0, or 64 on bad usage.
@@ -282,19 +304,23 @@ if _gone:
 
 
 def screen_tail(handle):
-    """The rendered screen's lines (#114), or None when it cannot be read or is not a screen."""
+    """(lines, source) of the terminal read: source is "screen" (the rendered screen, #114), "stream" or
+    "screen-unavailable" (the accumulated output, #187); (None, None) when nothing could be read."""
     try:
         proc = subprocess.run([orca, "terminal", "read", "--terminal", handle, "--screen", "--json"],
                               capture_output=True, text=True, timeout=30)
         data = json.loads(proc.stdout)
     except (OSError, subprocess.TimeoutExpired, ValueError):
-        return None
+        return None, None
     result = data.get("result") if isinstance(data, dict) and data.get("ok") is not False else None
     term = result.get("terminal") if isinstance(result, dict) else None
     tail = term.get("tail") if isinstance(term, dict) else None
-    if proc.returncode != 0 or not isinstance(tail, list) or not tail or term.get("source", "screen") != "screen":
-        return None
-    return [str(l) for l in tail]
+    if proc.returncode != 0 or not isinstance(tail, list) or not tail:
+        return None, None
+    source = term.get("source", "screen")
+    if source not in ("screen", "stream", "screen-unavailable"):
+        return None, None
+    return [str(l) for l in tail], source
 
 
 def newest_message(read):
@@ -313,22 +339,22 @@ def newest_message(read):
     return str(newest.get("text") or newest.get("content") or "")
 
 
-handle = worker.get("agent_terminal_handle")
-lines = screen_tail(handle) if handle else None
-on_screen = lines is not None
-if lines is None:
-    read = call("worker-read", "--limit", "40")
-    terminal = read.get("terminal")
-    lines = [str(l) for l in (terminal.get("tail") or [])][-25:] if isinstance(terminal, dict) else []
-    newest = newest_message(read)
-    if len(newest) <= 400:  # a blocking notice is short; a long message is the worker talking
-        lines += newest.splitlines()
-    screen = []
-else:
-    screen = lines  # the whole rendered screen, frames and rules kept, for the API error rule only (#123)
-    lines = lines[-25:]
-rows = [l.strip(BOX) for l in lines]
-lines = [l for l in rows if len(l) <= 200]
+def first_of(*values):
+    return next((v for v in values if isinstance(v, str) and v), None)
+
+
+# #187, #191: Orca 1.4.230 names it agentTerminalHandle; the dispatch record's assigneeHandle is the same
+handle = first_of(worker.get("agentTerminalHandle"), worker.get("agent_terminal_handle"),
+                  dispatch_record.get("assigneeHandle"))
+lines, source = screen_tail(handle) if handle else (None, None)
+on_screen = source == "screen"
+screen = lines if on_screen else []  # the whole rendered screen, frames and rules kept, for the API error rule only (#123)
+stream = lines if lines is not None and not on_screen else None  # accumulated output: phrase checks only (#187)
+
+
+def clean(raw):
+    rows = [l.strip(BOX) for l in raw]
+    return rows, [l for l in rows if len(l) <= 200]
 
 
 def at_capacity(line):
@@ -337,11 +363,73 @@ def at_capacity(line):
     return bool(re.search(STALLED_TYPE, line, re.IGNORECASE) and re.search(API_ERROR, line, re.IGNORECASE))
 
 
-if any(at_capacity(l) for l in lines):
-    out("stalled: model at capacity")
-for label, pattern in PATTERNS:
-    if any(re.search(pattern, l, re.IGNORECASE) for l in lines):
-        out("stuck: " + label)
+def worker_folder():
+    """Where the worker's terminal runs: --worktree, else the terminal's worktreePath, else here."""
+    if opts.get("worktree") and os.path.isdir(opts["worktree"]):
+        return opts["worktree"]
+    try:
+        proc = subprocess.run([orca, "terminal", "list", "--limit", "500", "--json"],
+                              capture_output=True, text=True, timeout=30)
+        for t in json.loads(proc.stdout)["result"]["terminals"]:
+            if isinstance(t, dict) and t.get("handle") == handle and isinstance(t.get("worktreePath"), str) \
+                    and os.path.isdir(t["worktreePath"]):
+                return t["worktreePath"]
+    except Exception:
+        pass
+    return None
+
+
+def login_line():
+    """#206: "stuck: login: <config dir> logged out|signed in", from `claude auth status` run the way the
+    worker's terminal runs it (the user's shell, interactive, in the worker's folder); the plain line
+    when the check cannot run."""
+    shell = os.environ.get("STAR_LOGIN_SHELL") or os.environ.get("SHELL") or "/bin/sh"
+    check = "printf 'STAR_CFG=%s\\n' \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"; claude auth status >/dev/null 2>&1"
+    # Without our CLAUDE_CONFIG_DIR: the worker's folder and shell startup decide the profile (#206).
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+    try:
+        proc = subprocess.run([shell, "-ic", check], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=30, cwd=worker_folder(), env=env)
+    except (OSError, subprocess.TimeoutExpired):
+        return "stuck: login"
+    config = next((l[len("STAR_CFG="):].strip() for l in proc.stdout.splitlines() if l.startswith("STAR_CFG=")), "")
+    if not config:
+        return "stuck: login"
+    return f"stuck: login: {config} " + ("signed in" if proc.returncode == 0 else "logged out")
+
+
+def phrase_stop(lines):
+    """The capacity check, the usage-limit stall and the blocking phrases (#41, #187): the result line, or None."""
+    if any(at_capacity(l) for l in lines):
+        return "stalled: model at capacity"
+    for l in lines:  # a usage limit that resumes by itself: STAR keeps the worker
+        if re.search(PATTERNS[0][1], l, re.IGNORECASE):
+            m = re.search(r"continuing automatically at\s+([^·]*)", l, re.IGNORECASE)
+            if m and m.group(1).strip():
+                return "stalled: usage-limit until " + m.group(1).strip()[:40].strip()
+    for label, pattern in PATTERNS:
+        if any(re.search(pattern, l, re.IGNORECASE) for l in lines):
+            return login_line() if label == "login" else "stuck: " + label
+    return None
+
+
+if stream is not None:  # the stream's phrases first, then worker-read's below (#187)
+    hit = phrase_stop(clean(stream[-25:])[1])
+    if hit:
+        out(hit)
+if on_screen:
+    lines = lines[-25:]
+else:
+    read = call("worker-read", "--limit", "40")
+    terminal = read.get("terminal")
+    lines = [str(l) for l in (terminal.get("tail") or [])][-25:] if isinstance(terminal, dict) else []
+    newest = newest_message(read)
+    if len(newest) <= 400:  # a blocking notice is short; a long message is the worker talking
+        lines += newest.splitlines()
+rows, lines = clean(lines)
+hit = phrase_stop(lines)
+if hit:
+    out(hit)
 
 
 def api_error_stall(screen):
@@ -468,7 +556,8 @@ if re.search(YES_NO, last_line, re.IGNORECASE) and not last_line.lstrip().starts
 
 
 def screen_suffix():
-    """" holds-screen <m>" when --item holds the machine's screen lock (#39)."""
+    """" holds-screen <m>" when --item holds the machine's screen lock (#39): its holder label is
+    "<project>/<item>" (project from star.json's project.name) or the bare item (#207)."""
     if "item" not in opts:
         return ""
     script = os.path.join(os.environ["STAR_SKILLS_DIR"], "ship-ticket", "screen-lock.sh")
@@ -477,7 +566,13 @@ def screen_suffix():
     except (OSError, subprocess.TimeoutExpired):
         return ""
     m = re.match(r"held by (\S+) since (\S+)", status)
-    if not m or m.group(1) != "_".join(opts["item"].split()):
+    label = "_".join(opts["item"].split())
+    try:
+        project = json.load(open(os.path.join(opts["home"], "star.json"), encoding="utf-8"))["project"]["name"]
+    except (OSError, ValueError, KeyError, TypeError):
+        project = None
+    mine = {label} | ({"_".join(project.split()) + "/" + label} if isinstance(project, str) and project else set())
+    if not m or m.group(1) not in mine:
         return ""
     try:
         since = datetime.fromisoformat(m.group(2).replace("Z", "+00:00")).timestamp()
@@ -486,14 +581,68 @@ def screen_suffix():
     return f" holds-screen {max(int((NOW - since) // 60), 0)}"
 
 
+def git_dir(wt, flag):
+    r = subprocess.run(["git", "-C", wt, "rev-parse", flag], capture_output=True, text=True, timeout=30)
+    return os.path.realpath(os.path.join(wt, r.stdout.strip())) if r.returncode == 0 and r.stdout.strip() else None
+
+
+def linked_worktree(wt):
+    """#191: the folder when it is a linked worktree (or not a git folder at all); None when it is a main
+    checkout, whose own worktree is never the build's."""
+    if not wt or not os.path.isdir(wt):
+        return None
+    try:
+        git, common = git_dir(wt, "--git-dir"), git_dir(wt, "--git-common-dir")
+    except (OSError, subprocess.TimeoutExpired):
+        return wt
+    return None if git and git == common else wt
+
+
+def epoch_seconds(value):
+    """Seconds since the epoch for an ISO string or epoch milliseconds (#191); None when unreadable."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and re.fullmatch(r"\d+(\.\d+)?", value.strip()):
+        value = float(value)
+    if isinstance(value, (int, float)):
+        return value / 1000 if value > 1e11 else value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def terminal_output_time():
+    """The terminal's lastOutputAt in seconds, or None when the list or the terminal cannot be read."""
+    try:
+        proc = subprocess.run([orca, "terminal", "list", "--limit", "500", "--json"],
+                              capture_output=True, text=True, timeout=30)
+        terminals = json.loads(proc.stdout)["result"]["terminals"]
+        last = next((t.get("lastOutputAt") for t in terminals if isinstance(t, dict) and t.get("handle") == handle), None)
+    except Exception:
+        return None
+    return epoch_seconds(last) if isinstance(last, (int, float)) else None
+
+
 def progress_minutes():
     """Whole minutes since the item last made progress; None when there is nothing to read."""
     times = []
     log = os.path.join(opts["home"], "progress", f"{opts['item']}.log")
     if os.path.isfile(log):
         times.append(os.path.getmtime(log))
-    wt = opts.get("worktree")
-    if wt and os.path.isdir(wt):
+    wt = linked_worktree(opts.get("worktree"))
+    if wt is None:
+        # a brief or post worker changes nothing in a worktree, but it keeps a heartbeat and a streaming terminal (#191)
+        beat = epoch_seconds(dispatch_record.get("lastHeartbeatAt"))
+        if beat is not None:
+            times.append(beat)
+        if times:  # with nothing else to go on the terminal rule below decides, on its own threshold
+            output = terminal_output_time()
+            if output is not None:
+                times.append(output)
+    else:
         try:
             r = subprocess.run(["git", "-C", wt, "log", "-1", "--format=%ct"], capture_output=True, text=True, timeout=30)
             if r.returncode == 0 and r.stdout.strip().isdigit():

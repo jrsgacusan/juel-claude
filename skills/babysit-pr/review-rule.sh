@@ -9,8 +9,10 @@
 #                    callers keep today's approval rule (pr-verify.sh answers PENDING, never a pass)
 # then one line per status check the rules require:
 #   check <context>
-# then, last and once, when a rule requires branches to be up to date before merging:
-#   strict
+# then, once each and in this order, when they apply:
+#   queue            a ruleset that applies to the branch has a rule of type merge_queue; only
+#                    star/merge.sh reads it, to stay off the REST merge path (#193)
+#   strict           a rule requires branches to be up to date before merging
 # Sources: the rulesets that apply to the branch (repos/<repo>/rules/branches/<base>, readable
 # with read access) and classic branch protection (repos/<repo>/branches/<base>/protection,
 # often admin-only: a 403 or 404 there means no classic rule; any other error there, such as a
@@ -74,13 +76,15 @@ if not isinstance(rules, list):
     print("unknown unreadable rules")
     sys.exit(0)
 
-counts, checks, strict = [], [], False
+counts, checks, strict, queue = [], [], False, False
 for rule in rules:
     if not isinstance(rule, dict):
         continue
     params = rule.get("parameters") if isinstance(rule.get("parameters"), dict) else {}
     if rule.get("type") == "pull_request":
         counts.append(count(params.get("required_approving_review_count")))
+    elif rule.get("type") == "merge_queue":
+        queue = True
     elif rule.get("type") == "required_status_checks":
         if params.get("strict_required_status_checks_policy") is True:
             strict = True
@@ -107,6 +111,8 @@ if isinstance(classic, dict):
 print(f"required {max(counts)}" if counts else "none")
 for c in dict.fromkeys(checks):
     print(f"check {c}")
+if queue:
+    print("queue")
 if strict:
     print("strict")
 PY

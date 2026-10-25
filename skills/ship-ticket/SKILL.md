@@ -347,7 +347,8 @@ line (`DONE`, `RESCOPE`, `REPORTED` or `ESCALATION`) is the
 first line of the `worker_done` body, then `GATES <path>` after a `DONE`, each `HELD` line
 from the run, at most one `STAR-ISSUE: <one line>`, and at most one `NOTE: <one line>` of your
 own, a fact the next worker in this project should know (a required env var, a flaky test, a
-naming rule), never a status update, plus the fixed `NOTE:` lines this file names
+naming rule), never a status update (on an escalation whose cause the PR inherited from its base,
+that NOTE is the `NOTE: inherited from <base>: <one line>` line, see "Escalations are two kinds"), plus the fixed `NOTE:` lines this file names
 (`NOTE: executor skill missing, the plan ran in this session`;
 `NOTE: no CI ran on head <sha7> (PR DIRTY)` (see "Gate once per PR"); one
 `NOTE: scope outside-merged <path>[, <path> ...]` line naming every path Phase 4's scope check did not restore; after a `DONE`, one
@@ -426,7 +427,7 @@ the build runs again. Phases 2 and 3 write a new spec and plan version (`-vN`) f
 still needs; Phase 4 runs only that plan; Phase 7 updates the PR the way it updates an
 `existingPr` (push to its branch, never force, the `<!-- juel:update -->` section) and prints
 `PR item=<item> url=<url> existing`. Never reset the branch or rewrite its history. The new plan's
-header carries the `**Base:**` line (Phase 3), naming the branch head it starts from.
+header carries the `**Base:**` line, the `**Scratch:**` line and the `## Execution rules` block (Phase 3), the `**Base:**` line naming the branch head it starts from.
 
 When the brief's newest `## Decisions` record is a `gate-only` line
 (`- <date> gate-only: the narrowed brief needs no new code; the next build runs the gate on <head7>`)
@@ -468,6 +469,7 @@ are waiting on; the free text goes in the third field:
 | `executor` | right before each executor dispatch: Phase 4, and each fix plan of the gate loop |
 | `live-check` | after each live check in Phase 6, naming the check and its verdict |
 | `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix); while it waits for the gate lock, `gate-lock.sh --progress` writes this step itself every 10 minutes |
+| `screen-wait` | each time `screen-lock.sh acquire` exits 75: `screen-wait screen busy, held by <item>`, so STAR reads a worker waiting for the screen as alive |
 | `gate-r<k>` | right before gate round `k` starts (`gate-r1`, `gate-r2`, …) |
 | `post-pass` | right before `post-pass` |
 | `ready` | after the PR is marked ready (the codex gate loop, step 3) |
@@ -503,15 +505,23 @@ GUI (computer use, an app window, a browser that is not Playwright's own), take 
 screen lock; release it as soon as that part ends, and before any escalation:
 
 ```sh
-sh <screen-lock.sh> acquire --holder "<item>"    # held by <item> since <iso>, or exit 75: busy
-sh <screen-lock.sh> release --holder "<item>"
+sh <screen-lock.sh> acquire --holder "<holder>"    # held by <holder> since <iso>, or exit 75: busy
+sh <screen-lock.sh> release --holder "<holder>"
 ```
+
+`<holder>` is `<item>`, except under a `star:` brief: there it is `--holder "<star.project>/<item>"`, the label the gate lock uses ("Gate lock"). The screen lock is one file per user too, so two projects may each have an `issue-12`, and one label must name one holder.
 
 (`screen-lock.sh` is next to this file: `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/screen-lock.sh`
 when that is set.) Exit 75 means another item has the screen, which is normal: do any screen-free
-work in the plan, then try again; after 2 hours of tries end with `reason=out-of-tries step=screen`. Where an app lets
+work in the plan, then try again; each try that exits 75 appends a `screen-wait` progress line
+(`screen-wait screen busy, held by <holder>`), so STAR reads this worker as waiting, not stalled; after 2 hours of tries end with `reason=out-of-tries step=screen`.
+The order of the two locks is gate, then screen (#207): a step that needs both runs as one
+gate-locked command whose script takes the screen lock inside it, and you never start `gate-lock.sh`
+while you hold the screen lock. If you do, it exits 77 and runs nothing: release the screen, run the
+gate, take the screen again. Two workers each holding one lock and waiting for the other's would
+otherwise wait forever. Where an app lets
 you set a window or profile title, include the item name. While you hold the lock, renew it at
-least every 10 minutes: `sh <screen-lock.sh> renew --holder "<item>"`. A lock nobody renews for 30
+least every 10 minutes: `sh <screen-lock.sh> renew --holder "<holder>"`. A lock nobody renews for 30
 minutes is taken over by the next worker. `renew` exiting 65 (the lock was taken over) or
 printing `free` (the lock lapsed): stop driving the screen and acquire it again. Take it only around
 the steps that drive the visible screen: a check the brief's `## Checks` marks `auto: playwright`
@@ -545,6 +555,10 @@ nothing on this list is ever worked around. A step gets `tries.perStep` runs (3 
 still counts, because the budget bounds the step, not the cause. Where a step quotes a message,
 write it to `<star.reviews>/<item>-tool.log` (beside the gate manifest without a `star:` block) and
 name that file in `review=`.
+
+When an escalation's cause is a defect the PR inherited from its base (the failing test or check
+also fails on the base head), the report adds `NOTE: inherited from <base>: <one line>`; it is the
+report's one `NOTE` of your own, so STAR can wait on the fix without reading the review file.
 
 *A person must supply it.* `ESCALATION item=<item> phase=<n> reason=needs-person needs=<secret|account|screen|approval|access>: <what>`,
 only for a secret, an account or paid service, an action at the screen (including a browser check
@@ -607,13 +621,17 @@ or does not cover, end with `RESCOPE item=<item> reason=brief review=<a file nam
 needs and why the brief excludes it>`.
 
 **Conflicts.** A merge of the base branch that conflicts (an `existingPr` brief's first merge, a
-gate round's `ERROR base-moved`) goes through `merge-union.sh` first. When it leaves conflicts: if
-a `## Decisions` entry names those files and a resolution, apply it as written; otherwise resolve
-them yourself, keeping both changes' intent, from both items' briefs and `## Decisions` and the
-sibling PR's diff and description, and record the resolution as a `## Decisions` line. Then run
-the regression gate and the codex gate on the result. Failing those gates spends tries, and ends
-as `reason=out-of-tries step=conflict`. By hand, a conflict `merge-union.sh` cannot resolve still
-stops the merge for the user.
+gate round's `ERROR base-moved`) follows the conflict rule of `juel:babysit-pr` Phase 4 step 1
+(`../babysit-pr/SKILL.md` from this file): resolve the conflicted files yourself, keeping both
+changes' intent, from both items' briefs and `## Decisions` and the sibling PR's diff and
+description. If a `## Decisions` entry names those files and a resolution, apply it as written;
+otherwise record your resolution as a `## Decisions` line. A lockfile is never merged by hand: take
+the base's version, run the project's install command to regenerate it, and stage the result. Then
+run the regression gate and the codex gate on the result. Failing those gates spends tries, and
+ends as `reason=out-of-tries step=conflict`, as does a binary file, a delete/rename conflict or a
+file added on both sides with no clear union. By hand, stage the resolution without committing,
+show the user the resolved hunks of each file (`git diff --cached -- <files>`) and ask before
+committing and pushing.
 
 **Red CI.** Before the PR is marked ready, for each failing check on its head:
 1. Rerun it once. Green means a flake: go on.
@@ -696,6 +714,10 @@ machine. Only the owner changes it: never run `--slots` from this skill or a pla
 `gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`. The command went
 silent for `--idle-max` seconds (900 by default) and was stopped, and the lock is free again. It
 is not red and it is not run again: it is the `step=review-tool` escalation at once, with `stalled gate: <the stalled line>` in the file `review=` names.
+Exit 77 means this holder still has the screen lock, with
+`gate-lock.sh: <holder> holds the screen lock: release it first (the order is gate, then screen, #207)`
+on stderr, and nothing ran: release the screen (`screen-lock.sh release`), run the gate line again,
+then take the screen again if the work continues. It is not red and spends no try.
 Exit 71 or 124 is `step=review-tool`, except an exit 71 whose message says
 `dependencies are not installed`: run the resolved `commands.install` once (Phase 4's
 "Dependencies"), then the same line again; a second 71 is `step=review-tool`. Any other non-zero exit is the gate's own: it
@@ -845,8 +867,23 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
   Mac, or measures something live outside the repository) carries the line `**Run:** session`
   right under its `### Task <N>` heading, and Phase 4 runs it in this session (#154). Every other
   task carries no `**Run:**` line. Say so in the input to `superpowers:writing-plans`.
+- A plan's header carries `` **Scratch:** `<docsRoot>/` `` only when the docsRoot is inside the repository (#194, #195). `**Files:**` blocks name only files to be committed: the spec, the plan, evidence and every other docsRoot file are scratch, and a step that writes one names it in its text. The executor writes scratch and never commits it, and never fails a task over it. A docsRoot outside the repository is the session's: no plan step writes there, and a step that needs a docsRoot file says the session writes it (a `**Run:** session` task, or after the executor).
+- For a change that cuts across modules, the header also carries a `**Shared files:**` block (the same line syntax as `**Files:**`) naming the tests that assert the changed contract and the harness stubs the tasks need (#199). Every task may change what it names, and the scope check accepts it.
+- Tell `superpowers:writing-plans` to start every plan, right under its header, with this block, verbatim, so the rules hold even when Codex did not load the executor skill (#190):
+
+  ```
+  ## Execution rules
+
+  - A task's exact text (commands, quoted strings, test names, paths, commit messages) wins over a
+    general style rule and over the Goal's wording. Record the reading under Deviations and go on.
+  - Any task may change a file the **Shared files:** block names. A task may change a file another
+    task's **Files:** block names when its own test needs it.
+  - Every command this plan writes out, the gate-lock line and its sweep included, is a command the
+    plan names: run it as written.
+  - Git-ignored files under **Scratch:** are written, never committed, and never fail a task.
+  ```
 - A task that creates a file whose name or id a project check enforces (a pretest checker, a lint rule) names that check as its verification command. The check runs before the task's commit.
-- On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
+- On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.` and, like every plan, the `**Scratch:**` line and the `## Execution rules` block, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
 **Tooling** (#160). Under a `star:` brief, when the plan adds 20 or more files under one folder that
 the deliverable's runtime code never imports (a measurement harness, an eval or a benchmark tool)
@@ -898,16 +935,26 @@ resolution still installs and runs nothing.
 **The progress ledger.** The executor records each task it finishes in
 `<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`, the same ledger
 `superpowers:executing-plans` keeps: its first line names the plan, and each finished task adds a
-`Task <N>: complete` line. A second dispatch of the same line, the fallback model and this session
+`Task <N>: complete` line. A second dispatch (its line rebuilt, see "Session tasks"), the fallback model and this session
 all resume from it, at the first task not marked complete. Before the first dispatch, make sure git
 ignores it: `git check-ignore -q .superpowers/x || echo '/.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
+
+Before the first dispatch of any plan (this phase's plan, each fix plan, each `-vN`), when its ledger
+does not exist, create it with exactly one line, `# SDD ledger — plan: <the plan path as the dispatch
+line names it>`. The executor then never has to judge whose ledger it found (#203). A ledger that
+`session-tasks.sh` reports as `foreign <path>` names another plan: rename it to
+`progress.foreign-<UTC stamp>.md` in the same folder and create a fresh one the same way.
 
 **Session tasks** (#154). A task with the line `**Run:** session` under its heading is never
 handed to Codex. Take the scope record below first, before the first task of either kind runs.
 Before each dispatch, run `sh <session-tasks.sh> <plan> --ledger <ledger>` (`session-tasks.sh` is
-next to this file; `<ledger>` is the plan's ledger above). When it prints `until <N>`, the dispatch
+next to this file; `<ledger>` is the plan's ledger above). Every dispatch rebuilds the line: the first, and each after a session task, the unfinished-plan rule and the capacity rule runs `session-tasks.sh` again and adds the clauses it calls for. When it prints `until <N>`, the dispatch
 line's prompt ends with ` Stop before task <N>: the session runs it.`, inside its quotes, so the stop holds even
-when Codex did not load the executor skill. After each executor run (every try of the capacity rule
+when Codex did not load the executor skill. Its last line is `next <N>` (the first task with no
+`Task <N>: complete` line), `next none` or `foreign <path>`. When `next <N>` is not the plan's first
+task, the prompt also gets ` Resume at task <N>: the ledger marks every task before it complete.`
+inside its quotes, before any ` Stop before task <N>: the session runs it.`, so a model that
+skipped the ledger still starts in the right place (#196). After each executor run (every try of the capacity rule
 included), run it again: a `ran <N>` line means the executor ran a session task, so the run failed:
 under `--unattended`, end with
 `ESCALATION item=<item> phase=<n> reason=out-of-tries step=executor`;
@@ -916,16 +963,35 @@ Before each dispatch, and after a dispatch whose report ends with
 `stopped at task <N>: run by the session`, look at the first task with no `Task <N>: complete`
 line in the ledger. While it is a session task, run it in this session (its steps, its tests and
 its commit, inside its `**Files:**` block, never `git add -f`), then append
-`Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`; with no ledger
-yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`, the path
-exactly as the dispatch line names the plan. A session task that cannot be completed gets no
+`Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`. A session task that cannot be completed gets no
 ledger line, and nothing is dispatched past it: under `--unattended`, end the run with
 `ESCALATION item=<item> phase=4 reason=out-of-tries step=executor review=<the file holding session task <N> failed: <one line>>`;
-interactively, show that line and ask how to go on. Then dispatch the same line: the executor
-resumes at the first task not marked complete. When every task left
+interactively, show that line and ask how to go on. Then dispatch, rebuilding the line as above: the executor
+resumes at the later of the clause's task and the first task its ledger does not mark complete. When every task left
 is a session task, nothing more is dispatched. The ledger is the record of who ran what: a
 `(session, …)` line is this session's, every other line the executor's. With `--executor session`,
 and on the capacity rule's last step, this session runs every task anyway.
+
+**An executor that exits 0 with the plan unfinished** (#188). After every executor run that exits 0,
+run `session-tasks.sh <plan> --ledger <ledger>`. A `next <N>` whose task N is not a session task means
+the plan is unfinished. Read the report's last lines for why it stopped, and first look for a
+`task <N> failed: planned file` line: it stops the run as "A planned file git ignores" says, and is never dispatched again.
+Otherwise:
+
+1. A failing check (a test, a lint, a snapshot): run that exact command in this session, outside the
+   sandbox. It passes: the failure was the sandbox's, so finish task N in this session (its remaining
+   steps, its commit), append
+   `Task <N>: complete (session, sandbox-only failure: <command>, commits …, tests: …)`, then dispatch
+   the rebuilt line again for the rest. It fails here too: a real failure, so rebuild the line and dispatch once
+   more.
+2. Any other stop (a question, a conflict it names, nothing said): rebuild the line and dispatch once more.
+3. The executor stopping at the same task twice: this session runs the remaining tasks with
+   `superpowers:executing-plans`, resuming from the ledger.
+
+Each branch is one line: under `--unattended` a progress line with the step `executor`
+(`executor stopped at task <N>: <why>; <redispatched | finished in session | session runs the rest>`),
+interactively a line in this phase's checkpoint. It is no `NOTE` and spends no try: the plan's own
+failures still count as before.
 
 **The scope record.** Right before the first dispatch (Codex or this session), from the repo root,
 note the commit the executor starts from and record every path that already differs from it:
@@ -965,20 +1031,21 @@ paths the sandbox may write, so `<add-dirs>` below is `--add-dir <git-dir> --add
 with those two paths. Otherwise `<add-dirs>` is empty. Work it out again before every dispatch.
 
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md[ Stop before task <N>: the session runs it.]' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md[ Resume at task <N>: the ledger marks every task before it complete.][ Stop before task <N>: the session runs it.]' < /dev/null
 ```
 
-The brackets are not typed: the part inside them is added only when `session-tasks.sh` printed
-`until <N>` (Phase 4, "Session tasks").
+The brackets are not typed: the first part is added only when `session-tasks.sh` printed a
+`next <N>` that is not the plan's first task, the second only when it printed `until <N>` (Phase 4,
+"Session tasks").
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
-overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the
+overloaded or rate limited, wait 60 seconds, rebuild the line and dispatch once more; then once on the
 fallback model (`--executor-model` from `executor.fallback`, `latest-sol` by default, resolved the
 same way); then run the plan in this session with `superpowers:executing-plans`. When the fallback
 model resolves, through `executor-model.sh`, to the same model id as the executor, there is no
 fallback: skip straight to running the plan in this session. Each try resumes
-from the plan's ledger (above), so the same line continues at the first task not marked complete:
-never write a resume prompt by hand. Each step is one
+from the plan's ledger (above) and rebuilds its line first (`session-tasks.sh` again), so it continues at the first task not marked complete:
+the resume and stop clauses come only from `session-tasks.sh`, never written by hand. Each step is one
 line to the user (under `--unattended`, a progress line and a terminal line, never a `NOTE`). Any
 other non-zero exit is a failed try of `step=executor` under `--unattended`.
 
@@ -1218,8 +1285,7 @@ sanity: :8453 taken, backend moved to :8454", or "env sanity: SKIPPED — no mig
 6. If any checklist item is FAIL, or the regression gate fails, first run step 7's cleanup and
    report it (remote writes, the running stack and port redirects never outlive a failed run),
    then **do not patch by hand** — loop
-   back to Phase 5 (`/juel:review-and-execute`) or write a new `-vN` plan whose header carries
-   `**Base:** spec implemented at <the evidence head>; apply only the tasks below.` and whose tasks
+   back to Phase 5 (`/juel:review-and-execute`) or write a new `-vN` plan whose header carries `**Base:** spec implemented at <the evidence head>; apply only the tasks below.`, the `**Scratch:**` line and the `## Execution rules` block (Phase 3), and whose tasks
    each name their files in a `**Files:**` block, and re-run Phase 4. Re-run this
    entire phase after the fix — a partial re-verify is not sufficient.
 
@@ -1318,8 +1384,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    `Disposition: <the technical reason>`. For each accepted `[P0]` or `[P1]` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its `-fix.md` line names the sites (`Fixed in <sha>. Sites: <path:line>, <path:line>.`).
    No finding accepted: skip the plan, the executor, the tests, Phase 6, the commit and the push;
    write the `-fix.md` and run the next round on the same head (its prompt carries the dispositions).
-   Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries
-   `**Base:** spec implemented at <the full head>; apply only the tasks below.` and whose tasks each
+   Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries `**Base:** spec implemented at <the full head>; apply only the tasks below.`, the `**Scratch:**` line and the `## Execution rules` block (Phase 3), and whose tasks each
    name their files in a `**Files:**` block, run it with the executor
    (Phase 4's line, its session tasks, its capacity rule and its scope check), then gate it as "Gate once per PR" says
    for a push of the worker's own changes: the tests for the files it changed, then the sweep,
@@ -1337,8 +1402,7 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    `RESCOPE item=<item> reason=gate review=<the last review's path> tooling=all`.
 6. `ERROR base-moved …`: the base changed a file this branch changes, so the round did not run.
    Fetch the base and merge it in as `juel:babysit-pr`'s Phase 4 step 1 does (`../babysit-pr/SKILL.md`
-   from this file: `merge-union.sh` resolves a mechanical conflict; any other conflict follows
-   "Conflicts" above), run the sweep as "Gate once per PR"
+   from this file; a conflict follows "Conflicts" above), run the sweep as "Gate once per PR"
    item 2 says, commit the merge, push (never force), read the PR's merge state as "Gate once per PR"
    says, then run the same round again. This is not an `ERROR` retry: it never counts toward a second `ERROR`, and
    it casts no vote toward `tries.perStep`.

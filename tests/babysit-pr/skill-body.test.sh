@@ -53,7 +53,7 @@ grep -q '| `--reviewed <path>` |' "$SKILL" && grep -qF 'reason=out-of-tries step
 grep -qF 'reason=out-of-tries step=ci-wait' "$SKILL" && pass "S15 the CI wait is bounded" || fail "S15 ci-wait"
 grep -qF 'reason=out-of-tries step=gate-lock' "$SKILL" && pass "S15 a busy gate lock is bounded" || fail "S15 gate-lock"
 grep -q 'commit.oid' "$SKILL" && pass "S8 approvals are matched to the head commit" || fail "S8 approval by commit"
-grep -qF 'Under `--unattended` nothing is asked: if a' "$SKILL" && pass "S4 final-sync conflict never asks" || fail "S4 phase 4 conflict"
+grep -qF 'Under `--unattended` or `--brief`: if a' "$SKILL" && pass "S4 final-sync conflict never asks" || fail "S4 phase 4 conflict"
 grep -q 'never dropped to fit' "$SKILL" && pass "S11 the report keeps what STAR needs" || fail "S11 report priority"
 ! grep -q 'JUEL_GATE_LOCK=<star.home>' "$SKILL" && pass "T1 no gate lock path to pass" || fail "T1 gate lock path"
 grep -q 'taken from the repo root' "$SKILL" && ! grep -q '(cd <cwd> && <cmd>)' "$SKILL" && pass "T9 each gate runs from the repo root" || fail "T9 gate cwd"
@@ -82,7 +82,8 @@ g "Z1 an explicit zero needs no approval" '`required: 0`'
 g "Z2 review bots are configurable" 'config.reviewBots'
 g "Z3 a token gh lacks is escalated at once" 'gh cannot see'
 # Issue #28
-g "U1 mechanical conflicts go through the script" 'merge-union.sh'
+! grep -q 'merge-uni[o]n' "$SKILL" && pass "U1 the retired script is gone" || fail "U1 retired script named"
+g "U1b the conflict rule is named once, in Phase 4 step 1" '**The conflict rule** (the one rule for a conflicted'
 grep -qF 'the mechanical resolution failed' "$SKILL" && fail "U2 a red gate after a union no longer resets and escalates" || pass "U2 a red gate after a union no longer resets and escalates"
 # STAR closed loop: the gate on every push, the hosted reviewer, dispositions (#40)
 for l in 'codex-gate.sh' 'post-pass' 'RESCOPE item=<item> reason=hosted-review review=' 'RESCOPE item=<item> reason=gate review=' '@greptileai' 'triggerOnUpdates' 'Disposition:' 'the way a person would' 'When you cannot tell, it is not clean' 'hosted-p<n>.md' '--executor-model' 'hostedReviewer' 'mark ready first' 'progress/<item>.log' 'stands in for this approval'; do
@@ -120,7 +121,7 @@ done
 grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is gone" || pass "P2b the free-form step field is gone"
 # Issue #60: the executor fallback reaches STAR through the report
 g "N60c babysit carries the executor fallback NOTE" 'NOTE: executor skill missing, the plan ran in this session'
-g "N60d the report line count includes it" 'That is 10 lines at most'
+g "N60d the report line count includes it" 'That is 11 lines at most'
 # Issues #63, #66, #71: the gate round from the worker's side
 grow "G66c babysit counts verdict files only" 'error logs, raw files and run files never count'
 grow "G66d babysit reruns the same round after an ERROR" 'run the same round once more'
@@ -303,11 +304,11 @@ grep -qF 'with no `node_modules` folder and no' "$SKILL" && fail "F105d the old 
 # fix: one NOTE line names every outside-merged path (#106)
 report_row=$(grep -F '| Phase 5 report |' "$SKILL")
 printf '%s\n' "$report_row" | grep -qF '`NOTE: scope outside-merged <path>[, <path> ...]` once, relayed from `receive-review-and-execute`' && pass "F106a the report carries the outside-merged NOTE, relayed once" || fail "F106a the report carries the outside-merged NOTE, relayed once"
-printf '%s\n' "$report_row" | grep -qF 'That is 10 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
+printf '%s\n' "$report_row" | grep -qF 'That is 11 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
 # lane g: a base-only merge push runs the sweep, the carry and base-moved wording (#111, #110, #113)
 phase 4 | grep -qF 'branch in runs the sweep, `sh <run-gates.sh> <the --gates-file manifest> --root <repo root> sweep`' && pass "#111a a base-only merge push runs the sweep" || fail "#111a a base-only merge push runs the sweep"
 phase 4 | grep -qF '`test` command), after a clean merge too: the base can change a call that an untouched file on' && pass "#111b after a clean merge too" || fail "#111b after a clean merge too"
-phase 4 | grep -qF 'A red gate there keeps the merge commit and is step 3'"'"'s red,' && pass "#111c a red gate after a mechanical merge keeps the merge" || fail "#111c a red gate after a mechanical merge keeps the merge"
+phase 4 | grep -qF 'A red gate keeps the merge commit and is step 3'"'"'s red,' && pass "#111c a red gate after a mechanical merge keeps the merge" || fail "#111c a red gate after a mechanical merge keeps the merge"
 grep -qF 'conflict resolution changed' "$SKILL" && fail "#111d no push tests only the conflict resolution's files" || pass "#111d no push tests only the conflict resolution's files"
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "#110a a carry needs a merge that changes no file of this branch" 'is gated by a carry when a script proves the merge brings no change to a file this branch changes'
@@ -338,7 +339,6 @@ g "B123b gate-lock.sh --progress stays the one timer writer (#123)" '`gate-lock.
 g "B122f a refresh also logs a second run on a passed head (#122)" 'when you comment for a status refresh, or for a second run (below). A second hosted run on a head'
 g "B122g an older log's second pass line for one head becomes a refresh (#122)" 'When the log exists and holds a second `pass` line for a head that already has one (a log'
 g "B122h the first pass line of each head is kept (#122)" '`<its iso> refresh head=<that sha>`, keeping the first `pass` line of each head and every other'
-g "B120a the base sync names the edit next to an insertion (#120)" 'to one list), or one side inserted lines right after a line the other side edited (#120), or'
 
 R126="Outside babysit's Phase 4 sync before \`READY\` and STAR's \"Sync after the base moved\", a worker merges the base in only when the PR is CONFLICTING or a gate round refuses with \`ERROR base-moved\`, never otherwise."
 R131b="For each accepted \`[P0]\` or \`[P1]\` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its \`-fix.md\` line names the sites (\`Fixed in <sha>. Sites: <path:line>, <path:line>.\`)."
@@ -372,7 +372,7 @@ g "Q157f away is not a reason to wait" 'nothing holds marking ready, replies, re
 # audit lane d: final sync
 has "D2a Phase 4 step 1 merges the base in only when" 'merges the base in only when'
 has "D2b step 1 reads review-rule.sh" 'review-rule.sh <repo> <base>'
-has "D2c step 1 names strict and unknown" 'prints `strict` or `unknown'
+has "D2c step 1 names strict, queue and unknown" 'prints `strict`, `queue` or `unknown'
 has "D2d the hosted row's base merge takes the same condition" "Phase 4 step 1's condition holds"
 has "D2e the description says when the base is merged" 'merges the base branch in when the base requires it or the PR conflicts'
 has "D2f the behind paragraph says the merge gate still sends a strict base back" "STAR's merge gate still sends a strict base back"
@@ -386,11 +386,20 @@ grow "F8 a usage limit runs the plan in the session" 'a codex usage limit runs t
 
 # lane e: STAR autonomy
 has "AU1 the conflict rule applies a Decisions entry as written" 'if a `## Decisions` entry names those files and a resolution, apply it as written'
-has "AU2 otherwise it resolves from both briefs and the sibling PR" 'resolve them yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
+has "AU2 otherwise it resolves from both briefs and the sibling PR" 'resolve the conflicted files yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
 has "AU3 the resolution is recorded as a Decisions line" 'record the resolution as a `## Decisions` line'
-has "AU4 the regression gate and the codex gate run on the result" 'then run the regression gate and the codex gate on the result'
+has "AU4 the regression gate and the codex gate run on the result" 'Then run the regression gate and the codex gate on the result'
 has "AU5 a conflict that fails the gates ends as step=conflict" 'reason=out-of-tries step=conflict'
-has "AU6 By hand the conflict rule stays" 'By hand, the rule stays: never resolve a conflict that is not mechanical.'
+has "AU6 By hand the resolved hunks are shown before the commit" 'show the user the resolved hunks of each conflicted file (`git diff --cached -- <files>`) and ask before committing and pushing'
+has "AU6b a lockfile is regenerated, never merged by hand" 'A lockfile is never merged by hand: take the base'"'"'s version, run the project'"'"'s install command to regenerate it, and stage the result.'
+has "#204a behind alone is not a reason to sync" '`behind` alone is not a reason (#204)'
+has "#204b the exact Decisions line STAR writes orders the sync" '`## Decisions` holds the line `synced with <base> at <sha7>`, which STAR'"'"'s "Sync after the base moved" writes'
+has "#204e strict, queue and unknown all sync" 'prints `strict`, `queue` or `unknown …`, or the brief'"'"'s'
+has "#204f a queue base refuses a BEHIND merge too" 'A `queue` base refuses a BEHIND merge too, so it syncs like a strict one'
+has "#204g the hosted row names queue and unknown" 'or `review-rule.sh` prints `strict`, `queue` or `unknown …`, or the `synced with <base> at <sha7>` line'
+has "#205a the report carries the inherited NOTE" '`NOTE: inherited from <base>: <one line>` once when the cause of an `ESCALATION` is a defect the PR took over from its base branch'
+has "#204c at most one sync per run" 'Phase 4 syncs at most once per run'
+has "#204d the hosted last pass uses the same rule" 'never `behind` alone'
 has "AU7 red CI is rerun once" 'Rerun it once. Green means a flake: go on.'
 has "AU8 the proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<base head> url=<url>'
 has "AU8b a name with a space or = is quoted" 'check="test (ubuntu-latest)"'

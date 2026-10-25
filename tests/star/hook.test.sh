@@ -75,7 +75,8 @@ assert d["maxParallel"] == 3 and d["maxInReview"] == 3 and "quietHours" not in d
 assert d["tokenCmd"] is None and keys.index("tokenCmd") == keys.index("hostedDown") + 1
 assert "ownerApproval" not in d and d["tries"] == {"perStep": 3, "rescopes": 1, "followUpDepth": 2}
 assert keys[keys.index("gate") + 1:keys.index("gate") + 5] == ["tries", "mergeMethod", "baseBranch", "ownerBranches"]
-assert keys.index("hostedReviewer") == keys.index("ownerBranches") + 1
+assert d["keepBranches"] is False and keys.index("keepBranches") == keys.index("ownerBranches") + 1
+assert keys.index("hostedReviewer") == keys.index("keepBranches") + 1
 assert d["hostedDown"] is None and keys.index("hostedDown") == keys.index("gateDown") + 1
 assert d["ghLogin"] is None and keys.index("ghLogin") == keys.index("tokenCmd") + 1
 PY

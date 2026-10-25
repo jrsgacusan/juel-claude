@@ -148,7 +148,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute 123 --unattended`
 
 **With `--unattended`**, nothing is asked:
-- A merge conflict in phase 2 that `merge-union.sh` cannot resolve: with `--brief`, if a `## Decisions` entry names those files and a resolution, apply it as written; otherwise resolve them yourself, keeping both changes' intent, from both items' briefs and `## Decisions` and the sibling PR's diff and description, and record the resolution as a `## Decisions` line. Conclude the merge and continue; the caller runs the regression gate and the codex gate on the result. A file you cannot resolve (a binary file, a lockfile no install regenerates), or no `--brief`: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop. By hand, the rule stays: never resolve a conflict that is not mechanical.
+- A merge conflict in phase 2: the conflict rule of `juel:babysit-pr` Phase 4 step 1 (`../babysit-pr/SKILL.md` from this file). With `--brief`, if a `## Decisions` entry names those files and a resolution, apply it as written; otherwise resolve the conflicted files yourself, keeping both changes' intent, from both items' briefs and `## Decisions` and the sibling PR's diff and description, and record the resolution as a `## Decisions` line. A lockfile is never merged by hand: take the base's version, run the project's install command to regenerate it, and stage the result. Conclude the merge with `Merge <remote>/<base> into <branch>; conflicts resolved in <files>` and continue; the caller runs the regression gate and the codex gate on the result. A binary file, a delete/rename conflict, a file added on both sides with no clear union, or no `--brief`: `git merge --abort`, print `CONFLICT: <each conflicted file>` and stop.
 - Any ambiguous finding in phase 5: do not ask and do not execute anything, including the
   actionable findings, so a fix never ships half-decided. Print `AMBIGUOUS: <author> <file:line>
   <comment, trimmed> — <why it is ambiguous>` for each one and stop; the caller escalates them.
@@ -258,27 +258,25 @@ git status --porcelain
 5. Outcomes of the merge, each with one evidence line:
    - `Already up to date.`: continue.
    - Clean merge: report the merge commit's short SHA and the number of files it brought in.
-   - Conflicts: first run `sh <merge-union.sh>` (`../babysit-pr/merge-union.sh` from this file, or
-     `${CLAUDE_PLUGIN_ROOT}/skills/babysit-pr/merge-union.sh`). Exit 0 means every conflict was
-     mechanical (both sides inserted text at the same point and changed nothing else, one side
-     inserted lines right after a line the other side edited, or a `package.json` script chain or a
-     one-line `{ a, b }` list both sides only added to: the header of `merge-union.sh` lists each
-     rule) and is
-     resolved and staged: conclude the merge with
-     `git commit -m "Merge <remote>/<base> into <branch>; mechanical conflicts resolved in <files>"`,
-     print one evidence line naming the files, and continue. This skill runs no gate here: the
-     caller's gates check the merge (`juel:babysit-pr` runs them right after this skill), and
-     nothing is pushed on red.
-   - Any other exit: STOP. List every conflicted file (`git diff --name-only --diff-filter=U`).
-     Under `--unattended`, resolve and record as "Arguments" says, or abort and print `CONFLICT:`
-     for a file it cannot resolve. By hand, ask via `AskUserQuestion`: resolve the conflicts in
-     this session, or `git merge --abort` and stop the skill. Never resolve a conflict that is not
-     mechanical, and never pick a side silently.
-   - If the user chooses to resolve in-session: propose each file's resolution and apply it only
-     after the user approves it. Then confirm no conflict markers remain
-     (`git diff --check` and `grep -rn '^<<<<<<< ' <files>` both empty) and conclude the merge
-     with `git commit --no-edit` before any later phase runs, so remediation commits never land
-     inside an unfinished merge. One evidence line: the merge commit's short SHA.
+   - Conflicts: list every conflicted file (`git diff --name-only --diff-filter=U`), then
+     follow the conflict rule of `juel:babysit-pr` Phase 4 step 1 (`../babysit-pr/SKILL.md` from
+     this file): resolve the conflicted files yourself, keeping both changes' intent, from both
+     items' briefs and `## Decisions` and the sibling PR's diff and description. A lockfile is never
+     merged by hand: take the base's version, run the project's install command to regenerate it,
+     and stage the result.
+     - Under `--unattended`, resolve and record as "Arguments" says, or abort and print `CONFLICT:`
+       for a binary file, a delete/rename conflict or a file added on both sides with no clear union.
+     - By hand, do not commit yet. Stage the resolution, then show the user the resolved hunks of
+       each conflicted file (`git diff --cached -- <files>`) and ask via `AskUserQuestion` before
+       committing: commit it, change it, or `git merge --abort` and stop the skill. Never pick a side
+       silently. Ask about a binary file, a delete/rename conflict or a file added on both sides with
+       no clear union.
+     - Conclude with `git commit -m "Merge <remote>/<base> into <branch>; conflicts resolved in <files>"`
+       after confirming no conflict markers remain (`git diff --check` and
+       `grep -rn '^<<<<<<< ' <files>` both empty), before any later phase runs, so remediation
+       commits never land inside an unfinished merge. One evidence line naming the files and the
+       merge commit's short SHA. This skill runs no gate here: the caller's gates check the merge
+       (`juel:babysit-pr` runs them right after this skill), and nothing is pushed on red.
 6. Do not push here. The merge commit, when step 0a made one, is pushed with the remediation commits.
 
 ### Step 1: Fetch PR review comments
@@ -401,6 +399,11 @@ The plan must:
 - Carry in its header `**Base:** spec implemented at <full sha>; apply only the tasks below.`
   (`<full sha>` is `git rev-parse HEAD` now): it fixes a change that is already built, so the
   executor must not re-check the spec for completeness
+- Carry, after that line, the `**Scratch:**` line (only when the docsRoot is inside the repository)
+  and the `## Execution rules` block, exactly as `juel:ship-ticket`'s Phase 3 gives them
+  (`../ship-ticket/SKILL.md` from this file). A fix plan meets the same wording conflicts and
+  git-ignored docsRoot files as a first plan, and those two keep the executor from stopping on them
+  (#190, #195). `**Files:**` blocks name only files to be committed.
 - Reference each confirmed finding (link to the GitHub comment URL)
 - Include file paths and line numbers
 - Give every task a `**Files:**` block naming each file it changes (`Create:`, `Modify:`, `Test:`
@@ -526,7 +529,7 @@ runs a plan in this session with `superpowers:executing-plans` and the plan has 
 |---------|-----|
 | Proceeding without a PR number | Step 0 — ask, do not guess |
 | Validating comments against a stale base | Step 0a merges the PR's base branch first when the PR conflicts with its base, or with `--sync`; outdated comments are then rejected, not re-fixed |
-| Auto-resolving merge conflicts, or checking out the PR branch for the user | Never, beyond the mechanical ones `merge-union.sh` resolves. Step 0a stops, lists the files, and asks |
+| Committing a conflict resolution the user has not seen, or checking out the PR branch for the user | By hand, stage the resolution and show the resolved hunks first: step 0a stops, lists the files, and asks before it commits |
 | Acting on every PR comment blindly | Step 2 — validate before accepting |
 | Guessing reviewer intent on ambiguous comments | Step 2a — ask the user explicitly |
 | Skipping the plan and going straight to Codex | Codex needs a structured plan |

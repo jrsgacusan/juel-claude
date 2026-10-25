@@ -24,5 +24,6 @@ has "E164c an out-of-usage codex runs the plan in this session" '**Out of usage.
 has "AU1 the fallback equal to the executor is no fallback" 'resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session'
 tr '\n' ' ' < "$ROOT/skills/execute/SKILL.md" | tr -s ' ' | grep -qF -- 'resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session' && pass "AU2 execute says the same" || fail "AU2 execute says the same"
 ! grep -qF 'reason=codex-failed' "$SKILL" && pass "AU3 codex-failed is gone" || fail "AU3 codex-failed is gone"
+has "FX195 a fix plan carries the Scratch line and the Execution rules block" 'the `**Scratch:**` line (only when the docsRoot is inside the repository) and the `## Execution rules` block, exactly as `juel:ship-ticket`'"'"'s Phase 3 gives them'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
