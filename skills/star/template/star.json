@@ -16,6 +16,7 @@
   "mergeMethod": null,
   "baseBranch": null,
   "ownerBranches": [],
+  "keepBranches": false,
   "hostedReviewer": null,
   "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
   "progressDeadlineMin": 30,

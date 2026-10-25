@@ -119,6 +119,7 @@ DEFAULTS = {
     "mergeMethod": None,
     "baseBranch": None,
     "ownerBranches": [],
+    "keepBranches": False,
     "hostedReviewer": None,
     "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
     "progressDeadlineMin": 30,

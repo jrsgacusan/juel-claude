@@ -181,6 +181,7 @@ assert d["gate"] == {"model": "latest-sol", "effort": "xhigh", "fallback": {"age
 assert d["tries"] == {"perStep": 3, "rescopes": 1, "followUpDepth": 2}, d["tries"]
 assert d["hostedReviewer"] is None and d["hostGate"]["maxAgents"] == 40 and d["progressDeadlineMin"] == 30
 assert "tokenCmd" in d and d["tokenCmd"] is None, d.get("tokenCmd")
+assert d["keepBranches"] is False, d.get("keepBranches")
 PY
 [ -f "$HM2/star.json.v1.bak" ] && [ -f "$HM2/ledger.md.v1.bak" ] && grep -q '"reviewer"' "$HM2/star.json.v1.bak" && pass "v1 files are backed up first" || fail "backups"
 python3 - "$HM2/briefs/mig/A.md" <<'PY' && pass "the decision record lands inside ## Decisions, before ## Feedback" || fail "decision record placement ($(cat "$HM2/briefs/mig/A.md"))"
@@ -463,7 +464,7 @@ want = {"schema": 3, "maxParallel": 3, "maxInReview": 3, "maxBriefs": 4,
         "executor": {"model": "latest-luna", "effort": "xhigh", "fallback": "latest-sol"},
         "gate": {"model": "latest-sol", "effort": "xhigh", "fallback": {"agent": "claude", "model": "opus", "effort": "xhigh"}},
         "tries": {"perStep": 3, "rescopes": 1, "followUpDepth": 2},
-        "mergeMethod": None, "baseBranch": None, "ownerBranches": [], "hostedReviewer": None,
+        "mergeMethod": None, "baseBranch": None, "ownerBranches": [], "keepBranches": False, "hostedReviewer": None,
         "hostGate": {"minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25},
         "progressDeadlineMin": 30, "mcps": None, "notes": "split", "gateDown": None, "hostedDown": None,
         "tokenCmd": None, "ghLogin": None, "run": None, "terminal": None, "caffeinatePid": None,
