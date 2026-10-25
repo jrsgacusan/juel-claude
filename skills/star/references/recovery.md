@@ -23,9 +23,8 @@ is the one way past a listed handle.
    in one line. Print every `warn …` line as it is (for example `warn executor.fallback equals executor.model`:
    a fallback equal to the model counts as none, so at capacity the plan goes straight to the next option).
    Any other `migrated …` line goes into the status line in one line. For each `stop <dispatch>` line (a worker
-   of a stage that no longer exists): append `<dispatch> stopped <iso>` to `processed.log`, then `orca
-   orchestration worker-stop --dispatch <id> --json`, `worker-release` and `stage-start.sh close <dispatch>`, all
-   before the reconcile. A non-zero exit stops the start: print its message, release the claim (`"terminal":
+   of a stage that no longer exists): run `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` (it notes the stop in
+   `processed.log`, stops, releases and runs the close check), before the reconcile. A non-zero exit stops the start: print its message, release the claim (`"terminal":
    null`), tell the owner the folder may be half moved and that `/juel:star` again retries, and end. Then `sh
    S/star-home.sh register` (`registered <home>` or `listed <home>`; a non-zero exit is one line in the status,
    never a stop). Give every open row with no `counters.batch` the batch `B-<this start's UTC time>-<4 hex>`.

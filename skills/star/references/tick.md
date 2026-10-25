@@ -16,7 +16,7 @@ the files.
   `processed.log`, and only then acknowledge the delivery. A message already in `processed.log` is skipped.
   Every row write a message causes also sets `last=<message id>`; a message whose id is already the row's
   `last=` is applied: do not match it again, count nothing, do only what comes after the row
-  (`worker-release`, `processed.log`, the ack). That is what makes a replay safe.
+  (`stage-start.sh release`, `processed.log`, the ack). That is what makes a replay safe.
 - **Match by dispatch, not by name.** A message belongs to the row whose `dispatch` cell equals the message's
   dispatch id (the third field of its `msg` line); the `item=` in its first line must then be that row's
   item. A message changes no row, and is only named in the status line, when its dispatch is in no row (or
@@ -27,7 +27,8 @@ the files.
 - **One message, one order of effects:** queue items first (`loops.sh add` returns the open item's id when it
   is already there), then `NOTE` and `SENT` appends (each line carries the time the message was sent, so a
   replay writes the identical line: skip one the file has), then the row with its `last=`, then for a settled
-  `worker_done` `worker-release` and the close check, then `<dispatch> released <iso>` in `processed.log`,
+  `worker_done` `sh S/stage-start.sh --home HOME_DIR release <dispatch>` (it runs `worker-release` and the close
+  check), then `<dispatch> released <iso>` in `processed.log`,
   then the message's own line, then the ack. A stop anywhere in that order replays into the same end state.
 - STAR reads at most 12 lines of a report. It never opens a review, evidence, log or diff file and never
   reads a worker's screen: scripts do that and give one line back.
@@ -83,7 +84,7 @@ not yet applied: leave the answer for the next tick.
 
 A worker that is still running when its row's answer arrives never gets a second worker: a `drop` stops it
 first; any other answer for a running row is appended to the brief's `## Decisions` and sent with
-`orca orchestration send --to dispatch:<id> --subject "decision" --body "<answer>" --json`, and the row stays.
+`sh S/stage-start.sh --home HOME_DIR tell <dispatch> "decision" "<answer>"`, and the row stays.
 A `briefing` row's answer goes to the brief's feedback side file (`references/dashboard.md`).
 
 ## 3. Messages

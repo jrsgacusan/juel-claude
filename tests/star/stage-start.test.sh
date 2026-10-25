@@ -76,7 +76,19 @@ case "$1 $2" in
     if [ -f "$STUB_DIR/dialog-always" ] || [ "$n" -le "$(cat "$STUB_DIR/dialog-reads" 2>/dev/null || echo 0)" ]; then
       echo '{"ok":true,"result":{"screen":"Do you trust the files in this folder?  1. Yes, proceed  2. No, exit"}}'
     else echo '{"ok":true,"result":{"screen":"> ready"}}'; fi ;;
-  "terminal send") echo '{"ok":true}' ;;
+  "terminal send")
+    # a terminal send answers from term-send-out when a test sets it (agent_prompt_blocked, a dead pane)
+    if [ -f "$STUB_DIR/term-send-out" ]; then cat "$STUB_DIR/term-send-out"; exit 1; fi
+    echo '{"ok":true}' ;;
+  "orchestration worker-release")
+    if [ -f "$STUB_DIR/release-out" ]; then cat "$STUB_DIR/release-out"; [ -f "$STUB_DIR/release-exit" ] && exit 1; exit 0; fi
+    echo '{"ok":true,"result":{"status":"released"}}' ;;
+  "orchestration worker-stop")
+    if [ -f "$STUB_DIR/stop-out" ]; then cat "$STUB_DIR/stop-out"; exit 1; fi
+    echo '{"ok":true,"result":{"stopped":true}}' ;;
+  "orchestration send")
+    if [ -f "$STUB_DIR/send-out" ]; then cat "$STUB_DIR/send-out"; exit 1; fi
+    echo '{"ok":true,"result":{"messageId":"msg_1"}}' ;;
   "terminal close")
     [ -f "$STUB_DIR/close-fail" ] && { echo '{"ok":false,"error":{"message":"terminal is busy"}}'; exit 1; }
     echo '{"ok":true}' ;;
@@ -110,7 +122,7 @@ EOF
 chmod +x "$TMP/bin/orca"
 reset() { rm -f "$TMP/calls" "$TMP/ws" "$TMP"/ws-fail-* "$TMP/tr" "$TMP/dialog-always" "$TMP/dialog-reads" "$TMP/task-fail" \
                 "$TMP"/show-*.json "$TMP/terminals.json" "$TMP/close-fail" "$TMP/list-all.json" "$TMP/list-all-fail" \
-                "$TMP"/screen-*.json; }
+                "$TMP"/screen-*.json "$TMP/term-send-out" "$TMP/release-out" "$TMP/release-exit" "$TMP/stop-out" "$TMP/send-out"; rm -f "$H/processed.log"; }
 ST() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_REPO="$APP" ORCA_CLI_COMMAND=orca STAR_FREE_GB=${FREE:-16} \
        STAR_AGENTS=${AGENTS:-3} STAR_SWAP_GB=${SWAP:-1} STAR_DISK_GB=${DISK:-500} \
        STAR_TRUST_POLL=0.01 CLAUDE_CONFIG_DIR="$TMP/cfg" sh "$SCRIPT" --home "$H" "$@"; }
@@ -669,5 +681,49 @@ bl BLK-7 queued '[BLK-8]'; L add BLK-8 ref=BLK-8 project=app state=done >/dev/nu
 WTB7="$APP/.worktrees/app/BLK-7"; trust "$APP" "$WTB7"
 reset; out=$(ST build BLK-7); case "$out" in "started "*) pass "a done blocker is cleared" ;; *) fail "done blocker ($out)" ;; esac
 
+# lane e: release, stop and tell (#197, #198)
+reset; show ctx_rl1 term_rl1 owned - true 0 "$APP" released
+out=$(ST release ctx_rl1)
+[ "$out" = "released ctx_rl1; closed term_rl1" ] && grep -q '^orchestration worker-release --dispatch ctx_rl1 --json$' "$TMP/calls" && ! grep -q -- '--run' "$TMP/calls" && pass "release passes only --dispatch and appends the close line (#197)" || fail "release ($out; $(cat "$TMP/calls"))"
+reset; printf '{"ok":true,"result":{"status":"retained"}}\n' > "$TMP/release-out"; show ctx_rl2 term_rl2 user_owned user_takeover false 1 "$APP" retained running
+out=$(ST release ctx_rl2); [ "$out" = "retained ctx_rl2; kept term_rl2 (running)" ] && pass "release prints Orca's status, then what close kept" || fail "retained ($out)"
+reset; printf '{"ok":true,"result":{"status":"already_released"}}\n' > "$TMP/release-out"
+out=$(ST release ctx_rl3); [ "$out" = "already_released ctx_rl3; none" ] && pass "already_released, and a dispatch with no terminal, print none" || fail "already_released ($out)"
+reset; printf '{"ok":true,"result":{"status":"release_pending"}}\n' > "$TMP/release-out"
+out=$(ST release ctx_rl3); [ "$out" = "release_pending ctx_rl3; none" ] && pass "release_pending is Orca's status as it is" || fail "release_pending ($out)"
+reset; printf '{"ok":false,"error":{"message":"Unknown flag --run"}}\n' > "$TMP/release-out"; touch "$TMP/release-exit"
+out=$(ST release ctx_rl4); [ "$out" = "FAIL release ctx_rl4: Unknown flag --run" ] && ! grep -q 'worker-show' "$TMP/calls" && pass "ok: false is one FAIL line, and the close check is skipped" || fail "release fail ($out)"
+reset; printf '{"ok":true,"result":{"status":"release_unknown","message":"Orca could not tell"}}\n' > "$TMP/release-out"; touch "$TMP/release-exit"
+out=$(ST release ctx_rl5); case "$out" in "FAIL release ctx_rl5: "*) pass "release_unknown (exit 1) is a FAIL line" ;; *) fail "release_unknown ($out)" ;; esac
+reset; printf '{"ok":true,"result":{"status":"released"}}\n' > "$TMP/release-out"; touch "$TMP/release-exit"
+out=$(ST release ctx_rl6); case "$out" in "FAIL release ctx_rl6: "*) pass "a non-zero exit is a FAIL line even when the JSON says ok" ;; *) fail "exit 1 ($out)" ;; esac
+
+reset; show ctx_st1 term_st1 owned - true 0 "$APP" released
+out=$(ST stop ctx_st1)
+[ "$out" = "stopped ctx_st1; released ctx_st1; closed term_st1" ] && pass "stop stops, then releases" || fail "stop ($out)"
+grep -q '^orchestration worker-stop --dispatch ctx_st1 --json$' "$TMP/calls" && ! grep -q -- '--run' "$TMP/calls" && pass "worker-stop gets only --dispatch" || fail "stop call ($(cat "$TMP/calls"))"
+[ "$(grep -c '^ctx_st1 stopped ' "$H/processed.log")" = 1 ] && grep -Eq '^ctx_st1 stopped [0-9]{4}-[0-9]{2}-[0-9]{2}T' "$H/processed.log" && pass "processed.log says stopped, with an iso time" || fail "processed.log ($(cat "$H/processed.log" 2>&1))"
+out=$(ST stop ctx_st1); [ "$(grep -c '^ctx_st1 ' "$H/processed.log")" = 1 ] && pass "a second stop writes no second line" || fail "stop twice ($(cat "$H/processed.log"))"
+reset; printf '{"ok":false,"error":{"message":"dispatch not found"}}\n' > "$TMP/stop-out"
+out=$(ST stop ctx_st2); [ "$out" = "FAIL stop ctx_st2: dispatch not found" ] && ! grep -q worker-release "$TMP/calls" && grep -q '^ctx_st2 stopped ' "$H/processed.log" && pass "a failed stop is one FAIL line, nothing is released, the log was written first" || fail "stop fail ($out)"
+
+reset
+out=$(ST tell ctx_tl1 "nudge" "the schema changed")
+[ "$out" = "sent mailbox" ] && grep -q -- '^orchestration send --to dispatch:ctx_tl1 --subject nudge --body the schema changed --json$' "$TMP/calls" && ! grep -q 'terminal send' "$TMP/calls" && pass "tell addresses dispatch:<id> (#198)" || fail "tell mailbox ($out; $(cat "$TMP/calls"))"
+reset; printf '{"ok":false,"error":{"message":"Terminal ctx_tl2 has no live pane or durable Run/Dispatch mailbox"}}\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl2","assigneeHandle":"term_asg"},"worker":{"agentTerminalHandle":"term_agt"}}}\n' > "$TMP/show-ctx_tl2.json"
+out=$(ST tell ctx_tl2 "nudge" "the schema changed")
+[ "$out" = "sent terminal term_agt" ] && grep -q -- '^terminal send --terminal term_agt --text nudge: the schema changed --enter --json$' "$TMP/calls" && pass "a refused send falls back to the worker's terminal" || fail "tell fallback ($out; $(cat "$TMP/calls"))"
+reset; printf '{"ok":false,"error":{"message":"no mailbox"}}\n' > "$TMP/send-out"
+printf '{"ok":true,"result":{"dispatch":{"id":"ctx_tl3","assigneeHandle":"term_asg"},"worker":{}}}\n' > "$TMP/show-ctx_tl3.json"
+out=$(ST tell ctx_tl3 "s" "b"); [ "$out" = "sent terminal term_asg" ] && pass "with no agentTerminalHandle, the assignee handle is used" || fail "assignee ($out)"
+printf '{"ok":false,"error":{"code":"agent_prompt_blocked","message":"a prompt is open"}}\n' > "$TMP/term-send-out"
+out=$(ST tell ctx_tl3 "s" "b"); [ "$out" = "busy term_asg" ] && pass "agent_prompt_blocked prints busy for the next tick" || fail "busy ($out)"
+printf '{"ok":false,"error":{"message":"terminal not found"}}\n' > "$TMP/term-send-out"
+out=$(ST tell ctx_tl3 "s" "b"); [ "$out" = "FAIL tell ctx_tl3: terminal not found" ] && pass "a terminal send that fails is one FAIL line" || fail "tell fail ($out)"
+reset; printf '{"ok":false,"error":{"message":"no mailbox"}}\n' > "$TMP/send-out"
+out=$(ST tell ctx_tl4 "s" "b"); case "$out" in "FAIL tell ctx_tl4: "*) ! grep -q 'terminal send' "$TMP/calls" && pass "a dispatch with no terminal at all is a FAIL line" || fail "no terminal sent" ;; *) fail "no terminal ($out)" ;; esac
+reset; out=$(ST tell ctx_tl5 "-dash subject" "-dash body"); [ "$out" = "sent mailbox" ] && grep -q -- '--subject -dash subject --body -dash body' "$TMP/calls" && pass "a subject or body that starts with a dash is text, not a flag" || fail "dash ($out)"
+reset; out=$(ST tell ctx_tl5 "only subject" 2>&1); case "$out" in "stage-start.sh: usage"*) pass "tell without a body is a usage error" ;; *) fail "tell usage ($out)" ;; esac
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -2,7 +2,8 @@
 # Starts one STAR stage for one ledger row: everything "Fill slots" does, in one place, so no
 # session hand-rolls it.
 #   stage-start.sh [--home H] brief|build|babysit|post <item>
-#   stage-start.sh [--home H] close <dispatch>
+#   stage-start.sh [--home H] close|release|stop <dispatch>
+#   stage-start.sh [--home H] tell <dispatch> <subject> <body>
 # Prints one line:
 #   started task=<id> dispatch=<id>[ fallback <model>: <why>]
 #   hold memory <gb>          free + inactive memory under hostGate.minFreeGB (default 3)
@@ -39,6 +40,18 @@
 #                                      retainedReason or ownershipState), or the close failed
 #                                      ("close failed: <why>")
 #   none                               the dispatch has no terminal, or Orca no longer lists it
+# release <dispatch> (#197), stop <dispatch> and tell <dispatch> <subject> <body> (#198) print exactly one
+# line, exit 0, and start nothing. They are the only way STAR calls worker-release, worker-stop and
+# orchestration send; none of the Orca commands takes --run, and a send needs the address dispatch:<id>.
+#   release: worker-release --dispatch <id> --json, then close. "<status> <dispatch>; <close line>", the
+#     status being Orca's (released, retained, release_pending, already_released); or
+#     "FAIL release <dispatch>: <message>" (ok: false, a non-zero exit, release_unknown)
+#   stop: appends "<dispatch> stopped <iso>" to <home>/processed.log unless a line for the dispatch is
+#     there, then worker-stop, then release: "stopped <dispatch>; <release line>" or "FAIL stop <dispatch>: <message>"
+#   tell: the dispatch's mailbox ("sent mailbox"); when Orca refuses, the dispatch's terminal
+#     (worker-show's agentTerminalHandle, else assigneeHandle) gets "<subject>: <body>" and Enter
+#     ("sent terminal <t>"); "busy <t>" when Orca answers agent_prompt_blocked (try again next tick);
+#     else "FAIL tell <dispatch>: <message>"
 # Before that one line it may print, in this order, each on a line of its own, whatever line
 # follows (#76):
 #   stopped previous gate pgid=<n>    the gate lock, or one of its slot files <lock>.2 to <lock>.4
@@ -268,10 +281,83 @@ def close_command(dispatch):
     out(close_line(dispatch))
 
 
+def release_command(dispatch):
+    """release <dispatch> (#197): worker-release with only --dispatch, then the close check. Returns the line."""
+    released = run([orca, "orchestration", "worker-release", "--dispatch", dispatch, "--json"], 60)
+    data = lenient(released.stdout)
+    statuses = ("released", "retained", "release_pending", "already_released", "release_unknown")
+    status = next((v for v in strings(data) if v in statuses), None)
+    if released.returncode != 0 or not isinstance(data, dict) or data.get("ok") is False or status in (None, "release_unknown"):
+        message = why(released)
+        result = data.get("result") if isinstance(data, dict) else None
+        if released.returncode == 0 and isinstance(result, dict) and (result.get("message") or result.get("reason")):
+            message = str(result.get("message") or result.get("reason"))[:120]
+        elif released.returncode == 0 and status is None:
+            message = "Orca named no release status"
+        return f"FAIL release {dispatch}: {message}"
+    return f"{status} {dispatch}; {close_line(dispatch)}"
+
+
+def strings(value):
+    """Every string value under a decoded JSON value."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from strings(v)
+
+
+def stop_command(dispatch):
+    """stop <dispatch> (#80, #197): note the stop in processed.log first, so a late worker_done is skipped, then
+    worker-stop, then release."""
+    log = os.path.join(home, "processed.log")
+    try:
+        known = any(line.split()[:1] == [dispatch] for line in open(log, encoding="utf-8", errors="replace"))
+    except OSError:
+        known = False
+    if not known:
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"{dispatch} stopped {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
+    stopped = run([orca, "orchestration", "worker-stop", "--dispatch", dispatch, "--json"], 60)
+    data = lenient(stopped.stdout)
+    if stopped.returncode != 0 or (isinstance(data, dict) and data.get("ok") is False):
+        out(f"FAIL stop {dispatch}: {why(stopped)}")
+    out(f"stopped {dispatch}; {release_command(dispatch)}")
+
+
+def tell_command(dispatch, subject, body):
+    """tell <dispatch> <subject> <body> (#198): the dispatch's mailbox, else its own terminal."""
+    sent = run([orca, "orchestration", "send", "--to", f"dispatch:{dispatch}", "--subject", subject, "--body", body, "--json"], 60)
+    data = lenient(sent.stdout)
+    if sent.returncode == 0 and not (isinstance(data, dict) and data.get("ok") is False):
+        out("sent mailbox")
+    shown = run([orca, "orchestration", "worker-show", "--dispatch", dispatch, "--json"], 60)
+    shown_data = lenient(shown.stdout)
+    result = shown_data.get("result") if isinstance(shown_data, dict) else None
+    result = result if isinstance(result, dict) else {}
+    worker = result.get("worker") if isinstance(result.get("worker"), dict) else {}
+    record = result.get("dispatch") if isinstance(result.get("dispatch"), dict) else {}
+    handle = worker.get("agentTerminalHandle") or record.get("assigneeHandle")
+    if not handle:
+        out(f"FAIL tell {dispatch}: {why(sent)}; the dispatch has no terminal")
+    typed = run([orca, "terminal", "send", "--terminal", handle, "--text", f"{subject}: {body}", "--enter", "--json"], 60)
+    typed_data = lenient(typed.stdout)
+    if typed.returncode == 0 and not (isinstance(typed_data, dict) and typed_data.get("ok") is False):
+        out(f"sent terminal {handle}")
+    if "agent_prompt_blocked" in typed.stdout + typed.stderr:
+        out(f"busy {handle}")
+    out(f"FAIL tell {dispatch}: {why(typed)}")
+
+
 home, args, positional = os.environ.get("STAR_HOME_DEFAULT") or "", sys.argv[1:], []
 while args:
     arg = args.pop(0)
-    if arg == "--home":
+    if positional[:1] == ["tell"] and len(positional) >= 2:
+        positional.append(arg)  # a subject or body may start with a dash
+    elif arg == "--home":
         if not args:
             die(64, "--home needs a value")
         home = args.pop(0)
@@ -279,9 +365,19 @@ while args:
         die(64, f"unknown argument: {arg}")
     else:
         positional.append(arg)
-USAGE = "usage: stage-start.sh [--home H] brief|build|babysit|post <item> | close <dispatch>"
+USAGE = ("usage: stage-start.sh [--home H] brief|build|babysit|post <item> | close|release|stop <dispatch> "
+         "| tell <dispatch> <subject> <body>")
 if len(positional) == 2 and positional[0] == "close":
     close_command(positional[1])
+if len(positional) == 2 and positional[0] == "release":
+    out(release_command(positional[1]))
+if len(positional) == 2 and positional[0] == "stop":
+    if not home:
+        die(2, "no STAR folder: pass --home, or run inside a project")
+    home = os.path.abspath(home)
+    stop_command(positional[1])
+if len(positional) == 4 and positional[0] == "tell":
+    tell_command(*positional[1:])
 if len(positional) != 2 or positional[0] not in RUNNING:
     die(64, USAGE)
 stage, item = positional

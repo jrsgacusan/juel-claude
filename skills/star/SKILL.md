@@ -408,9 +408,11 @@ STAR opens no code, review or log file itself.
 
 Each tick `worker-probe.sh` reads every running worker and prints one line (`ok`, `quiet`, `stale`, `stuck:`,
 `stalled:`, `settled`, `gone`, `unknown`, `gate-gone r<k>`); `references/stages.md` ("Watching a running
-worker") says what each costs and does. After every `worker-stop` and `worker-release`, STAR runs `sh
-S/stage-start.sh --home HOME_DIR close <dispatch>`, which closes the dispatch's own settled terminal and keeps a
-terminal it cannot prove it created (#175). Nobody is asked about a kept one.
+worker") says what each costs and does. STAR never builds `worker-stop`, `worker-release` or
+`orchestration send --to dispatch:` by hand (#197, #198); it runs `sh S/stage-start.sh --home HOME_DIR
+release|stop <dispatch>` and `tell <dispatch> <subject> <body>`. `release` and `stop` end with the close check
+(`close <dispatch>`), which closes the dispatch's own settled terminal and keeps a terminal it cannot prove it
+created (#175). Nobody is asked about a kept one.
 
 ## The start sequence
 
