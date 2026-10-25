@@ -121,7 +121,7 @@ done
 grep -qF '"<phase or wake>"' "$SKILL" && fail "P2b the free-form step field is gone" || pass "P2b the free-form step field is gone"
 # Issue #60: the executor fallback reaches STAR through the report
 g "N60c babysit carries the executor fallback NOTE" 'NOTE: executor skill missing, the plan ran in this session'
-g "N60d the report line count includes it" 'That is 10 lines at most'
+g "N60d the report line count includes it" 'That is 11 lines at most'
 # Issues #63, #66, #71: the gate round from the worker's side
 grow "G66c babysit counts verdict files only" 'error logs, raw files and run files never count'
 grow "G66d babysit reruns the same round after an ERROR" 'run the same round once more'
@@ -304,7 +304,7 @@ grep -qF 'with no `node_modules` folder and no' "$SKILL" && fail "F105d the old 
 # fix: one NOTE line names every outside-merged path (#106)
 report_row=$(grep -F '| Phase 5 report |' "$SKILL")
 printf '%s\n' "$report_row" | grep -qF '`NOTE: scope outside-merged <path>[, <path> ...]` once, relayed from `receive-review-and-execute`' && pass "F106a the report carries the outside-merged NOTE, relayed once" || fail "F106a the report carries the outside-merged NOTE, relayed once"
-printf '%s\n' "$report_row" | grep -qF 'That is 10 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
+printf '%s\n' "$report_row" | grep -qF 'That is 11 lines at most' && pass "F106b the report line count includes it" || fail "F106b the report line count includes it"
 # lane g: a base-only merge push runs the sweep, the carry and base-moved wording (#111, #110, #113)
 phase 4 | grep -qF 'branch in runs the sweep, `sh <run-gates.sh> <the --gates-file manifest> --root <repo root> sweep`' && pass "#111a a base-only merge push runs the sweep" || fail "#111a a base-only merge push runs the sweep"
 phase 4 | grep -qF '`test` command), after a clean merge too: the base can change a call that an untouched file on' && pass "#111b after a clean merge too" || fail "#111b after a clean merge too"
@@ -372,7 +372,7 @@ g "Q157f away is not a reason to wait" 'nothing holds marking ready, replies, re
 # audit lane d: final sync
 has "D2a Phase 4 step 1 merges the base in only when" 'merges the base in only when'
 has "D2b step 1 reads review-rule.sh" 'review-rule.sh <repo> <base>'
-has "D2c step 1 names strict and unknown" 'prints `strict` or `unknown'
+has "D2c step 1 names strict, queue and unknown" 'prints `strict`, `queue` or `unknown'
 has "D2d the hosted row's base merge takes the same condition" "Phase 4 step 1's condition holds"
 has "D2e the description says when the base is merged" 'merges the base branch in when the base requires it or the PR conflicts'
 has "D2f the behind paragraph says the merge gate still sends a strict base back" "STAR's merge gate still sends a strict base back"
@@ -393,7 +393,11 @@ has "AU5 a conflict that fails the gates ends as step=conflict" 'reason=out-of-t
 has "AU6 By hand the resolved hunks are shown before the commit" 'show the user the resolved hunks of each conflicted file (`git diff --cached -- <files>`) and ask before committing and pushing'
 has "AU6b a lockfile is regenerated, never merged by hand" 'A lockfile is never merged by hand: take the base'"'"'s version, run the project'"'"'s install command to regenerate it, and stage the result.'
 has "#204a behind alone is not a reason to sync" '`behind` alone is not a reason (#204)'
-has "#204b a STAR Decisions line can order the sync" 'has a STAR line that orders a base sync before `READY`'
+has "#204b the exact Decisions line STAR writes orders the sync" '`## Decisions` holds the line `synced with <base> at <sha7>`, which STAR'"'"'s "Sync after the base moved" writes'
+has "#204e strict, queue and unknown all sync" 'prints `strict`, `queue` or `unknown …`, or the brief'"'"'s'
+has "#204f a queue base refuses a BEHIND merge too" 'A `queue` base refuses a BEHIND merge too, so it syncs like a strict one'
+has "#204g the hosted row names queue and unknown" 'or `review-rule.sh` prints `strict`, `queue` or `unknown …`, or the `synced with <base> at <sha7>` line'
+has "#205a the report carries the inherited NOTE" '`NOTE: inherited from <base>: <one line>` once when the cause of an `ESCALATION` is a defect the PR took over from its base branch'
 has "#204c at most one sync per run" 'Phase 4 syncs at most once per run'
 has "#204d the hosted last pass uses the same rule" 'never `behind` alone'
 has "AU7 red CI is rerun once" 'Rerun it once. Green means a flake: go on.'
