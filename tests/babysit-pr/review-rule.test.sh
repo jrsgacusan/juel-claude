@@ -77,6 +77,12 @@ R norepo main >/dev/null 2>&1; [ $? -eq 64 ] && pass "a repo without its owner i
 reset; printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]\n' > "$TMP/rules.json"
 [ "$(R o/r main | tr '\n' ' ')" = "none check ci strict " ] && pass "a strict ruleset prints strict after the checks" || fail "strict ruleset ($(R o/r main))"
 
+# #193: a merge_queue rule prints queue, before strict
+reset; printf '[{"type":"merge_queue","parameters":{}},{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]\n' > "$TMP/rules.json"
+[ "$(R o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "a merge queue rule prints queue before strict" || fail "queue ($(R o/r main))"
+reset; printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[]}}]\n' > "$TMP/rules.json"
+R o/r main | grep -qx queue && fail "queue printed with no merge_queue rule" || pass "no merge_queue rule prints no queue"
+
 reset; printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":false,"required_status_checks":[{"context":"ci"}]}}]\n' > "$TMP/rules.json"
 R o/r main | grep -qx strict && fail "a non-strict ruleset printed strict" || pass "a non-strict ruleset prints no strict"
 

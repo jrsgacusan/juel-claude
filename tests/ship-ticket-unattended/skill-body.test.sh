@@ -384,8 +384,9 @@ has "AU5 settings read tries in place of gate.maxRounds" 'its `tries` (`perStep`
 has "AU6 missing acceptance criteria are not a stop" 'Missing acceptance criteria are not a stop: STAR writes them into the brief.'
 has "AU7 a brief violation is a RESCOPE" 'RESCOPE item=<item> reason=brief review=<a file naming what the work needs and why the brief excludes it>'
 has "AU8 the gate cap runs tries.perStep rounds" 'after `tries.perStep` rounds in this run'
-has "AU9 a conflict is resolved, recorded and gated" 'resolve them yourself, keeping both changes'"'"' intent'
-has "AU10 By hand a conflict that is not mechanical is still shown" 'By hand, a conflict `merge-union.sh` cannot resolve still stops the merge for the user.'
+has "AU9 a conflict is resolved, recorded and gated, by babysit-pr's rule" 'resolve the conflicted files yourself, keeping both changes'"'"' intent, from both items'"'"' briefs and `## Decisions` and the sibling PR'"'"'s diff and description'
+has "AU10 By hand the resolved hunks are shown before the commit" 'show the user the resolved hunks of each file (`git diff --cached -- <files>`) and ask before committing and pushing'
+! grep -q 'merge-uni[o]n' "$SKILL" && pass "AU10b the retired script is gone" || fail "AU10b retired script named"
 has "AU11 red CI proof line" 'red-check-proof check=<name> head=<head> cause=base|infra base=<base head> url=<url>'
 has "AU11b a name with a space or = is quoted" 'check="test (ubuntu-latest)"'
 has "AU11c base is the PR base branch's current head" '`baseRefOid`'
