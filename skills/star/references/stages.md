@@ -28,6 +28,13 @@ effort was refused, or on `worker` when the model was refused (a `fallback` suff
 `task-create` and `worker-start` carry `--retry-request` ids, so a replay never makes a second task. Every
 spec is one line: a line break once left an orphan task.
 
+The same script talks to a running worker, so no session builds those Orca commands by hand: `release <dispatch>`
+and `stop <dispatch>` (below, "A stopped worker is gone"), and `tell <dispatch> <subject> <body>` (#198). `tell`
+sends to the dispatch's mailbox, and when Orca refuses (a dispatch minutes old can have no mailbox yet) types the
+same text into the dispatch's own terminal. It prints `sent mailbox`, `sent terminal <t>`, `busy <t>` (a prompt
+is open: try again next tick) or `FAIL tell <dispatch>: <message>`. The check-in and retry nudges stay `orca
+terminal send`: they need the Enter and already read `agent_prompt_blocked`.
+
 **Build worktree.** `stage-start.sh build` sets it up before any agent starts, because Orca picks the
 new worktree's branch name and `ship-ticket` stops when the checkout is not on the brief's branch.
 It reuses a worktree that `git worktree list --porcelain` shows on the brief's branch (unless another
@@ -50,16 +57,20 @@ status line as `<item>: <the line>`, then act on the last line.
 | `hold trust <path>` | Claude Code's trust dialog for the path could not be cleared. Add a `person` item of kind `screen`: "trust <path> for Claude Code: run `claude` there and accept". The row keeps waiting and the next tick tries again |
 | `hold session <terminal> (<state>)` | a session may still be working on this item (a person took the terminal over, or Orca cannot prove whose it is). Start nothing for this row, keep it waiting, give the slot to the next row. The next tick tries again. No question: the session ends or goes quiet |
 | `wait until <iso>` | the brief's `notBefore` is ahead: keep the row `queued`, say `<item> waits until <date>`, give the slot to the next row |
+| `wait <item>` | the brief's `blockedBy` names `<item>`, which is not cleared (a SPLIT's parts count, #189; a babysit waits too, #205): write nothing, keep the row in its waiting state (`queued` or `babysit-queued`), say `<row> waits on <item>`, give the slot to the next row. No try, no question |
 | `failed <step>: <why>` | an infra failure: `<step>` is one of `brief`, `worktree`, `branch`, `env`, `in-use`, `task-create`, `worker-start`. Spend a try (below); the row goes back to its waiting state |
 | no line, or a non-zero exit | the script was cut off: put the row back in its waiting state with its counters as they are, and file an improvement issue |
 
-**A stopped worker is gone** (#76, #175). `worker-stop` fences the dispatch, but Orca can keep its terminal
-and the agent in it. After every `worker-stop` and `worker-release` STAR makes, run
-`sh S/stage-start.sh --home HOME_DIR close <dispatch>`. It prints exactly one line and exits 0:
-`closed <terminal>` (the dispatch settled and the terminal was provably its own, whatever its
-`retainedReason`), `kept <terminal> (<state>)` (anything else: a person's terminal, or a dispatch not yet
-settled) or `none`. Say a `closed` or `kept` line in the status line. A `kept` terminal stays open and
-nobody is asked. `stage-start.sh` applies the same rule to a row's previous dispatch before it starts the
+**A stopped worker is gone** (#76, #175, #197). `worker-stop` fences the dispatch, but Orca can keep its terminal
+and the agent in it, and the commands have no `--run` flag. STAR never builds them: `sh S/stage-start.sh --home
+HOME_DIR stop <dispatch>` notes `<dispatch> stopped <iso>` in `processed.log` (once), stops, releases and
+closes, and `release <dispatch>` releases a settled one. Each prints exactly one line and exits 0:
+`stopped <dispatch>; <release line>` or `<status> <dispatch>; <close line>`, `<status>` being Orca's
+(`released`, `retained`, `release_pending`, `already_released`), or `FAIL stop|release <dispatch>: <message>`
+(put it in the status line and look again next tick). The close line is `closed <terminal>` (the dispatch
+settled and the terminal was provably its own, whatever its `retainedReason`), `kept <terminal> (<state>)`
+(anything else: a person's terminal, or a dispatch not yet settled) or `none`. Say a `closed` or `kept` line in
+the status line. A `kept` terminal stays open and nobody is asked. `close <dispatch>` alone runs only the close check. `stage-start.sh` applies the same rule to a row's previous dispatch before it starts the
 stage, so two sessions never work in one worktree.
 
 ## The codex gate
@@ -111,7 +122,7 @@ issue (tick.md); `HELD item=… action=…` becomes a `draft` item titled `by ha
 | First line | Action |
 |---|---|
 | `BRIEF item=… path=… asks=<n> [followup=<path>] [rescoped=1]` | queue one `person` item per line of the brief's `## Person-only steps` (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines), but look first, because the owner is never asked the same thing twice: STAR's notes (`sh S/recall.sh --kind note <the step's words>`), the project's `CLAUDE.md` and `AGENTS.md`, and the queue and its archive. A step one of them already answers, or one answered `done` in the last 7 days, goes into `## Decisions` instead (naming where the answer lives, never a secret's value), and no item is added. The row goes to `queued`, or `needs-you` (its `stage` set to build) while any of those items is open. `followup=<path>` adds the follow-up row (below). `rescoped=1`: clear `counters.rescope` (the count went up when the row was sent to be re-scoped). When the brief's `baseBranch` is one of `ownerBranches`, its point is a merge into that branch, which is the owner's: the row goes `set-aside` with "<branch> → <baseBranch> is yours", nothing is built |
-| `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `batch`, `parent=<item>`); when the parent's `ref` is a tracker item every part also carries `counters.trackerRef=<parent ref>` (#172); the parent row goes to `dropped`; say "split into <names>" |
+| `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `batch`, `parent=<item>`); when the parent's `ref` is a tracker item every part also carries `counters.trackerRef=<parent ref>` (#172); the parent row goes to `dropped`; say "split into <names>". A brief that waits on the parent keeps its `blockedBy` as it is and waits on the parts, because `stage-start.sh` reads a dropped blocker through `parent=` (#189) |
 | `ESCALATION …` | below |
 
 **Build**
@@ -138,13 +149,20 @@ issue (tick.md); `HELD item=… action=…` becomes a `draft` item titled `by ha
 
 - `ESCALATION item=<item> phase=<n> reason=needs-person needs=<secret|account|screen|approval|access>: <what>`.
   Add a `person` item (title the thing, body `kind: <needs>` and what it is for), set the row `needs-you`
-  with its `stage` as it was, free the slot, stop and release the worker. When the
+  with its `stage` as it was, free the slot, `stage-start.sh stop` the worker. When the
   item is done the row goes to that stage's waiting state. STAR first checks its notes and the project's
   `CLAUDE.md` and `AGENTS.md`: when the answer is there, it records the decision and puts the row straight
   back in its waiting state. When the same need comes back for the same item, the note did not work: add the `person`
   item, naming the note (`M-…`) so the owner can correct it. At most one note retry per need per item. A need that is not one of the five kinds is not a person's: decide it
   (SKILL.md, "When STAR asks you") and reply to the worker or run the stage again.
 - `ESCALATION item=<item> phase=<n> reason=out-of-tries step=<step>[ review=<path>]`. Free the slot and apply "What a failure costs" to `<step>`.
+
+**A cause inherited from the base** (#205). An `ESCALATION` from a babysit or build worker whose cause is a defect
+the PR took over from its base branch, when an open row is the fix for it, is not a try and not a question:
+append that row's item to the brief's `blockedBy:` line, append `- <date> waits for <fix item> to merge into
+<base>: <cause>` to `## Decisions`, spend no try, and send the row to its waiting state (`babysit-queued` or
+`queued`), freeing the slot and stopping the worker (`stage-start.sh stop`). No `person` item. `stage-start.sh` then prints
+`wait <fix item>` until that row is `done` (or `dropped` with its parts), and the stage starts again by itself.
 
 A babysit worker settles `CONFLICT:`, `AMBIGUOUS:`, `BRIEF-VIOLATION:` and `STOPPED:` itself; they never
 reach STAR. A `question` message (`orca orchestration ask`) is STAR's to answer, always (tick.md,
@@ -367,8 +385,8 @@ STAR remembers what it sent a worker in `sent.log`, not in counters: one line pe
 | `unknown <why>` | says nothing about the worker, including empty or unreadable Orca output: keep the row and probe again next tick; it never justifies a restart |
 | `gate-gone r<k>` | gate round `k`'s process died while no verdict file exists and the worker still waits. Spend a try at step `worker` and send `orca orchestration send --to dispatch:<dispatch> --subject "STAR" --body "The gate process for round <k> died with no verdict. Run round <k> again." --json` |
 
-**A lost worker.** Append `<dispatch> stopped <iso>` to `processed.log`, then `orca orchestration worker-stop
---dispatch <id> --json`, `worker-release`, and `sh S/stage-start.sh --home HOME_DIR close <dispatch>`. Spend a
+**A lost worker.** Run `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` (the `stopped` line in
+`processed.log`, `worker-stop`, `worker-release` and the close check, in that order). Spend a
 try at step `worker`, set `restarts` to its old value plus one, and put the row in its stage's waiting state
 (babysit resumes with `--since <cursor>`); a stage that has used `tries.perStep` is set aside with "worker lost
 <n> times". A lost build restarts on its worktree and branch as they are; STAR never cleans or discards what a
@@ -376,5 +394,5 @@ dead run left, and the new run sees it. Append "- <date> STAR restarted the <sta
 <diagnosis>. Resume on the existing branch and PR." to `## Decisions` when the brief exists, and say
 "restarted <item>" in the status line. A `verifying` row has no worker: never restart it.
 
-A stopped worker is put on record first (the `stopped` line above), so a message from that dispatch is written
+A stopped worker is put on record first (the `stopped` line `stop` writes), so a message from that dispatch is written
 to `processed.log` and changes nothing else, also after a restart.

@@ -135,7 +135,7 @@ hasE "A17 merge.sh --head" 'merge\.sh.*--head'
 hasE "A17 pr-verify.sh --merge-gate" 'pr-verify\.sh.*--merge-gate'
 hasE "A17 pr-verify.sh --brief" 'pr-verify\.sh.*--brief'
 hasT "A17 red-check-proof" 'red-check-proof'
-hasE "A18 stage-start.sh close (#175)" 'stage-start\.sh.* close '
+hasE "A18 stage-start.sh close (#175)" 'close <dispatch>'
 hasT "A18 trackerRef (#172)" 'trackerRef'
 hasT "A18 CLAUDE.md and AGENTS.md (#169)" 'CLAUDE.md'
 hasT "A18 AGENTS.md" 'AGENTS.md'
@@ -175,6 +175,17 @@ hasT "A37 stages.md: apply it is the owner having read it" 'STAR never applies i
 for f in state recovery; do
   tr '\n' ' ' < "$S/references/$f.md" | tr -s ' ' | grep -qF 'A schema-3 home may delete an old `grants/` folder and the `grant` line in a brief'"'"'s frontmatter: nothing reads them.' && pass "A29 $f.md says an old grants/ may go" || fail "A29 $f.md says an old grants/ may go"
 done
+
+# Workers are released, stopped and told through stage-start.sh, never by a hand-built Orca command (#197, #198)
+hasE "A38 stage-start.sh release, stop and tell are named" 'stage-start\.sh.* (release|stop)( |\|)'
+hasT "A38b tell is named with its fall back to the terminal" 'sends to the dispatch'"'"'s mailbox, and when Orca refuses'
+if grep -qE 'orca orchestration worker-(stop|release)' "$tmp/text"; then fail "A39 a hand-built worker-stop or worker-release"; else pass "A39 no hand-built worker-stop or worker-release"; fi
+# the gate-gone probe row is Lane D's; it may still send by hand until that lane changes it
+if grep -v '^| `gate-gone' "$tmp/text" | grep -qE 'orca orchestration send --to dispatch:'; then fail "A40 a hand-built orchestration send --to dispatch:"; else pass "A40 no hand-built orchestration send --to dispatch:"; fi
+hasT "A41 a dropped blocker is read through its parts" 'with every row whose `parent=` names it cleared in turn'
+hasT "A42 wait <item> in Fill slots and the starting table" 'print `wait until <iso>` or `wait <item>`'
+hasT "A43 the SPLIT row says a waiting brief waits on the parts" 'waits on the parts, because `stage-start.sh` reads a dropped blocker through `parent=`'
+hasT "A44 a cause inherited from the base waits on the fix, no try" 'spend no try, and send the row to its waiting state'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
