@@ -75,6 +75,7 @@ Schema 3. `star-home.sh migrate` brings an older home here; `template/star.json`
   "mergeMethod": null,              // "merge", "squash", "rebase" or null
   "baseBranch": null,               // the branch every STAR PR targets; null is the repository's default
   "ownerBranches": [],              // branches only the owner merges into
+  "keepBranches": false,            // true: a branch Orca deletes with a finished worktree is recreated (#200)
   "hostedReviewer": null,           // or { "login": "greptile-apps[bot]", "minScore": 4, "maxPasses": 2, "refreshOutsideCap": true, "paused": false }
   "hostGate": { "minFreeGB": 3, "maxAgents": 40, "maxSwapGB": 11, "minDiskGB": 25 },
   "progressDeadlineMin": 30,        // no progress for this long: a check-in
@@ -102,10 +103,11 @@ measure, so it is not the default.
 | `tries.perStep`, `tries.rescopes`, `tries.followUpDepth` | The budget in SKILL.md. Migration carries an old `gate.maxRounds` into `perStep`. |
 | `mergeMethod` | `merge.sh` uses it when the repository allows it, else it prints `FAIL merge methods: <method> not allowed`. Null keeps squash, merge, rebase: the first the repository allows. |
 | `baseBranch`, `ownerBranches` | Where PRs go and where only the owner merges (SKILL.md, the merge gate). |
+| `keepBranches` | False by default. True: `worktree-clean.sh` notes the worktree's branch and HEAD, and when Orca deleted the branch with the worktree (it has no option to keep one), recreates it at that HEAD in the main checkout and prints `kept-branch <branch> <sha7>` before `removed`. Branch names are the trace back to a ticket. |
 | `hostedReviewer.paused` | True stops the ready ping, the score wait and the pass count; the merge gate then runs as for a project with no reviewer. The babysit worker also treats the reviewer as paused when the project's `CLAUDE.md` or `AGENTS.md` says so. |
 | `hostedReviewer.refreshOutsideCap` | True when absent: a status refresh after the last pass stays outside `maxPasses`. False: babysit never asks for a run past `maxPasses`; a head that needs one reports `ESCALATION reason=out-of-tries step=hosted-review`. Before it asks for the last pass, babysit merges the base in when the base requires up-to-date branches, the PR conflicts or is behind, or the rule is unknown, so that pass reviews a current head. |
 | `tokenCmd` | For a repository the default `gh` account cannot see: a command that prints a token, such as `security find-generic-password -s <item> -w`. The plugin's session hook adds `export GH_TOKEN="$(<tokenCmd>)"` to every session that starts in this project, STAR's and every worker's. It writes the command, never the token, and leaves a session that already has `GH_TOKEN` alone. The command must be quick and must not ask anything. With `tokenCmd` null the hook keys the token to `ghLogin` with `gh auth token --user <ghLogin>`, so every worker acts as the account STAR does. STAR's own scripts do the same through `gh-token.sh`. Setting it is the owner's `access` item. |
-| `mcps` | The research MCPs STAR's session found: `available`, `needs-sign-in` or `absent`. Workers read it to know which tools to expect. |
+| `mcps` | The research MCPs STAR's session found: `available`, `needs-sign-in` or `absent`. Workers read it to know which tools to expect; a brief worker whose tools show another state reports `MCP <name>=<state>` and STAR writes it here (#192). |
 | `notes` | `legacy` or `split`. The mode of a home is never changed by STAR. |
 
 The hosted-reviewer lookup, run once at the first start and after a migrate when `hostedReviewer` is

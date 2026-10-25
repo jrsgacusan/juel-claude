@@ -72,7 +72,7 @@ fi
 out=$(python3 - "$S/template/star.json" <<'PY'
 import json, sys
 want = ["schema", "maxParallel", "maxInReview", "maxBriefs", "stages", "worker", "executor", "gate",
-        "tries", "mergeMethod", "baseBranch", "ownerBranches", "hostedReviewer", "hostGate",
+        "tries", "mergeMethod", "baseBranch", "ownerBranches", "keepBranches", "hostedReviewer", "hostGate",
         "progressDeadlineMin", "mcps", "notes", "gateDown", "hostedDown", "tokenCmd", "ghLogin", "run",
         "terminal", "caffeinatePid", "heartbeat", "notified", "away", "project"]
 try:

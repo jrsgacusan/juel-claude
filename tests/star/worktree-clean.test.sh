@@ -27,7 +27,11 @@ case "$*" in
     p=${4#path:}
     case "$p" in *"${STUB_REFUSE:-no-such-path}"*) echo '{"ok":false,"error":{"message":"worktree is locked"}}'; exit 1 ;; esac
     common=$(git -C "$p" rev-parse --path-format=absolute --git-common-dir)
-    git --git-dir="$common" worktree remove "$p" && echo '{"ok":true,"result":{"removed":true}}' ;;
+    br=$(git -C "$p" rev-parse --abbrev-ref HEAD)
+    git --git-dir="$common" worktree remove "$p" || exit 1
+    # like Orca 1.4.230: the local branch goes with the worktree when STUB_DELETE_BRANCH is set
+    [ -n "${STUB_DELETE_BRANCH:-}" ] && git --git-dir="$common" branch -D "$br" >/dev/null
+    echo '{"ok":true,"result":{"removed":true}}' ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 EOF
@@ -240,6 +244,29 @@ for n in 1 2 3 4 5 6 7 8 9 10 11; do echo AAA > "$XR/docs/.superpowers/evidence/
 WC XR >/dev/null
 bad=0; for f in c d1 d2 d3 d4 d5 d6 d7 d8 d9 d10 d11; do [ "$(cat "$H/evidence/XR/run/$f.txt")" = AAA ] || bad=$((bad + 1)); done
 [ "$(cat "$H/evidence/XR/run/a.txt")" = BBB ] && [ "$bad" -eq 0 ] && pass "an identical file is never hardlinked to a path a later root replaced" || fail "dedupe after overwrite (a=$(cat "$H/evidence/XR/run/a.txt" 2>&1), $bad copies of A hold other content)"
+
+# keepBranches (#200): Orca deletes the branch with the worktree; with the setting on, it is recreated at the same commit
+setkb() { python3 - "$H/star.json" "$1" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["keepBranches"] = sys.argv[2] == "true"; json.dump(d, open(sys.argv[1], "w"), indent=2)
+PY
+}
+KB=$(wt KB); commit "$KB" kb; git -C "$KB" push -q origin feat/KB; row KB done "$KB"
+KBSHA=$(git -C "$KB" rev-parse HEAD)
+setkb false
+out=$(STUB_DELETE_BRANCH=1 WC KB)
+[ "$out" = "removed $KB" ] && ! git -C "$APP" show-ref --verify --quiet refs/heads/feat/KB && pass "keepBranches false: the branch Orca deleted stays gone" || fail "keepBranches false ($out)"
+KC=$(wt KC); commit "$KC" kc; git -C "$KC" push -q origin feat/KC; row KC done "$KC"
+KCSHA=$(git -C "$KC" rev-parse HEAD)
+setkb true
+out=$(STUB_DELETE_BRANCH=1 WC KC)
+want="kept-branch feat/KC $(printf %s "$KCSHA" | cut -c1-7)
+removed $KC"
+[ "$out" = "$want" ] && [ "$(git -C "$APP" rev-parse refs/heads/feat/KC)" = "$KCSHA" ] && pass "keepBranches true: the deleted branch is recreated at the same commit" || fail "keepBranches true ($out)"
+KD=$(wt KD); commit "$KD" kd; git -C "$KD" push -q origin feat/KD; row KD done "$KD"
+out=$(WC KD)
+[ "$out" = "removed $KD" ] && git -C "$APP" show-ref --verify --quiet refs/heads/feat/KD && pass "keepBranches true: a branch Orca kept is left alone and not announced" || fail "keepBranches kept by orca ($out)"
+setkb false
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

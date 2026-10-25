@@ -14,7 +14,9 @@
 # remote branch, or, for a done row, HEAD is still the head the ledger recorded (the one that
 # merged, also after a squash merge deleted the remote branch).
 # Then `orca worktree rm --worktree path:<path> --json`, never with --force (Orca keeps any branch
-# it cannot prove merged), the row's worktree cell becomes -, and sent.log gets
+# it cannot prove merged). With star.json "keepBranches" true (default false, #200), a branch Orca
+# deleted along with the worktree is recreated at the worktree's HEAD in the main checkout, and
+# "kept-branch <branch> <sha7>" is printed before the removed line. The row's worktree cell becomes -, and sent.log gets
 # "<iso>\tSTAR\t<item>\tremoved worktree <path>".
 # A folder that is already gone: `git worktree prune`, the cell becomes -, and it prints none,
 # as for a row with no worktree.
@@ -234,9 +236,11 @@ item = args[0]
 if not home:
     die(2, "no STAR folder: pass --home, or run inside a project")
 try:
-    project = json.load(open(os.path.join(home, "star.json"), encoding="utf-8")).get("project") or {}
+    settings = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
+    project = settings.get("project") or {}
 except (OSError, ValueError, AttributeError) as e:
     die(2, f"cannot read star.json ({e})")
+keep_branches = settings.get("keepBranches") is True
 repo, remote = project.get("repo"), project.get("remote") or "origin"
 if not repo:
     die(2, "star.json has no project: run star-home.sh init")
@@ -467,6 +471,7 @@ if kept_at:
     print(f"kept-evidence {kept_at}")
     if result / GIB > gb_limit():
         print(f"evidence-size {item} {result / GIB:.1f} GB")
+branch = git_out(path, "rev-parse", "--abbrev-ref", "HEAD") if keep_branches else ""
 rc, stdout, stderr = run([orca, "worktree", "rm", "--worktree", f"path:{path}", "--json"])
 try:
     data = json.loads(stdout, strict=False)
@@ -477,6 +482,13 @@ if rc != 0 or (isinstance(data, dict) and data.get("ok") is False):
     message = error.get("message") if isinstance(error, dict) else error
     lines = (stderr.strip() or stdout.strip()).splitlines()
     out(f"kept {path}: orca: " + str(message or (lines[0] if lines else f"exit {rc}"))[:120])
+if branch and branch != "HEAD" and not git_out(repo, "branch", "--list", branch):
+    # Orca deletes a merged branch with its worktree and has no option to keep it
+    rc, _, err = git(repo, "branch", branch, head)
+    if rc == 0:
+        print(f"kept-branch {branch} {head[:7]}")
+    else:
+        print(f"could not recreate branch {branch}: {err.strip()[:120]}", file=sys.stderr)
 ledger("set", item, "worktree=-")
 with open(os.path.join(home, "sent.log"), "a", encoding="utf-8") as f:
     f.write(f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\tSTAR\t{item}\tremoved worktree {path}\n")
