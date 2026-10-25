@@ -62,7 +62,7 @@ t "--base: a merge of the base carries" "OK carried from $GATED: merge of origin
 g checkout -q main; printf 'a\nb\nmain-line\n' > "$R/list.txt"; g commit -qam "main lists"; g update-ref refs/remotes/origin/main main
 g checkout -q -b conflicted "$GATED"; printf 'a\nb\nfeat-line\n' > "$R/list.txt"; g commit -qam "feat lists"; G2=$(g rev-parse HEAD)
 g merge -q --no-edit origin/main >/dev/null 2>&1
-printf 'a\nb\nmain-line\nfeat-line\n' > "$R/list.txt"; g add list.txt; g commit -qm "Merge origin/main; mechanical conflicts resolved in list.txt"
+printf 'a\nb\nmain-line\nfeat-line\n' > "$R/list.txt"; g add list.txt; g commit -qm "Merge origin/main; conflicts resolved in list.txt"
 MC=$(g rev-parse HEAD)
 out=$(C --from "$G2" --head "$MC"); rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "OK carried from $G2: the merge brings no change to a file this branch changes, except lines both sides only added (list.txt)" ] && pass "#110 a test-list conflict where both sides only appended, resolved by union, carries" || fail "#110 union-resolved conflict ($rc $out)"
