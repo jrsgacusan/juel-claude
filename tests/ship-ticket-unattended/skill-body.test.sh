@@ -189,7 +189,7 @@ grep -q 'window that paints' "$SKILL" && fail "EL18 no 'window that paints' desc
 # lane f: the worker skills carry, resume, scope, and read decisions (#77, #78, #81, #83, #89, #90)
 g "L77a the executor resumes from the shared ledger" '`<repo root>/.superpowers/sdd/<plan basename without .md>/progress.md`'
 g "L77b the ledger is git-ignored before the first dispatch" 'git rev-parse --git-path info/exclude'
-g "L77c a capacity retry needs no hand-written resume prompt" 'never write a resume prompt by hand'
+has "L77c the resume and stop clauses come only from session-tasks.sh" 'the resume and stop clauses come only from `session-tasks.sh`, never written by hand'
 g "I1 the dispatch line carries the resume clause verbatim" ' Resume at task <N>: the ledger marks every task before it complete.'
 g "S203 the ledger is created before the first dispatch" 'create it with exactly one line, `# SDD ledger — plan: <the plan path as the dispatch'
 g "S188 an exit 0 with the plan unfinished is handled" '**An executor that exits 0 with the plan unfinished**'
@@ -401,6 +401,22 @@ done
 # an unreadable fallback review is retried without spending the round (#185)
 has "FU1 an ERROR fallback-unreadable waits and does not spend the retry" 'An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.'
 has "FU2 the third ERROR fallback-unreadable on a round is review-tool" 'The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`.'
+
+# review fixes, lane 2 (#195, #196, #207, #205)
+has "RF2a a docsRoot outside the repo gets no Scratch line" 'carries `` **Scratch:** `<docsRoot>/` `` only when the docsRoot is inside the repository'
+has "RF2b a docsRoot outside the repo is the session's" 'A docsRoot outside the repository is the session'"'"'s: no plan step writes there'
+has "RF2c a docsRoot file the plan needs is written by the session" 'a step that needs a docsRoot file says the session writes it'
+has "RF2d every dispatch rebuilds the line" 'Every dispatch rebuilds the line: the first, and each after a session task, the unfinished-plan rule and the capacity rule'
+has "RF2e the unfinished-plan rule checks for the planned-file stop first" 'first look for a `task <N> failed: planned file` line'
+has "RF2f the planned-file stop is never re-dispatched" 'is never dispatched again'
+has "RF2g a fix plan carries the Scratch line and the rules block, Phase 6" 'carries `**Base:** spec implemented at <the evidence head>; apply only the tasks below.`, the `**Scratch:**` line and the `## Execution rules` block (Phase 3)'
+has "RF2h a fix plan carries the Scratch line and the rules block, Phase 7" 'carries `**Base:** spec implemented at <the full head>; apply only the tasks below.`, the `**Scratch:**` line and the `## Execution rules` block (Phase 3)'
+has "RF2i a resumed build's plan carries them too" 'and, like every plan, the `**Scratch:**` line and the `## Execution rules` block'
+has "RF2j the rules block lets any task change a Shared files file" 'Any task may change a file the **Shared files:** block names.'
+has "RF2k the screen lock shares the gate lock's label" 'there it is `--holder "<star.project>/<item>"`, the label the gate lock uses'
+has "RF2l two projects may each have an issue-12 (screen)" 'two projects may each have an `issue-12`, and one label must name one holder'
+has "RF2m an inherited defect adds a NOTE" 'NOTE: inherited from <base>: <one line>'
+has "RF2n the inherited NOTE is the report's one own NOTE" 'it is the report'"'"'s one `NOTE` of your own'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
