@@ -186,7 +186,7 @@ reading costs a line.
     verification passes instead.
   - `<N>` is the number in the task's `### Task <N>` heading. The ledger is git-ignored scratch,
     and the one scratch file you write: never commit it.
-- **A task with a `**Run:** session` line is not yours.** The session-task stop applies from the first task with no complete line onward; the ledger comes first. That line, right under a task's
+- **A task with a `**Run:** session` line is not yours.** The session-task stop applies from the first task with no complete line onward. That line, right under a task's
   heading, means only the calling session can run it (it drives a GUI, a browser profile, a
   screen or audio, or measures something live outside the repository). Do not start it: stop
   before it, append no ledger line for it, and end the report with
