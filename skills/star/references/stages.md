@@ -265,14 +265,16 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | Line | Then |
 |---|---|
 | `MERGED <sha>` | as the verdict `MERGED`; print it and push one notification, "merged <item>: PR #<n>". Run the gate at once, in this tick, for every other `verifying` row on that base |
-| `FAIL head moved` | as the verdict `MOVED` |
+| `FAIL head moved` | as the verdict `MOVED`. `merge.sh` prints it only when it read the PR again and the head differs from `--head`, so it is a real move (#193) |
+| `PENDING merge state: behind the base branch` | the PR is behind a base that wants an up-to-date head (a BEHIND PR on a base with no such rule is merged by `merge.sh` itself): the sync rule below. No try. `merge.sh` posted no comment |
+| `FAIL merge: conflicts with the base` | the sync rule below, as the verdict `FAIL conflicts`: row `babysit-queued` with a `## Decisions` line, no try |
 | `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push (#80): append `<dispatch> stopped <iso>` to `processed.log`, `worker-stop`, `worker-release`, the close check, then row `babysit-queued` and run the gate again from a fresh READY |
 | `FAIL settings: <why>` | add a `person` item of kind `access`: "star.json cannot be read: <why>". No comment was posted and nothing merged; the row stays `verifying` with `verify=retry=<now + 10 min>` |
 | `FAIL owner branch <base>` | the PR targets a branch only the owner merges into: row `set-aside`, "<base> is an owner branch" |
 | `FAIL merge methods: <method> not allowed` | add a `person` item of kind `access`: "allow <method> merges on <repo>, or change mergeMethod". The row stays `verifying` with `verify=retry=<now + 10 min>`; the gate and `merge.sh` run again after that |
 | `PENDING check <name> not reported` | a required check has not reported on the head; nothing is wrong. `verify=retry=<now + 2 min>`. No try |
 | `FAIL ledger: <why>` | STAR's own bug, nothing on the PR is wrong: file an improvement issue and `verify=retry=<now + 10 min>` |
-| `FAIL comment: …` or `FAIL merge: …` | spend a try, `verify=retry=<now + 10 min>`; at `tries.perStep` the row is set aside |
+| `FAIL comment: …` or any other `FAIL merge: …` | spend a try, `verify=retry=<now + 10 min>`; at `tries.perStep` the row is set aside |
 | exit 64 | `merge.sh` refused its arguments: file an improvement issue, change nothing |
 | no line, or another non-zero exit | the merge may or may not have happened: change nothing; the next gate prints `MERGED` when it did |
 
@@ -283,7 +285,7 @@ that pass in a tick, merge first a row with no hosted pass left (`grep -cE '^[^ 
 HOME_DIR/reviews/<project>/<item>-hosted.log` prints `hostedReviewer.maxPasses` or more: it cannot take another
 review run, so it must not be the one left behind), then the oldest `updated`.
 
-**Sync after the base moved.** `FAIL conflicts` or `PENDING merge state: behind the base branch` means the base
+**Sync after the base moved.** `FAIL conflicts`, `FAIL merge: conflicts with the base` or `PENDING merge state: behind the base branch` (from the gate or from `merge.sh`) means the base
 moved since babysit last merged it in, most often because STAR merged a sibling PR. Read the base's head:
 `git -C <project.repo> ls-remote <project.remote> refs/heads/<the brief's baseBranch>`, first 7 characters.
 When `## Decisions` has no line "synced with <base> at <sha7>", append it and send the row to

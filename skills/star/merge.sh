@@ -11,8 +11,12 @@
 #                            again later (#167). <name> is the first double-quoted name in the
 #                            error, else "required checks". It is printed even when the PR state
 #                            cannot be read afterwards, since GitHub refused the merge
+#   PENDING merge state: behind the base branch
+#                            the merge was refused, the head is the one given and the PR is BEHIND
+#                            a base that wants an up-to-date head: sync the base in, then ask again
 #   FAIL <what>              live worker <dispatch>, ledger: …, merge methods: …, owner branch <base>,
-#                            comment: …, settings: …, head moved, or merge: …
+#                            comment: … (before the merge only), settings: …, head moved,
+#                            merge: conflicts with the base, or merge: …
 # There is no grant: the merge gate (pr-verify.sh --merge-gate) is what lets STAR merge.
 # The home is --home, else $JUEL_STAR_HOME, else star-home.sh path. From its star.json it reads
 # mergeMethod and ownerBranches; a missing star.json means both are absent. A star.json that exists
@@ -27,15 +31,24 @@
 # "FAIL merge methods: <method> not allowed" (nothing posted, nothing merged). With mergeMethod
 # null it is the first of squash, merge and rebase the repository allows. A PR whose base branch is
 # in ownerBranches is "FAIL owner branch <base>", before any comment or merge.
-# Before merging it posts, once per head, "Merging head <sha>: codex PASS, required checks green."
+# After the merge it posts, once per head, "Merging head <sha>: codex PASS, required checks green."
 # (", <login> passed." in place of the full stop only when --hosted <login> is given, which STAR
 # does exactly when it passed --hosted to the merge gate; star.json's hostedReviewer is not read
-# here; sent with --body-file), then runs gh pr merge --<method> --match-head-commit <sha>,
-# so GitHub itself refuses when the head moved. The comment is skipped when the PR's author
-# already has one starting "Merging head <sha>:".
-# After the merge call, whatever it said, it reads the PR's state once. MERGED when GitHub says
-# merged, even if the call errored (gh can fail after the merge went through). A call that errored
-# on a PR that is not merged is the FAIL it names, or PENDING when GitHub waits for a required check, state read or not. A call that worked, followed by a state that
+# here; sent with --body-file). It is skipped when the PR's author already has a comment starting
+# "Merging head <sha>:", and a refused merge never leaves one (#193). A comment that fails after the
+# merge prints MERGED all the same, with "merge.sh: comment failed: <why>" on stderr.
+# The merge is gh pr merge --<method> --match-head-commit <sha>, so GitHub itself refuses when the
+# head moved. One exception: a PR whose mergeStateStatus is BEHIND, on a base for which
+# review-rule.sh (babysit-pr) prints none of strict, unknown and queue, is merged through
+# gh api -X PUT repos/<repo>/pulls/<n>/merge -f sha=<head> -f merge_method=<method>, since gh pr
+# merge refuses BEHIND before it asks GitHub. GitHub still refuses a moved head there (409).
+# After the merge call, whatever it said, it reads the PR once (state, merge commit, head,
+# merge state). MERGED when GitHub says merged, even if the call errored (gh can fail after the
+# merge went through). A call that errored on a PR that is not merged is classified from that read:
+# PENDING check <name> not reported (above); FAIL head moved only when the head read differs from
+# --head (when the read failed, from the error text); PENDING merge state: behind the base branch
+# when the state is BEHIND; FAIL merge: conflicts with the base when it is DIRTY or the error says
+# so; else FAIL merge: <first line>. A call that worked, followed by a state that
 # cannot be read, prints nothing and exits 69: the merge may or may not have happened, and the
 # next run of the merge gate says which.
 # Exit 64 on bad usage: a head that is not 40 hex characters, a URL that is not a PR, an unknown
@@ -204,8 +217,15 @@ if dry:
     out(f"DRY-RUN {method} {head}")
 author = (d.get("author") or {}).get("login") or ""
 prefix = f"Merging head {head}:"
-if not any(isinstance(c, dict) and (c.get("author") or {}).get("login") == author
+number = re.search(r"/pull/(\d+)", pr).group(1)
+
+
+def post_comment():
+    """The merge comment, once per head, after the merge: a refused merge never leaves one (#193).
+    A failure here is a note on stderr, since the PR is already merged."""
+    if any(isinstance(c, dict) and (c.get("author") or {}).get("login") == author
            and str(c.get("body") or "").startswith(prefix) for c in d.get("comments") or []):
+        return
     text = f"{prefix} codex PASS, required checks green" + (f", {hosted} passed." if hosted else ".")
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
         f.write(text + "\n")
@@ -215,20 +235,47 @@ if not any(isinstance(c, dict) and (c.get("author") or {}).get("login") == autho
     finally:
         os.unlink(body)
     if c.returncode != 0:
-        out("FAIL comment: " + first(c))
-mg = run(["gh", "pr", "merge", pr, f"--{method}", "--match-head-commit", head], 300)
+        print("merge.sh: comment failed: " + first(c), file=sys.stderr)
+
+
+def rest_merge_allowed():
+    """True for a BEHIND PR on a base whose rules do not ask for an up-to-date head: gh pr merge
+    refuses BEHIND before it asks GitHub, the REST merge does not (#193)."""
+    pre = as_json(run(["gh", "pr", "view", pr, "--json", "headRefOid,mergeStateStatus"], 60)) or {}
+    if str(pre.get("mergeStateStatus") or "").upper() != "BEHIND":
+        return False
+    rule = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh"), url.group(1), base], 120)
+    words = {l.split()[0] for l in (rule.stdout or "").splitlines() if l.split()}
+    return rule.returncode == 0 and not words & {"strict", "queue", "unknown"}
+
+
+if rest_merge_allowed():
+    mg = run(["gh", "api", "-X", "PUT", f"repos/{url.group(1)}/pulls/{number}/merge", "-f", f"sha={head}", "-f", f"merge_method={method}"], 300)
+else:
+    mg = run(["gh", "pr", "merge", pr, f"--{method}", "--match-head-commit", head], 300)
 # One read of the PR after the call, whatever the call said: gh can fail after GitHub has merged.
-s = as_json(run(["gh", "pr", "view", pr, "--json", "state,mergeCommit"], 60)) or {}
+s = as_json(run(["gh", "pr", "view", pr, "--json", "state,mergeCommit,headRefOid,mergeStateStatus"], 60)) or {}
 state = str(s.get("state") or "").upper()
 if state == "MERGED":
+    post_comment()
     out("MERGED " + ((s.get("mergeCommit") or {}).get("oid") or "unknown"))
 if mg.returncode != 0:
     said = (mg.stderr or "") + (mg.stdout or "")
     if re.search(r"required status check", said, re.I) and re.search(r"expected", said, re.I):
         quoted = re.search(r'"([^"]+)"', said)
         out(f"PENDING check {quoted.group(1) if quoted else 'required checks'} not reported")
-    if re.search(r"head (branch|commit|ref)|match-head-commit|was modified", (mg.stderr or "") + (mg.stdout or ""), re.I):
+    now_head = str(s.get("headRefOid") or "").lower()
+    merge_state = str(s.get("mergeStateStatus") or "").upper()
+    if now_head:
+        # The PR was read again: only a different head is a moved head.
+        if now_head != head:
+            out("FAIL head moved")
+    elif re.search(r"head (branch|commit|ref)|match-head-commit|was modified|HTTP 409", said, re.I):
         out("FAIL head moved")
+    if merge_state == "BEHIND":
+        out("PENDING merge state: behind the base branch")
+    if merge_state == "DIRTY" or re.search(r"merge conflict|conflicts? with", said, re.I):
+        out("FAIL merge: conflicts with the base")
     out("FAIL merge: " + first(mg))
 if not state:
     unknown("the merge call worked but GitHub does not say what became of the PR")
