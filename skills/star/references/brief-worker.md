@@ -150,9 +150,12 @@ source, in this order of fit:
   only by quoting the rule the repository enforces it with (a checker, a lint or pretest script, `file:line`);
   when it finds none it names no form and the build follows the repository (#107).
 
-Look for the tools `mcps` names `available` (with `ToolSearch` when they are deferred) before you decide they are
-missing, and use an MCP only when this session lists its tools. When it does not, or `mcps` says `needs-sign-in`
-or `absent`, search the web and say so in `Source:`.
+`mcps` is STAR's last reading; this session's own tools decide. Look for the tools `mcps` names `available` (with
+`ToolSearch` when they are deferred) before you decide they are missing, and use an MCP only when this session
+lists its tools. When it does not, or `mcps` says `needs-sign-in` or `absent`, search the web and say so in
+`Source:`. When the tools disagree with `mcps` in either direction (its only tools are `authenticate` and
+`complete_authentication`, or it works where `mcps` says otherwise), go by the tools and add the report line
+`MCP <name>=<available|needs-sign-in|absent>` (#192), so STAR corrects what the next worker is told.
 
 **Search before deciding.** Run `sh S/recall.sh --home <HOME_DIR> --kind decision <the question's key words>`.
 A library decision in force that fits is reused: write `### D<n> <title> (<date>, reused L-<nnnn>)` with the
@@ -227,7 +230,8 @@ Orca's worker preamble included. STAR reads the first line.
   with a record saying what moved and why. Then one `REUSED` or `CORRECTED` line per reused or corrected
   record, at most one `NOTE: <one line>` (`NOTE: always <text>` for a note every worker needs on every item),
   and at most one `STAR-ISSUE: <one line>` when STAR's own contract or tools got in the way (no project or
-  ticket names).
+  ticket names). One `MCP <name>=<available|needs-sign-in|absent>` line per MCP whose state this session's
+  tools show differently from `mcps` ("Decisions are taken, not asked", above).
 - An item that holds more than one piece of work that could ship on its own is split instead: write each piece
   as a spec item, `<HOME_DIR>/items/<project>/<name>-<k>.md` (`status: todo`, `title:`, the words of the item
   that describe that piece), write no brief, and report `SPLIT item=<name> into=<path>,<path>`. When the item is
