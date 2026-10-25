@@ -85,6 +85,10 @@ printf '# SDD ledger \xe2\x80\x94 plan: docs/plans/other-plan.md\nTask 1: comple
 run "$P" --ledger "$TMP/l13.md"
 [ "$(printf '%s\n' "$out" | tail -n 1)" = "foreign docs/plans/other-plan.md" ] && [ "$rc" -eq 1 ] && ! printf '%s' "$out" | grep -q '^next' && pass "S13 a ledger naming another plan is foreign, exit 1, no next" || fail "S13 (rc $rc: $out)"
 
+printf '# SDD ledger \xe2\x80\x94 plan: docs/plans/other-plan.md\nTask 1: complete (a)\nTask 2: complete (b)\n' > "$TMP/l13b.md"
+run "$P" --ledger "$TMP/l13b.md"
+[ "$out" = "$(printf 'session 2\nsession 4\nforeign docs/plans/other-plan.md')" ] && [ "$rc" -eq 1 ] && pass "S13b a foreign ledger prints the session lines and foreign only: no ran, until or next" || fail "S13b (rc $rc: $out)"
+
 printf '# SDD ledger \xe2\x80\x94 plan: some/dir/plan.md\nTask 1: complete (a)\n' > "$TMP/l14.md"
 run "$P" --ledger "$TMP/l14.md"
 [ "$(printf '%s\n' "$out" | tail -n 1)" = "next 2" ] && [ "$rc" -eq 0 ] && pass "S14 the same plan file name under another directory is not foreign" || fail "S14 (rc $rc: $out)"
