@@ -37,7 +37,7 @@ PC="$ROOT/assets/codex-skills/claude-plan-executor/references/plan-contract.md"
 grep -qF '.superpowers/sdd/<plan file name without .md>/progress.md' "$EX" && grep -qF '.superpowers/sdd/<plan file name without .md>/progress.md' "$PC" && pass "#77 the executor and its contract name the shared ledger" || fail "#77 ledger path"
 grep -qF 'Task <N>: complete (commits <a7>..<b7>, tests: <command> → <result>)' "$EX" && grep -qF 'Task <N>: complete (uncommitted, tests: <command> → <result>)' "$EX" && pass "#77 the executor writes the superpowers done lines" || fail "#77 done lines"
 grep -qF '# SDD ledger — plan: <plan file path>' "$EX" && pass "#77 the ledger's first line is the superpowers literal" || fail "#77 identity line"
-grep -qF 'Start at the first task without one.' "$EX" && grep -qF 'never apply its edits a second time' "$EX" && pass "#77 a resumed run finishes a half-applied task, never redoes it" || fail "#77 resume rule"
+tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF 'Start at the first task without one.' && grep -qF 'never apply its edits a second time' "$EX" && pass "#77 a resumed run finishes a half-applied task, never redoes it" || fail "#77 resume rule"
 grep -qF 'Change only what each task'"'"'s `**Files:**` block names' "$EX" && grep -qF 'goes under a `Notes:` heading' "$EX" && pass "#78 the executor stays inside each task's Files block" || fail "#78 scope rule"
 grep -qF 'into concrete code or design changes before editing' "$EX" && fail "#78 the widening heuristic is still there" || pass "#78 the widening heuristic is gone"
 grep -qF '**Base:** spec implemented at <sha>; apply only the tasks below.' "$EX" && grep -qF 'never stop because the' "$EX" && pass "#81 a Base plan is applied, never stopped as already done" || fail "#81 Base rule in the executor"
@@ -107,7 +107,7 @@ grep -qF 'using the tests, checks, inspections or screenshots the plan names' "$
 grep -qF 'never into a full-suite run or a build the plan does not write out' "$EX" && pass "#141 validation lines never become a full-suite run" || fail "#141 validation wording"
 
 # lane c: #145 a planned path that is git-ignored fails its task, and the run stops
-grep -qF '**A planned path that is git-ignored fails its task.**' "$EX" && pass "#145 a planned path that is git-ignored fails its task" || fail "#145 the failing-task rule"
+grep -qF '**A planned path that is git-ignored fails its task, unless it is scratch.**' "$EX" && pass "#145 a planned path that is git-ignored fails its task" || fail "#145 the failing-task rule"
 grep -qF '`task <N> failed: planned file <path> is git-ignored (<source>:<line>:<pattern>)`.' "$EX" && pass "#145 the report line" || fail "#145 the report line"
 tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF 'then fail the task: do not append its ledger line, do not start the next task, and end the run with this line in the report' && pass "#145 a failed task writes no ledger line and ends the run" || fail "#145 how the task fails"
 tr '\n' ' ' < "$PC" | tr -s ' ' | grep -qF 'A task whose `**Files:**` block names a path the repository ignores fails, and the run stops there' && pass "#145 the contract says it too" || fail "#145 the contract sentence"
@@ -179,5 +179,29 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
   grep -qF '**Out of usage.**' "$F" && grep -qF 'out of credits' "$F" && pass "#164 $s: an out-of-usage codex runs the plan in the session" || fail "#164 $s: an out-of-usage codex runs the plan in the session"
   tr '\n' ' ' < "$F" | tr -s ' ' | grep -qF '`usage limit`, `hit your usage limit`, `try again at`, `out of credits` or `credit balance`' && pass "#164 $s: the usage phrases are listed" || fail "#164 $s: the usage phrases are listed"
 done
+# lane a (#190 #194 #195 #196 #199 #201 #203): ledger first, precedence, shared files, scratch, memory
+SHIP="$ROOT/skills/ship-ticket/SKILL.md"
+hasf "$EX" "#196 the ledger is the first workflow step" '1. Find this plan'"'"'s ledger before anything else'
+hasf "$EX" "#203 the ledger is named by the whole plan file name, -vN included" 'Never the ledger of the plan it revises'
+hasf "$EX" "#196 a complete task is done whatever its markers" 'every task with a `Task <N>: complete` line is done, whatever its markers'
+hasf "$EX" "#196 the session stop applies from the first task without a complete line" 'The session-task stop applies from the first task with no complete line onward.'
+hasf "$EX" "I-1 the resume clause starts the run at task N" 'Resume at task <N>: the ledger marks every task before it complete.'
+hasf "$EX" "#190 the order of precedence has its own section" '## When the plan'"'"'s words disagree'
+hasf "$EX" "#190 hard limits win first" '**Hard limits always win.**'
+hasf "$EX" "#190 an ambiguity is settled and recorded under Deviations" 'task <N>: read "<text>" as <reading> because <why>'
+hasf "$EX" "#190 a written-out command is a named command" 'A command the plan writes out is a command the plan names'
+hasf "$EX" "#199 a task may change a file another task's block names" 'A task may change a file another task'"'"'s `**Files:**` block names'
+hasf "$EX" "#199 the executor reads the Shared files block" '`**Shared files:**`'
+hasf "$PC" "#199 the contract documents the Shared files block" '**Shared files:**'
+hasf "$EX" "#194 scratch never fails a task" 'not committed: <path> is scratch'
+hasf "$EX" "#194 the planned-path rule excepts scratch" 'A planned path that is git-ignored fails its task, unless it is scratch.'
+hasf "$PC" "#194 the contract documents the Scratch header" '**Scratch:**'
+hasf "$PC" "#194 the contract excepts scratch from the planned-path failure" 'A task whose `**Files:**` block names a path the repository ignores fails'
+hasf "$EX" "#201 memory never skips a step" 'Never skip a step over memory'
+hasf "$EX" "#201 available memory counts inactive and speculative pages" 'free plus inactive plus speculative pages'
+hasf "$SHIP" "#194 ship-ticket plans carry the Scratch header" '**Scratch:** `<docsRoot>/`'
+hasf "$SHIP" "#199 ship-ticket asks for a Shared files block" '**Shared files:**'
+hasf "$SHIP" "#190 ship-ticket hands writing-plans the standing block" '## Execution rules'
+hasf "$SHIP" "#190 the standing block's last rule" 'Git-ignored files under **Scratch:** are written, never committed, and never fail a task.'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

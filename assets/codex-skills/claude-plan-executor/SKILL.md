@@ -37,32 +37,57 @@ of the two; that is normal and not a problem to report.
 
 ## Workflow
 
-1. Load the plan artifact completely before proposing changes.
-2. Discover the relevant `CLAUDE.md` files for the repo root and any affected subtrees, then read them before translating the plan into implementation work.
-3. Extract:
+1. Find this plan's ledger before anything else (see "Progress protocol"): it says which tasks are
+   already done. A dispatch prompt that ends with ` Resume at task <N>: the ledger marks every task before it complete.`
+   starts you at task N, even when the ledger cannot be read.
+2. Load the plan artifact completely before proposing changes.
+3. Discover the relevant `CLAUDE.md` files for the repo root and any affected subtrees, then read them before translating the plan into implementation work.
+4. Extract:
    - goal
    - ordered steps
    - constraints
    - deliverables
    - validation requirements
    - open questions
-4. Normalize the plan into a concrete execution checklist.
-5. Keep the original plan's intent. Only refine steps where the plan is vague, technically incorrect, or missing dependencies.
-6. Choose an execution mode:
+5. Normalize the plan into a concrete execution checklist.
+6. Keep the original plan's intent. Only refine steps where the plan is vague, technically incorrect, or missing dependencies.
+7. Choose an execution mode:
    - Execute sequentially when tasks are coupled, ordered, or depend on ongoing discovery.
    - Delegate independent, well-bounded tasks in parallel only when suitable subagent tools are available.
    - Execute directly when delegation would add coordination overhead or no subagent tools are available.
-7. Execute the work directly. Do not stop at summarizing the plan unless the user asked only for analysis.
-8. Validate the result against every explicit acceptance criterion using the tests, checks, inspections or screenshots the plan names.
-9. Report:
+8. Execute the work directly. Do not stop at summarizing the plan unless the user asked only for analysis.
+9. Validate the result against every explicit acceptance criterion using the tests, checks, inspections or screenshots the plan names.
+10. Report:
    - what was completed
    - any deviations from the plan
    - what remains blocked or undecidable
    - notes: anything outside the tasks' `**Files:**` blocks that looks wrong, never fixed
 
+## When the plan's words disagree
+
+A plan is written by one model and run by another, so its lines sometimes pull in different
+directions. Settle them in this order, and keep going; a stop costs a whole dispatch, a recorded
+reading costs a line.
+
+1. **Hard limits always win.** Never push, tag or bump a version; never `git add -f`; never run a
+   command the plan does not write out; a `**Run:** session` task is the session's; a Global
+   Constraint that names a path, a version or a tag that must not be touched.
+2. **A task's exact text wins over a general rule.** Its commands, quoted strings, test names, paths
+   and commit message beat a style rule (the em dash rule against a string already in the code), a
+   naming or commit-type convention, and the plan's Goal or other prose (a line range stated two
+   ways).
+3. **An ambiguity is settled, not stopped on.** Take the reading that serves the task's goal and its
+   acceptance check, do it, and write one line under `Deviations` in the report:
+   `task <N>: read "<text>" as <reading> because <why>`. Stop only when two readings would change
+   what the code does and nothing in the plan, the spec or the code picks one.
+4. **A command the plan writes out is a command the plan names**, the gate-lock line and its sweep
+   included: run it as written. "Never the full suite" is about suites you would pick yourself.
+
 ## Execution Rules
 
 - Run only the commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through `gate-lock.sh` when it says so); the caller runs the full gates itself, under its lock.
+- **A task may change a file another task's `**Files:**` block names** when its own test needs it (a test asserting the changed contract, a stub it runs against); say which in that task's report. A plan's header may also carry a `**Shared files:**` block, in the same line syntax as a `**Files:**` block: every task may change what it names. The caller's scope check accepts both.
+- Never skip a step over memory. A step the plan runs through `gate-lock.sh` is guarded by the lock: run it as written. If you check memory for any other reason, count free plus inactive plus speculative pages from `vm_stat` as available (free pages alone are always low on macOS).
 - Treat the Claude plan as authoritative for sequencing and scope, not as infallible on implementation details.
 - Always read and apply any relevant `CLAUDE.md` files before executing the plan. If multiple files apply, prefer the most specific file for the affected subtree while still honoring higher-level guidance that does not conflict.
 - Preserve stated constraints unless they are impossible or harmful.
@@ -89,7 +114,12 @@ of the two; that is normal and not a problem to report.
   `not committed: <path> is git-ignored`. Before each `git commit`, run
   `git diff --cached --no-renames --name-only --diff-filter=A | git check-ignore --no-index --stdin`;
   for each path it prints, `git rm --cached -q -- <path>` (the file stays on disk), then commit.
-- **A planned path that is git-ignored fails its task.** When a `not committed:` path is one a
+- **Scratch is written, never committed, and never fails a task.** A plan header may carry
+  `**Scratch:**` followed by backticked folder paths. A git-ignored path under one of them may be
+  written by any step without a `**Files:**` entry; report `not committed: <path> is scratch`.
+  `.superpowers/` is always scratch. A path under `**Scratch:**` that git does not ignore is not
+  scratch: it needs a `**Files:**` entry. A git-ignored file a step's own text names is scratch too.
+- **A planned path that is git-ignored fails its task, unless it is scratch.** When a `not committed:` path is one a
   task's `**Files:**` block names, or lies under a folder one names, commit the rest of the task
   as the plan says, then fail the task: do not append its ledger line, do not start the next task,
   and end the run with this line in the report, the part in brackets being what
@@ -97,6 +127,7 @@ of the two; that is normal and not a problem to report.
   `task <N> failed: planned file <path> is git-ignored (<source>:<line>:<pattern>)`.
   Never move or rename the file, or edit an ignore file, to get it committed: the caller decides.
   This holds over "finish the highest-value subset" in Failure Handling.
+  Any other git-ignored path a `**Files:**` block names is a product file that would never reach a commit.
 - **`.git` is a protected path under `--sandbox workspace-write`.** A commit only succeeds if the
   escalation is approved, and who approves is set by `approvals_reviewer` in
   `~/.codex/config.toml`: `user` means an interactive session prompts a human, and a
@@ -133,24 +164,18 @@ of the two; that is normal and not a problem to report.
   ones most often violated by accident.
 - **A task marked BLOCKED BY TASK N does not start until task N is done.** If task N could not be
   completed, stop and report rather than proceeding on assumed values.
-- **A task with a `**Run:** session` line is not yours.** That line, right under a task's
-  heading, means only the calling session can run it (it drives a GUI, a browser profile, a
-  screen or audio, or measures something live outside the repository). Do not start it: stop
-  before it, append no ledger line for it, and end the report with
-  `stopped at task <N>: run by the session`. The caller runs it, marks it complete in the ledger
-  and dispatches you again, so you resume after it. A dispatch prompt that ends with
-  `Stop before task <N>: the session runs it.` names such a task: stop before task <N> the same
-  way, even when its heading has no marker. This holds over "finish the highest-value
-  subset" in Failure Handling.
 - **Keep a ledger, and resume from it.** The ledger is
   `<repo root>/.superpowers/sdd/<plan file name without .md>/progress.md`, where `<repo root>` is
-  `git rev-parse --show-toplevel`. It is the file `superpowers:executing-plans` keeps, in the same
+  `git rev-parse --show-toplevel` and the name is this plan's whole file name, `-vN` suffix included
+  (`…-x-v2.md` → `…-x-v2/progress.md`). Never the ledger of the plan it revises. It is the file `superpowers:executing-plans` keeps, in the same
   format, so a run on the fallback model or in a Claude session resumes from the same record.
-  - At start, if the ledger's first line names this plan file, every task with a
-    `Task <N>: complete` line is done: do not redo it. Start at the first task without one.
+  - At start, if the ledger's first line names this plan file (the `-vN` suffix included), every
+    task with a `Task <N>: complete` line is done, whatever its markers: do not redo it, and a
+    `**Run:** session` task the ledger marks complete is not a reason to stop. Start at the first
+    task without one.
     Before editing, check that task's state: a run stopped by a capacity error may have left it
     half applied. Finish it, and never apply its edits a second time.
-  - With no ledger, or one whose first line names another plan file, start a fresh one whose
+  - With no ledger, or one whose first line names another plan file, leave that one alone and start a fresh one whose
     first line is `# SDD ledger — plan: <plan file path>` (superpowers' literal, dash included).
   - Right after the task's commit, before the next task's first step, append one line, `<a7>` and
     `<b7>` being `HEAD` before and after the task:
@@ -161,6 +186,15 @@ of the two; that is normal and not a problem to report.
     verification passes instead.
   - `<N>` is the number in the task's `### Task <N>` heading. The ledger is git-ignored scratch,
     and the one scratch file you write: never commit it.
+- **A task with a `**Run:** session` line is not yours.** The session-task stop applies from the first task with no complete line onward. That line, right under a task's
+  heading, means only the calling session can run it (it drives a GUI, a browser profile, a
+  screen or audio, or measures something live outside the repository). Do not start it: stop
+  before it, append no ledger line for it, and end the report with
+  `stopped at task <N>: run by the session`. The caller runs it, marks it complete in the ledger
+  and dispatches you again, so you resume after it. A dispatch prompt that ends with
+  `Stop before task <N>: the session runs it.` names such a task: stop before task <N> the same
+  way, even when its heading has no marker. This holds over "finish the highest-value
+  subset" in Failure Handling.
 - **A plan with a `**Base:**` line is a delta.** Its header says
   `**Base:** spec implemented at <sha>; apply only the tasks below.`: the spec it names is already
   implemented. Apply the tasks. Do not judge the spec for completeness, and never stop because the
