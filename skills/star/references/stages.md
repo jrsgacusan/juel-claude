@@ -286,7 +286,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | `FAIL head moved` | as the verdict `MOVED`. `merge.sh` prints it only when it read the PR again and the head differs from `--head`, so it is a real move (#193) |
 | `PENDING merge state: behind the base branch` | the PR is behind a base that wants an up-to-date head (a BEHIND PR on a base with no such rule is merged by `merge.sh` itself): the sync rule below. No try. `merge.sh` posted no comment |
 | `FAIL merge: conflicts with the base` | the sync rule below, as the verdict `FAIL conflicts`: row `babysit-queued` with a `## Decisions` line, no try |
-| `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push (#80): append `<dispatch> stopped <iso>` to `processed.log`, `worker-stop`, `worker-release`, the close check, then row `babysit-queued` and run the gate again from a fresh READY |
+| `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push (#80): `sh S/stage-start.sh --home HOME_DIR stop <dispatch>`, then row `babysit-queued` and run the gate again from a fresh READY |
 | `FAIL settings: <why>` | add a `person` item of kind `access`: "star.json cannot be read: <why>". No comment was posted and nothing merged; the row stays `verifying` with `verify=retry=<now + 10 min>` |
 | `FAIL owner branch <base>` | the PR targets a branch only the owner merges into: row `set-aside`, "<base> is an owner branch" |
 | `FAIL merge methods: <method> not allowed` | add a `person` item of kind `access`: "allow <method> merges on <repo>, or change mergeMethod". The row stays `verifying` with `verify=retry=<now + 10 min>`; the gate and `merge.sh` run again after that |
@@ -379,11 +379,11 @@ STAR remembers what it sent a worker in `sent.log`, not in counters: one line pe
 | `stuck: login: <dir> signed in` | the login is fine in the worker's environment, so the screen is stale: a lost worker, but spend no try |
 | `stuck: login` (nothing after it) | the check could not run. Check `claude auth status >/dev/null 2>&1` from the project folder. It fails: keep the worker and add one `person` item of kind `screen` "the Claude login is lost: run /login in any Claude Code session of this profile" (one for every row; close it on the first tick the check passes). It passes: a lost worker, but spend no try |
 | `stuck: usage limit` | a lost worker at step `worker` |
-| `stuck: <what>` (any other) | stop the worker, release it, close the check, and spend a try at step `screen`; the row goes to its waiting state |
+| `stuck: <what>` (any other) | `sh S/stage-start.sh --home HOME_DIR stop <dispatch>`, and spend a try at step `screen`; the row goes to its waiting state |
 | `settled <state> [<reason>]` | its report is in the run's inbox and the Messages step applies it. If this tick's Messages step processed no report for that dispatch, a lost worker. `agent_prompt_stalled` (the worker never took its prompt, most often a trust dialog) is a try at step `screen` |
 | `gone` | Orca has no such worker (an Orca restart): a lost worker |
 | `unknown <why>` | says nothing about the worker, including empty or unreadable Orca output: keep the row and probe again next tick; it never justifies a restart |
-| `gate-gone r<k>` | gate round `k`'s process died while no verdict file exists and the worker still waits. Spend a try at step `worker` and send `orca orchestration send --to dispatch:<dispatch> --subject "STAR" --body "The gate process for round <k> died with no verdict. Run round <k> again." --json` |
+| `gate-gone r<k>` | gate round `k`'s process died while no verdict file exists and the worker still waits. Spend a try at step `worker` and tell it: `sh S/stage-start.sh --home HOME_DIR tell <dispatch> STAR "The gate process for round <k> died with no verdict. Run round <k> again."` (`busy <t>`: tell it again next tick) |
 
 **A lost worker.** Run `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` (the `stopped` line in
 `processed.log`, `worker-stop`, `worker-release` and the close check, in that order). Spend a

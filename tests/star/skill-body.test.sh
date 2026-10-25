@@ -181,7 +181,7 @@ hasE "A38 stage-start.sh release, stop and tell are named" 'stage-start\.sh.* (r
 hasT "A38b tell is named with its fall back to the terminal" 'sends to the dispatch'"'"'s mailbox, and when Orca refuses'
 if grep -qE 'orca orchestration worker-(stop|release)' "$tmp/text"; then fail "A39 a hand-built worker-stop or worker-release"; else pass "A39 no hand-built worker-stop or worker-release"; fi
 # the gate-gone probe row is Lane D's; it may still send by hand until that lane changes it
-if grep -v '^| `gate-gone' "$tmp/text" | grep -qE 'orca orchestration send --to dispatch:'; then fail "A40 a hand-built orchestration send --to dispatch:"; else pass "A40 no hand-built orchestration send --to dispatch:"; fi
+if grep -qE 'orca orchestration send --to dispatch:' "$tmp/text"; then fail "A40 a hand-built orchestration send --to dispatch:"; else pass "A40 no hand-built orchestration send --to dispatch:"; fi
 hasT "A41 a dropped blocker is read through its parts" 'with every row whose `parent=` names it cleared in turn'
 hasT "A42 wait <item> in Fill slots and the starting table" 'print `wait until <iso>` or `wait <item>`'
 hasT "A43 the SPLIT row says a waiting brief waits on the parts" 'waits on the parts, because `stage-start.sh` reads a dropped blocker through `parent=`'
