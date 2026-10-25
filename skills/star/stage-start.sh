@@ -12,6 +12,11 @@
 #   hold trust <path>         Claude Code's first-run dialogs for <path> could not be cleared
 #   wait until <iso>          build only: the brief's notBefore is still ahead (#87). A date alone
 #                             is 00:00 in the machine's local zone; a time needs an offset or Z
+#   wait <item>               build and babysit: the brief's blockedBy: [<item>, ...] names an item that
+#                             is still open (#189, #205), checked after notBefore and before the host
+#                             gate. An item is cleared when its row is done, or dropped with every row
+#                             whose counters.parent names it cleared, recursively (a SPLIT's parts, a
+#                             re-scope's follow-up); a name with no row is open. Nothing is written
 #   hold session <terminal> (<state>)
 #                             a session may still be working (#76): the row's previous dispatch has
 #                             an open terminal Orca does not prove it owns (<state> is its
@@ -243,20 +248,24 @@ def settled_own_terminal(dispatch):
     return handle, settled and res.get("ownerDispatchId") == dispatch, result
 
 
-def close_command(dispatch):
-    """close <dispatch> (#175): close the terminal a settled dispatch of STAR's own left open."""
+def close_line(dispatch):
+    """close <dispatch> (#175): close the terminal a settled dispatch of STAR's own left open. Returns the line."""
     handle, settled_own, result = settled_own_terminal(dispatch)
     if not handle or orca_lists(handle) is False:
-        out("none")
+        return "none"
     if settled_own:
         closed = run([orca, "terminal", "close", "--terminal", handle, "--json"], 60)
         if closed.returncode == 0 or orca_lists(handle) is False:
-            out(f"closed {handle}")
-        out(f"kept {handle} (close failed: {why(closed)})")
+            return f"closed {handle}"
+        return f"kept {handle} (close failed: {why(closed)})"
     res = result.get("terminalResource") if isinstance(result.get("terminalResource"), dict) else {}
     if "released" in (res.get("releaseState"), res.get("ownershipState")):
-        out(f"kept {handle} ({res.get('retainedReason') or res.get('ownershipState') or 'unowned'})")
-    out(f"kept {handle} (running)")
+        return f"kept {handle} ({res.get('retainedReason') or res.get('ownershipState') or 'unowned'})"
+    return f"kept {handle} (running)"
+
+
+def close_command(dispatch):
+    out(close_line(dispatch))
 
 
 home, args, positional = os.environ.get("STAR_HOME_DEFAULT") or "", sys.argv[1:], []
@@ -270,10 +279,11 @@ while args:
         die(64, f"unknown argument: {arg}")
     else:
         positional.append(arg)
+USAGE = "usage: stage-start.sh [--home H] brief|build|babysit|post <item> | close <dispatch>"
 if len(positional) == 2 and positional[0] == "close":
     close_command(positional[1])
 if len(positional) != 2 or positional[0] not in RUNNING:
-    die(64, "usage: stage-start.sh [--home H] brief|build|babysit|post <item> | close <dispatch>")
+    die(64, USAGE)
 stage, item = positional
 if not home:
     die(2, "no STAR folder: pass --home, or run inside a project")
@@ -338,6 +348,41 @@ def not_before(value):
     except ValueError:
         return None
     return when if when.tzinfo else None
+
+
+def open_blocker(name, seen=None):
+    """The first item still open under this blocker (#189, #205), or None when it is cleared. A row is
+    cleared when it is done, or dropped with every row whose counters.parent names it cleared,
+    recursively: a SPLIT's parts and a re-scope's follow-up both carry parent=. A name with no row is
+    open. A dropped row with no such rows clears (#37)."""
+    seen = seen or set()
+    if name in seen:
+        return None
+    got = run(["sh", os.path.join(S, "ledger.sh"), "--home", home, "get", name, "state"], 30)
+    if got.returncode != 0:
+        return name
+    state = got.stdout.strip()
+    if state == "done":
+        return None
+    if state != "dropped":
+        return name
+    listed = run(["sh", os.path.join(S, "ledger.sh"), "--home", home, "list"], 30)
+    for line in listed.stdout.splitlines():
+        part = line.split("\t")[0]
+        if part and part != name and run(["sh", os.path.join(S, "ledger.sh"), "--home", home, "get", part, "counters.parent"], 30).stdout.strip() == name:
+            found = open_blocker(part, seen | {name})
+            if found:
+                return found
+    return None
+
+
+def first_open_blocker(value):
+    """The first open item in a brief's blockedBy: [<item>, ...] line, or None."""
+    for blocker in re.split(r"[\s,]+", value.strip().strip("[]")):
+        found = open_blocker(blocker) if blocker else None
+        if found:
+            return found
+    return None
 
 
 def free_gb():
@@ -805,6 +850,10 @@ if stage == "build" and fm.get("notBefore"):
         out(f"failed brief: notBefore {fm['notBefore']} is not a date (YYYY-MM-DD, or an ISO time with an offset)")
     if datetime.now(timezone.utc) < when:
         out(f"wait until {when.isoformat()}")
+if stage in ("build", "babysit") and fm.get("blockedBy"):
+    blocker = first_open_blocker(fm["blockedBy"])
+    if blocker:
+        out(f"wait {blocker}")
 held = host_gate()
 if held:
     out(f"hold {held}")

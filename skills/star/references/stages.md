@@ -57,6 +57,7 @@ status line as `<item>: <the line>`, then act on the last line.
 and the agent in it. After every `worker-stop` and `worker-release` STAR makes, run
 `sh S/stage-start.sh --home HOME_DIR close <dispatch>`. It prints exactly one line and exits 0:
 `closed <terminal>` (the dispatch settled and the terminal was provably its own, whatever its
+| `wait <item>` | the brief's `blockedBy` names `<item>`, which is not cleared (a SPLIT's parts count, #189; a babysit waits too, #205): write nothing, keep the row in its waiting state (`queued` or `babysit-queued`), say `<row> waits on <item>`, give the slot to the next row. No try, no question |
 `retainedReason`), `kept <terminal> (<state>)` (anything else: a person's terminal, or a dispatch not yet
 settled) or `none`. Say a `closed` or `kept` line in the status line. A `kept` terminal stays open and
 nobody is asked. `stage-start.sh` applies the same rule to a row's previous dispatch before it starts the
@@ -111,7 +112,7 @@ issue (tick.md); `HELD item=… action=…` becomes a `draft` item titled `by ha
 | First line | Action |
 |---|---|
 | `BRIEF item=… path=… asks=<n> [followup=<path>] [rescoped=1]` | queue one `person` item per line of the brief's `## Person-only steps` (`sed -n '/^## Person-only steps/,/^## /p' <brief>`, at most 20 lines), but look first, because the owner is never asked the same thing twice: STAR's notes (`sh S/recall.sh --kind note <the step's words>`), the project's `CLAUDE.md` and `AGENTS.md`, and the queue and its archive. A step one of them already answers, or one answered `done` in the last 7 days, goes into `## Decisions` instead (naming where the answer lives, never a secret's value), and no item is added. The row goes to `queued`, or `needs-you` (its `stage` set to build) while any of those items is open. `followup=<path>` adds the follow-up row (below). `rescoped=1`: clear `counters.rescope` (the count went up when the row was sent to be re-scoped). When the brief's `baseBranch` is one of `ownerBranches`, its point is a merge into that branch, which is the owner's: the row goes `set-aside` with "<branch> → <baseBranch> is yours", nothing is built |
-| `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `batch`, `parent=<item>`); when the parent's `ref` is a tracker item every part also carries `counters.trackerRef=<parent ref>` (#172); the parent row goes to `dropped`; say "split into <names>" |
+| `SPLIT item=… into=<path>,<path>` | one `inbox` row per path (`ref` the path, the same `batch`, `parent=<item>`); when the parent's `ref` is a tracker item every part also carries `counters.trackerRef=<parent ref>` (#172); the parent row goes to `dropped`; say "split into <names>". A brief that waits on the parent keeps its `blockedBy` as it is and waits on the parts, because `stage-start.sh` reads a dropped blocker through `parent=` (#189) |
 | `ESCALATION …` | below |
 
 **Build**
@@ -156,6 +157,13 @@ slot until the `worker_done`.
 `MERGED`, `RESCOPE`, `HELD`, `ESCALATION`; post: `POSTED`, `ESCALATION`) is a prose body in place of the
 report (#56). It costs one try at step `worker`, and the stage runs again. The same holds for a worker that
 settled with no report at all.
+**A cause inherited from the base** (#205). An `ESCALATION` from a babysit or build worker whose cause is a defect
+the PR took over from its base branch, when an open row is the fix for it, is not a try and not a question:
+append that row's item to the brief's `blockedBy:` line, append `- <date> waits for <fix item> to merge into
+<base>: <cause>` to `## Decisions`, spend no try, and send the row to its waiting state (`babysit-queued` or
+`queued`), freeing the slot and stopping the worker (`stage-start.sh stop`). No `person` item. `stage-start.sh` then prints
+`wait <fix item>` until that row is `done` (or `dropped` with its parts), and the stage starts again by itself.
+
 
 ## What a failure costs
 

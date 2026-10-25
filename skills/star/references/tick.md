@@ -124,9 +124,13 @@ the owner's order waits by itself, and a chat message "lift the hold on <item>" 
 
 Then, for each free slot, the row next in line (pools: `references/state.md`): `sh S/stage-start.sh
 [--home HOME_DIR] <stage> <item>`, run with `run_in_background: true`. Act on its line as
-`references/stages.md` ("Starting a stage") says. A `queued` row starts only when every item its brief's
-`blockedBy` names is `done` or `dropped` (#37) and its `notBefore` has passed (#87); `stage-start.sh build`
-checks both and prints `wait until <iso>` before then. A row waiting on a blocker is named in the status line.
+`references/stages.md` ("Starting a stage") says. A `queued` or `babysit-queued` row starts only when
+every item its brief's `blockedBy` names is cleared and its `notBefore` has passed (#87). An item is cleared when
+its row is `done`, or `dropped` with every row whose `parent=` names it cleared in turn (a SPLIT's parts, a
+re-scope's follow-up, #189); a dropped row with no such rows clears (#37), and a name with no row is open.
+`stage-start.sh build` and `babysit` check this and print `wait until <iso>` or `wait <item>` before any start
+(#205): the row keeps its waiting state, the status line says `<row> waits on <item>`, and the slot goes to the
+next row. `blockedBy` is never rewritten on a SPLIT: the parts take the parent's place by `parent=`.
 
 ## 5. Housekeeping
 

@@ -209,9 +209,10 @@ or `dropped`, get `-2`, `-3`, with their own brief, reviews and queue items.
 
 **Pools.** Brief pool (at most `maxBriefs`): `inbox` rows, oldest `updated` first. Briefs only read, so
 they never take a build slot. Build pool (at most `maxParallel`): `post-queued` rows, then `queued`
-rows whose `blockedBy` items are all `done` or `dropped` (#37), whose `notBefore` time has passed (#87)
-and whose brief has no `hold:` line; within each, oldest first. Babysit pool (at most `maxInReview`):
-`babysit-queued` rows, oldest first. A row counts against a pool exactly while its state has that pool
+rows whose `blockedBy` items are all cleared (`done`, or `dropped` with every part of it cleared, #37, #189),
+whose `notBefore` time has passed (#87) and whose brief has no `hold:` line; within each, oldest first.
+Babysit pool (at most `maxInReview`): `babysit-queued` rows, oldest first, skipping a row whose `blockedBy` is
+not cleared (#205). `stage-start.sh` prints `wait <item>` for any row it is asked to start while a blocker is open. A row counts against a pool exactly while its state has that pool
 in the State table. Each stage has a waiting state used whenever it is to run (again): brief `inbox`,
 build `queued`, babysit `babysit-queued`, post `post-queued`. Nothing starts a worker except "Fill
 slots", so a restarted stage waits for its pool like any other.

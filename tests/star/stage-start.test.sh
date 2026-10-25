@@ -631,5 +631,43 @@ grep -q -- "--out $H/briefs/app/SPH-82.md --feedback --task-title" "$TMP/calls" 
 reset; ST brief SPH-11 >/dev/null
 grep -o -- '--retry-request [^ ]*' "$TMP/calls" | cut -d' ' -f2 | grep -vqiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' && fail "#163 a request id Orca refuses ($(grep -o -- '--retry-request [^ ]*' "$TMP/calls"))" || pass "#163 every request id is a UUID"
 [ "$(rq star-SPH-11-brief-r0-s1)" != "$(python3 -c 'import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, "juel-star:/elsewhere/star#star-SPH-11-brief-r0-s1"))')" ] && pass "#163 another folder gets another id" || fail "#163 folder in the id"
+# lane e: blockedBy holds a build or a babysit until every blocker is cleared (#189, #205)
+bl() { # bl <item> <state> <blockedBy list>: a row whose brief names those blockers
+  L add "$1" ref="$1" project=app state="$2" >/dev/null 2>&1 || L set "$1" state="$2" >/dev/null
+  mkdir -p "$H/briefs/app"
+  printf -- '---\njuel_brief: 1\nbranch: feat/%s-x\nbaseBranch: main\ndeliverable: pr\nblockedBy: %s\n---\n## Work item\nx\n' "$(echo "$1" | tr 'A-Z' 'a-z')" "$3" > "$H/briefs/app/$1.md"
+}
+L add BLK-1 ref=BLK-1 project=app state=building >/dev/null
+bl BLK-2 queued '[BLK-1]'
+reset; out=$(ST build BLK-2)
+[ "$out" = "wait BLK-1" ] && [ ! -f "$TMP/calls" ] && [ "$(L get BLK-2 state)" = "queued" ] && [ "$(L get BLK-2 counters.start)" = "-" ] && pass "a build waits on a blocker that is building, and nothing is written" || fail "open blocker ($out)"
+bl BLK-2 queued '[BLK-9, BLK-1]'
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-9" ] && pass "a blocker with no row is open, and the first open one is named" || fail "no row ($out)"
+bl BLK-2 queued '[BLK-1] # waits for the schema'
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-1" ] && pass "a trailing comment on the blockedBy line is ignored" || fail "comment ($out)"
+# a SPLIT drops the blocker and adds parts that carry parent= (#189)
+L set BLK-1 state=dropped >/dev/null
+L add BLK-1a ref=BLK-1a project=app state=inbox counters.parent=BLK-1 >/dev/null
+L add BLK-1b ref=BLK-1b project=app state=done counters.parent=BLK-1 >/dev/null
+bl BLK-2 queued '[BLK-1]'
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-1a" ] && [ ! -f "$TMP/calls" ] && pass "a dropped blocker waits on its open parts (#189)" || fail "split part open ($out)"
+L add BLK-1a1 ref=BLK-1a1 project=app state=building counters.parent=BLK-1a >/dev/null
+L set BLK-1a state=dropped >/dev/null
+reset; out=$(ST build BLK-2); [ "$out" = "wait BLK-1a1" ] && pass "a dropped part waits on its own parts, recursively" || fail "recursive ($out)"
+bl BLK-3 babysit-queued '[BLK-1]'
+reset; out=$(ST babysit BLK-3); [ "$out" = "wait BLK-1a1" ] && [ ! -f "$TMP/calls" ] && [ "$(L get BLK-3 state)" = "babysit-queued" ] && pass "a babysit waits on the same blockers (#205)" || fail "babysit blocker ($out)"
+L set BLK-1a1 state=done >/dev/null
+WTB2="$APP/.worktrees/app/BLK-2"; trust "$APP" "$WTB2"
+reset; out=$(ST build BLK-2); case "$out" in "started "*) pass "every part done: the blocker is cleared and the build starts" ;; *) fail "cleared ($out)" ;; esac
+bl BLK-4 queued '[BLK-5]'; L add BLK-5 ref=BLK-5 project=app state=dropped >/dev/null
+WTB4="$APP/.worktrees/app/BLK-4"; trust "$APP" "$WTB4"
+reset; out=$(ST build BLK-4); case "$out" in "started "*) pass "a dropped blocker with no parts is cleared (#37)" ;; *) fail "dropped, no parts ($out)" ;; esac
+bl BLK-6 queued '[]'
+WTB6="$APP/.worktrees/app/BLK-6"; trust "$APP" "$WTB6"
+reset; out=$(ST build BLK-6); case "$out" in "started "*) pass "an empty blockedBy list blocks nothing" ;; *) fail "empty list ($out)" ;; esac
+bl BLK-7 queued '[BLK-8]'; L add BLK-8 ref=BLK-8 project=app state=done >/dev/null
+WTB7="$APP/.worktrees/app/BLK-7"; trust "$APP" "$WTB7"
+reset; out=$(ST build BLK-7); case "$out" in "started "*) pass "a done blocker is cleared" ;; *) fail "done blocker ($out)" ;; esac
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
