@@ -845,6 +845,21 @@ or build step as the gate-lock line from juel:ship-ticket's 'Gate lock' section.
   Mac, or measures something live outside the repository) carries the line `**Run:** session`
   right under its `### Task <N>` heading, and Phase 4 runs it in this session (#154). Every other
   task carries no `**Run:**` line. Say so in the input to `superpowers:writing-plans`.
+- Every plan's header carries `` **Scratch:** `<docsRoot>/` `` (#194). `**Files:**` blocks name only files to be committed: the spec, the plan, evidence and every other docsRoot file are scratch, and a step that writes one names it in its text. The executor writes scratch and never commits it, and never fails a task over it.
+- For a change that cuts across modules, the header also carries a `**Shared files:**` block (the same line syntax as `**Files:**`) naming the tests that assert the changed contract and the harness stubs the tasks need (#199). Every task may change what it names, and the scope check accepts it.
+- Tell `superpowers:writing-plans` to start every plan, right under its header, with this block, verbatim, so the rules hold even when Codex did not load the executor skill (#190):
+
+  ```
+  ## Execution rules
+
+  - A task's exact text (commands, quoted strings, test names, paths, commit messages) wins over a
+    general style rule and over the Goal's wording. Record the reading under Deviations and go on.
+  - A task may change a file another task's **Files:** block or the **Shared files:** block names
+    when its own test needs it.
+  - Every command this plan writes out, the gate-lock line and its sweep included, is a command the
+    plan names: run it as written.
+  - Git-ignored files under **Scratch:** are written, never committed, and never fail a task.
+  ```
 - A task that creates a file whose name or id a project check enforces (a pretest checker, a lint rule) names that check as its verification command. The check runs before the task's commit.
 - On a resumed build (see "Resume on an existing draft PR"), the plan's header also carries `**Base:** spec implemented at <the branch head's full sha>; apply only the tasks below.`, so the executor applies the new tasks and never stops because the earlier spec is already implemented.
 
