@@ -35,6 +35,10 @@ same text into the dispatch's own terminal. It prints `sent mailbox`, `sent term
 is open: try again next tick) or `FAIL tell <dispatch>: <message>`. The check-in and retry nudges stay `orca
 terminal send`: they need the Enter and already read `agent_prompt_blocked`.
 
+A `FAIL stop|release|tell …` line (these exit 0, so the exit code does not show it) ends that step with the row as it is: no
+`released` line in `processed.log`, no state change, nothing spent. Name it in the status line; the next tick runs the same
+command again. The lost-worker paragraph, the `FAIL live worker` row and `tick.md`'s `worker_done` release follow this rule.
+
 **Build worktree.** `stage-start.sh build` sets it up before any agent starts, because Orca picks the
 new worktree's branch name and `ship-ticket` stops when the checkout is not on the brief's branch.
 It reuses a worktree that `git worktree list --porcelain` shows on the brief's branch (unless another
@@ -67,7 +71,7 @@ HOME_DIR stop <dispatch>` notes `<dispatch> stopped <iso>` in `processed.log` (o
 closes, and `release <dispatch>` releases a settled one. Each prints exactly one line and exits 0:
 `stopped <dispatch>; <release line>` or `<status> <dispatch>; <close line>`, `<status>` being Orca's
 (`released`, `retained`, `release_pending`, `already_released`), or `FAIL stop|release <dispatch>: <message>`
-(put it in the status line and look again next tick). The close line is `closed <terminal>` (the dispatch
+(a `FAIL` line ends that step with the row as it is: no `released` line in `processed.log`, no state change; name it in the status line, and the next tick runs the same command again. The same holds for `FAIL tell <dispatch>: …`). The close line is `closed <terminal>` (the dispatch
 settled and the terminal was provably its own, whatever its `retainedReason`), `kept <terminal> (<state>)`
 (anything else: a person's terminal, or a dispatch not yet settled) or `none`. Say a `closed` or `kept` line in
 the status line. A `kept` terminal stays open and nobody is asked. `close <dispatch>` alone runs only the close check. `stage-start.sh` applies the same rule to a row's previous dispatch before it starts the
@@ -158,7 +162,10 @@ issue (tick.md); `HELD item=… action=…` becomes a `draft` item titled `by ha
 - `ESCALATION item=<item> phase=<n> reason=out-of-tries step=<step>[ review=<path>]`. Free the slot and apply "What a failure costs" to `<step>`.
 
 **A cause inherited from the base** (#205). An `ESCALATION` from a babysit or build worker whose cause is a defect
-the PR took over from its base branch, when an open row is the fix for it, is not a try and not a question:
+the PR took over from its base branch, when an open row is the fix for it, is not a try and not a question. The
+worker marks such a cause with a line `NOTE: inherited from <base>: <one line>` in its `worker_done` body (ship-ticket
+and babysit-pr both report it). Without that NOTE, STAR does not guess that a cause is inherited: the escalation is
+handled as any other. With it:
 append that row's item to the brief's `blockedBy:` line, append `- <date> waits for <fix item> to merge into
 <base>: <cause>` to `## Decisions`, spend no try, and send the row to its waiting state (`babysit-queued` or
 `queued`), freeing the slot and stopping the worker (`stage-start.sh stop`). No `person` item. `stage-start.sh` then prints
@@ -208,8 +215,8 @@ decides what happens next:
 
 ## Set-aside, re-scope and follow-ups
 
-**Set aside.** When everything is spent: stop and release the worker if one runs (and `stage-start.sh close`
-it), set the row `set-aside` (keep its `stage`), add a `set-aside` item `<item> set aside: <one-line
+**Set aside.** When everything is spent: if a worker runs, `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` (it
+stops, releases and runs the close check), then set the row `set-aside` (keep its `stage`), add a `set-aside` item `<item> set aside: <one-line
 reason>` with `step: <step>` and `review: <path>` when there is one, and carry on with everything else.
 Leave its PR open: it is STAR's own, and the owner may want it. The reason is one line: "executor failed 3
 times", "NOT-SAFE again after a re-scope", "<base> → <owner branch> is yours". `try again` puts the row in
@@ -273,7 +280,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | `PENDING gh cannot see <repo>…` | add a `person` item of kind `access`: "gh cannot see <repo>: set tokenCmd in star.json to a command that prints a token for it". No try; the next check runs after the item is done |
 | `MOVED <head>` | spend a try, row `babysit-queued` |
 | `MERGED <sha>` | the PR is merged (by STAR's call or someone else's): `sh S/release-record.sh --home HOME_DIR --project <p> --item <i> --pr <url>`, row `done`, print the record's path. When the row's `parent` row is `dropped` and its `pr` is this PR, set that row `done` too |
-| `FAIL closed` | stop and release any worker, row `set-aside` with "PR was closed without a merge" |
+| `FAIL closed` | `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` for any worker, row `set-aside` with "PR was closed without a merge" |
 | `FAIL conflicts` | the sync rule below |
 | `FAIL no codex PASS for <sha7>` | append "- <date> the merge gate said: no codex PASS for <sha7>; resume the gate loop on the existing PR" to `## Decisions`, spend a try, row `queued` |
 | any other `FAIL <what>` | append "- <date> the merge gate said: <what>. Fix it on the PR." to `## Decisions`, spend a try, row `babysit-queued` |
@@ -286,7 +293,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | `FAIL head moved` | as the verdict `MOVED`. `merge.sh` prints it only when it read the PR again and the head differs from `--head`, so it is a real move (#193) |
 | `PENDING merge state: behind the base branch` | the PR is behind a base that wants an up-to-date head (a BEHIND PR on a base with no such rule is merged by `merge.sh` itself): the sync rule below. No try. `merge.sh` posted no comment |
 | `FAIL merge: conflicts with the base` | the sync rule below, as the verdict `FAIL conflicts`: row `babysit-queued` with a `## Decisions` line, no try |
-| `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push (#80): `sh S/stage-start.sh --home HOME_DIR stop <dispatch>`, then row `babysit-queued` and run the gate again from a fresh READY |
+| `FAIL live worker <dispatch>` | the row is in a worker stage, so its worker may still push (#80): `sh S/stage-start.sh --home HOME_DIR stop <dispatch>`, then row `babysit-queued` and run the gate again from a fresh READY. A `FAIL stop …` line ends the step with the row as it is, and the next tick runs it again |
 | `FAIL settings: <why>` | add a `person` item of kind `access`: "star.json cannot be read: <why>". No comment was posted and nothing merged; the row stays `verifying` with `verify=retry=<now + 10 min>` |
 | `FAIL owner branch <base>` | the PR targets a branch only the owner merges into: row `set-aside`, "<base> is an owner branch" |
 | `FAIL merge methods: <method> not allowed` | add a `person` item of kind `access`: "allow <method> merges on <repo>, or change mergeMethod". The row stays `verifying` with `verify=retry=<now + 10 min>`; the gate and `merge.sh` run again after that |
@@ -386,7 +393,7 @@ STAR remembers what it sent a worker in `sent.log`, not in counters: one line pe
 | `gate-gone r<k>` | gate round `k`'s process died while no verdict file exists and the worker still waits. Spend a try at step `worker` and tell it: `sh S/stage-start.sh --home HOME_DIR tell <dispatch> STAR "The gate process for round <k> died with no verdict. Run round <k> again."` (`busy <t>`: tell it again next tick) |
 
 **A lost worker.** Run `sh S/stage-start.sh --home HOME_DIR stop <dispatch>` (the `stopped` line in
-`processed.log`, `worker-stop`, `worker-release` and the close check, in that order). Spend a
+`processed.log`, `worker-stop`, `worker-release` and the close check, in that order). When it prints `FAIL stop …`, the row stays as it is, nothing is spent, and the next tick runs it again. Otherwise spend a
 try at step `worker`, set `restarts` to its old value plus one, and put the row in its stage's waiting state
 (babysit resumes with `--since <cursor>`); a stage that has used `tries.perStep` is set aside with "worker lost
 <n> times". A lost build restarts on its worktree and branch as they are; STAR never cleans or discards what a
