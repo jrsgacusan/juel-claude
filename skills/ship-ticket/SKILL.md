@@ -468,6 +468,7 @@ are waiting on; the free text goes in the third field:
 | `executor` | right before each executor dispatch: Phase 4, and each fix plan of the gate loop |
 | `live-check` | after each live check in Phase 6, naming the check and its verdict |
 | `regression-gate` | right before the regression gate starts (Phase 6 step 5, and each gate-loop fix); while it waits for the gate lock, `gate-lock.sh --progress` writes this step itself every 10 minutes |
+| `screen-wait` | each time `screen-lock.sh acquire` exits 75: `screen-wait screen busy, held by <item>`, so STAR reads a worker waiting for the screen as alive |
 | `gate-r<k>` | right before gate round `k` starts (`gate-r1`, `gate-r2`, …) |
 | `post-pass` | right before `post-pass` |
 | `ready` | after the PR is marked ready (the codex gate loop, step 3) |
@@ -509,7 +510,13 @@ sh <screen-lock.sh> release --holder "<item>"
 
 (`screen-lock.sh` is next to this file: `${CLAUDE_PLUGIN_ROOT}/skills/ship-ticket/screen-lock.sh`
 when that is set.) Exit 75 means another item has the screen, which is normal: do any screen-free
-work in the plan, then try again; after 2 hours of tries end with `reason=out-of-tries step=screen`. Where an app lets
+work in the plan, then try again; each try that exits 75 appends a `screen-wait` progress line
+(`screen-wait screen busy, held by <item>`), so STAR reads this worker as waiting, not stalled; after 2 hours of tries end with `reason=out-of-tries step=screen`.
+The order of the two locks is gate, then screen (#207): a step that needs both runs as one
+gate-locked command whose script takes the screen lock inside it, and you never start `gate-lock.sh`
+while you hold the screen lock. If you do, it exits 77 and runs nothing: release the screen, run the
+gate, take the screen again. Two workers each holding one lock and waiting for the other's would
+otherwise wait forever. Where an app lets
 you set a window or profile title, include the item name. While you hold the lock, renew it at
 least every 10 minutes: `sh <screen-lock.sh> renew --holder "<item>"`. A lock nobody renews for 30
 minutes is taken over by the next worker. `renew` exiting 65 (the lock was taken over) or
@@ -696,6 +703,10 @@ machine. Only the owner changes it: never run `--slots` from this skill or a pla
 `gate-lock.sh: stalled, the command printed nothing for <n> s and was stopped`. The command went
 silent for `--idle-max` seconds (900 by default) and was stopped, and the lock is free again. It
 is not red and it is not run again: it is the `step=review-tool` escalation at once, with `stalled gate: <the stalled line>` in the file `review=` names.
+Exit 77 means this holder still has the screen lock, with
+`gate-lock.sh: <holder> holds the screen lock: release it first (the order is gate, then screen, #207)`
+on stderr, and nothing ran: release the screen (`screen-lock.sh release`), run the gate line again,
+then take the screen again if the work continues. It is not red and spends no try.
 Exit 71 or 124 is `step=review-tool`, except an exit 71 whose message says
 `dependencies are not installed`: run the resolved `commands.install` once (Phase 4's
 "Dependencies"), then the same line again; a second 71 is `step=review-tool`. Any other non-zero exit is the gate's own: it
@@ -917,12 +928,22 @@ resolution still installs and runs nothing.
 all resume from it, at the first task not marked complete. Before the first dispatch, make sure git
 ignores it: `git check-ignore -q .superpowers/x || echo '/.superpowers/' >> "$(git rev-parse --git-path info/exclude)"`.
 
+Before the first dispatch of any plan (this phase's plan, each fix plan, each `-vN`), when its ledger
+does not exist, create it with exactly one line, `# SDD ledger — plan: <the plan path as the dispatch
+line names it>`. The executor then never has to judge whose ledger it found (#203). A ledger that
+`session-tasks.sh` reports as `foreign <path>` names another plan: rename it to
+`progress.foreign-<UTC stamp>.md` in the same folder and create a fresh one the same way.
+
 **Session tasks** (#154). A task with the line `**Run:** session` under its heading is never
 handed to Codex. Take the scope record below first, before the first task of either kind runs.
 Before each dispatch, run `sh <session-tasks.sh> <plan> --ledger <ledger>` (`session-tasks.sh` is
 next to this file; `<ledger>` is the plan's ledger above). When it prints `until <N>`, the dispatch
 line's prompt ends with ` Stop before task <N>: the session runs it.`, inside its quotes, so the stop holds even
-when Codex did not load the executor skill. After each executor run (every try of the capacity rule
+when Codex did not load the executor skill. Its last line is `next <N>` (the first task with no
+`Task <N>: complete` line), `next none` or `foreign <path>`. When `next <N>` is not the plan's first
+task, the prompt also gets ` Resume at task <N>: the ledger marks every task before it complete.`
+inside its quotes, before any ` Stop before task <N>: the session runs it.`, so a model that
+skipped the ledger still starts in the right place (#196). After each executor run (every try of the capacity rule
 included), run it again: a `ran <N>` line means the executor ran a session task, so the run failed:
 under `--unattended`, end with
 `ESCALATION item=<item> phase=<n> reason=out-of-tries step=executor`;
@@ -931,9 +952,7 @@ Before each dispatch, and after a dispatch whose report ends with
 `stopped at task <N>: run by the session`, look at the first task with no `Task <N>: complete`
 line in the ledger. While it is a session task, run it in this session (its steps, its tests and
 its commit, inside its `**Files:**` block, never `git add -f`), then append
-`Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`; with no ledger
-yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`, the path
-exactly as the dispatch line names the plan. A session task that cannot be completed gets no
+`Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`. A session task that cannot be completed gets no
 ledger line, and nothing is dispatched past it: under `--unattended`, end the run with
 `ESCALATION item=<item> phase=4 reason=out-of-tries step=executor review=<the file holding session task <N> failed: <one line>>`;
 interactively, show that line and ask how to go on. Then dispatch the same line: the executor
@@ -941,6 +960,25 @@ resumes at the first task not marked complete. When every task left
 is a session task, nothing more is dispatched. The ledger is the record of who ran what: a
 `(session, …)` line is this session's, every other line the executor's. With `--executor session`,
 and on the capacity rule's last step, this session runs every task anyway.
+
+**An executor that exits 0 with the plan unfinished** (#188). After every executor run that exits 0,
+run `session-tasks.sh <plan> --ledger <ledger>`. A `next <N>` whose task N is not a session task means
+the plan is unfinished. Read the report's last lines for why it stopped:
+
+1. A failing check (a test, a lint, a snapshot): run that exact command in this session, outside the
+   sandbox. It passes: the failure was the sandbox's, so finish task N in this session (its remaining
+   steps, its commit), append
+   `Task <N>: complete (session, sandbox-only failure: <command>, commits …, tests: …)`, then dispatch
+   the same line again for the rest. It fails here too: a real failure, so dispatch the same line once
+   more.
+2. Any other stop (a question, a conflict it names, nothing said): dispatch the same line once more.
+3. The executor stopping at the same task twice: this session runs the remaining tasks with
+   `superpowers:executing-plans`, resuming from the ledger.
+
+Each branch is one line: under `--unattended` a progress line with the step `executor`
+(`executor stopped at task <N>: <why>; <redispatched | finished in session | session runs the rest>`),
+interactively a line in this phase's checkpoint. It is no `NOTE` and spends no try: the plan's own
+failures still count as before.
 
 **The scope record.** Right before the first dispatch (Codex or this session), from the repo root,
 note the commit the executor starts from and record every path that already differs from it:
@@ -980,11 +1018,12 @@ paths the sandbox may write, so `<add-dirs>` below is `--add-dir <git-dir> --add
 with those two paths. Otherwise `<add-dirs>` is empty. Work it out again before every dispatch.
 
 ```bash
-codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md[ Stop before task <N>: the session runs it.]' < /dev/null
+codex exec --sandbox workspace-write -m <model> -c model_reasoning_effort="<effort>" <add-dirs> '$claude-plan-executor ${docsRoot}/plans/<plan-file>.md[ Resume at task <N>: the ledger marks every task before it complete.][ Stop before task <N>: the session runs it.]' < /dev/null
 ```
 
-The brackets are not typed: the part inside them is added only when `session-tasks.sh` printed
-`until <N>` (Phase 4, "Session tasks").
+The brackets are not typed: the first part is added only when `session-tasks.sh` printed a
+`next <N>` that is not the plan's first task, the second only when it printed `until <N>` (Phase 4,
+"Session tasks").
 
 **At capacity.** When codex exits non-zero and its last lines say the model is at capacity,
 overloaded or rate limited, wait 60 seconds and dispatch the same line once more; then once on the

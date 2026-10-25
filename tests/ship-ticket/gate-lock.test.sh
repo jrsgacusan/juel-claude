@@ -367,5 +367,31 @@ done
 sh "$SCRIPT" --idle-max -- true 2>/dev/null; [ $? -eq 64 ] && pass "#143 --idle-max without a value is exit 64" || fail "#143 --idle-max usage"
 grep -qF -- '[--idle-max <seconds>]' "$SCRIPT" && grep -qF '125 with "gate-lock.sh: stalled, the command printed' "$SCRIPT" && pass "#143 the header lists --idle-max and exit 125" || fail "#143 header"
 
+# 40. The order is gate, then screen (#207): a holder that has the screen lock gets exit 77 and nothing runs.
+SCREEN="$ROOT/skills/ship-ticket/screen-lock.sh"
+export JUEL_SCREEN_LOCK="$TMP/screen.lock" JUEL_SCREEN_LOCK_POLL=0.2
+sleep 120 & sw=$!
+sh "$SCREEN" acquire --holder star/item-7 --pid "$sw" --wait-max 2 >/dev/null
+err=$(sh "$SCRIPT" --holder star/item-7 --wait-max 1 -- sh -c "echo ran > '$TMP/s77.ran'" 2>&1); rc=$?
+[ "$rc" -eq 77 ] && [ ! -e "$TMP/s77.ran" ] && pass "#207 a holder that has the screen lock gets exit 77 and nothing runs" || fail "#207 exit 77 ($rc)"
+case "$err" in *"star/item-7 holds the screen lock: release it first (the order is gate, then screen, #207)"*) pass "#207 the message names the holder and the order" ;; *) fail "#207 message ($err)" ;; esac
+free && pass "#207 the refusal took no gate lock" || fail "#207 the refusal left the gate lock held"
+sh "$SCREEN" release --holder star/item-7 >/dev/null 2>&1
+sh "$SCREEN" acquire --holder item-7 --pid "$sw" --wait-max 2 >/dev/null
+sh "$SCRIPT" --holder star/item-7 --wait-max 1 -- sh -c "echo ran > '$TMP/s77b.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 77 ] && [ ! -e "$TMP/s77b.ran" ] && pass "#207 a screen lock under the part after the last / matches too" || fail "#207 short holder ($rc)"
+sh "$SCRIPT" --holder other --wait-max 1 -- sh -c "echo ran > '$TMP/s77c.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/s77c.ran" ] && pass "#207 another holder is not refused" || fail "#207 other holder ($rc)"
+sh "$SCRIPT" -- sh -c "echo ran > '$TMP/s77d.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/s77d.ran" ] && pass "#207 no --holder is never refused" || fail "#207 no holder ($rc)"
+# a nested gate runs at once, even under a holder that has the screen
+sh "$SCRIPT" --holder star/item-8 -- sh "$SCRIPT" --holder star/item-7 -- sh -c "echo ran > '$TMP/s77e.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/s77e.ran" ] && pass "#207 a nested gate is not refused" || fail "#207 nested ($rc)"
+sh "$SCREEN" release --holder item-7 >/dev/null 2>&1
+sh "$SCRIPT" --holder star/item-7 --wait-max 1 -- sh -c "echo ran > '$TMP/s77f.ran'" 2>/dev/null; rc=$?
+[ "$rc" -eq 0 ] && [ -e "$TMP/s77f.ran" ] && pass "#207 after the screen is released the gate runs" || fail "#207 after release ($rc)"
+kill "$sw" 2>/dev/null; wait "$sw" 2>/dev/null
+grep -qF 'holds the screen lock: release it first (the order is gate, then screen,' "$SCRIPT" && pass "#207 the header lists exit 77" || fail "#207 header"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
