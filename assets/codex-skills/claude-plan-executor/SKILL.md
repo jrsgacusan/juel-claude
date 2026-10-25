@@ -38,8 +38,9 @@ of the two; that is normal and not a problem to report.
 ## Workflow
 
 1. Find this plan's ledger before anything else (see "Progress protocol"): it says which tasks are
-   already done. A dispatch prompt that ends with ` Resume at task <N>: the ledger marks every task before it complete.`
-   starts you at task N, even when the ledger cannot be read.
+   already done. A dispatch prompt that **contains** the clause ` Resume at task <N>: the ledger marks every task before it complete.`
+   starts you at task N, even when the ledger cannot be read. With a readable ledger, start at the later
+   of the clause's task and the first task its ledger does not mark complete.
 2. Load the plan artifact completely before proposing changes.
 3. Discover the relevant `CLAUDE.md` files for the repo root and any affected subtrees, then read them before translating the plan into implementation work.
 4. Extract:
@@ -70,7 +71,8 @@ directions. Settle them in this order, and keep going; a stop costs a whole disp
 reading costs a line.
 
 1. **Hard limits always win.** Never push, tag or bump a version; never `git add -f`; never run a
-   command the plan does not write out; a `**Run:** session` task is the session's; a Global
+   test, build, install or gate command the plan does not write out (your own git and inspection
+   commands stay allowed: the pre-commit `check-ignore`, `git check-ignore -v`, `vm_stat`); a `**Run:** session` task is the session's; a Global
    Constraint that names a path, a version or a tag that must not be touched.
 2. **A task's exact text wins over a general rule.** Its commands, quoted strings, test names, paths
    and commit message beat a style rule (the em dash rule against a string already in the code), a
@@ -85,7 +87,7 @@ reading costs a line.
 
 ## Execution Rules
 
-- Run only the commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through `gate-lock.sh` when it says so); the caller runs the full gates itself, under its lock.
+- Run only the test, build, install and gate commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through `gate-lock.sh` when it says so); the caller runs the full gates itself, under its lock.
 - **A task may change a file another task's `**Files:**` block names** when its own test needs it (a test asserting the changed contract, a stub it runs against); say which in that task's report. A plan's header may also carry a `**Shared files:**` block, in the same line syntax as a `**Files:**` block: every task may change what it names. The caller's scope check accepts both.
 - Never skip a step over memory. A step the plan runs through `gate-lock.sh` is guarded by the lock: run it as written. If you check memory for any other reason, count free plus inactive plus speculative pages from `vm_stat` as available (free pages alone are always low on macOS).
 - Treat the Claude plan as authoritative for sequencing and scope, not as infallible on implementation details.
@@ -172,7 +174,7 @@ reading costs a line.
   - At start, if the ledger's first line names this plan file (the `-vN` suffix included), every
     task with a `Task <N>: complete` line is done, whatever its markers: do not redo it, and a
     `**Run:** session` task the ledger marks complete is not a reason to stop. Start at the first
-    task without one.
+    task without one. A Resume clause in the dispatch prompt moves the start later, never earlier.
     Before editing, check that task's state: a run stopped by a capacity error may have left it
     half applied. Finish it, and never apply its edits a second time.
   - With no ledger, or one whose first line names another plan file, leave that one alone and start a fresh one whose
@@ -184,8 +186,7 @@ reading costs a line.
     When the sandbox denies commits, append
     `Task <N>: complete (uncommitted, tests: <command> → <result>)` as soon as the task's
     verification passes instead.
-  - `<N>` is the number in the task's `### Task <N>` heading. The ledger is git-ignored scratch,
-    and the one scratch file you write: never commit it.
+  - `<N>` is the number in the task's `### Task <N>` heading. The ledger and paths under `**Scratch:**` (and git-ignored files a step names) are the scratch you write; you never commit any of them; everything else git ignores stays untouched.
 - **A task with a `**Run:** session` line is not yours.** The session-task stop applies from the first task with no complete line onward. That line, right under a task's
   heading, means only the calling session can run it (it drives a GUI, a browser profile, a
   screen or audio, or measures something live outside the repository). Do not start it: stop
@@ -228,9 +229,10 @@ reading costs a line.
   looks obviously needed. Propose it in the report instead.
 - **Do not re-plan.** Refine a step that is vague, technically wrong, or missing a dependency; do
   not redesign the approach because a different one seems better.
-- **Do not touch files the plan marks as out of scope**, including gitignored scratch directories
-  that hold the plan and spec themselves. The ledger (see "Progress protocol") is the one scratch
-  file you write.
+- **Do not touch files the plan marks as out of scope.** Of the git-ignored files you write only the
+  ledger (see "Progress protocol"), paths under `**Scratch:**` and git-ignored files a step names;
+  everything else git ignores, the folders holding the plan and spec included, stays untouched, and
+  you commit none of the scratch.
 
 ## Output Style
 

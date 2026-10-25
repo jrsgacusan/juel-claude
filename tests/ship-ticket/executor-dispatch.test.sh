@@ -101,7 +101,7 @@ for s in ship-ticket review-and-execute receive-review-and-execute execute; do
 done
 
 # #141: the executor runs only the commands the plan names
-R141="Run only the commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through \`gate-lock.sh\` when it says so); the caller runs the full gates itself, under its lock."
+R141="Run only the test, build, install and gate commands the plan names: never run the full test suite, the repository's whole test loop or a build on your own. A heavy step the plan names runs exactly as the plan writes it (through \`gate-lock.sh\` when it says so); the caller runs the full gates itself, under its lock."
 tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF -- "$R141" && pass "#141 the executor runs only the commands the plan names" || fail "#141 executor rule"
 grep -qF 'using the tests, checks, inspections or screenshots the plan names' "$EX" && pass "#141 the executor validates with the plan's own checks" || fail "#141 executor validation step"
 grep -qF 'never into a full-suite run or a build the plan does not write out' "$EX" && pass "#141 validation lines never become a full-suite run" || fail "#141 validation wording"
@@ -137,10 +137,10 @@ hasf "$ST" "B154e Phase 3 plans the marker" 'carries the line `**Run:** session`
 hasf "$ST" "B154f Phase 4 never hands a session task to Codex" '**Session tasks** (#154). A task with the line `**Run:** session` under its heading is never handed to Codex.'
 hasf "$ST" "B154g it runs after the executor's stop line" 'after a dispatch whose report ends with `stopped at task <N>: run by the session`'
 hasf "$ST" "B154h the session's ledger line" 'append `Task <N>: complete (session, commits <a7>..<b7>, tests: <command> → <result>)`'
-hasf "$ST" "B154i no ledger yet: create it first" 'with no ledger yet, first create it with its first line, `# SDD ledger — plan: <plan file path>`'
-hasf "$ST" "B154j then the same line again" 'Then dispatch the same line: the executor resumes at the first task not marked complete.'
+hasf "$ST" "B154i no ledger yet: create it first" 'when its ledger does not exist, create it with exactly one line, `# SDD ledger — plan: <the plan path as the dispatch line names it>`'
+hasf "$ST" "B154j then the same line again" 'Then dispatch, rebuilding the line as above: the executor resumes at the later of the clause'"'"'s task and the first task its ledger does not mark complete.'
 hasf "$ST" "B154k the scope record comes first" 'Take the scope record below first, before the first task of either kind runs.'
-hasf "$ST" "B154l the ledger names the plan as the dispatch line does" 'the path exactly as the dispatch line names the plan'
+hasf "$ST" "B154l the ledger names the plan as the dispatch line does" 'the plan path as the dispatch line names it'
 hasf "$ST" "B154m a session task that cannot finish stops the run" 'A session task that cannot be completed gets no ledger line, and nothing is dispatched past it: under `--unattended`, end the run with `ESCALATION item=<item> phase=4 reason=out-of-tries step=executor review=<the file holding session task <N> failed: <one line>>`; interactively, show that line and ask how to go on.'
 hasf "$ST" "B154n the escalation list names it" 'or a session task (`**Run:** session`) cannot be completed (Phase 4, "Session tasks")'
 # lane c: #158 the executor is linked into and checked in the Codex home codex exec reads
@@ -203,5 +203,15 @@ hasf "$SHIP" "#194 ship-ticket plans carry the Scratch header" '**Scratch:** `<d
 hasf "$SHIP" "#199 ship-ticket asks for a Shared files block" '**Shared files:**'
 hasf "$SHIP" "#190 ship-ticket hands writing-plans the standing block" '## Execution rules'
 hasf "$SHIP" "#190 the standing block's last rule" 'Git-ignored files under **Scratch:** are written, never committed, and never fail a task.'
+# review fixes, lane 2 (#190, #194, #196, #199)
+hasf "$EX" "RF2 the ledger is not the one scratch file" 'The ledger and paths under `**Scratch:**` (and git-ignored files a step names) are the scratch you write; you never commit any of them; everything else git ignores stays untouched'
+tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF -- 'the one scratch file you write' && fail "RF2 no one-scratch-file claim" || pass "RF2 no one-scratch-file claim"
+tr '\n' ' ' < "$EX" | tr -s ' ' | grep -qF -- 'including gitignored scratch directories' && fail "RF2 no blanket gitignored-folder ban" || pass "RF2 no blanket gitignored-folder ban"
+hasf "$EX" "RF2 the resume rule says contains" 'A dispatch prompt that **contains** the clause'
+hasf "$EX" "RF2 the run starts at the later of the clause and the ledger" 'the later of the clause'"'"'s task and the first task its ledger does not mark complete'
+hasf "$EX" "RF2 the first hard limit names test, build, install and gate commands" 'never run a test, build, install or gate command the plan does not write out'
+hasf "$EX" "RF2 the executor's own git and inspection commands stay allowed" 'git check-ignore -v'
+hasf "$SHIP" "RF2 Shared files lets any task change the file" 'Any task may change a file the **Shared files:** block names.'
+hasf "$SHIP" "RF2 resume clause comes only from session-tasks.sh" 'the resume and stop clauses come only from `session-tasks.sh`, never written by hand'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
