@@ -187,5 +187,14 @@ hasT "A42 wait <item> in Fill slots and the starting table" 'print `wait until <
 hasT "A43 the SPLIT row says a waiting brief waits on the parts" 'waits on the parts, because `stage-start.sh` reads a dropped blocker through `parent=`'
 hasT "A44 a cause inherited from the base waits on the fix, no try" 'spend no try, and send the row to its waiting state'
 
+# review fixes (#197, #198, #204, #205)
+hasT "T9a set-aside names stage-start stop" 'if a worker runs, `sh S/stage-start.sh --home HOME_DIR stop <dispatch>`'
+hasT "T9b tick drop names stage-start stop" '`sh S/stage-start.sh --home HOME_DIR stop <dispatch>` for any worker (it stops, releases and runs the close check), row `dropped`'
+hasT "T10a a FAIL stop/release/tell ends the step" 'A `FAIL stop|release|tell …` line (these exit 0, so the exit code does not show it) ends that step with the row as it is'
+hasT "T10b recovery: FAIL stop exits 0" '`stop` prints `FAIL stop <dispatch>: <why>` and still exits 0'
+hasT "T10c worker_done release failure is replayed" 'When `release` prints `FAIL release <dispatch>: …`, stop there'
+hasT "T11 state.md: babysit never syncs on behind alone" 'never on behind alone, so that pass'
+hasT "T13 the inherited cause needs the worker's NOTE" 'The worker marks such a cause with a line `NOTE: inherited from <base>: <one line>`'
+hasT "T13b without the NOTE STAR does not guess" 'Without that NOTE, STAR does not guess'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

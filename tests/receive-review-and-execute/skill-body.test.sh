@@ -90,5 +90,6 @@ has "AU4 the caller runs the gates on the result" 'the caller runs the regressio
 has "AU5 a lockfile is regenerated, never merged by hand" 'A lockfile is never merged by hand: take the base'"'"'s version, run the project'"'"'s install command to regenerate it, and stage the result.'
 has "AU6 the four internal words stay for babysit" 'AMBIGUOUS:'
 has "AU7 the fallback equal to the executor is no fallback" 'resolves, through `executor-model.sh`, to the same model id as the executor, there is no fallback: skip straight to running the plan in this session'
+grep -qF -- '- Conflicts: list every conflicted file' "$SKILL" && ! grep -qF -- 'Conflicts: STOP' "$SKILL" && pass "T12 a conflict lists the files, no STOP" || fail "T12 conflict STOP wording"
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

@@ -258,7 +258,7 @@ git status --porcelain
 5. Outcomes of the merge, each with one evidence line:
    - `Already up to date.`: continue.
    - Clean merge: report the merge commit's short SHA and the number of files it brought in.
-   - Conflicts: STOP and list every conflicted file (`git diff --name-only --diff-filter=U`), then
+   - Conflicts: list every conflicted file (`git diff --name-only --diff-filter=U`), then
      follow the conflict rule of `juel:babysit-pr` Phase 4 step 1 (`../babysit-pr/SKILL.md` from
      this file): resolve the conflicted files yourself, keeping both changes' intent, from both
      items' briefs and `## Decisions` and the sibling PR's diff and description. A lockfile is never
