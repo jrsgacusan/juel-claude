@@ -399,6 +399,11 @@ The plan must:
 - Carry in its header `**Base:** spec implemented at <full sha>; apply only the tasks below.`
   (`<full sha>` is `git rev-parse HEAD` now): it fixes a change that is already built, so the
   executor must not re-check the spec for completeness
+- Carry, after that line, the `**Scratch:**` line (only when the docsRoot is inside the repository)
+  and the `## Execution rules` block, exactly as `juel:ship-ticket`'s Phase 3 gives them
+  (`../ship-ticket/SKILL.md` from this file). A fix plan meets the same wording conflicts and
+  git-ignored docsRoot files as a first plan, and those two keep the executor from stopping on them
+  (#190, #195). `**Files:**` blocks name only files to be committed.
 - Reference each confirmed finding (link to the GitHub comment URL)
 - Include file paths and line numbers
 - Give every task a `**Files:**` block naming each file it changes (`Create:`, `Modify:`, `Test:`
