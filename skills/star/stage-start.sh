@@ -47,11 +47,15 @@
 #     status being Orca's (released, retained, release_pending, already_released); or
 #     "FAIL release <dispatch>: <message>" (ok: false, a non-zero exit, release_unknown)
 #   stop: appends "<dispatch> stopped <iso>" to <home>/processed.log unless a line for the dispatch is
-#     there, then worker-stop, then release: "stopped <dispatch>; <release line>" or "FAIL stop <dispatch>: <message>"
-#   tell: the dispatch's mailbox ("sent mailbox"); when Orca refuses, the dispatch's terminal
+#     there, then worker-stop, then release: "stopped <dispatch>; <release line>" or "FAIL stop <dispatch>: <message>";
+#     a processed.log that cannot be written is "FAIL stop <dispatch>: processed.log not written: <why>", before
+#     worker-stop runs
+#   tell: the dispatch's mailbox ("sent mailbox"); when Orca explicitly refuses (ok: false, or a non-zero
+#     exit with a JSON body), the dispatch's terminal
 #     (worker-show's agentTerminalHandle, else assigneeHandle) gets "<subject>: <body>" and Enter
 #     ("sent terminal <t>"); "busy <t>" when Orca answers agent_prompt_blocked (try again next tick);
-#     else "FAIL tell <dispatch>: <message>"
+#     else "FAIL tell <dispatch>: <message>". A timeout or an answer that cannot be read is "FAIL tell
+#     <dispatch>: no answer from orchestration send (it may have been delivered)", nothing typed
 # Before that one line it may print, in this order, each on a line of its own, whatever line
 # follows (#76):
 #   stopped previous gate pgid=<n>    the gate lock, or one of its slot files <lock>.2 to <lock>.4
@@ -319,8 +323,11 @@ def stop_command(dispatch):
     except OSError:
         known = False
     if not known:
-        with open(log, "a", encoding="utf-8") as f:
-            f.write(f"{dispatch} stopped {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
+        try:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(f"{dispatch} stopped {datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}\n")
+        except OSError as e:
+            out(f"FAIL stop {dispatch}: processed.log not written: {e.strerror}")
     stopped = run([orca, "orchestration", "worker-stop", "--dispatch", dispatch, "--json"], 60)
     data = lenient(stopped.stdout)
     if stopped.returncode != 0 or (isinstance(data, dict) and data.get("ok") is False):
@@ -334,6 +341,9 @@ def tell_command(dispatch, subject, body):
     data = lenient(sent.stdout)
     if sent.returncode == 0 and not (isinstance(data, dict) and data.get("ok") is False):
         out("sent mailbox")
+    if not isinstance(data, dict):
+        # A timeout or an answer that cannot be read is no refusal: the message may have arrived (#198).
+        out(f"FAIL tell {dispatch}: no answer from orchestration send (it may have been delivered)")
     shown = run([orca, "orchestration", "worker-show", "--dispatch", dispatch, "--json"], 60)
     shown_data = lenient(shown.stdout)
     result = shown_data.get("result") if isinstance(shown_data, dict) else None
@@ -446,27 +456,58 @@ def not_before(value):
     return when if when.tzinfo else None
 
 
-def open_blocker(name, seen=None):
+def ledger_rows():
+    """{item: (state, parent)} from one read of the ledger (#189): states from ledger.sh list, parents
+    from the table's counters cell. None when it cannot be read, so every blocker stays open."""
+    listed = run(["sh", os.path.join(S, "ledger.sh"), "--home", home, "list"], 30)
+    if listed.returncode != 0:
+        return None
+    rows = {}
+    for line in listed.stdout.splitlines():
+        cells = line.split("\t")
+        if len(cells) >= 2 and cells[0]:
+            rows[cells[0]] = [cells[1], None]
+    try:
+        lines = open(os.path.join(home, "ledger.md"), encoding="utf-8").read().splitlines()
+    except OSError:
+        return None
+    head = next((i for i, l in enumerate(lines) if l.strip().startswith("| item |")), None)
+    if head is None:
+        return None
+    cols = [c.strip() for c in lines[head].strip().strip("|").split("|")]
+    if "item" not in cols or "counters" not in cols:
+        return None
+    for line in lines[head + 2:]:
+        if not line.strip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != len(cols):
+            continue
+        row = dict(zip(cols, cells))
+        pair = next((w for w in row["counters"].split() if w.startswith("parent=")), None)
+        if row["item"] in rows and pair:
+            rows[row["item"]][1] = pair[len("parent="):]
+    return rows
+
+
+def open_blocker(name, rows, seen=None):
     """The first item still open under this blocker (#189, #205), or None when it is cleared. A row is
-    cleared when it is done, or dropped with every row whose counters.parent names it cleared,
+    cleared when it is done, or dropped with every row whose parent names it cleared,
     recursively: a SPLIT's parts and a re-scope's follow-up both carry parent=. A name with no row is
     open. A dropped row with no such rows clears (#37)."""
     seen = seen or set()
     if name in seen:
         return None
-    got = run(["sh", os.path.join(S, "ledger.sh"), "--home", home, "get", name, "state"], 30)
-    if got.returncode != 0:
+    if rows is None or name not in rows:
         return name
-    state = got.stdout.strip()
+    state = rows[name][0]
     if state == "done":
         return None
     if state != "dropped":
         return name
-    listed = run(["sh", os.path.join(S, "ledger.sh"), "--home", home, "list"], 30)
-    for line in listed.stdout.splitlines():
-        part = line.split("\t")[0]
-        if part and part != name and run(["sh", os.path.join(S, "ledger.sh"), "--home", home, "get", part, "counters.parent"], 30).stdout.strip() == name:
-            found = open_blocker(part, seen | {name})
+    for part, (_, parent) in rows.items():
+        if part != name and parent == name:
+            found = open_blocker(part, rows, seen | {name})
             if found:
                 return found
     return None
@@ -474,8 +515,10 @@ def open_blocker(name, seen=None):
 
 def first_open_blocker(value):
     """The first open item in a brief's blockedBy: [<item>, ...] line, or None."""
-    for blocker in re.split(r"[\s,]+", value.strip().strip("[]")):
-        found = open_blocker(blocker) if blocker else None
+    names = [b for b in re.split(r"[\s,]+", value.strip().strip("[]")) if b]
+    rows = ledger_rows() if names else None
+    for blocker in names:
+        found = open_blocker(blocker, rows)
         if found:
             return found
     return None
