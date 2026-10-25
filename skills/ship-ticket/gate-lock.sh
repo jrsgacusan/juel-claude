@@ -83,8 +83,12 @@
 # <slot 1's holder>" when the queue ahead did not move for --wait-max seconds; 124 with "ran past"
 # when --max-seconds ended the command; 125 with "gate-lock.sh: stalled, the command printed
 # nothing for <n> s and was stopped" when --idle-max ended it; 71 when the gate could not run at
-# all (a lock file or the queue cannot be opened or locked); 64 on bad usage.
-exec python3 - "$@" <<'PY'
+# all (a lock file or the queue cannot be opened or locked); 64 on bad usage; 77 with
+# "gate-lock.sh: <holder> holds the screen lock: release it first (the order is gate, then screen,
+# #207)" when --holder names a worker that holds the screen lock (screen-lock.sh, next to this
+# file): nothing runs and no gate lock is taken, so a worker never holds the screen while it waits
+# in the gate queue. Release the screen, run the gate again. A nested gate is never refused.
+GATE_LOCK_DIR=$(cd "$(dirname "$0")" && pwd) exec python3 - "$@" <<'PY'
 import fcntl
 import re
 import select
@@ -135,6 +139,7 @@ if sys.argv[1:2] == ["--slots"]:  # sh gate-lock.sh --slots <n>: how many gates 
     sys.exit(0)
 
 holder, wait_max, max_seconds, idle_max, progress, argv = "gate", None, None, None, None, sys.argv[1:]
+holder_given = False
 while argv:
     arg = argv.pop(0)
     if arg == "--":
@@ -144,7 +149,7 @@ while argv:
     if not argv or argv[0] == "--":
         die(64, f"{arg} needs a value")
     if arg == "--holder":
-        holder = argv.pop(0)
+        holder, holder_given = argv.pop(0), True
     elif arg == "--wait-max":
         wait_max = argv.pop(0)
     elif arg == "--progress":
@@ -214,6 +219,24 @@ if held_by_our_gate():
         sys.exit(code(subprocess.run(argv, stdin=subprocess.DEVNULL).returncode))
     except OSError as e:
         die(127 if isinstance(e, FileNotFoundError) else 126, f"cannot run {argv[0]}: {e.strerror}")
+
+
+def holds_screen():
+    """True when --holder names the worker that holds the screen lock (#207): the order is gate, then
+    screen. screen-lock.sh stores the label with spaces turned to "_"; STAR's "<project>/<item>"
+    label may be stored whole or as its part after the last "/"."""
+    if not holder_given:
+        return False
+    try:
+        out = subprocess.run(["sh", os.path.join(os.environ.get("GATE_LOCK_DIR") or ".", "screen-lock.sh"), "status"],
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return False  # cannot tell: the gate is not refused over it
+    return out[:2] == ["held", "by"] and len(out) > 2 and out[2] in (holder, holder.rsplit("/", 1)[-1])
+
+
+if holds_screen():
+    die(77, f"{holder} holds the screen lock: release it first (the order is gate, then screen, #207)")
 
 
 def open_lock(path):
