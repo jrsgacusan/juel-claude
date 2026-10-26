@@ -34,7 +34,7 @@ metadata:
         check: "git remote get-url <remote> matches github.com"
       - id: interactive-user
         hard: true
-        why: phase 6 clarifies ambiguous findings and phase 2 asks how to handle merge conflicts via AskUserQuestion; satisfied by --unattended, which reports them instead of asking
+        why: phase 6 clarifies ambiguous findings and phase 2 asks how to handle merge conflicts via AskUserQuestion; satisfied by --unattended, which reports them instead of asking, and by --autopilot, which decides them
       - id: clean-tree
         hard: true
         why: phase 2 merges the base branch when the PR conflicts with its base, or with --sync, and must not merge onto uncommitted changes
@@ -101,7 +101,7 @@ Differs from `/juel:review-and-execute`: that one runs a fresh PR review locally
 | codex | cli | SOFT | `command -v codex` | execute the plan in-session |
 | python3 | cli | SOFT | `command -v python3` | an interactive run does not need it; an unattended run prints STOPPED |
 | orca | cli | SOFT | `command -v orca` | an interactive run does not need it |
-| AskUserQuestion | context | HARD | always available interactively, or `--unattended` passed | STOP in headless sessions unless `--unattended` was passed |
+| AskUserQuestion | context | HARD | always available interactively, or `--unattended` or `--autopilot` passed | STOP in headless sessions unless `--unattended` or `--autopilot` was passed |
 | clean working tree | context | HARD | `git status --porcelain` empty | STOP → commit or stash first |
 
 ## Superpowers skill names
@@ -138,6 +138,7 @@ Do not skim. Do not skip to validation. Do not form opinions before this summary
 |----------|---------|-------------|
 | `[pr-number]` | (required) | GitHub PR number to fetch review comments from |
 | `--unattended` | off | No human answers (a `juel:star` worker under `juel:babysit-pr --unattended`): merge conflicts and ambiguous findings are reported and the run stops, instead of asking |
+| `--autopilot` | off | No human answers, and none is needed (a `juel:yuki` worker under `juel:babysit-pr --yuki`): as `--unattended`, except that ambiguous findings and merge conflicts are decided here, not reported. See below |
 | `--brief <path>` | — | An approved `juel_brief: 1` brief. A reviewer request that needs work outside its Scope (or listed under Out) is not built: see below |
 | `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
 | `--executor-model <id|latest-<family>>` | `latest-luna` | The model `codex exec` runs the plan on, resolved by `executor-model.sh` |
@@ -173,6 +174,15 @@ Usage: `/juel:receive-review-and-execute 123`, `/juel:receive-review-and-execute
 - Any other STOP (a preflight STOP, a dirty tree, a missing PR) prints `STOPPED: <reason>` as its
   last line, so the caller never mistakes it for a run with nothing to fix.
 - Everything else runs as normal.
+
+**With `--autopilot`**, everything `--unattended` says applies, with two changes:
+- An ambiguous finding is decided, not reported. Take the reading the validation favours, the
+  recommended one, and classify the finding as actionable (planned that way) or declined. Mark it
+  `decided on autopilot: <the reading and why>` in its outcome, so the reply names the call.
+- A merge conflict with no `--brief` is resolved the way the `--brief` case resolves it, from this
+  PR's spec and the sibling PR's diff and description. The resolution is named in the merge commit
+  message instead of a `## Decisions` line. A binary file, a delete/rename conflict, or a file added
+  on both sides with no clear union still ends with `git merge --abort` and the `CONFLICT:` line.
 
 If no PR number is provided, ask the user for it before proceeding. Do not guess. Under
 `--unattended`, never ask: print `STOPPED: missing PR number` and stop.

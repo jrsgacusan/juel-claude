@@ -7,7 +7,9 @@
 # command, so every command, and every gh a script starts as a subprocess, has the token: Orca
 # workers inherit no shell of the owner's. The command is written, never run here, so no token is
 # ever written to disk. With tokenCmd null or absent, a valid "ghLogin" uses gh auth token --user
-# <ghLogin>; a set but malformed tokenCmd is left alone.
+# <ghLogin>; a set but malformed tokenCmd is left alone. A repository with no STAR folder, or one whose
+# star.json names no token, takes juel:yuki's: "tokenCmd" in <git common dir>/yuki/yuki.json, the
+# same way, so yuki's workers in Orca worktrees outside the owner's folders have the token too.
 # The coordinator: it tells the one session that owns STAR for this project that it is the
 # coordinator, and how to pick up. It speaks only when star.json's "terminal" is this session's
 # ORCA_TERMINAL_HANDLE. Every other session, in this repo or anywhere, hears nothing.
@@ -23,19 +25,31 @@ import subprocess
 import re
 
 handle = os.environ.get("ORCA_TERMINAL_HANDLE") or ""
+home, star = "", {}
 try:
     cwd = json.loads(os.environ.get("STAR_HOOK_INPUT") or "{}").get("cwd") or os.getcwd()
+except Exception:
+    raise SystemExit(0)
+try:
     home = subprocess.run(["sh", os.environ["STAR_HOME_SH"], "--cwd", cwd, "path"],
                           capture_output=True, text=True, timeout=10).stdout.strip()
     star = json.load(open(os.path.join(home, "star.json"), encoding="utf-8"))
 except Exception:
-    raise SystemExit(0)
+    star = {}
 if not isinstance(star, dict):
-    raise SystemExit(0)
+    star = {}
 command, env_file = star.get("tokenCmd"), os.environ.get("CLAUDE_ENV_FILE") or ""
 if command is None:
     login = star.get("ghLogin")
     command = f"gh auth token --user {login}" if isinstance(login, str) and re.fullmatch(r"[A-Za-z0-9-]+", login) else None
+if command is None:
+    try:
+        common = subprocess.run(["git", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                capture_output=True, text=True, timeout=10).stdout.strip()
+        yuki = json.load(open(os.path.join(common, "yuki", "yuki.json"), encoding="utf-8")) if common else {}
+        command = yuki.get("tokenCmd") if isinstance(yuki, dict) else None
+    except Exception:
+        command = None
 if (isinstance(command, str) and command.strip() and "\n" not in command and "\r" not in command
         and env_file and not os.environ.get("GH_TOKEN")):
     line = 'export GH_TOKEN="$(' + command.strip() + ')"'
