@@ -200,6 +200,11 @@ const DEFINITIONS = {
     install: 'Ships with this plugin',
   },
   'juel:babysit-pr': { kind: 'skill', label: 'juel:babysit-pr', install: 'Ships with this plugin' },
+  'juel:orca-ship-tickets': {
+    kind: 'skill',
+    label: 'juel:orca-ship-tickets',
+    install: 'Ships with this plugin',
+  },
   'juel:daily-worktrees': {
     kind: 'skill',
     label: 'juel:daily-worktrees',

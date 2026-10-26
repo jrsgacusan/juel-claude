@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. Codex runs the plan on the newest luna at xhigh. With --unattended and --brief it runs without pauses as an Orca worker under juel:star, escalating real decisions, and loops its draft PR through a headless codex review gate until no P0 or P1 finding is left.
+description: Use to ship a work item (Linear, Jira, GitHub issue or spec file, whatever the project's work source is) end-to-end in one go - fetches it, brainstorms, writes spec + plan, dispatches Codex, runs review + remediation, then exhaustive end-to-end verification on an isolated local stack (every acceptance criterion individually confirmed, Claude driving the real flow itself, screenshots and evidence saved under docsRoot, a full test/lint/typecheck/build regression gate), then opens the PR and babysits it through review (juel:babysit-pr) until it is approved and green. Pauses for confirmation between phases. Codex runs the plan on the newest luna at xhigh. With --unattended and --brief it runs without pauses as an Orca worker under juel:star, escalating real decisions, and loops its draft PR through a headless codex review gate until no P0 or P1 finding is left. With --yuki it runs as a juel:yuki worker: no pauses, the recommended path at every question, a park for what only a person can supply, and juel:babysit-pr --yuki takes the PR to a merge.
 metadata:
   requires:
     mcp:
@@ -170,6 +170,8 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `[base-branch]` | auto-detected — see "Base branch & repo conventions" below | Branch to diff/PR against |
 | `--brief <path>` | off | An approved brief (`juel_brief: 1`) holding the normalized work item and the agreed approach and scope. Phase 1 reads the work item from it instead of calling the provider's `fetch`. See "Unattended mode" |
 | `--unattended` | off | Run without between-phase confirmations, escalating only the fixed list in "Unattended mode". Requires `--brief` |
+| `--yuki <home>` | off | Run as a `juel:yuki` worker: no pauses, no questions, and Phase 8 merges. See "Yuki mode". `<home>` is yuki's folder. Not combined with `--unattended` or `--brief` |
+| `--item <name>` | the ref, else the spec file's slug | Under `--yuki`: the item's name in yuki's progress file and in the `PARKED` line |
 | `--executor <session|codex>` | `codex` | Who runs the written plan. `codex`: dispatch `codex exec` on the model `executor-model.sh` resolves (the default). `session`: this session runs it with `superpowers:executing-plans`, the same path as when Codex is not installed; nothing is dispatched |
 | `--executor-model <id|latest-<family>>` | `star.json`'s `executor.model` under a `star:` brief, else `latest-luna` | The model `codex exec` runs the plan on. `executor-model.sh`, next to this file, resolves it from `codex debug models` |
 | `--executor-effort <level>` | `star.json`'s `executor.effort` under a `star:` brief, else `xhigh` | Its reasoning effort; a level the model lacks steps down to the highest it has |
@@ -307,8 +309,8 @@ phase resolving it and the rest reusing that answer).
 
 **Pause for explicit user confirmation between every phase.** Never chain phases automatically. After each phase, summarize what was done and ask: "Proceed to phase N+1: <name>?"
 
-The single exception is `--unattended` (next section), which replaces each question with a one-line
-log entry. Without that flag, every rule in this section applies unchanged.
+The exceptions are `--unattended` (next section) and `--yuki` ("Yuki mode"), which replace each
+question with a one-line log entry. Without either flag, every rule in this section applies unchanged.
 
 ## Unattended mode
 
@@ -754,6 +756,39 @@ Missing checks are never read as a pass.
 host cannot reach it, print a `HELD` line instead of failing. The coordinator records it as an open
 loop for the human.
 
+## Yuki mode
+
+`--yuki <home>` is how `juel:yuki` runs this skill in an Orca worktree. The ticket is already
+specced, nobody watches the terminal, and Phase 8 ends in a merge. It is not `--unattended`: there
+is no brief, no STAR coordinator to ask and no codex gate loop. Of "Unattended mode", only the parts
+this section names apply. `--yuki` with `--unattended` or `--brief` is refused in one line.
+`<item>` is `--item`, else the ref, else the spec file's slug.
+
+| Normally | With `--yuki` |
+|---|---|
+| "Proceed to phase N+1?" | print `PHASE <n> <item>`, append a `phase<n>` progress line, and go on |
+| a question to the user, in this file or in a skill it invokes: `juel:start`'s brainstorm, `superpowers:brainstorming`'s design approval, `superpowers:writing-plans`' review and choice of execution method, `juel:review-and-execute`'s ambiguous findings, `juel:verify`, `run` | take the recommended option yourself: the one the skill marks recommended, else the one the ticket, the code and the project's `CLAUDE.md` and `AGENTS.md` support best. Tell each invoked skill so: "yuki: the ticket is specced; take the recommended option at every question, approve the design yourself, ask nothing". Record each call that was not obvious as a line in the spec's `## Decisions made on autopilot` section, with its reason |
+| the item has no acceptance criteria (Phase 2, Phase 6 step 1) | build the checklist from the ticket and the diff's edge cases, and record it as a decision |
+| something only a person can supply: a secret, an account or payment, an action at the screen (a sign-in, hardware, a system dialog), access `gh` lacks, a check only a person can drive | park. Never invent a value, and never mark a check PASS that did not pass |
+| a step that fails: the executor, a red regression gate, the Phase 6 stack | 3 tries, each a fresh attempt from the plan's ledger or a fix through `juel:review-and-execute`, then park with the step and the last error |
+| which remote or base branch | the one remote, else `origin`; the base per "Base branch & repo conventions"; still ambiguous → park |
+| stop and ask to commit, stash, or create a worktree | park, naming what is wrong |
+| heavy commands | "Gate lock" in "Unattended mode" applies as written, with `--holder "<item>"` and `--progress <home>/progress/<item>.log`, the 3 GB memory check before the Phase 6 stack included: several yuki workers share one machine. Write the gate manifest as soon as Phase 4 resolves the commands, to `${docsRoot}/gates.json`, in the form the `DONE` row of "Unattended mode" gives |
+| Phase 7 | open the PR ready for review, never as a draft: a bot reviewer starts on a ready PR. The body gets a **Decisions made on autopilot** section listing the spec's decision lines. Append `pr <url>` to the progress log. The status write runs as normal |
+| Phase 8 | `/juel:babysit-pr <pr-number> --yuki <home> --item <item> --gates-file <the manifest>`: it takes the PR to a merge or parks it |
+
+**Progress.** One line per step in `<home>/progress/<item>.log`, which `juel:yuki` reads:
+`printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<one line>" >> <home>/progress/<item>.log`.
+`<step>` is one token: `phase<n>` at the start of each phase, `pr` once the PR is open (its text
+is the URL), `parked` when parking. Never from a background timer: a line means the step ran.
+
+**Parking.** When the Phase 6 stack is up, run Phase 6 step 7's cleanup first. Then append
+`parked <reason>` to the progress log, print `PARKED item=<item> reason=<reason>` as the last line,
+and end the run. `<reason>` is one line naming what is needed, such as
+`needs a person: STRIPE_SECRET_KEY for the test stack` or
+`out of tries: regression gate, test_checkout fails`. Yuki frees the slot and tells the owner. The
+worktree and this session stay, so the owner can finish the item here.
+
 ## Workflow
 
 ```dot
@@ -784,7 +819,7 @@ approach back to juel:ship-ticket; do not write a spec or invoke writing-plans."
 brief-violation answer becomes `RESCOPE item=<item> reason=brief review=<file>` under `--unattended`, and a question
 to the user otherwise. Without `--brief`, this phase is unchanged:
 
-Invoke `Skill("juel:start")`. It detects the ticket id from the worktree (`basename $(pwd)`), fetches the Linear issue, summarizes requirements, and runs `superpowers:brainstorming`.
+Invoke `Skill("juel:start")`. It detects the ticket id from the worktree (`basename $(pwd)`), fetches the Linear issue, summarizes requirements, and runs `superpowers:brainstorming`. Under `--yuki`, pass the ref explicitly and say "yuki: the ticket is specced; take the recommended option at every question, approve the design yourself, ask nothing" ("Yuki mode").
 
 If the user passed an explicit ticket id as argument, use that instead of the worktree-detected one.
 
@@ -1330,7 +1365,7 @@ the evidence directory. Ask to proceed to PR.
      appending it at the end otherwise (`gh pr view <url> --json body`, edit it in a temp file,
      then `gh pr edit <url> --body-file <tmp>`). Leave draft or ready as you found it. Print
      `PR item=<item> url=<url> existing`.
-   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. The build marks it ready after its final SAFE round (the codex gate loop, step 3).
+   - **`gh` available:** write the body to a temp file and create the PR with `gh pr create --title "<title>" --body-file <tmp>` — **never** a HEREDOC. Under `--yuki`, open it ready for review and append the `pr` progress line ("Yuki mode"). Under `--unattended`, always open it as a draft: `gh pr create --draft --base <baseBranch> --title "<title>" --body-file <tmp>`, then print the `PR` line, then run the codex gate loop below. A resumed build updates its existing draft PR instead. The build marks it ready after its final SAFE round (the codex gate loop, step 3).
    - **`gh` unavailable:** the branch is already pushed (step 1) — build a compare URL from the resolved remote, `<remote-url>/compare/<base>...<head>`, and hand it to the user to open manually. Not opening the PR automatically is a mild inconvenience; it must not stop the run, and step 4 below still runs.
 4. Under `--brief` with a `star:` block, skip this step: print `Status: skipped (STAR owns the status)` (see "Status writes under STAR"). Otherwise, update the work item's status to `in_review`, regardless of whether `gh` was available in step 3, through the source `juel:start` resolved in Phase 1 (or the brief's `item.source`):
 
@@ -1430,7 +1465,8 @@ Outside babysit's Phase 4 sync before `READY` and STAR's "Sync after the base mo
    in place of the `DONE` line.
 2. Invoke `/juel:babysit-pr <pr-number> --gates "<test>;<lint>;<typecheck>;<build>"` with the PR
    number from Phase 7 and the non-null commands resolved in Phase 4, `;`-separated, in that
-   order. Do not re-resolve the toolchain.
+   order. Do not re-resolve the toolchain. Under `--yuki`, invoke it as "Yuki mode" says, with
+   `--yuki <home> --item <item> --gates-file <the manifest>`: it merges the PR or parks the item.
 3. There are no per-round confirmations inside this phase. The user is asked only by
    `juel:receive-review-and-execute` (ambiguous findings), merge conflicts, red gates, and
    long silence or repeated errors.

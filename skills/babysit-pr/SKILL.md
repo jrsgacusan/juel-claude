@@ -1,6 +1,6 @@
 ---
 name: babysit-pr
-description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in when the base requires it or the PR conflicts, runs the gates and pushes. Never merges the PR. On a PR someone else authored it runs reviewer mode instead: waits for the author's re-request or a settled push, re-reviews through juel:review-pr and asks before every post. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a juel:star Orca worker: marks a draft ready once, gets the hosted reviewer's passes or a person's approval, re-gates every push with a headless codex review, escalates instead of asking. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
+description: Use after a PR is open to wait for reviews and react until it is ready to merge - polls the PR every 10 minutes, runs juel:receive-review-and-execute on any new human feedback (review, inline or conversation comment), runs the gates, pushes, replies on every item and re-requests review; on a clean approval merges the base branch in when the base requires it or the PR conflicts, runs the gates and pushes. Never merges the PR, except with --yuki: as a juel:yuki worker it merges once CI is green on the head, every requested reviewer approved and a bot reviewer's one review is answered. On a PR someone else authored it runs reviewer mode instead: waits for the author's re-request or a settled push, re-reviews through juel:review-pr and asks before every post. Invoked by juel:ship-ticket Phase 8; with --unattended it runs as a juel:star Orca worker: marks a draft ready once, gets the hosted reviewer's passes or a person's approval, re-gates every push with a headless codex review, escalates instead of asking. Triggers "babysit this PR", "watch my PR for reviews", "/juel:babysit-pr".
 metadata:
   requires:
     cli:
@@ -56,7 +56,7 @@ it waits until the author is ready for you again and re-reviews through `juel:re
 
 Hard rules, in every phase:
 
-- **Never merge the PR.**
+- **Never merge the PR**, except in "Yuki mode", and there only through its merge check.
 - **Never resolve review threads** on your own PR. Reply and leave resolving to the reviewer. In reviewer mode you are the reviewer: a thread you opened is resolved only by `juel:review-pr`'s gated post, never by this skill.
 - **Never force-push.** Nothing is pushed while a gate is red.
 - **Never hand-edit a fix.** Fixes come from `juel:receive-review-and-execute`, or, for the codex gate's findings, from a fix plan the executor runs.
@@ -144,6 +144,7 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--executor <session|codex>` | `codex` | Who runs a remediation plan: passed on to `receive-review-and-execute` unchanged. `session` means this session runs it; `codex` dispatches `codex exec` |
 | `--executor-model <id|latest-<family>>` | `star.json`'s `executor.model` under a `star:` brief, else `latest-luna` | Passed on to `receive-review-and-execute` |
 | `--executor-effort <level>` | `star.json`'s `executor.effort` under a `star:` brief, else `xhigh` | Passed on to `receive-review-and-execute` |
+| `--yuki <home>` | off | Run as a `juel:yuki` worker: nothing is asked, and the PR is merged once the merge check holds. See "Yuki mode". Requires `--item`. Refused in reviewer mode, and with `--unattended` |
 | `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
 Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
@@ -191,6 +192,72 @@ table before doing a step, even where the step's own text does not point back he
 | a review thread someone else opened | reply on every one before `READY`: `Fixed in <sha>.` or `Disposition: <the reason>, <a link when one helps>`. STAR's merge gate fails while one has no reply from you. Never resolve the thread yourself |
 | after every background step (an executor run, a gate round, the regression gate, a CI poll, a Phase 2 wake) | before choosing the next step, check for news: re-read the brief's `## Decisions` (STAR appends every answer there before it sends it), then run `orca orchestration check --unread --json`. Read messages only with `--unread --json` (or `--peek --json` to look without consuming them). A plain `orca orchestration check` prints only the subjects and still marks them read; if that happened, run `orca orchestration check --all --json` and read the bodies. A decision that is new since the last check overrides this skill's next step: apply it, and never escalate what it settles. A coordinator decision cannot interrupt a background step, so this check is how it arrives within one step |
 | the owner is away | not a reason to wait: nothing holds marking ready, replies, review requests or the `@greptileai` comment |
+
+## Yuki mode
+
+`--yuki <home>` is how `juel:ship-ticket --yuki` runs this skill for `juel:yuki`. Nobody watches the
+terminal, and this skill **merges the PR** once the merge check below holds. It is not
+`--unattended`: there is no brief, no STAR coordinator and no codex gate, and of "Unattended mode"
+only the rows this section names apply. In Phase 1, read `<home>/yuki.json` once for `bot` (the bot
+reviewer's login, or null) and `mergeMethod`. The progress log is `<home>/progress/<item>.log`, one
+`printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<one line>"` line per step. A PR
+someone else authored ends at once, as a park: "the PR's author is <login>".
+
+| Normally | With `--yuki` |
+|---|---|
+| a question to the user: `receive-review-and-execute`'s ambiguous findings or merge conflict, two red gates, a draft PR | invoke `/juel:receive-review-and-execute <pr> --autopilot --only <ids>`, with the ids of this round's `new_feedback`: it decides ambiguous findings and resolves conflicts itself. Its `CONFLICT:` or `STOPPED:` line → park. A red gate goes back through it with the failing output, 3 tries in all, then park. A `draft` wake → `gh pr ready <pr>` once; a second → park |
+| Phase 2's wait | the background form with `--max-seconds 600` added, so it wakes at least every 10 minutes, or `--max-seconds 120` while the merge check waits on CI or on GitHub's merge state: `pr-state.sh` has no wake for checks that finish, so a green PR would otherwise sit until the timeout. On each wake, act on it as Phase 2 says, then run the merge check. `timeout` is no news: the merge check alone. `silence`: say nothing, and wait again with `--silence-hours 0`. Three `errors` wakes in a row, or an error starting `gh cannot see` → park. `closed`: merged by someone → the merged step; closed without a merge → park |
+| the bot reviewer (`bot` set) | until its review is in, pass `--hosted <bot>` to every `pr-state.sh` call. Its review is in once `sh <script> <pr> --hosted <bot> --hosted-passes` prints a line: a `pass`, or a `skipped` run that reviewed nothing (say so in the progress log, and never wait for it again). Its items are one Phase 3 round like any reviewer's: fix every P0 and P1 and anything else worth fixing, reply on each, one push. After that round, append `bot-done <bot> <head>` to the progress log and leave `--hosted` out of every later call, and `<bot>` out of `--review-bots` (step 8 of Phase 1), so its later comments are neither waited for nor fixed. A restarted run finds the `bot-done` line in the progress log. A bot reviews once, and is never asked for a second pass. No review 24 h after the PR was ready → park |
+| Phase 3 step 6 (re-request review) | as written: a person who asked for changes is asked again |
+| Phase 4 | runs from the merge check (step 6), not on an `approved` wake |
+| gates | through `juel:ship-ticket`'s `gate-lock.sh`, as the `gates run directly` row of "Unattended mode" says, with `--holder "<item>" --progress <home>/progress/<item>.log` |
+| Phase 5 | the merged step, or the park |
+
+**The merge check**, once at the end of Phase 1, before the first wait (a PR that is already
+mergeable never waits 10 minutes for a timeout), then on every wake once that wake's work is done.
+Take the steps in order. The first that does not hold is what this run waits on: append a progress
+line whose step is `wait` and whose text names it (`bot`, `review alice`, `ci on <sha7>`), and wait
+again.
+
+1. Feedback: `sh <script> <pr> --since <cursor>` (with `--hosted <bot>` while the bot's review is
+   not in). New feedback → Phase 3 first.
+2. Conflicts: a `merge` of `dirty` → Phase 4 step 1's conflict rule, resolved as `--autopilot`
+   resolves it, then the gate and a push. A binary file, a delete/rename conflict, or a file added on
+   both sides with no clear union → park.
+3. The bot: its review is in and its round is done (above).
+4. People: `gh pr view <pr> --json reviewDecision,reviewRequests,latestReviews`, leaving out every
+   `[bot]` login. A person who is requested or has reviewed counts. With such a person: the
+   `reviewDecision` is `APPROVED`. Or, when it is empty (no rule requires a review), every such
+   person's latest review is `APPROVED` and none is still requested. With no such person, there is
+   nobody to wait for. Changes requested with no new feedback and no push for 72 h → park.
+5. CI on the head: the snapshot's `checks` is `green`. `pending` → wait; still pending 3 h after the
+   last push → park. `failing` → rerun each failing check once (`gh run rerun <run id> --failed`).
+   Green is a flake. Still red, it is the PR's to fix: through `receive-review-and-execute` with the
+   failing log, gated and pushed, 3 tries, then park. Never merge on red, even when the base fails
+   the same check: park and say so. No check registered 5 minutes after the last push, while the
+   base's head has none either (`gh api repos/<owner>/<repo>/commits/<base>/check-runs --jq
+   .total_count` prints `0`), means the repository has no CI, and the gates this run passed are the
+   bar.
+6. Phase 4 steps 1 to 5: the sync the base requires, its gate and its push. A push goes back to
+   step 1.
+7. GitHub agrees: `gh pr view <pr> --json mergeStateStatus,headRefOid`. `CLEAN`, `UNSTABLE` or
+   `HAS_HOOKS` → merge. `BEHIND` on a base that wants an up-to-date head → Phase 4 step 1, then
+   step 1 here. `UNKNOWN` → the next wake. `BLOCKED` with every step above holding is a rule yuki
+   cannot meet, such as an approval nobody was asked for or a required check that never reports:
+   park, naming it.
+8. Merge: `gh pr merge <pr> --<method> --match-head-commit <headRefOid>`, never `--admin` and never
+   `--auto`. `<method>` is `mergeMethod`, else the first of squash, merge and rebase the repository
+   allows (`gh api repos/<owner>/<repo> --jq '[.allow_squash_merge, .allow_merge_commit,
+   .allow_rebase_merge]'`). Refused because the head moved → step 1. Any other refusal → park, with
+   GitHub's message.
+
+**Merged.** Append `merged <url> <merge commit sha>` to the progress log, print
+`MERGED item=<item> pr=<url>` as the last line, and end. The worktree is `juel:yuki`'s to remove:
+never remove the one this session runs in.
+
+**Parking.** Append `parked <reason>` to the progress log, print `PARKED item=<item> reason=<reason>`
+as the last line, and end. `<reason>` is one line naming what is needed. Yuki frees the slot and
+tells the owner, and the worktree and this session stay. Never merge to avoid a park.
 
 ## Reviewer mode
 

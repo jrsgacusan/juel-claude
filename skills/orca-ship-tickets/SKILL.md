@@ -1,6 +1,6 @@
 ---
 name: orca-ship-tickets
-description: Use when starting your workday in Orca to ship multiple work items in parallel. Selects items through the work-source layer, then creates one Orca worktree per item with the resolved agent already running `/juel:ship-ticket`. Fire and forget - it does not monitor the spawned sessions. Triggers "ship my tickets in orca", "start my day in orca", "/juel:orca-ship-tickets".
+description: Use when starting your workday in Orca to ship multiple work items in parallel. Selects items through the work-source layer, then creates one Orca worktree per item with the resolved agent already running `/juel:ship-ticket`. Fire and forget - it does not monitor the spawned sessions. With --yuki <home> <refs> it spawns exactly those refs for juel:yuki, with no confirmation, each running `/juel:ship-ticket <ref> --yuki <home>`, and prints one SPAWNED line per worktree. Triggers "ship my tickets in orca", "start my day in orca", "/juel:orca-ship-tickets".
 metadata:
   requires:
     mcp:
@@ -127,6 +127,16 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 7. Set the board status and report every worktree, branch and handle
 8. Verify the QA checklist
 
+## Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `[refs...]` | — | Only with `--yuki`: the items to spawn, one worktree each. A ref, or the absolute path of a spec file |
+| `--yuki <home>` | off | Run as `juel:yuki`'s spawner: phase 2 takes the given refs instead of listing and asks nothing, each worktree's prompt is `/juel:ship-ticket <REF> --yuki <home> --item <name>`, and phase 7 prints the lines below. `<home>` is yuki's folder, absolute |
+
+Without `--yuki`, refs given on the command line are refused with one line: this skill selects
+through the work-source layer and confirms the list with you.
+
 ## Prerequisites
 
 - Orca installed and its CLI registered (Settings → General → Orca CLI), resolved via `resolve_bin` (PATH first, then the app-bundle path as a labelled candidate, never as the sole source).
@@ -140,10 +150,15 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 Each Bash tool call is an **independent non-login shell** — a binary resolved in call N is unavailable in call N+1 because shell variables and function definitions from call N simply do not exist there. Resolve every binary once via `resolve_bin` (PATH first, then labelled candidates — never a hardcoded absolute path as the sole source), persist the resolved paths to `$GIT_COMMON/claude/bins.env`, and source that file at the top of every later call.
 
 ```bash
+# The name first, then the labelled candidates (each a path). No positional parameters here:
+# the skill loader replaces them with this skill's own arguments (--yuki <home> <refs>).
 resolve_bin() {
-  n=$1; shift
-  p=$(command -v "$n" 2>/dev/null) && { printf '%s' "$p"; return 0; }
-  for c in "$@"; do [ -x "$c" ] && { printf '%s' "$c"; return 0; }; done
+  for c in "$@"; do
+    case "$c" in
+      */*) [ -x "$c" ] && { printf '%s' "$c"; return 0; } ;;
+      *) p=$(command -v "$c" 2>/dev/null) && { printf '%s' "$p"; return 0; } ;;
+    esac
+  done
   return 1
 }
 
@@ -283,6 +298,11 @@ effect and without modifying a skill the cmux flow still depends on.
 
 If no provider resolves, ask for refs directly, one per line, and continue.
 
+**With `--yuki`:** the given refs are the list. Do not list, do not confirm, and do not ask: yuki
+already chose them. Fetch each ref's title through the work-source layer for phase 7's comment, and
+flip it to in-progress as above. A ref that does not resolve, or whose item is done, is a `SKIPPED`
+line in phase 7, and the rest go on. An item with no ref uses its slug as its name, as below.
+
 ### Step 3: Create one worktree per item
 
 The whole spawn is one call per item. `--agent` launches the agent in the worktree's **first**
@@ -302,6 +322,16 @@ From the response keep, per item:
 - `result.agentTerminalHandle` — the agent's terminal, or `result.startupTerminal.handle` on older
   runtimes. A handle that later returns `terminal_handle_stale` is reacquired with
   `"$ORCA" terminal list --worktree <sel> --json`; never dual-send to the old and new handles.
+
+**With `--yuki`,** fetch first, once per run: `sh <yuki.sh> --home <home> git -C "$MAIN_ROOT" fetch <remote>`
+(`yuki.sh` is `../yuki/yuki.sh` from this file; it carries yuki's GitHub token), where
+`<remote>` is the only remote, else `origin`. Then pass `--base-branch <remote>/<base>` to every
+`worktree create`, where `<base>` is the base `references/resolution.md` §2 resolves (its
+`baseBranch` row). Yuki starts an item only after its blockers have merged, so its
+checkout has to hold those merges. The prompt is `"$AGENT_PROMPT_PREFIX $REF --yuki $YUKI_HOME --item $NAME"`: `$NAME`
+is the `--name` this step gives the worktree (the ref, or the slug), and `$YUKI_HOME` is the
+`--yuki` folder. It goes in the same `--prompt`, or in the `terminal send` of the untracked-copy
+path below.
 
 `--linear-issue` links the item even when Orca's Linear is disconnected, and the link comes back as
 `linkedLinearIssue`. Pass the bare ref; a full issue URL works too. **Pass `--linear-issue` only
@@ -392,6 +422,14 @@ Then report one row per item: ref, worktree path, branch, terminal handle, wheth
 opened, and what phase 4 copied. Close with an explicit statement that nothing is being monitored,
 and that the sessions are reached in the Orca app or via `"$ORCA" terminal read`.
 
+**With `--yuki`,** end the report with one line per item, which yuki parses, and say that
+`juel:yuki` watches them:
+
+- `SPAWNED item=<name> ref=<ref> path=<result.worktree.path> branch=<the renamed branch> terminal=<handle>`
+- `SKIPPED item=<name> reason=<one line>`: the worktree already existed, the ref did not resolve,
+  or a step failed for this item. A worktree that was created before the failure is named in the
+  reason, never removed.
+
 ## Common mistakes
 
 - **Sending Enter into an unanswered dialog.** Both first-run dialogs default to `No, exit`. A bare
@@ -415,7 +453,7 @@ and that the sessions are reached in the Orca app or via `"$ORCA" terminal read`
 |---|---|
 | `orca status` reports the runtime unreachable | Offer `orca open`, which launches Orca and waits. Re-run preflight after. Never spawn against an unreachable runtime. |
 | This repo is not in `orca repo list` | Offer `orca repo add` once. If declined, STOP: `worktree create` without a resolved repo id can land against the wrong project. |
-| A worktree already exists for a ref | Report it and skip that ref. Do not create a second checkout for the same item. |
+| A worktree already exists for a ref | Report it and skip that ref. Do not create a second checkout for the same item. Under `--yuki` that is a `SKIPPED` line. |
 | The agent handle is missing from the create response | Reacquire with `terminal list --worktree <sel> --json` before sending anything. |
 | A dialog is still present after 3 gauntlet rounds | Report the captured screen and stop. Never guess further keystrokes. |
 | No install command resolves | Skip phase 6 with a one-line note. Never invent one. |

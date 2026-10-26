@@ -93,6 +93,11 @@
       "label": "juel:daily-worktrees",
       "install": "Ships with this plugin"
     },
+    "juel:orca-ship-tickets": {
+      "kind": "skill",
+      "label": "juel:orca-ship-tickets",
+      "install": "Ships with this plugin"
+    },
     "juel:receive-review-and-execute": {
       "kind": "skill",
       "label": "juel:receive-review-and-execute",
@@ -507,6 +512,24 @@
         "playwright-video",
         "run",
         "verification-criteria"
+      ]
+    },
+    "yuki": {
+      "hard": [
+        "claude",
+        "gh",
+        "git",
+        "git-repo",
+        "interactive-user",
+        "juel:babysit-pr",
+        "juel:orca-ship-tickets",
+        "juel:ship-ticket",
+        "orca",
+        "orca-runtime",
+        "python3"
+      ],
+      "soft": [
+        "linear"
       ]
     }
   }
