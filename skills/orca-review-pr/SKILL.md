@@ -137,9 +137,11 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 
 | Argument | Required | Description |
 |----------|----------|-------------|
-| `<pr-or-branch>` | yes | Either `#1234`, `1234`, a GitHub PR URL, or a branch name |
+| `<pr-or-branch>` | yes, without `--yuna` | Either `#1234`, `1234`, a GitHub PR URL, or a branch name |
+| `--yuna <home> <n> [<n> ...]` | off | Run as `juel:yuna`'s spawner: one worktree per PR number, nothing asked, and the report is one `SPAWNED` or `SKIPPED` line per PR. See "Yuna mode". `<home>` is yuna's folder, absolute. Only PR numbers are accepted, never a branch or URL |
 
-Usage: `/juel:orca-review-pr 1234` or `/juel:orca-review-pr feat/savi-1162-foo`.
+Usage: `/juel:orca-review-pr 1234` or `/juel:orca-review-pr feat/savi-1162-foo`. From `juel:yuna`:
+`/juel:orca-review-pr --yuna /path/to/yuna 1234 1240`.
 
 ## Prerequisites
 
@@ -357,14 +359,17 @@ the real head — Orca reads git and follows, so `worktree show` reports the bra
 . "$BINS"
 "$ORCA" worktree create --repo "id:$REPO_ID" --name "review-$PR" \
   --base-branch "$HEAD_REF" --agent claude \
-  --prompt "$AGENT_PROMPT_PREFIX $PR${REF:+ $REF}" --no-parent --json
+  --prompt "${AGENT_PROMPT_PREFIX}juel:review-pr --pr $PR${REF:+ $REF}" --no-parent --json
 # keep result.worktree.path as WT_PATH, result.worktree.branch as ORCA_BRANCH (the throwaway
 # branch Orca created), and result.agentTerminalHandle as H
 "$GIT" -C "$WT_PATH" checkout "$HEAD_REF"
 ```
 
 `${REF:+ $REF}` expands to ` <REF>` when a ref resolved and to nothing when it did not, so
-`juel:review-pr` resolves its own ref rather than blocking.
+`juel:review-pr` resolves its own ref rather than blocking. `AGENT_PROMPT_PREFIX` is the slash
+command's lead-in (`/` for Claude, see `references/resolution.md`) and carries no trailing space, so
+the skill name follows it directly: the prompt reads `/juel:review-pr --pr 1234 SAVI-1162`. An
+earlier form wrote `"$AGENT_PROMPT_PREFIX $PR"`, which expanded to `/ 1234` and ran no skill.
 
 **Orca's view of the branch is eventually consistent.** A `worktree show` issued immediately after
 the checkout can still report the branch Orca created; a moment later it reports the checked-out
@@ -438,7 +443,9 @@ If nothing resolved, skip this step and say so in one line.
 Only when a ref resolved **and the project's work source is `linear`** (`tracker.type` in `.claude/workflow.json`, a `## Work Source` block, or the legacy `## Linear Worktrees Config` block). For any other source, skip the link with one line. The link works even when Orca's Linear is disconnected.
 
 Report the PR, the work item (or "no ref"), the worktree path, the checked-out branch, the terminal
-handle, and whether the install tab opened. Include this teardown warning verbatim:
+handle, and whether the install tab opened. Under `--yuna` the report is the lines in "Yuna mode"
+and the warning below is not printed, since yuna's sweep tears the worktree down. Otherwise include
+this teardown warning verbatim:
 
 > Before removing this worktree, check out its throwaway branch first:
 > `git -C <path> checkout <orca-created-branch>` then `orca worktree rm --worktree <sel> --force`.
@@ -451,6 +458,38 @@ handle, and whether the install tab opened. Include this teardown warning verbat
 resumed by name. There is no argv seam for that under `--agent`: Orca's launcher owns the command
 line. This skill therefore does not compute one. Identify the workspace by `name:review-<PR#>` or
 by `branch:<HEAD_REF>` instead — both are first-class selectors.
+
+## Yuna mode
+
+`--yuna <home> <n> [<n> ...]` is how `juel:yuna` fills its free slots: one worktree and one reviewing
+Claude per PR number, with nobody to ask. Steps 1 to 8 run per PR as written, with these differences.
+
+- **`Y`** is `sh <yuna.sh> --home <home>`, where `<yuna.sh>` is `../yuna/yuna.sh` from this file. Every
+  `gh` and every `git fetch` that reaches GitHub runs as `Y gh …` or `Y git …`, which carry yuna's
+  token. A worker's Orca worktree has no per-folder GitHub account of its own.
+- **Nothing is asked.** A repository Orca does not know (no `repo add` offer), a runtime that is not
+  reachable (no `orca open` offer) or a failed preflight prints one `SKIPPED` line per PR with the
+  reason and ends. The next yuna tick tries again, which is why a skip is cheap.
+- **Fetch once per run.** Before the first worktree, `Y git -C "$MAIN_ROOT" fetch <remote>`, where
+  `<remote>` is the only remote, else `origin`. Every PR's head branch is then known locally.
+- **The worktree's name is `review-<n>`**, so the item yuna tracks is `review-<n>`.
+- **The prompt** is
+  `"${AGENT_PROMPT_PREFIX}juel:review-pr --pr $PR${REF:+ $REF} --yuna $YUNA_HOME --item $NAME"`, with
+  `$NAME` the worktree's name (`review-<n>`) and `$YUNA_HOME` the `--yuna` folder.
+- **Skipped, not repaired:** a `review-<n>` worktree that already exists (yuna's other rows or the
+  owner's own review), a fork PR whose head cannot be fetched, and a head branch that is checked out
+  in another worktree (git refuses; that worktree is someone's live work). Each is a `SKIPPED` line,
+  and a worktree that was created before the failure is named in the reason and never removed.
+- **The report** is one line per PR, which yuna parses, and nothing else on those lines:
+
+```text
+SPAWNED item=review-<n> pr=<url> path=<path> branch=<head ref> throwaway=<orca branch> terminal=<handle>
+SKIPPED item=review-<n> reason=<one line>
+```
+
+`branch` is the PR's head branch (the local review branch for a fork PR) and `throwaway` is
+`ORCA_BRANCH`, the branch Orca created. yuna's sweep checks `throwaway` out before it removes the
+worktree, so the owner's local copy of the PR branch is never deleted with it.
 
 ## Common mistakes
 
@@ -472,11 +511,12 @@ by `branch:<HEAD_REF>` instead — both are first-class selectors.
 | `orca status` reports the runtime unreachable | Offer `orca open`, then re-run preflight. Never spawn against an unreachable runtime. |
 | This repo is not in `orca repo list` | Offer `orca repo add` once. If declined, STOP. |
 | Cross-repo (fork) PR | Fetch the fork ref into a local branch, then check that out. The head branch does not exist on this remote. |
-| A `review-<PR#>` worktree already exists | Report it and reuse it rather than creating a second checkout for the same PR. |
+| A `review-<PR#>` worktree already exists | Report it and reuse it rather than creating a second checkout for the same PR. Under `--yuna`: a `SKIPPED` line. |
 | No work-item ref resolves | Proceed ungraded, note "no ref" in the report, and pass no ref to `juel:review-pr`. |
 | A dialog is still present after 3 gauntlet rounds | Report the captured screen and stop. |
 | No install command resolves | Skip phase 7 with a one-line note. |
-| The PR head branch is already checked out in another worktree | git refuses the checkout. Report it and stop rather than forcing; the other worktree is someone's live work. |
+| The PR head branch is already checked out in another worktree | git refuses the checkout. Report it and stop rather than forcing; the other worktree is someone's live work. Under `--yuna`: a `SKIPPED` line. |
+| `--yuna` with a branch or a URL instead of PR numbers | One `SKIPPED` line per argument, `reason=yuna takes PR numbers only`. |
 
 ## QA checklist
 
@@ -485,4 +525,4 @@ by `branch:<HEAD_REF>` instead — both are first-class selectors.
 3. `copy_untracked` ran and the verification loop reported no missing files.
 4. No session was left sitting on an unanswered first-run dialog.
 5. The queued prompt carries the PR number, and the ref when one resolved.
-6. The report includes the teardown warning verbatim.
+6. The report includes the teardown warning verbatim, except under `--yuna`, where it is the `SPAWNED` and `SKIPPED` lines.
