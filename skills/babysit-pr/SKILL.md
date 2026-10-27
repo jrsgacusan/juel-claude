@@ -145,6 +145,7 @@ creating new ones, and put the round number in each evidence line ("round 2: 3 i
 | `--executor-model <id|latest-<family>>` | `star.json`'s `executor.model` under a `star:` brief, else `latest-luna` | Passed on to `receive-review-and-execute` |
 | `--executor-effort <level>` | `star.json`'s `executor.effort` under a `star:` brief, else `xhigh` | Passed on to `receive-review-and-execute` |
 | `--yuki <home>` | off | Run as a `juel:yuki` worker: nothing is asked, and the PR is merged once the merge check holds. See "Yuki mode". Requires `--item`. Refused in reviewer mode, and with `--unattended` |
+| `--yuna <home>` | off | Run as a `juel:yuna` worker: reviewer mode with nobody to ask, every re-review posts by itself, and the run ends in `APPROVED`, `RELEASED` or `PARKED`. See "Yuna mode" inside "Reviewer mode". Requires `--item`. Refused in author mode, with `--unattended`, and with `--yuki` |
 | `--since <iso>` | the PR's `createdAt` | Feedback cursor: only feedback after it is handled. A resumed run passes the `cursor` from its last `READY`, so earlier comments are never re-answered |
 
 Usage: `/juel:babysit-pr`, `/juel:babysit-pr 412`, `/juel:babysit-pr 412 --gates "make test;make lint"`,
@@ -266,7 +267,8 @@ Phase 1 step 2 chose it: someone else authored the PR, and you reviewed it with
 author is ready for you again, re-reviews through `juel:review-pr` in place of
 `juel:receive-review-and-execute`, and asks you before every post.
 It never commits, pushes, merges, runs gates or edits the author's branch.
-"Unattended mode" does not apply to it: nothing goes out without your answer.
+"Unattended mode" does not apply to it: nothing goes out without your answer, except under
+`--yuna` (see "Yuna mode" at the end of this section), where yuna's owner has already said yes.
 
 `<you>` is `gh api user --jq .login`. Before the first wait, it stops with the reason when any of
 these fails:
@@ -281,7 +283,7 @@ these fails:
 - The working tree is dirty: `git status --porcelain` prints anything. Name the files and stop;
   never discard them.
 - Nobody can answer a question in this session: stop with "reviewer mode needs you at the
-  keyboard".
+  keyboard". Under `--yuna` this stop does not apply.
 
 Each row overrides the phase it names:
 
@@ -292,6 +294,27 @@ Each row overrides the phase it names:
 | 3. Remediate and push | **Re-review.** (1) `git status --porcelain` prints nothing; otherwise stop and name the dirty files: never discard them. (2) `gh pr checkout <pr> --force`, which moves the local branch to the PR's head, a force-push included. (3) `/juel:review-pr --pr <pr> --since <reviewed head> --from-babysit`: it reviews, asks you, then posts, replies and resolves your fixed threads, all behind its Step 7 question. (4) Read its last line, then set the cursor to now (an ISO time with `Z`) and quiet-since with it, whatever the line says and never from the snapshot, so a re-request already handled never wakes the wait again. `REVIEW-PR posted verdict=APPROVE …` → Phase 5. `REVIEW-PR posted verdict=REQUEST_CHANGES …` or `REVIEW-PR posted verdict=COMMENT …` → the reviewed head becomes its `commit=`, back to Phase 2. `REVIEW-PR not-posted head=<sha>` → the reviewed head becomes that `<sha>`, so the same head never wakes again, back to Phase 2. `REVIEW-PR head-moved from=<sha> to=<sha>` → the reviewed head stays, back to Phase 2: the new head wakes `settled` once it has stayed put for 30 minutes. `REVIEW-PR stopped reason=<why>` → Phase 5 with that reason. |
 | 4. Final sync and push | SKIPPED: "reviewer mode: nothing to push". |
 | 5. Report | The PR URL; each round with its verdict (or "not posted"), the threads it resolved and the comments it added; and the outcome: **"Approved by you"**, **"Merged or closed by someone else"**, or why it stopped. |
+
+### Yuna mode
+
+`--yuna <home> --item <item>` runs reviewer mode as a `juel:yuna` worker. `<home>` is yuna's folder,
+absolute, and `Y` is `sh <yuna.sh> --home <home>`, `<yuna.sh>` being `../yuna/yuna.sh` from this
+file. The flag is refused, with one line, in author mode, with `--unattended`, with `--yuki`, and
+without `--item`. Nobody is at the keyboard, so these rows change the reviewer mode above:
+
+| Where | Yuna mode |
+|---|---|
+| The stops | The stop "Nobody can answer a question in this session" does not apply. The other stops print `PARKED item=<item> reason=<why>` as the last line and append `parked <why>` to `<home>/progress/<item>.log`. |
+| Every `gh` and `git` call | Runs as `Y gh …` and `Y git …`, which carry yuna's GitHub token. `<you>` is `Y gh api user --jq .login`. |
+| Every wait | Before each Phase 2 wait, append `wait author` to the progress log: the sweep reads it as "not quiet". The wait itself is as written. |
+| Phase 2, `silence` | Do not wait again. Append `released author silent for <silenceHours> h`, print `RELEASED item=<item> reason=author silent for <silenceHours> h` as the last line, and end. `<silenceHours>` is `silenceHours` in `<home>/yuna.json` (72 when absent), and the wait's `--silence-hours` is that number. A later re-request lists the PR again and yuna starts a new round. |
+| Phase 2, `closed` | Phase 5. The sweep sees the PR is merged or closed and removes the worktree. |
+| Phase 3, step (3) | `/juel:review-pr --pr <pr> --since <reviewed head> --from-babysit --yuna <home> --item <item>`. It posts by itself, with no question. |
+| Phase 3, step (4) | `REVIEW-PR posted verdict=APPROVE …` → append `approved <url> <commit>`, print `APPROVED item=<item> pr=<pr url>` as the last line, and end. Other `posted` lines, `head-moved` and `not-posted` as written. `REVIEW-PR stopped reason=<why>` → append `parked <why>`, print `PARKED item=<item> reason=<why>` as the last line, and end. |
+| 5. Report | The last line is `APPROVED`, `RELEASED` or `PARKED` as above. When the PR merged or closed there is no result line: the sweep sees the state and removes the worktree. |
+
+Progress lines are written as `printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<text>" >> <home>/progress/<item>.log`.
+The worker never pushes, commits or merges: the reviewer only reviews.
 
 ## Phase 1: Resolve PR and gates
 
