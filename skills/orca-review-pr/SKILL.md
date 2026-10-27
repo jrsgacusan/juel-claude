@@ -367,7 +367,7 @@ the real head — Orca reads git and follows, so `worktree show` reports the bra
 
 `${REF:+ $REF}` expands to ` <REF>` when a ref resolved and to nothing when it did not, so
 `juel:review-pr` resolves its own ref rather than blocking. `AGENT_PROMPT_PREFIX` is the slash
-command's lead-in (`/` for Claude, see `references/resolution.md`) and carries no trailing space, so
+command's lead-in (`/` for Claude, a dollar sign for Codex, see `references/resolution.md`) and carries no trailing space, so
 the skill name follows it directly: the prompt reads `/juel:review-pr --pr 1234 SAVI-1162`. An
 earlier form wrote `"$AGENT_PROMPT_PREFIX $PR"`, which expanded to `/ 1234` and ran no skill.
 
