@@ -881,6 +881,18 @@ OPT_ROW = r"^(❯\s*)?(\d+)\.\s+(\S.*)$"
 MAX_BELOW = 8  # a live dialog is at the bottom of the screen: footer rows only below its options
 
 
+SHELL_WORDS = {"cd", "eval", "exec", "export", "source", ".", "alias", "set", "unset", "trap", "builtin",
+               "command", "if", "for", "while", "case", "function"}
+
+
+def is_description(row):
+    """Prose, not a second row of the command: two words or more, a capital first, no shell syntax, and a
+    first word that runs nothing (which() sees through a case-insensitive disk: Npm runs npm)."""
+    words = row.split()
+    return (len(words) >= 2 and row[0].isupper() and not re.search(r"[|&;<>$`\\{}]", row)
+            and not shutil.which(words[0]) and words[0].lower() not in SHELL_WORDS)
+
+
 class Rows(list):
     """The rendered rows with the box borders stripped; raw keeps them, for the width of the dialog's box."""
     raw = ()
@@ -979,9 +991,7 @@ def find_dialog(rows):
                 # one command row and its description. A command on more rows is told to a person, whole:
                 # its second row could be anything that looks like a description
                 command, description = shown
-                plain = (len(description.split()) >= 2 and not description.startswith("-")
-                         and not re.search(r"[|&;<>$`\\{}]", description))
-                if plain and command_row_fits(rows, header, command):
+                if is_description(description) and command_row_fits(rows, header, command):
                     ok = read_only(command)[0]
                     return {"kind": "permission", "text": clean_text(command, 2000), "auto": "enter" if ok else None}
             if shown:

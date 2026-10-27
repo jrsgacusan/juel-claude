@@ -255,6 +255,21 @@ out=$(Y nudge N-24)
 python3 -c 'import json; print(json.dumps({"ok":True,"result":{"terminal":{"source":"screen","tail":["Bash command","","  grep -rn foo src","  Search the sources","","Do you want to proceed?","❯ 1. Yes","  2. Yes, and don'"'"'t ask again","  3. No, and tell Claude what to do differently (esc)"]}}}))' > "$TMP/screen-tN25.json"; : > "$TMP/orca-calls"
 out=$(Y nudge N-25)
 [ "$out" = "nudged N-25 permission: grep -rn foo src" ] && pass "without a border the longest row of the dialog is the width" || fail "no border ($out)"
+for n in 27 28 29 30; do Y add "N-$n" "terminal=tN$n" >/dev/null; done
+permrows tN27 "" 'grep -rn foo src' 'npm install'; : > "$TMP/orca-calls"
+out=$(Y nudge N-27)
+[ "$out" = "prompt N-27 new permission: grep -rn foo src npm install" ] && [ "$(sends)" = 0 ] && pass "a second row that runs (npm install) is a command row, not a description" || fail "npm row ($out)"
+permrows tN28 "" 'grep -rn foo src' 'Npm install'; : > "$TMP/orca-calls"
+out=$(Y nudge N-28)
+[ "$out" = "prompt N-28 new permission: grep -rn foo src Npm install" ] && [ "$(sends)" = 0 ] && pass "a capitalised program still runs on a case-insensitive disk: not a description" || fail "Npm row ($out)"
+permrows tN29 "" 'grep -rn foo src' 'Search the sources'; : > "$TMP/orca-calls"
+out=$(Y nudge N-29)
+[ "$out" = "nudged N-29 permission: grep -rn foo src" ] && pass "a capitalised prose row is the description" || fail "prose row ($out)"
+permrows tN30 "" 'grep -rln "class ElectronApplication" node_modules/playwright-core' 'Check for the class'; : > "$TMP/orca-calls"
+out=$(Y nudge N-30)
+[ "$out" = "nudged N-30 permission: grep -rln \"class ElectronApplication\" node_modules/playwright-core" ] && pass "the issue's command with its description is nudged" || fail "issue row ($out)"
+permrows tN27 "" 'grep -rn foo src' 'search the sources'; : > "$TMP/orca-calls"
+out=$(Y nudge N-27); [ "$out" = "prompt N-27 new permission: grep -rn foo src search the sources" ] && pass "a lowercase second row is not a description" || fail "lowercase row ($out)"
 perm tN26 'cat package.json'; echo '{"ok":false}' > "$TMP/screen-tN26.next"; : > "$TMP/orca-calls"
 out=$(Y nudge N-26)
 [ "$out" = "unknown N-26 terminal cannot be read" ] && [ "$(sends)" = 0 ] && pass "a failing second read is unknown, not silence" || fail "second read ($out)"
