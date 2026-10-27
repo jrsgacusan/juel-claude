@@ -12,11 +12,14 @@ pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 
 # hooks.json: the classic SessionStart hook exactly as before, and the module beside it
-python3 - "$ROOT/hooks/hooks.json" 2> "$TMP/err" <<'PY' && pass "hooks.json keeps the SessionStart hook and names ./register.tsx" || fail "hooks.json: $(tail -1 "$TMP/err")"
+python3 - "$ROOT/hooks/hooks.json" 2> "$TMP/err" <<'PY' && pass "hooks.json keeps the SessionStart hook, adds worker-state.sh and names ./register.tsx" || fail "hooks.json: $(tail -1 "$TMP/err")"
 import json, os, sys
 d = json.load(open(sys.argv[1], encoding="utf-8"))
+ws = {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/worker-state.sh\""}
 want = {"SessionStart": [{"matcher": "startup|resume|compact|clear", "hooks": [
-    {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/star-session.sh\""}]}]}
+    {"type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/star-session.sh\""}, ws]}]}
+for ev in ("UserPromptSubmit", "Stop", "StopFailure", "Notification"):
+    want[ev] = [{"hooks": [ws]}]
 assert d.get("hooks") == want, d.get("hooks")
 assert d.get("modules") == ["./register.tsx"], d.get("modules")
 assert os.path.isfile(os.path.join(os.path.dirname(sys.argv[1]), "register.tsx"))
