@@ -20,6 +20,7 @@ out=$(run "$TMP/app" term_W '"hook_event_name":"StopFailure","error":"rate_limit
 [ "$(field "$F" event)" = StopFailure ] && [ "$(field "$F" kind)" = rate_limit ] && [ "$(field "$F" handle)" = term_W ] \
   && [ "$(field "$F" session)" = s1 ] && [ "$(field "$F" message)" = "429 too many" ] && pass "StopFailure state: event, kind=error, handle, session, message" || fail "StopFailure fields ($(cat "$F" 2>/dev/null))"
 python3 -c 'import json,sys; from datetime import datetime; d=json.load(open(sys.argv[1])); datetime.strptime(d["at"],"%Y-%m-%dT%H:%M:%SZ")' "$F" && pass "at is ISO with Z" || fail "at format"
+rm -f "$F"
 run "$TMP/app/src" term_W '"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash","title":"t"' >/dev/null
 [ "$(field "$F" event)" = Notification ] && [ "$(field "$F" kind)" = permission_prompt ] && pass "Notification state from a subfolder, kind=notification_type" || fail "Notification ($(cat "$F"))"
 long=$(python3 -c 'print("x"*300)')
@@ -30,6 +31,23 @@ for ev in SessionStart UserPromptSubmit Stop; do
   out=$(run "$TMP/app" term_W "\"hook_event_name\":\"$ev\",\"prompt\":\"hi\""); [ -z "$out" ] || fail "$ev printed ($out)"
   [ "$(field "$F" event)" = clear ] && pass "$ev clears the state" || fail "$ev clear ($(cat "$F"))"
 done
+# a hint-kind Notification (idle_prompt comes ~60 s after a turn ends, a failed one too) never replaces a StopFailure
+for k in idle_prompt permission_prompt agent_needs_input something_new; do
+  run "$TMP/app" term_W '"hook_event_name":"StopFailure","error":"overloaded"' >/dev/null
+  run "$TMP/app" term_W "\"hook_event_name\":\"Notification\",\"notification_type\":\"$k\",\"message\":\"m\"" >/dev/null
+  [ "$(field "$F" event)" = StopFailure ] && [ "$(field "$F" kind)" = overloaded ] && pass "$k keeps a StopFailure" || fail "$k replaced a StopFailure ($(cat "$F"))"
+done
+for k in auth_success quota_auto_resume_fired quota_auto_resume_stale; do
+  run "$TMP/app" term_W '"hook_event_name":"StopFailure","error":"overloaded"' >/dev/null
+  run "$TMP/app" term_W "\"hook_event_name\":\"Notification\",\"notification_type\":\"$k\",\"message\":\"m\"" >/dev/null
+  [ "$(field "$F" event)" = Notification ] && [ "$(field "$F" kind)" = "$k" ] && pass "$k replaces a StopFailure" || fail "$k kept a StopFailure ($(cat "$F"))"
+done
+run "$TMP/app" term_W '"hook_event_name":"Stop"' >/dev/null
+run "$TMP/app" term_W '"hook_event_name":"Notification","notification_type":"idle_prompt","message":"m"' >/dev/null
+[ "$(field "$F" event)" = Notification ] && pass "a hint replaces a clear" || fail "hint after clear"
+run "$TMP/app" term_W '"hook_event_name":"StopFailure","error":"overloaded"' >/dev/null
+printf '{"session_id":"s2","cwd":"%s","hook_event_name":"Notification","notification_type":"idle_prompt","message":"m"}' "$TMP/app" | env ORCA_TERMINAL_HANDLE=term_W sh "$HOOK"
+[ "$(field "$F" event)" = Notification ] && pass "a hint from another session replaces a StopFailure" || fail "other session kept StopFailure"
 rm -f "$F"
 run "$TMP/app" "" '"hook_event_name":"Stop"' >/dev/null; [ -z "$(ls "$H/workers" 2>/dev/null)" ] && pass "no ORCA_TERMINAL_HANDLE: nothing written" || fail "no handle"
 run "$TMP/other" term_W '"hook_event_name":"Stop"' >/dev/null; [ ! -e "$F" ] && pass "outside a project: nothing written" || fail "outside project"

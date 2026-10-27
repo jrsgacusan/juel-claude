@@ -478,6 +478,11 @@ def hook_state():
 
 
 STATE = hook_state()
+if STATE and STATE[0] == "StopFailure":
+    # A failed turn leaves a quiet terminal; one that printed since is working again, whatever the file says.
+    _printed = terminal_output_time()
+    if _printed is None or STATE[3] is None or _printed > STATE[3] + 10:
+        STATE = None
 STATE_LINES = {}
 for _kinds, _line in ((("overloaded",), "stalled: model at capacity"),
                       (("server_error", "unknown", "invalid_request", "max_output_tokens"), "stalled: api error"),

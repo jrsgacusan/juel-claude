@@ -682,6 +682,14 @@ screen stream "working on it"
 for k in "clear:" "Notification:auth_success" "Notification:quota_auto_resume_fired" "Notification:agent_completed" "Notification:something_new"; do
   wstate "${k%%:*}" "${k#*:}" "x"; out=$(z env); check "#208 ${k} says nothing: the screen decides" "ok"
 done
+# a StopFailure counts only while the terminal is quiet: output more than 10 s after its `at` means the worker moved on
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(ms_ago 5)" > "$TMP/list.json"
+wstate StopFailure overloaded "x"; out=$(z env); check "#208 a StopFailure the screen has moved past says nothing" "ok"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":1791373805000}]}}\n' > "$TMP/list.json"
+wstate StopFailure overloaded "x"; out=$(z env); check "#208 a StopFailure with output 5 s later still counts" "stalled: model at capacity"
+printf '{"result":{"terminals":[{"handle":"term_w1"}]}}\n' > "$TMP/list.json"
+wstate StopFailure overloaded "x"; out=$(z env); check "#208 a StopFailure with no lastOutputAt: the screen decides" "ok"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(ms_ago 20)" > "$TMP/list.json"
 printf 'not json' > "$HW/workers/term_w1.json"; out=$(z env); check "#208 an unreadable state file says nothing" "ok"
 wstate StopFailure server_error "x"; mv "$HW/workers/term_w1.json" "$HW/workers/term_other.json"
 out=$(z env); check "#208 another terminal's state is not this worker's" "ok"
