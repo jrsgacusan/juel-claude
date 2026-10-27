@@ -46,6 +46,10 @@ case "$*" in
     common=$(git -C "$p" rev-parse --path-format=absolute --git-common-dir)
     git --git-dir="$common" worktree remove "$p" || exit 1
     echo '{"ok":true,"result":{"removed":true}}' ;;
+  "terminal read "*)
+    f="$STUB_DIR/screen-$4.json"; [ -f "$f" ] || { echo '{"ok":false}'; exit 1; }
+    cat "$f"; [ -f "$STUB_DIR/screen-$4.next" ] && mv "$STUB_DIR/screen-$4.next" "$f"; exit 0 ;;
+  "terminal send "*) echo '{"ok":true}' ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 EOF
@@ -169,6 +173,116 @@ Y config tokenCmd null
 [ "$(A git -C "$APP" rev-parse --abbrev-ref HEAD)" = "main" ] && pass "Y git runs git" || fail "Y git passthrough"
 printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$TMP/wt/SPH-4" | env -u GH_TOKEN CLAUDE_ENV_FILE="$TMP/hookenv" sh "$ROOT/hooks/star-session.sh" >/dev/null
 [ "$(cat "$TMP/hookenv" 2>/dev/null)" = 'export GH_TOKEN="$(gh auth token --user jrsgacusan)"' ] && pass "the session hook gives a worker's worktree yuki's token" || fail "hook ($(cat "$TMP/hookenv" 2>/dev/null))"
+
+# --- nudge (#214) ---
+# screen <handle> <row>...: the rendered screen of that terminal
+screen() { h=$1; shift; python3 -c 'import json,sys; print(json.dumps({"ok":True,"result":{"terminal":{"handle":sys.argv[1],"source":"screen","tail":sys.argv[2:]}}}))' "$h" "$@" > "$TMP/screen-$h.json"; }
+# perm <handle> <command> [<description>]: Claude Code's permission prompt for one Bash command
+perm() { screen "$1" "⏺ Bash($2)" "╭──────────────────────────────╮" "│ Bash command" "│" "│   $2" "│   ${3:-Search the sources}" "│" "│ Do you want to proceed?" "│ ❯ 1. Yes" "│   2. Yes, and don't ask again for this command" "│   3. No, and tell Claude what to do differently (esc)" "╰──────────────────────────────╯"; }
+sends() { grep -c 'terminal send' "$TMP/orca-calls" 2>/dev/null || true; }
+for n in 1 2 3 4 5 6 7 8 9 10 11 12; do Y add "N-$n" "terminal=tN$n" >/dev/null; done
+CMD1='grep -rln "class ElectronApplication" node_modules/playwright-core'
+perm tN1 "$CMD1"; : > "$TMP/orca-calls"
+out=$(Y nudge N-1)
+[ "$out" = "nudged N-1 permission: $CMD1" ] && pass "a read-only command is nudged" || fail "nudge read-only ($out)"
+[ "$(grep -c 'terminal send --terminal tN1 --enter' "$TMP/orca-calls")" = 1 ] && [ "$(sends)" = 1 ] && pass "one Enter, nothing else" || fail "nudge keys ($(cat "$TMP/orca-calls"))"
+[ "$(sed -n '$p' "$H/progress/N-1.log" | cut -d' ' -f2-)" = "nudged permission: $CMD1" ] && pass "the nudge is logged" || fail "nudge log ($(cat "$H/progress/N-1.log"))"
+CMD2='node -e "require.resolve(\"playwright-core\")"'
+perm tN2 "$CMD2"; : > "$TMP/orca-calls"
+out=$(Y nudge N-2)
+[ "$out" = "prompt N-2 new permission: $CMD2" ] && [ "$(sends)" = 0 ] && pass "node -e is reported, not sent" || fail "node -e ($out)"
+out=$(Y nudge N-2)
+[ "$out" = "prompt N-2 permission: $CMD2" ] && [ "$(sends)" = 0 ] && pass "the same dialog on a later tick has no new" || fail "node -e again ($out)"
+perm tN3 'rm -rf build'; out=$(Y nudge N-3)
+[ "$out" = "prompt N-3 new permission: rm -rf build" ] && [ "$(sends)" = 0 ] && pass "rm -rf is reported, not sent" || fail "rm -rf ($out)"
+perm tN4 'cat package.json'
+python3 -c 'import json; print(json.dumps({"ok":True,"result":{"terminal":{"source":"screen","tail":["Do you want to proceed?","❯ 1. Yes","  2. No"]}}}))' > "$TMP/screen-tN4.next"
+: > "$TMP/orca-calls"; out=$(Y nudge N-4)
+[ -z "$out" ] && [ "$(sends)" = 0 ] && pass "a dialog that changed between the two reads gets nothing" || fail "changed dialog ($out / $(cat "$TMP/orca-calls"))"
+screen tN5 "Welcome to Claude Code" "Do you trust the files in this folder?" "❯ 1. No, exit" "  2. Yes, proceed"; : > "$TMP/orca-calls"
+out=$(Y nudge N-5)
+[ "$out" = "nudged N-5 trust dialog" ] && [ "$(sends)" = 2 ] && grep -q 'terminal send --terminal tN5 --text' "$TMP/orca-calls" && [ "$(grep -c 'tN5 --enter' "$TMP/orca-calls")" = 1 ] && pass "the trust dialog gets down, then Enter" || fail "trust ($out / $(cat "$TMP/orca-calls"))"
+[ "$(sed -n '$p' "$H/progress/N-5.log" | cut -d' ' -f2-)" = "nudged trust dialog" ] && pass "the trust nudge is logged" || fail "trust log"
+screen tN6 "WARNING: Claude Code running in Bypass Permissions mode" "❯ 1. No, exit" "  2. Yes, I accept"; : > "$TMP/orca-calls"
+[ "$(Y nudge N-6)" = "nudged N-6 bypass dialog" ] && [ "$(sends)" = 2 ] && pass "the bypass dialog gets down, then Enter" || fail "bypass"
+screen tN7 "⏺ Done." "" "❯ "; : > "$TMP/orca-calls"
+[ -z "$(Y nudge N-7)" ] && [ "$(sends)" = 0 ] && pass "no dialog, no line" || fail "no dialog"
+case "$(Y nudge N-8)" in "unknown N-8 "*) pass "an unreadable terminal is unknown" ;; *) fail "unknown ($(Y nudge N-8))" ;; esac
+screen tN9 "Do you want to make this edit to src/app.ts?" "❯ 1. Yes" "  2. Yes, allow all edits during this session" "  3. No"
+[ "$(Y nudge N-9)" = "prompt N-9 new edit: Do you want to make this edit to src/app.ts?" ] && pass "an edit dialog is reported as edit" || fail "edit ($(Y nudge N-9))"
+screen tN10 "New MCP server found in .mcp.json: evil" "❯ 1. Use this and all future MCP servers in this project" "  2. Use this MCP server" "  3. Continue without using this MCP server"; : > "$TMP/orca-calls"
+[ "$(Y nudge N-10)" = "prompt N-10 new mcp: New MCP server found in .mcp.json: evil" ] && [ "$(sends)" = 0 ] && pass "an MCP dialog is reported, never answered" || fail "mcp ($(Y nudge N-10))"
+screen tN11 "Select a model" "❯ 1. Opus" "  2. Haiku"
+[ "$(Y nudge N-11)" = "prompt N-11 new dialog: Select a model" ] && pass "another numbered question is a dialog" || fail "dialog ($(Y nudge N-11))"
+python3 - "$H/items.json" <<'PY' && pass "the prompt fingerprint is kept, and cleared when the dialog is gone" || fail "prompt field"
+import json, sys
+rows = {r["item"]: r for r in json.load(open(sys.argv[1]))["items"]}
+assert len(rows["N-2"]["prompt"]) == 12 and "prompt" not in rows["N-7"] and "prompt" not in rows["N-1"], rows["N-2"]
+PY
+screen tN12 "Welcome" "❯ 1. fix the build"
+[ -z "$(Y nudge N-12)" ] && pass "a typed numbered prompt row is not a dialog" || fail "prompt row ($(Y nudge N-12))"
+screen tN2 "Working"; screen tN3 "Working"; screen tN4 "Working"; screen tN5 "Working"; screen tN6 "Working"; screen tN9 "Working"; screen tN10 "Working"; screen tN11 "Working"
+perm tN1 "$CMD1"
+out=$(Y nudge)
+[ "$(echo "$out" | sed -n 1p)" = "nudged N-1 permission: $CMD1" ] && [ "$(echo "$out" | sed -n 2p | cut -d' ' -f1-2)" = "unknown N-8" ] && [ "$(echo "$out" | wc -l | tr -d ' ')" = 2 ] && pass "no names: every running row with a terminal, in row order" || fail "nudge all ($out)"
+# a nudge leaves the sweep's step and quiet clock alone
+Y add NQ "path=$(wt NQ)" branch=feat/NQ
+printf '%s phase4 executing\n%s nudged permission: ls\n' "$(stamp $((NOW - 3 * 3600)))" "$(stamp "$NOW")" > "$P/NQ.log"
+Y sweep | grep -qx 'quiet NQ 3h00m phase4' && pass "a nudged line is not the step, and does not reset the quiet clock" || fail "sweep ignores nudged ($(Y sweep | grep NQ))"
+# the read-only rule, directly
+yes_() { Y readonly "$1" >/dev/null 2>&1 && pass "read-only: $1" || fail "should be read-only: $1"; }
+no_() { Y readonly "$1" >/dev/null 2>&1 && fail "should not be read-only: $1" || pass "not read-only: $1"; }
+yes_ 'grep -rln "class ElectronApplication" node_modules/playwright-core'
+yes_ 'ls -la src | head -20'
+yes_ 'git log --oneline -5 && git status'
+yes_ 'git -C /tmp/x diff --stat'
+yes_ 'find . -name "*.ts" -not -path "./node_modules/*"'
+yes_ "sed -n '1,40p' src/a.ts"
+yes_ "sed -n '/foo/p' a.ts"
+yes_ "sed 's/a/b/g' a.ts"
+yes_ "awk '{print \$1}' a.txt"
+yes_ 'git branch --list "feat/*"'
+yes_ 'git branch'
+yes_ 'command -v node'
+yes_ 'grep -rn "a>b" src'
+yes_ 'cat a.txt; wc -l a.txt || echo none'
+no_ 'node -e "1"'
+no_ 'rm -rf build'
+no_ 'curl https://example.com'
+no_ 'npm test'
+no_ 'cat a > b'
+no_ 'cat a >> b'
+no_ 'cat < a'
+no_ 'ls 2> err'
+no_ 'ls &> err'
+no_ 'echo $(rm x)'
+no_ 'echo `rm x`'
+no_ 'ls & rm x'
+no_ 'ls; rm x'
+no_ 'ls | xargs rm'
+no_ 'sudo ls'
+no_ 'find . -exec rm {} ;'
+no_ 'find . -delete'
+no_ 'find . -fprint out'
+no_ 'find . -ok rm {} ;'
+no_ "sed -i 's/a/b/' a.ts"
+no_ "sed --in-place 's/a/b/' a.ts"
+no_ "sed -n 'w out' a.ts"
+no_ "sed 's/a/b/w out' a.ts"
+no_ "sed -n '1W out' a.ts"
+no_ "awk 'BEGIN{system(\"rm x\")}'"
+no_ "awk '{print > \"f\"}' a"
+no_ "awk '{print | \"sh\"}' a"
+no_ 'git commit -m x'
+no_ 'git push'
+no_ 'git checkout main'
+no_ 'git branch newbranch'
+no_ 'git diff --output=out'
+no_ 'git -c core.pager=sh log'
+no_ 'sort -o out a'
+no_ 'rg --pre sh foo'
+no_ 'date -s tomorrow'
+no_ ''
 
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

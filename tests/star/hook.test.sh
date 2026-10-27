@@ -61,6 +61,19 @@ token null; login '"bad;login"'; envrun "$TMP/app" "$TMP/env10" >/dev/null
 login '"jrs-gacusan2"'
 printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$TMP/app" | GH_TOKEN=already CLAUDE_ENV_FILE="$TMP/env11" sh "$HOOK" >/dev/null
 [ ! -s "$TMP/env11" ] && pass "#137 a session that already has GH_TOKEN gets no ghLogin line" || fail "#137 GH_TOKEN set ($(cat "$TMP/env11"))"
+# juel:yuki and juel:yuna keep their token in the repository's git common dir; a repository with no STAR token takes it
+rm -f "$H/star.json"; cp "$ROOT/skills/star/template/star.json" "$H/star.json"; token null; login null
+mkdir -p "$TMP/app/.git/yuki" "$TMP/app/.git/yuna"
+printf '{"tokenCmd":"echo yuki_tok"}' > "$TMP/app/.git/yuki/yuki.json"; printf '{"tokenCmd":"echo yuna_tok"}' > "$TMP/app/.git/yuna/yuna.json"
+envrun "$TMP/app" "$TMP/env13" >/dev/null
+[ "$(cat "$TMP/env13" 2>/dev/null)" = 'export GH_TOKEN="$(echo yuki_tok)"' ] && pass "yuki's tokenCmd comes before yuna's" || fail "yuki before yuna ($(cat "$TMP/env13" 2>/dev/null))"
+rm -f "$TMP/app/.git/yuki/yuki.json"; envrun "$TMP/app" "$TMP/env14" >/dev/null
+[ "$(cat "$TMP/env14" 2>/dev/null)" = 'export GH_TOKEN="$(echo yuna_tok)"' ] && pass "with no yuki.json, yuna's tokenCmd is the fallback" || fail "yuna fallback ($(cat "$TMP/env14" 2>/dev/null))"
+printf '{"tokenCmd":null}' > "$TMP/app/.git/yuki/yuki.json"; envrun "$TMP/app" "$TMP/env15" >/dev/null
+[ "$(cat "$TMP/env15" 2>/dev/null)" = 'export GH_TOKEN="$(echo yuna_tok)"' ] && pass "a yuki.json with no tokenCmd falls through to yuna's" || fail "yuki null ($(cat "$TMP/env15" 2>/dev/null))"
+printf '{"tokenCmd":"printf a\nprintf b"}' > "$TMP/app/.git/yuna/yuna.json"; rm -f "$TMP/app/.git/yuki/yuki.json"; envrun "$TMP/app" "$TMP/env16" >/dev/null
+[ ! -s "$TMP/env16" ] && pass "a two-line yuna tokenCmd writes nothing" || fail "yuna two-line"
+rm -rf "$TMP/app/.git/yuna" "$TMP/app/.git/yuki"
 login null
 owner term_A; printf 'not json' > "$H/star.json"
 out=$(run "$TMP/app" term_A); rc=$?; [ "$rc" -eq 0 ] && [ -z "$out" ] && pass "a broken star.json is silent" || fail "broken star.json ($out)"
