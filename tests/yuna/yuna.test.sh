@@ -25,7 +25,7 @@ case "$*" in
   "pr view "*" --json state")
     n=${3##*/}
     printf '{"state":"%s"}\n' "$(cat "$STUB_DIR/pr-$n" 2>/dev/null || echo OPEN)" ;;
-  "pr view "*" --json state,isDraft,author,headRefOid,headRefName")
+  "pr view "*" --json state,isDraft,author,headRefOid,headRefName,reviewRequests")
     cat "$STUB_DIR/prview-$3" 2>/dev/null || { echo "Could not resolve to a PullRequest" >&2; exit 1; } ;;
   "api repos/{owner}/{repo}/pulls/"*"/reviews --paginate --jq .[]")
     n=${2#repos/\{owner\}/\{repo\}/pulls/}; n=${n%%/*}
@@ -61,8 +61,8 @@ stamp() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%
 wt() { git -C "$APP" branch -q "thr/$1" main 2>/dev/null; git -C "$APP" worktree add -q -b "feat/$1" "$TMP/wt/$1" main 2>/dev/null; echo "$TMP/wt/$1"; }
 # review <n> <login> <state> <epoch> <commit>: one submitted review line for PR <n>
 review() { printf '{"user":{"login":"%s"},"state":"%s","submitted_at":"%s","commit_id":"%s"}\n' "$2" "$3" "$(stamp "$4")" "$5" >> "$TMP/reviews-$1"; }
-# prview <n> <login> <draft> <state> <oid> <branch>
-prview() { printf '{"state":"%s","isDraft":%s,"author":{"login":"%s"},"headRefOid":"%s","headRefName":"%s"}\n' "$4" "$3" "$2" "$5" "$6" > "$TMP/prview-$1"; }
+# prview <n> <login> <draft> <state> <oid> <branch> [<reviewRequests json>]
+prview() { printf '{"state":"%s","isDraft":%s,"author":{"login":"%s"},"headRefOid":"%s","headRefName":"%s","reviewRequests":%s}\n' "$4" "$3" "$2" "$5" "$6" "${7:-[]}" > "$TMP/prview-$1"; }
 
 # --- init, config, error prefix ---
 H=$(Y init)
@@ -72,7 +72,7 @@ python3 - "$H/yuna.json" "$APP" <<'PY' && pass "yuna.json has yuna's keys and de
 import json, sys
 d = json.load(open(sys.argv[1]))
 want = {"maxParallel": 5, "intervalMinutes": 10, "sources": [], "minFreeGB": 3, "quietHours": 2, "repo": sys.argv[2],
-        "owner": None, "cron": None, "tokenCmd": None, "reviewer": None}
+        "owner": None, "cron": None, "tokenCmd": None, "reviewer": None, "silenceHours": 72}
 for k, v in want.items():
     assert d[k] == v, (k, d.get(k))
 assert "bot" not in d and "mergeMethod" not in d, d
@@ -120,6 +120,14 @@ skip 22 row dropped
 fresh 23"
 [ "$out" = "$want" ] && pass "fresh: one line per PR in order, each skip with its reason" || { fail "fresh ($out)"; }
 (cd "$TMP" && env PATH="$TMP/bin:$PATH" sh "$SCRIPT" fresh 11 >/dev/null 2>&1); [ $? -ne 0 ] && pass "fresh outside a repository fails" || fail "fresh outside"
+
+# a re-request naming the reviewer directly brings a reviewed head back; a team request never does
+prview 24 alice false OPEN "$HEAD1" feat/p24 '[{"__typename":"User","login":"Reviewer-Bot"}]'; review 24 reviewer-bot COMMENTED "$((NOW - 100))" "$HEAD1"
+prview 25 alice false OPEN "$HEAD1" feat/p25 '[{"__typename":"Team","name":"reviewer-bot","slug":"reviewer-bot"}]'; review 25 reviewer-bot COMMENTED "$((NOW - 100))" "$HEAD1"
+prview 26 alice false OPEN "$HEAD1" feat/p26 '[{"__typename":"User","login":"someone-else"}]'; review 26 reviewer-bot COMMENTED "$((NOW - 100))" "$HEAD1"
+[ "$(Y fresh 24 25 26)" = "fresh 24
+skip 25 reviewed 1111111
+skip 26 reviewed 1111111" ] && pass "fresh: a direct re-request of the reviewer is fresh, a team's or another user's is not" || fail "fresh re-request ($(Y fresh 24 25 26))"
 
 # --- add reopens a done row ---
 [ "$(Y list | awk -F'\t' '$1=="review-19"{print $2}')" = "done" ] && pass "review-19 is done" || fail "setup done"
@@ -198,8 +206,41 @@ at $((NOW + 1800)) Y add review-41 ref=41 "path=$(wt p41b)" "throwaway=thr/p41b"
 at $((NOW + 3600)) Y sweep | grep -q '^running review-41 reopened' && pass "a reopened row sweeps as running, not as last round's approval" || fail "reopened sweep ($(at $((NOW + 3600)) Y sweep | grep review-41))"
 [ "$(Y free)" = "$((20 - $(Y list --state running | wc -l | tr -d ' ')))" ] && pass "free counts running rows only" || fail "free"
 
+# --- a row with no throwaway is never removed ---
+add 36; echo MERGED > "$TMP/pr-36"; Y set review-36 throwaway=
+out=$(Y sweep)
+echo "$out" | grep -qx "ended review-36 https://github.com/o/r/pull/36 kept $TMP/wt/p36: no throwaway branch" && [ -d "$TMP/wt/p36" ] && ! grep -q "path:$TMP/wt/p36" "$TMP/orca-calls" && pass "no throwaway branch: the worktree is kept" || fail "no throwaway ($out)"
+
+# --- rounds is digits ---
+Y add review-90 rounds=abc 2>/dev/null; rc=$?; [ "$rc" -eq 64 ] && pass "rounds=abc is refused" || fail "rounds abc ($rc)"
+Y add review-90 rounds= 2>/dev/null; rc=$?; [ "$rc" -eq 64 ] && pass "an empty rounds is refused" || fail "rounds empty ($rc)"
+Y add review-90 rounds=2 >/dev/null && Y set review-90 rounds=3x 2>/dev/null; [ $? -eq 64 ] && pass "set refuses a non-numeric rounds too" || fail "set rounds"
+python3 - "$H/items.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+for r in d["items"]:
+    if r["item"] == "review-90":
+        r["rounds"], r["state"] = "abc", "done"
+json.dump(d, open(sys.argv[1], "w"))
+PY
+Y add review-90 >/dev/null; [ "$(python3 -c 'import json,sys; print({x["item"]: x for x in json.load(open(sys.argv[1]))["items"]}["review-90"]["rounds"])' "$H/items.json")" = 2 ] && pass "an unreadable rounds counts as 1" || fail "rounds fallback"
+
+# --- skip memory ---
+[ "$(Y skip review-95 'a first-run dialog is still on screen')" = new ] && pass "skip: new the first time" || fail "skip new"
+[ "$(Y skip review-95 'a first-run dialog is still on screen')" = seen ] && [ "$(Y skip review-95 'another reason')" = seen ] && pass "skip: seen after" || fail "skip seen"
+python3 - "$H/items.json" <<'PY' && pass "skip keeps the reason and at, keyed by item" || fail "skips shape"
+import json, sys
+d = json.load(open(sys.argv[1]))
+s = d["skips"]["review-95"]
+assert s["reason"] == "a first-run dialog is still on screen" and s["at"], s
+assert isinstance(d["items"], list)
+PY
+Y skip review-95 --clear; [ "$(Y skip review-95 'x')" = new ] && pass "skip --clear drops it" || fail "skip clear"
+Y add review-95 ref=95 >/dev/null; [ "$(Y skip review-95 'x')" = new ] && pass "add clears the item's skip" || fail "add clears skip"
+Y skip review-95 >/dev/null 2>&1; [ $? -eq 64 ] && pass "skip needs a reason or --clear" || fail "skip usage"
+
 # --- nudge works for yuna rows too ---
-python3 -c 'import json; print(json.dumps({"ok":True,"result":{"terminal":{"source":"screen","tail":["Bash command","  ls src","  List the sources","Do you want to proceed?","❯ 1. Yes","  2. No"]}}}))' > "$TMP/screen-t81.json"
+python3 -c 'import json; print(json.dumps({"ok":True,"result":{"terminal":{"source":"screen","tail":["Bash command","  ls src","  List the sources","Do you want to proceed?","❯ 1. Yes","  2. Yes, and do not ask again","  3. No, and tell Claude what to do differently (esc)"]}}}))' > "$TMP/screen-t81.json"
 [ "$(Y nudge review-81)" = "nudged review-81 permission: ls src" ] && pass "yuna nudges a read-only command" || fail "yuna nudge ($(Y nudge review-81))"
 tail -n1 "$P/review-81.log" | grep -q ' nudged permission: ls src$' && at $((NOW + 1800)) Y sweep | grep -qx 'running review-81 review 10m' && pass "and the sweep ignores that line" || fail "nudge vs sweep"
 

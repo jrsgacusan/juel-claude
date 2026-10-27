@@ -6,13 +6,18 @@
 # change. Everything not marked behaves the same for both. In this header Y is yuki.sh [--kind K] [--home H].
 #   yuki.sh [--home H] path                      the folder (exit 1 outside a git repository)
 #   yuki.sh [--home H] init                      create it, and yuki.json when missing; print the folder
-#                                                (yuna: yuna.json, with reviewer and no bot or mergeMethod)
+#                                                (yuna: yuna.json, with reviewer and silenceHours 72, no bot or
+#                                                mergeMethod)
 #   yuki.sh [--home H] config [<key> [<json>]]   print yuki.json, one key's value, or set one key
 #   yuki.sh [--home H] add <item> [k=v ...]      a new running row; ref, path, branch, terminal, title, pr,
 #                                                throwaway (the branch Orca made for a review worktree), rounds
 #                                                (yuna: a done row is reopened instead: running, the new values,
 #                                                rounds + 1, a "reopened round <n>" progress line; any other
 #                                                existing row is refused)
+#   yuki.sh [--home H] skip <item> <reason>      remember why a PR or ticket was passed over (items.json "skips",
+#                                                keyed by item: reason and at): prints "new" the first time a
+#                                                reason is recorded for the item, "seen" after. add clears it.
+#   yuki.sh [--home H] skip <item> --clear       drop the item's skip
 #   yuki.sh [--home H] set <item> k=v ...        change a row (state, pr, note, ...)
 #   yuki.sh [--home H] list [--state <s>]        "<item>\t<state>\t<path>\t<branch>\t<pr>\t<note>" per row
 #   yuki.sh [--home H] whoami                    yuna only: gh api user --jq .login; prints the login and stores
@@ -22,7 +27,8 @@
 #       skip <n> <why>                           <why> is "row <state>" (a running, parked, ended or dropped row
 #                                                for review-<n>; a done row never skips), "mine" (reviewer wrote
 #                                                it), "draft", "not open", "reviewed <sha7>" (reviewer's newest
-#                                                submitted review is on the current head), "checked out at <path>"
+#                                                submitted review is on the current head and no review request
+#                                                names reviewer directly: a team's never counts), "checked out at <path>"
 #                                                (its head branch is checked out in a worktree of this
 #                                                repository) or "gh: <error>"
 #   yuki.sh [--home H] known                     every item ever added, one per line: the tick skips them
@@ -38,9 +44,12 @@
 #   yuki.sh [--home H] nudge [<item> ...]        read each running row's terminal (default: every one with a
 #                                                terminal) and look at the last dialog on its rendered screen;
 #                                                at most one line per item, nothing when there is no dialog:
-#       nudged <item> permission: <command>      a Bash permission prompt whose command is read-only (the
-#                                                allowlist in read_only()): the screen is read again and, only
-#                                                when the same dialog is still last, Enter is sent once
+#       nudged <item> permission: <command>      a Bash permission prompt whose command is one screen row, not
+#                                                reaching the box's right edge, and read-only (the allowlist in
+#                                                read_only(): plain words only, no path outside the worktree, no
+#                                                jq or awk, git with no option but --no-pager): the screen is
+#                                                read again and, only when the same dialog is still last, Enter
+#                                                is sent once (a failing re-read: "unknown <item> <why>")
 #       nudged <item> trust|bypass dialog        Claude Code's folder-trust or bypass-permissions dialog on its
 #                                                "No, exit" default: Down, then Enter, once
 #       prompt <item> new <kind>: <text>         any other dialog, the first tick: kind is permission (a command
@@ -98,7 +107,8 @@
 # sweep reads: "pr <url>", "parked <reason>" and "merged <url> <sha>". GitHub decides a merge, not
 # the log: a row is done only when gh says its PR is MERGED.
 # A worktree is removed with `orca worktree rm --worktree path:<path> --json`, never --force, and
-# only when `git status --porcelain` in it prints nothing. Under yuna, a row with throwaway first runs
+# only when `git status --porcelain` in it prints nothing. Under yuna, a row with no throwaway is never
+# removed ("no throwaway branch"); one with throwaway first runs
 # `git -C <path> checkout <throwaway>` (a failure keeps it: "cannot leave the PR branch: <line>"),
 # because orca worktree rm deletes the branch the worktree has checked out and the PR's head branch may
 # be one the owner keeps. yuna's progress steps: review <round>, posted <verdict> <url>, wait author,
@@ -126,7 +136,7 @@ import time
 
 KIND, NAME = "yuki", "yuki"
 USAGE = ("usage: yuki.sh [--kind yuki|yuna] [--home H] path | init | config [<key> [<json>]]"
-         " | add <item> [k=v ...] | set <item> k=v ... | list [--state <s>] | known | free | sweep"
+         " | add <item> [k=v ...] | set <item> k=v ... | skip <item> <reason>|--clear | list [--state <s>] | known | free | sweep"
          " | nudge [<item> ...] | host | beat <token> | owner | access | gh ... | git ..."
          " | yuki: deps set|unchecked|external|gate|list ... | bot"
          " | yuna: whoami | fresh <pr> ...")
@@ -157,6 +167,7 @@ YUNA_DEFAULTS = {
     "cron": None,
     "tokenCmd": None,
     "reviewer": None,
+    "silenceHours": 72,
 }
 FIELDS = ("ref", "path", "branch", "terminal", "title", "pr", "note", "state", "throwaway", "rounds")
 STATES = ("running", "done", "merged", "parked", "dropped")
@@ -294,8 +305,16 @@ def pairs(args):
             die(64, f"expected key=value with a key in {', '.join(FIELDS)}, got {a!r}")
         if k == "state" and v not in (YUNA_STATES if YUNA else STATES):
             die(64, f"state must be one of {', '.join(YUNA_STATES if YUNA else STATES)}")
+        if k == "rounds" and not re.fullmatch(r"[0-9]+", v):
+            die(64, f"rounds must be digits, got {v!r}")
         out[k] = v
     return out
+
+
+def rounds_of(row):
+    """The row's rounds as a number: 1 when absent or not digits."""
+    value = str(row.get("rounds") or "")
+    return int(value) if re.fullmatch(r"[0-9]+", value) and int(value) else 1
 
 
 def repo_dir(cfg):
@@ -395,8 +414,11 @@ def remove(row):
         return False, "git status failed"
     if status.stdout.strip():
         return False, "uncommitted changes"
-    if YUNA and row.get("throwaway"):
-        # orca worktree rm deletes the branch the worktree has checked out: leave the PR's head branch first
+    if YUNA:
+        # orca worktree rm deletes the branch the worktree has checked out: leave the PR's head branch first,
+        # and keep the folder when there is no throwaway branch to leave for
+        if not row.get("throwaway"):
+            return False, "no throwaway branch"
         left = subprocess.run(["git", "-C", path, "checkout", row["throwaway"]], capture_output=True, text=True)
         if left.returncode != 0:
             first = (left.stderr.strip().splitlines() or ["git checkout failed"])[0]
@@ -617,7 +639,7 @@ def fresh(numbers):
         if row and row.get("state") != "done":
             print(f"skip {n} row {row.get('state')}")
             continue
-        view, err = gh(["pr", "view", n, "--json", "state,isDraft,author,headRefOid,headRefName"], repo_dir(cfg))
+        view, err = gh(["pr", "view", n, "--json", "state,isDraft,author,headRefOid,headRefName,reviewRequests"], repo_dir(cfg))
         try:
             pr = json.loads(view) if view else None
         except ValueError:
@@ -638,7 +660,9 @@ def fresh(numbers):
                 continue
             newest = newest_review(reviews, reviewer)
             head = pr.get("headRefOid") or ""
-            if newest and head and newest.get("commit_id") == head:
+            asked = any(str(q.get("login") or "").lower() == reviewer.lower()
+                        for q in pr.get("reviewRequests") or [] if isinstance(q, dict))
+            if newest and head and newest.get("commit_id") == head and not asked:
                 print(f"skip {n} reviewed {head[:7]}")
                 continue
             if checked_out is None:
@@ -651,46 +675,52 @@ def fresh(numbers):
 
 
 # --- nudge (#214): answer what a person need not answer, report the rest ---
-READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "find", "sed", "awk", "sort",
+READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "find", "sed", "sort",
              "uniq", "cut", "tr", "file", "stat", "du", "df", "pwd", "echo", "printf", "which", "type",
-             "command", "test", "[", "realpath", "readlink", "dirname", "basename", "date", "jq", "tree",
+             "command", "test", "realpath", "readlink", "dirname", "basename", "date", "tree",
              "diff", "cmp", "git"}
 GIT_READ_ONLY = {"status", "log", "diff", "show", "rev-parse", "ls-files", "ls-tree", "blame", "grep", "cat-file",
                  "branch", "describe", "merge-base"}
 GIT_BRANCH_FLAGS = {"-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--show-current", "--list"}
 
 
+SAFE_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./:@%+,=*?~-")
+
+
 def shell_parts(command):
-    """The simple commands of a line split on | & ; and newlines outside quotes, or None when it holds a
-    redirection outside quotes, a command substitution or a backtick anywhere, or an open quote."""
-    parts, cur, quote, i = [], [], None, 0
-    while i < len(command):
-        c = command[i]
-        if c == "\\" and quote != "'" and i + 1 < len(command):
-            cur.append(command[i:i + 2])
-            i += 2
-            continue
-        if quote:
-            if c == quote:
+    """The simple commands of a line split on | & and ;, or None when it holds anything the shell could read
+    as more than plain words: outside single quotes only SAFE_CHARS, spaces and the separators; inside
+    double quotes SAFE_CHARS, spaces and a single quote (so never $, a backslash or a backtick); an open
+    quote. Single-quoted text is literal, so it may hold anything."""
+    parts, cur, quote = [], [], None
+    for c in command:
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif quote == '"':
+            if c == '"':
                 quote = None
-            elif c == "`" or (c == "$" and command[i + 1:i + 2] == "("):
+            elif c not in SAFE_CHARS and c not in " '":
                 return None
-            cur.append(c)
         elif c in "'\"":
             quote = c
-            cur.append(c)
-        elif c == "`" or (c == "$" and command[i + 1:i + 2] == "(") or c in "<>":
-            return None
-        elif c in "|&;\n":
+        elif c in "|&;":
             parts.append("".join(cur))
             cur = []
-        else:
-            cur.append(c)
-        i += 1
+            continue
+        elif c not in SAFE_CHARS and c != " ":
+            return None
+        cur.append(c)
     if quote:
         return None
     parts.append("".join(cur))
     return [p.strip() for p in parts if p.strip()]
+
+
+def reaches_outside(word):
+    """A word that names a path outside the worktree: absolute, home-relative or holding .. . An option's
+    name is stripped first, so -f/x and --file=/x count."""
+    m = re.match(r"--?[A-Za-z][A-Za-z0-9-]*=?", word)
+    return (word[m.end():] if m else word).startswith(("/", "~")) or ".." in word
 
 
 def sed_script_ok(script):
@@ -782,13 +812,6 @@ def sed_ok(args):
     return not expect and bool(scripts) and all(sed_script_ok(sc) for sc in scripts)
 
 
-def awk_ok(args):
-    for a in args:
-        if re.search(r"system|>|\||getline", a) or re.match(r"-(f|i|l)|--(file|include|load|source)", a):
-            return False
-    return True
-
-
 def read_only(command):
     """(True, "") when every part of the command is on the allowlist, else (False, why). A deterministic
     rule, never a judgement over screen text."""
@@ -805,11 +828,13 @@ def read_only(command):
         prog, args = words[0], words[1:]
         if "sudo" in words:
             return False, "sudo"
+        if any(reaches_outside(w) for w in args):
+            return False, "a path outside the worktree"
         if prog not in READ_ONLY:
             return False, f"{prog} is not on the list"
         if prog == "git":
-            while args[:1] == ["--no-pager"] or (args[:1] == ["-C"] and len(args) > 1):
-                args = args[2:] if args[0] == "-C" else args[1:]
+            if args[:1] == ["--no-pager"]:
+                args = args[1:]
             if not args or args[0] not in GIT_READ_ONLY:
                 return False, "git subcommand"
             sub, args = args[0], args[1:]
@@ -826,9 +851,6 @@ def read_only(command):
         elif prog == "sed":
             if not sed_ok(args):
                 return False, "sed"
-        elif prog == "awk":
-            if not awk_ok(args):
-                return False, "awk"
         elif prog == "sort":
             if any(re.match(r"-[A-Za-z]*o|--output|--compress-program", a) for a in args):
                 return False, "sort output"
@@ -859,6 +881,37 @@ OPT_ROW = r"^(❯\s*)?(\d+)\.\s+(\S.*)$"
 MAX_BELOW = 8  # a live dialog is at the bottom of the screen: footer rows only below its options
 
 
+SHELL_WORDS = {"cd", "eval", "exec", "export", "source", ".", "alias", "set", "unset", "trap", "builtin",
+               "command", "if", "for", "while", "case", "function"}
+
+
+def is_description(row):
+    """Prose, not a second row of the command: two words or more, a capital first, no shell syntax, and a
+    first word that runs nothing (which() sees through a case-insensitive disk: Npm runs npm)."""
+    words = row.split()
+    return (len(words) >= 2 and row[0].isupper() and not re.search(r"[|&;<>$`\\{}]", row)
+            and not shutil.which(words[0]) and words[0].lower() not in SHELL_WORDS)
+
+
+class Rows(list):
+    """The rendered rows with the box borders stripped; raw keeps them, for the width of the dialog's box."""
+    raw = ()
+
+
+# a command row this close to the box's right edge may be one row of a wrapped command: the renderer breaks
+# at the last space that fits, so the next word can be as long as this
+WRAP_SLACK = 20
+
+
+def command_row_fits(rows, header, row):
+    """True when the command row stops well short of the dialog's right edge, so it is not a wrapped row. The
+    edge is the text width of the box whose top border is above the Bash command header, or, with no border,
+    the longest row of the dialog."""
+    border = next((r.strip() for r in reversed(rows.raw[:header]) if re.fullmatch(r"[╭┌]─+[╮┐]", r.strip())), None)
+    width = len(border) - 4 if border else max(len(r) for r in rows[header:])
+    return len(row) <= width - WRAP_SLACK
+
+
 def clean_text(text, limit):
     return " ".join(text.split())[:limit]
 
@@ -881,7 +934,9 @@ def read_screen(handle):
         return None, "terminal cannot be read"
     if term.get("source", "screen") != "screen":
         return None, "no rendered screen"
-    return [str(l).strip(BOXCHARS) for l in tail], None
+    rows = Rows(str(l).strip(BOXCHARS) for l in tail)
+    rows.raw = [str(l) for l in tail]
+    return rows, None
 
 
 def find_dialog(rows):
@@ -932,12 +987,13 @@ def find_dialog(rows):
         if header is not None and not any(re.search(Q_ROW, rows[k], re.IGNORECASE) or re.match(OPT_ROW, rows[k])
                                           for k in range(header + 1, ask)):
             shown = [r for r in rows[header + 1:ask] if r]
-            if len(shown) >= 2:
-                description, command = shown[-1], " ".join(shown[:-1])
-                plain = (len(description.split()) >= 2 and not description.startswith("-")
-                         and not re.search(r"[|&;<>$`\\{}]", description))
-                ok = plain and read_only(command)[0]
-                return {"kind": "permission", "text": clean_text(command, 2000), "auto": "enter" if ok else None}
+            if len(shown) == 2:
+                # one command row and its description. A command on more rows is told to a person, whole:
+                # its second row could be anything that looks like a description
+                command, description = shown
+                if is_description(description) and command_row_fits(rows, header, command):
+                    ok = read_only(command)[0]
+                    return {"kind": "permission", "text": clean_text(command, 2000), "auto": "enter" if ok else None}
             if shown:
                 return {"kind": "permission", "text": clean_text(" ".join(shown), 2000), "auto": None}
         return {"kind": "dialog", "text": clean_text(question, 400), "auto": None}
@@ -986,7 +1042,10 @@ def nudge(names):
         log = None
         if dialog["auto"] == "enter":
             again, why = read_screen(handle)
-            same = find_dialog(again) if again else None
+            if again is None:
+                out.append(f"unknown {item} {why}")
+                continue
+            same = find_dialog(again)
             if not (same and same["kind"] == dialog["kind"] and same["text"] == dialog["text"] and same["auto"]):
                 continue
             if not send_keys(handle, "enter"):
@@ -1251,12 +1310,13 @@ elif cmd in ("add", "set"):
         data = items()
         row = find(data, item)
         if cmd == "add":
+            data.get("skips", {}).pop(item, None)
             if row and YUNA and row.get("state") == "done":
                 # a PR approved and then pushed again comes back: a new round on the same row
                 ref = values.pop("ref", None)
                 for stale in ("note", "prompt"):
                     row.pop(stale, None)
-                rounds = int(row.get("rounds") or 1) + 1
+                rounds = rounds_of(row) + 1
                 row.update(values, state="running", rounds=rounds, started=iso(), updated=iso())
                 if ref:
                     row["ref"] = ref
@@ -1275,6 +1335,23 @@ elif cmd in ("add", "set"):
             if not values:
                 die(64, "set needs at least one key=value")
             row.update(values, updated=iso())
+        write_json(items_path, data)
+elif cmd == "skip":
+    if not rest or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,79}", rest[0]) or len(rest) != 2 or not rest[1]:
+        die(64, "skip needs <item> and a reason, or <item> --clear")
+    item, reason = rest
+    config()
+    with Locked():
+        data = items()
+        skips = data.setdefault("skips", {})
+        if reason == "--clear":
+            skips.pop(item, None)
+        elif item in skips:
+            print("seen")
+            sys.exit(0)
+        else:
+            skips[item] = {"reason": reason, "at": iso()}
+            print("new")
         write_json(items_path, data)
 elif cmd == "list":
     state = None

@@ -177,8 +177,23 @@ printf '{"cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$TMP/
 # --- nudge (#214) ---
 # screen <handle> <row>...: the rendered screen of that terminal
 screen() { h=$1; shift; python3 -c 'import json,sys; print(json.dumps({"ok":True,"result":{"terminal":{"handle":sys.argv[1],"source":"screen","tail":sys.argv[2:]}}}))' "$h" "$@" > "$TMP/screen-$h.json"; }
-# perm <handle> <command> [<description>]: Claude Code's permission prompt for one Bash command
-perm() { screen "$1" "⏺ Bash($2)" "╭──────────────────────────────╮" "│ Bash command" "│" "│   $2" "│   ${3:-Search the sources}" "│" "│ Do you want to proceed?" "│ ❯ 1. Yes" "│   2. Yes, and don't ask again for this command" "│   3. No, and tell Claude what to do differently (esc)" "╰──────────────────────────────╯"; }
+# permrows <handle> <description> <command row>...: Claude Code's permission prompt in a box W (100) wide, the
+# command on one screen row per argument
+permrows() {
+  python3 - "$TMP/screen-$1.json" "$1" "$2" "${W:-100}" "${@:3}" <<'PYEOF'
+import json, sys
+out, handle, desc, w = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+cmd = sys.argv[5:]
+def row(t): return "│ " + t.ljust(w - 2) + " │"
+tail = ["⏺ Bash(" + " ".join(cmd) + ")", "╭" + "─" * w + "╮", row("Bash command"), row(""), *[row("  " + c) for c in cmd]]
+if desc: tail.append(row("  " + desc))
+tail += [row(""), row("Do you want to proceed?"), row("❯ 1. Yes"), row("  2. Yes, and don't ask again for this command"),
+         row("  3. No, and tell Claude what to do differently (esc)"), "╰" + "─" * w + "╯"]
+json.dump({"ok": True, "result": {"terminal": {"handle": handle, "source": "screen", "tail": tail}}}, open(out, "w"))
+PYEOF
+}
+# perm <handle> <command> [<description>]: the prompt for one command on one row
+perm() { permrows "$1" "${3-Search the sources}" "$2"; }
 sends() { grep -c 'terminal send' "$TMP/orca-calls" 2>/dev/null || true; }
 for n in 1 2 3 4 5 6 7 8 9 10 11 12; do Y add "N-$n" "terminal=tN$n" >/dev/null; done
 CMD1='grep -rln "class ElectronApplication" node_modules/playwright-core'
@@ -225,6 +240,39 @@ screen tN2 "Working"; screen tN3 "Working"; screen tN4 "Working"; screen tN5 "Wo
 perm tN1 "$CMD1"
 out=$(Y nudge)
 [ "$(echo "$out" | sed -n 1p)" = "nudged N-1 permission: $CMD1" ] && [ "$(echo "$out" | sed -n 2p | cut -d' ' -f1-2)" = "unknown N-8" ] && [ "$(echo "$out" | wc -l | tr -d ' ')" = 2 ] && pass "no names: every running row with a terminal, in row order" || fail "nudge all ($out)"
+# --- nudge: one row, a box, the unreadable re-read (review fixes) ---
+for n in 21 22 23 24 25 26; do Y add "N-$n" "terminal=tN$n" >/dev/null; done
+permrows tN21 "Search the sources" 'grep -rn foo src' 'npm install'; : > "$TMP/orca-calls"
+out=$(Y nudge N-21)
+[ "$out" = "prompt N-21 new permission: grep -rn foo src npm install Search the sources" ] && [ "$(sends)" = 0 ] && pass "a command on two rows is reported with its rows joined, never sent" || fail "two rows ($out)"
+LONG='grep -rn "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+permrows tN23 "Search the sources" "$LONG"; : > "$TMP/orca-calls"
+out=$(Y nudge N-23)
+case "$out" in "prompt N-23 new permission: "*) [ "$(sends)" = 0 ] && pass "a row that reaches the box edge may be wrapped: reported, never sent" || fail "wrapped sent" ;; *) fail "wrapped ($out)" ;; esac
+W=300 permrows tN24 "Search the sources" "$LONG\""; : > "$TMP/orca-calls"
+out=$(Y nudge N-24)
+[ "$out" = "nudged N-24 permission: $LONG\"" ] && pass "the same row in a wider box is a command" || fail "wide box ($out)"
+python3 -c 'import json; print(json.dumps({"ok":True,"result":{"terminal":{"source":"screen","tail":["Bash command","","  grep -rn foo src","  Search the sources","","Do you want to proceed?","❯ 1. Yes","  2. Yes, and don'"'"'t ask again","  3. No, and tell Claude what to do differently (esc)"]}}}))' > "$TMP/screen-tN25.json"; : > "$TMP/orca-calls"
+out=$(Y nudge N-25)
+[ "$out" = "nudged N-25 permission: grep -rn foo src" ] && pass "without a border the longest row of the dialog is the width" || fail "no border ($out)"
+for n in 27 28 29 30; do Y add "N-$n" "terminal=tN$n" >/dev/null; done
+permrows tN27 "" 'grep -rn foo src' 'npm install'; : > "$TMP/orca-calls"
+out=$(Y nudge N-27)
+[ "$out" = "prompt N-27 new permission: grep -rn foo src npm install" ] && [ "$(sends)" = 0 ] && pass "a second row that runs (npm install) is a command row, not a description" || fail "npm row ($out)"
+permrows tN28 "" 'grep -rn foo src' 'Npm install'; : > "$TMP/orca-calls"
+out=$(Y nudge N-28)
+[ "$out" = "prompt N-28 new permission: grep -rn foo src Npm install" ] && [ "$(sends)" = 0 ] && pass "a capitalised program still runs on a case-insensitive disk: not a description" || fail "Npm row ($out)"
+permrows tN29 "" 'grep -rn foo src' 'Search the sources'; : > "$TMP/orca-calls"
+out=$(Y nudge N-29)
+[ "$out" = "nudged N-29 permission: grep -rn foo src" ] && pass "a capitalised prose row is the description" || fail "prose row ($out)"
+permrows tN30 "" 'grep -rln "class ElectronApplication" node_modules/playwright-core' 'Check for the class'; : > "$TMP/orca-calls"
+out=$(Y nudge N-30)
+[ "$out" = "nudged N-30 permission: grep -rln \"class ElectronApplication\" node_modules/playwright-core" ] && pass "the issue's command with its description is nudged" || fail "issue row ($out)"
+permrows tN27 "" 'grep -rn foo src' 'search the sources'; : > "$TMP/orca-calls"
+out=$(Y nudge N-27); [ "$out" = "prompt N-27 new permission: grep -rn foo src search the sources" ] && pass "a lowercase second row is not a description" || fail "lowercase row ($out)"
+perm tN26 'cat package.json'; echo '{"ok":false}' > "$TMP/screen-tN26.next"; : > "$TMP/orca-calls"
+out=$(Y nudge N-26)
+[ "$out" = "unknown N-26 terminal cannot be read" ] && [ "$(sends)" = 0 ] && pass "a failing second read is unknown, not silence" || fail "second read ($out)"
 # a nudge leaves the sweep's step and quiet clock alone
 Y add NQ "path=$(wt NQ)" branch=feat/NQ
 printf '%s phase4 executing\n%s nudged permission: ls\n' "$(stamp $((NOW - 3 * 3600)))" "$(stamp "$NOW")" > "$P/NQ.log"
@@ -235,16 +283,14 @@ no_() { Y readonly "$1" >/dev/null 2>&1 && fail "should not be read-only: $1" ||
 yes_ 'grep -rln "class ElectronApplication" node_modules/playwright-core'
 yes_ 'ls -la src | head -20'
 yes_ 'git log --oneline -5 && git status'
-yes_ 'git -C /tmp/x diff --stat'
+yes_ 'git --no-pager log --oneline -3'
 yes_ 'find . -name "*.ts" -not -path "./node_modules/*"'
 yes_ "sed -n '1,40p' src/a.ts"
-yes_ "sed -n '/foo/p' a.ts"
 yes_ "sed 's/a/b/g' a.ts"
-yes_ "awk '{print \$1}' a.txt"
 yes_ 'git branch --list "feat/*"'
 yes_ 'git branch'
 yes_ 'command -v node'
-yes_ 'grep -rn "a>b" src'
+yes_ "grep -rn 'a>b' src"
 yes_ 'cat a.txt; wc -l a.txt || echo none'
 no_ 'node -e "1"'
 no_ 'rm -rf build'
@@ -282,7 +328,43 @@ no_ 'git -c core.pager=sh log'
 no_ 'sort -o out a'
 no_ 'rg --pre sh foo'
 no_ 'date -s tomorrow'
+no_ 'grep -rn "a>b" src'
+no_ "sed -n '/foo/p' a.ts"
+no_ "$(printf 'ls\nls')"
+no_ "echo \$'a'"
+no_ 'echo ${HOME}'
+no_ 'echo $HOME'
+no_ 'echo (x)'
+no_ 'echo {a,b}'
+no_ 'echo hi!'
+no_ 'cat <(ls)'
+no_ 'echo a\b'
+no_ 'echo "$HOME"'
+no_ 'echo "a\b"'
+no_ 'cat /etc/passwd'
+no_ 'cat ~/.ssh/id_rsa'
+no_ 'cat ~'
+no_ 'cat ../x'
+no_ 'cat a/../../x'
+no_ 'grep -f/x pat a'
+no_ 'grep --file=/x pat a'
+no_ 'grep -rn foo /'
+no_ 'jq -n env'
+no_ 'jq . a.json'
+no_ "awk '{print 1}' a.txt"
+no_ 'awk 1 a.txt'
+no_ 'git -C sub status'
+no_ 'git -C /tmp/x diff --stat'
+no_ 'git -c core.pager=x log'
+no_ 'git --git-dir=x log'
+no_ 'git --work-tree=x status'
+no_ 'git --exec-path=x status'
 no_ ''
+
+# --- skip memory ---
+[ "$(Y skip K-1 'a first-run dialog')" = new ] && [ "$(Y skip K-1 'a first-run dialog')" = seen ] && pass "skip: new, then seen" || fail "skip"
+Y skip K-1 --clear; [ "$(Y skip K-1 'again')" = new ] && pass "skip --clear drops it" || fail "skip clear"
+Y add K-1 >/dev/null; [ "$(Y skip K-1 'again')" = new ] && pass "add clears the item's skip" || fail "add clears skip"
 
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
