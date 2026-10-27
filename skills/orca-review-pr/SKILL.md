@@ -154,10 +154,15 @@ Usage: `/juel:orca-review-pr 1234` or `/juel:orca-review-pr feat/savi-1162-foo`.
 Each Bash tool call is an **independent non-login shell** — a binary resolved in call N is unavailable in call N+1 because shell variables and function definitions from call N simply do not exist there. Resolve every binary once via `resolve_bin` (PATH first, then labelled candidates — never a hardcoded absolute path as the sole source), persist the resolved paths to `$GIT_COMMON/claude/bins.env`, and source that file at the top of every later call.
 
 ```bash
+# The name first, then the labelled candidates (each a path). No numbered positional parameters
+# here: the skill loader replaces them with this skill's own arguments.
 resolve_bin() {
-  n=$1; shift
-  p=$(command -v "$n" 2>/dev/null) && { printf '%s' "$p"; return 0; }
-  for c in "$@"; do [ -x "$c" ] && { printf '%s' "$c"; return 0; }; done
+  for c in "$@"; do
+    case "$c" in
+      */*) [ -x "$c" ] && { printf '%s' "$c"; return 0; } ;;
+      *) p=$(command -v "$c" 2>/dev/null) && { printf '%s' "$p"; return 0; } ;;
+    esac
+  done
   return 1
 }
 
@@ -262,7 +267,8 @@ match), the same shared helper `juel:start` inlines. Try the branch name first, 
 DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
 
 _ref_from_segment() {
-  seg=$1
+  # No numbered positional parameters: the skill loader rewrites them.
+  seg=; for a in "$@"; do seg=$a; break; done
   case "$seg" in
     *-*) : ;;
     *) return 1 ;;
@@ -299,7 +305,8 @@ _ref_from_segment() {
 }
 
 detect_ref() {
-  str=$1; pat=${2:-}
+  str=; pat=; n=0
+  for a in "$@"; do n=$((n + 1)); if [ "$n" -eq 1 ]; then str=$a; else pat=$a; fi; done
   result=$(printf '%s\n' "$str" | tr '/' '\n' | while IFS= read -r seg; do
     if ref=$(_ref_from_segment "$seg") && [ -n "$ref" ]; then
       if [ -n "$pat" ]; then

@@ -189,7 +189,8 @@ title=$(gh pr view $PR_SEL --json title --jq='.title' 2>/dev/null)
 DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
 
 _ref_from_segment() {
-  seg=$1
+  # No numbered positional parameters: the skill loader rewrites them.
+  seg=; for a in "$@"; do seg=$a; break; done
   case "$seg" in
     *-*) : ;;
     *) return 1 ;;
@@ -226,7 +227,8 @@ _ref_from_segment() {
 }
 
 detect_ref() {
-  str=$1; pat=${2:-}
+  str=; pat=; n=0
+  for a in "$@"; do n=$((n + 1)); if [ "$n" -eq 1 ]; then str=$a; else pat=$a; fi; done
   result=$(printf '%s\n' "$str" | tr '/' '\n' | while IFS= read -r seg; do
     if ref=$(_ref_from_segment "$seg") && [ -n "$ref" ]; then
       if [ -n "$pat" ]; then
