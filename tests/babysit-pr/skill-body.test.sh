@@ -372,9 +372,10 @@ g "Q157f away is not a reason to wait" 'nothing holds marking ready, replies, re
 # audit lane d: final sync
 has "D2a Phase 4 step 1 merges the base in only when" 'merges the base in only when'
 has "D2b step 1 reads review-rule.sh" 'review-rule.sh <repo> <base>'
-has "D2c step 1 names strict, queue and unknown" 'prints `strict`, `queue` or `unknown'
+has "D2c step 1 names strict and unknown" 'prints `strict` or `unknown'
 has "D2d the hosted row's base merge takes the same condition" "Phase 4 step 1's condition holds"
 has "D2e the description says when the base is merged" 'merges the base branch in when the base requires it or the PR conflicts'
+has "#212b the behind paragraph drops the merge queue from the sync triggers" 'a base that requires an up-to-date head or is unreadable, or a STAR order'
 has "D2f the behind paragraph says the merge gate still sends a strict base back" "STAR's merge gate still sends a strict base back"
 has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P2]\` and \`[P3]\` findings stay in its review: no commit and no push after a SAFE round for them alone."
 
@@ -394,9 +395,9 @@ has "AU6 By hand the resolved hunks are shown before the commit" 'show the user 
 has "AU6b a lockfile is regenerated, never merged by hand" 'A lockfile is never merged by hand: take the base'"'"'s version, run the project'"'"'s install command to regenerate it, and stage the result.'
 has "#204a behind alone is not a reason to sync" '`behind` alone is not a reason (#204)'
 has "#204b the exact Decisions line STAR writes orders the sync" '`## Decisions` holds the line `synced with <base> at <sha7>`, which STAR'"'"'s "Sync after the base moved" writes'
-has "#204e strict, queue and unknown all sync" 'prints `strict`, `queue` or `unknown …`, or the brief'"'"'s'
-has "#204f a queue base refuses a BEHIND merge too" 'A `queue` base refuses a BEHIND merge too, so it syncs like a strict one'
-has "#204g the hosted row names queue and unknown" 'or `review-rule.sh` prints `strict`, `queue` or `unknown …`, or the `synced with <base> at <sha7>` line'
+has "#204e strict and unknown sync" 'prints `strict` or `unknown …`, or the brief'"'"'s'
+has "#212a a queue base is not a reason to sync" 'A `queue` base is no reason to sync (#212): the queue tests the base plus the PR on its own branch, so a sync only gives it a head to test again'
+has "#204g the hosted row names strict and unknown" 'or `review-rule.sh` prints `strict` or `unknown …`, or the `synced with <base> at <sha7>` line'
 has "#205a the report carries the inherited NOTE" '`NOTE: inherited from <base>: <one line>` once when the cause of an `ESCALATION` is a defect the PR took over from its base branch'
 has "#204c at most one sync per run" 'Phase 4 syncs at most once per run'
 has "#204d the hosted last pass uses the same rule" 'never `behind` alone'

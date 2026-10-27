@@ -290,6 +290,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | Line | Then |
 |---|---|
 | `MERGED <sha>` | as the verdict `MERGED`; print it and push one notification, "merged <item>: PR #<n>". Run the gate at once, in this tick, for every other `verifying` row on that base |
+| `QUEUED head=<sha>[ warn=no-merge-group]` | the PR is in the merge queue or set to enter it: nothing is merged yet. No try, `verify=retry=<now + 2 min>`. Append "- <iso> merge queued at <sha7>" to `## Decisions` unless that line exists: the next tick runs `merge.sh` again for it, not the gate, until it prints `MERGED` or `FAIL`, since a PR in the queue can read BLOCKED, which the gate holds. The first `warn=no-merge-group` for the item is told to the owner once, as one notification, never a question: the base requires a merge queue and no workflow has a merge_group trigger: required checks never report in the queue (#212) |
 | `FAIL head moved` | as the verdict `MOVED`. `merge.sh` prints it only when it read the PR again and the head differs from `--head`, so it is a real move (#193) |
 | `PENDING merge state: behind the base branch` | the PR is behind a base that wants an up-to-date head (a BEHIND PR on a base with no such rule is merged by `merge.sh` itself): the sync rule below. No try. `merge.sh` posted no comment |
 | `FAIL merge: conflicts with the base` | the sync rule below, as the verdict `FAIL conflicts`: row `babysit-queued` with a `## Decisions` line, no try |
@@ -298,6 +299,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | `FAIL owner branch <base>` | the PR targets a branch only the owner merges into: row `set-aside`, "<base> is an owner branch" |
 | `FAIL merge methods: <method> not allowed` | add a `person` item of kind `access`: "allow <method> merges on <repo>, or change mergeMethod". The row stays `verifying` with `verify=retry=<now + 10 min>`; the gate and `merge.sh` run again after that |
 | `PENDING check <name> not reported` | a required check has not reported on the head; nothing is wrong. `verify=retry=<now + 2 min>`. No try |
+| `FAIL merge: left the merge queue: <reason>` | the queue removed the PR, or it closed, after it was queued on this head: append "- <date> the merge gate said: left the merge queue: <reason>. Fix it on the PR." to `## Decisions`, spend a try, row `babysit-queued`. A conflict reason is the worker's conflict rule; nothing syncs the PR before that |
 | `FAIL ledger: <why>` | STAR's own bug, nothing on the PR is wrong: file an improvement issue and `verify=retry=<now + 10 min>` |
 | `FAIL comment: …` or any other `FAIL merge: …` | spend a try, `verify=retry=<now + 10 min>`; at `tries.perStep` the row is set aside |
 | exit 64 | `merge.sh` refused its arguments: file an improvement issue, change nothing |
@@ -316,7 +318,7 @@ moved since babysit last merged it in, most often because STAR merged a sibling 
 When `## Decisions` has no line "synced with <base> at <sha7>", append it and send the row to
 `babysit-queued` (it resumes with `--since <cursor>`; its Phase 4 merges the base in and resolves the
 conflicts itself, spec section 7). This spends no try. When the line is there, syncing did not help: spend a
-try and do the same; at `tries.perStep` the row is set aside. `pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict`, or the rule cannot be read).
+try and do the same; at `tries.perStep` the row is set aside. `pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict` without `queue`, or the rule cannot be read). On a queue base (`review-rule.sh` prints `queue`) STAR never syncs the PR with the base itself: the queue tests base plus PR. `merge.sh` queues the PR (`gh pr merge --auto`, no strategy, never `--admin`) and prints `QUEUED` above; it never prints behind there.
 
 ## Report items
 
