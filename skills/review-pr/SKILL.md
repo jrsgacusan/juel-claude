@@ -122,7 +122,6 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--pr <n or url>` | the current branch's PR | Review this PR. The checkout's `HEAD` must be the PR's `headRefOid`, or Step 1 stops with "check out the PR head first" |
 | `--since <sha>` | none | A re-review: the review agents get the commits `<sha>..HEAD` as their scope (Step 2). When `<sha>` is not an ancestor of `HEAD` (a force-push), the whole PR diff is reviewed and the evidence line says so |
 | `--from-babysit` | off | Set by `juel:babysit-pr`'s reviewer mode. Step 7 hands off to nothing, a moved head ends Step 7 instead of only stopping it, and the last line is a `REVIEW-PR` result line (Steps 1 and 7) |
-
 | `--yuna <home>` | off | Run as a `juel:yuna` worker (see "Yuna mode"): Step 7 posts the draft verdict with no question, every `gh` call carries yuna's token, and the review ends in `approved`, `released` or `parked` lines in yuna's progress log. `<home>` is yuna's folder, absolute |
 | `--item <item>` | none | Required with `--yuna`: the row this review belongs to (`review-<n>`). Names the progress log, `<home>/progress/<item>.log` |
 
@@ -803,16 +802,20 @@ one alone stops the review with "--yuna needs --item" (and, under `--from-babysi
   the draft verdict posts as if "Post now" had been chosen. "Edit first" and "Don't post" never
   happen: a review that cannot post must say so in the log, not wait.
 - **Stale head.** On the first review (no `--from-babysit`), a head that moved since Step 2 re-runs
-  Steps 1 to 7 on the new head: fetch it with `Y git fetch`, `git checkout --detach <new head>`, and
-  start again. After 3 moves in a row, stop with `parked head keeps moving`. Under `--from-babysit` the
+  Steps 1 to 7 on the new head: `sh <yuna.sh> --home <home> git fetch <remote> pull/<n>/head`, then
+  `git checkout --detach FETCH_HEAD`, confirm `git rev-parse HEAD` equals the PR's `headRefOid` (fetch
+  again when it does not, once), and start again. `<remote>` is the only remote, else `origin`. No
+  branch is created or moved, so a branch the owner keeps under the PR's name is never touched. After 3 moves in a row, stop with `parked head keeps moving`. Under `--from-babysit` the
   step ends with the `head-moved` last line as written, and babysit reviews again once the head settles.
   A review of code that has changed since is worth nothing, which is why it re-runs instead of posting.
 
 Every progress line is `printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<text>" >> <home>/progress/<item>.log`.
 
 - Step 2 starts: `review <round>`, where round is 1, or the number of reviews this item has had.
-- Any `gh api` failure at Step 7, or any stop: append `parked <first line of the error>` and end with
-  the last line `PARKED item=<item> reason=<the same text>`. Nothing is retried, as written in Step 7.
+- Without `--from-babysit`, any stop, a `gh api` failure at Step 7 included: append
+  `parked <first line of the error>` and end with the last line `PARKED item=<item> reason=<the same text>`.
+  Nothing is retried, as written in Step 7. Under `--from-babysit` the stop is the
+  `REVIEW-PR stopped reason=<why>` line Step 7 already prints, and `juel:babysit-pr` appends `parked`.
 - After the review posts: append `posted <verdict> <review url>`. The self-approval fallback cannot
   happen in practice (yuna skips its own PRs) and stays as written.
 - Then, without `--from-babysit`:

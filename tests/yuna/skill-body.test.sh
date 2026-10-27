@@ -60,5 +60,19 @@ has "own PRs are skipped" 'Yuna never reviews its own PRs'
 has "drafts are skipped" '`skip <n> draft`'
 has "checked-out heads are skipped" '`skip <n> checked out at <path>`'
 
+# review fixes (F2)
+has "a skipped spawn is recorded through Y skip" 'run `Y skip review-<n> "<reason>"`'
+has "a new skip is news" 'A `new` result is news'
+has "the status line lists skipped PRs" '[, skipped <prs>]'
+has "a SPAWNED line's Y add clears the skip" 'which also clears any skip recorded for that PR'
+if grep -qF 'title=' "$Y"; then fail "no PR title in a shell line"; else pass "no PR title in a shell line"; fi
+has "the workers are Claude" 'Every worker is a Claude session'
+has "a hand-finished review is set back to done" 'run `Y set review-<n> state=done`'
+has "the lede says what brings a PR back" 'a new push, or a re-request naming you, brings the PR back as a new round'
+has "the edge case says what brings a PR back" 'A new push, or a re-request naming you, brings the PR back'
+if grep -qF 'later re-request brings' "$Y"; then fail "no later re-request wording"; else pass "no later re-request wording"; fi
+has "silenceHours is written by init" '`silenceHours` (72), written by `Y init`'
+has "the worker chain detaches at the exact head" 'on the exact PR head, detached'
+
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

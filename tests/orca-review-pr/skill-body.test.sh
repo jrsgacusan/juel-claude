@@ -27,8 +27,19 @@ has "fetch once per run" '**Fetch once per run.**'
 has "SPAWNED line" 'SPAWNED item=review-<n> pr=<url> path=<path> branch=<head ref> throwaway=<orca branch> terminal=<handle>'
 has "SKIPPED line" 'SKIPPED item=review-<n> reason=<one line>'
 has "an existing worktree is skipped" 'a `review-<n>` worktree that already exists'
-has "a head checked out elsewhere is skipped" 'a head branch that is checked out in another worktree'
 has "the teardown warning is not printed" 'the warning below is not printed'
+
+# review fixes (F2)
+has "yuna fetches the PR ref" 'fetch <remote> pull/<n>/head'
+has "yuna checks the fetched head out detached" 'checkout --detach FETCH_HEAD'
+has "the head is confirmed against headRefOid" 'rev-parse HEAD` equals the PR'"'"'s `headRefOid`'
+has "gh pr checkout is not used under yuna" '`gh pr checkout` is not used under `--yuna`'
+has "yuna skips the install tab" 'Under `--yuna` skip Step 7'
+has "yuna copies only ignored files" 'check-ignore -q'
+has "a failed spawn removes its worktree" 'removes it (check out the throwaway branch, then `orca worktree rm`, never `--force`)'
+has "a dialog that stays is a SKIPPED line" 'SKIPPED item=review-<n> reason=a first-run dialog is still on screen'
+has "both prompts use the resolved agent" '--agent "$AGENT_KIND"'
+if grep -qF -- '--agent claude' "$SKILL"; then fail "no hardcoded --agent claude"; else pass "no hardcoded --agent claude"; fi
 
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

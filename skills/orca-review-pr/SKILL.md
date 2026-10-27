@@ -358,7 +358,7 @@ the real head — Orca reads git and follows, so `worktree show` reports the bra
 ```sh
 . "$BINS"
 "$ORCA" worktree create --repo "id:$REPO_ID" --name "review-$PR" \
-  --base-branch "$HEAD_REF" --agent claude \
+  --base-branch "$HEAD_REF" --agent "$AGENT_KIND" \
   --prompt "${AGENT_PROMPT_PREFIX}juel:review-pr --pr $PR${REF:+ $REF}" --no-parent --json
 # keep result.worktree.path as WT_PATH, result.worktree.branch as ORCA_BRANCH (the throwaway
 # branch Orca created), and result.agentTerminalHandle as H
@@ -475,11 +475,34 @@ Claude per PR number, with nobody to ask. Steps 1 to 8 run per PR as written, wi
 - **The worktree's name is `review-<n>`**, so the item yuna tracks is `review-<n>`.
 - **The prompt** is
   `"${AGENT_PROMPT_PREFIX}juel:review-pr --pr $PR${REF:+ $REF} --yuna $YUNA_HOME --item $NAME"`, with
-  `$NAME` the worktree's name (`review-<n>`) and `$YUNA_HOME` the `--yuna` folder.
+  `$NAME` the worktree's name (`review-<n>`) and `$YUNA_HOME` the `--yuna` folder. The worktree is
+  created with `--agent "$AGENT_KIND"`, never a fixed `claude`, so the prefix always matches the agent
+  that receives it (yuna runs under Claude, so both are Claude there).
+- **Step 4 checks out the exact head, detached, not `gh pr checkout` and not the head branch.** After
+  `worktree create`, run
+  `sh <yuna.sh> --home <home> git -C "$WT_PATH" fetch <remote> pull/<n>/head`, then
+  `git -C "$WT_PATH" checkout --detach FETCH_HEAD`, then confirm `git -C "$WT_PATH" rev-parse HEAD`
+  equals the PR's `headRefOid` (fetch again when it does not, once; still different is a `SKIPPED`
+  line). `<remote>` is the only remote, else `origin`. Why: no local branch is created or moved, so a
+  branch the owner keeps under the same name is never touched; a later round always lands on the real
+  head, force-pushes included; and a fork PR needs nothing special, since `pull/<n>/head` exists on the
+  base repository. `gh pr checkout` is not used under `--yuna`. The cross-repo fork path above does not
+  apply either. The sweep still checks the throwaway branch (`ORCA_BRANCH`) out before it removes the
+  worktree, which is what keeps `worktree rm` from deleting a branch.
+- **A clean spawn.** Under `--yuna` skip Step 7: a review needs no installed dependencies, and nothing of the PR's
+  may run before the review. Step 5 copies only files that `git -C "$MAIN_ROOT" check-ignore -q <file>`
+  reports ignored (`.env`, `.npmrc` and the like), so the worktree starts clean and the sweep's
+  clean-tree check holds.
+- **A failed spawn is cleaned and told once.** A failure after the worktree was created removes it
+  (check out the throwaway branch, then `orca worktree rm`, never `--force`) and prints
+  the `SKIPPED` line naming the reason. Step 6's "report the screen and stop" becomes
+  `SKIPPED item=review-<n> reason=a first-run dialog is still on screen`, with no screen read into the
+  session, and the run goes on to the next PR. If the removal itself fails, the reason says the
+  folder was kept at `<path>`.
 - **Skipped, not repaired:** a `review-<n>` worktree that already exists (yuna's other rows or the
-  owner's own review), a fork PR whose head cannot be fetched, and a head branch that is checked out
-  in another worktree (git refuses; that worktree is someone's live work). Each is a `SKIPPED` line,
-  and a worktree that was created before the failure is named in the reason and never removed.
+  owner's own review) and a head that cannot be fetched. Each is a `SKIPPED` line. A worktree created
+  before the failure is removed as above; one that existed before this run is never touched. The head
+  branch being checked out elsewhere is no longer a reason: nothing here checks the branch out.
 - **The report** is one line per PR, which yuna parses, and nothing else on those lines:
 
 ```text
@@ -487,7 +510,7 @@ SPAWNED item=review-<n> pr=<url> path=<path> branch=<head ref> throwaway=<orca b
 SKIPPED item=review-<n> reason=<one line>
 ```
 
-`branch` is the PR's head branch (the local review branch for a fork PR) and `throwaway` is
+`branch` is the PR's head branch name, for the record (no local branch of that name is created) and `throwaway` is
 `ORCA_BRANCH`, the branch Orca created. yuna's sweep checks `throwaway` out before it removes the
 worktree, so the owner's local copy of the PR branch is never deleted with it.
 
@@ -513,9 +536,9 @@ worktree, so the owner's local copy of the PR branch is never deleted with it.
 | Cross-repo (fork) PR | Fetch the fork ref into a local branch, then check that out. The head branch does not exist on this remote. |
 | A `review-<PR#>` worktree already exists | Report it and reuse it rather than creating a second checkout for the same PR. Under `--yuna`: a `SKIPPED` line. |
 | No work-item ref resolves | Proceed ungraded, note "no ref" in the report, and pass no ref to `juel:review-pr`. |
-| A dialog is still present after 3 gauntlet rounds | Report the captured screen and stop. |
-| No install command resolves | Skip phase 7 with a one-line note. |
-| The PR head branch is already checked out in another worktree | git refuses the checkout. Report it and stop rather than forcing; the other worktree is someone's live work. Under `--yuna`: a `SKIPPED` line. |
+| A dialog is still present after 3 gauntlet rounds | Report the captured screen and stop. Under `--yuna`: remove the worktree and print `SKIPPED item=review-<n> reason=a first-run dialog is still on screen`, with no screen read. |
+| No install command resolves | Skip phase 7 with a one-line note. Under `--yuna` Step 7 is always skipped. |
+| The PR head branch is already checked out in another worktree | git refuses the checkout. Report it and stop rather than forcing; the other worktree is someone's live work. Under `--yuna` the head is checked out detached, so this does not arise. |
 | `--yuna` with a branch or a URL instead of PR numbers | One `SKIPPED` line per argument, `reason=yuna takes PR numbers only`. |
 
 ## QA checklist
