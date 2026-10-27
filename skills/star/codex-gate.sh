@@ -642,7 +642,8 @@ except ValueError:
 EVIDENCE = re.compile(r"(?<![A-Za-z])Evidence(?:\*\*|\*|_)?\s*:(?:\*\*|\*|_)?", re.I)
 FAILING_TEST = re.compile(r"test\s+\S+\s+\S.*?\s+fails\b", re.I)
 MARKS = re.compile(r"\s*\((?:unproven: [^)]*|repeat of [^)]*)\)\s*$")
-TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.|_test\.|^docs/|\.md$")
+TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.|_test\.")
+DOC_PATH = re.compile(r"^docs/|(^|/)(README|CHANGELOG|LICENSE)[^/]*$")  # any other .md is code: skills and prompts are behaviour
 SMALL_LINES, SMALL_FILES = 400, 15
 SCOPE = {}  # set by since_text when #211's rule applies: the review's "scope ..." footer
 
@@ -834,8 +835,8 @@ def repeat_of(f, entries, rev):
 
 def small_push(g, cur):
     """('diff', []) or ('full', [paths whose behaviour changed]) for the push g..cur (#211): a diff when it is at
-    most 400 changed lines in 15 files and every path is new to the branch, a test or doc path, or changed in
-    whitespace only."""
+    most 400 changed lines in 15 files and every path is one the push added, a test, or a doc (a path under docs/ or
+    a README*, CHANGELOG* or LICENSE* file; any other .md is code)."""
     r = run(["git", "diff", "--numstat", "--no-renames", "-z", g, cur], 60)
     if r.returncode != 0:
         return "full", []
@@ -844,10 +845,9 @@ def small_push(g, cur):
         added, deleted, path = rec.split("\t", 2)
         lines += int(added) + int(deleted) if added.isdigit() and deleted.isdigit() else SMALL_LINES + 1
         paths.append(path)
-    earlier = run(["git", "diff", "--name-only", "--no-renames", "-z", f"{base_sha}...{g}"], 60)
-    reviewed = set(earlier.stdout.split("\0")) if earlier.returncode == 0 else set(paths)
-    behaviour = [p for p in paths if p in reviewed and not TEST_PATH.search(p)
-                 and run(["git", "diff", "-w", g, cur, "--", p], 60).stdout.strip()]
+    new = run(["git", "diff", "--diff-filter=A", "--name-only", "--no-renames", "-z", g, cur], 60)
+    new = set(new.stdout.split("\0")) if new.returncode == 0 else set()
+    behaviour = [p for p in paths if p not in new and not TEST_PATH.search(p) and not DOC_PATH.search(p)]
     return ("diff", []) if not behaviour and lines <= SMALL_LINES and len(paths) <= SMALL_FILES else ("full", behaviour)
 
 
@@ -879,8 +879,9 @@ def since_safe_text():
         SCOPE["footer"] = f"scope diff from {g[:7]}"
         return (f"Round {last[0]} found this change SAFE at {g[:7]}. The review covers the push since only: "
                 f"git log --oneline {g}..HEAD; their change: git diff {g}..HEAD. A merge among them brings the base's "
-                f"own changes: grade only the files git diff {base_sha}...HEAD --name-only lists. A finding outside "
-                "those lines is [P2] at most, marked \"(earlier code)\".")
+                f"own changes: grade only the files git diff {base_sha}...HEAD --name-only lists. Raise a new [P1] only "
+                "in code these commits changed, or for a defect they cause elsewhere. A finding outside "
+                "those lines is [P2] at most, marked \"(earlier code)\". A [P0] anywhere still blocks.")
     SCOPE["footer"] = f"scope full since {g[:7]}"
     return (f"Review the whole change. Round {last[0]} found it SAFE at {g[:7]}, and the push since "
             + (f"changes behaviour in: {', '.join(files)}." if files else "is too large for a diff review."))

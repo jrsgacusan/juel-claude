@@ -896,14 +896,14 @@ G7=$(printf %s "$HEAD" | cut -c1-7)
 SP="$H/specs/app/ITEM-1-gate-r2.md"; R2="$GREV/ITEM-1-r2.md"
 mkdir -p "$APP/tests"; printf '#!/bin/sh\necho ok\n' > "$APP/tests/new.test.sh"; printf 'notes\n' > "$APP/NOTES.md"; gc add tests NOTES.md; gc commit -qm 'add a test and a note'
 safe_at "$HEAD"; rg
-grep -qF "Round 1 found this change SAFE at $G7." "$SP" && grep -qF "[P2] at most" "$SP" && grep -qF "git diff $HEAD..HEAD" "$SP" && pass "R211a a new test and a doc after a SAFE head: the prompt reviews the diff only" || fail "R211a ($(cat "$SP" | tail -n 8))"
+grep -qF "Round 1 found this change SAFE at $G7." "$SP" && grep -qF "[P2] at most" "$SP" && grep -qF "git diff $HEAD..HEAD" "$SP" && grep -qF 'or for a defect they cause elsewhere' "$SP" && grep -qF 'A [P0] anywhere still blocks.' "$SP" && pass "R211a a new test and a doc after a SAFE head: the prompt reviews the diff only" || fail "R211a ($(cat "$SP" | tail -n 8))"
 grep -q "^Gate: .* · scope diff from $G7\$" "$R2" && pass "R211b the Gate footer ends with scope diff from <G7>" || fail "R211b ($(tail -n 1 "$R2"))"
 printf 'c\n' >> "$APP/f"; gc commit -qam 'change f'
 safe_at "$HEAD"; rg
 grep -qF 'Review the whole change' "$SP" && grep -qF 'f' "$SP" && grep -q "^Gate: .* · scope full since $G7\$" "$R2" && pass "R211c a behaviour change in a reviewed file: a full review" || fail "R211c ($(tail -n 1 "$R2"))"
 gc reset -q --hard HEAD~1; printf 'config = read_config(path)  \n' > "$APP/f"; gc commit -qam 'trailing blanks'
 safe_at "$HEAD"; rg
-grep -q "scope diff from $G7\$" "$R2" && pass "R211d a whitespace-only change in a reviewed file is a diff" || fail "R211d ($(tail -n 1 "$R2"))"
+grep -q "scope full since $G7\$" "$R2" && pass "R211d a whitespace-only change in a reviewed file is a full review (no whitespace exemption, F3)" || fail "R211d ($(tail -n 1 "$R2"))"
 gc reset -q --hard HEAD~1; i=0; while [ "$i" -lt 450 ]; do echo "line $i"; i=$((i + 1)); done > "$APP/tests/big.test.sh"; gc add tests; gc commit -qm 'big test'
 safe_at "$HEAD"; rg
 grep -q "scope full since $G7\$" "$R2" && pass "R211e more than 400 changed lines is a full review" || fail "R211e ($(tail -n 1 "$R2"))"
@@ -916,6 +916,24 @@ reset; mkdir -p "$GREV"; vline "$HEAD"; plan "0 safe"; rg
 gc reset -q --hard "$HEAD"
 safe_at "$HEAD"; rg
 ! grep -q 'scope ' "$R2" && grep -qF 'Round 1 reviewed this same head.' "$SP" && pass "R211h a SAFE head that is HEAD keeps its text and no scope" || fail "R211h"
+gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
+
+# F3 (#211): a diff review keeps the k-1 guard; a doc is under docs/ or named README*, CHANGELOG*, LICENSE*; a skill is code
+gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
+mkdir -p "$APP/skills/x" "$APP/docs"; printf 'Run the gate.\n' > "$APP/skills/x/SKILL.md"; printf 'readme\n' > "$APP/README.md"; printf 'guide\n' > "$APP/docs/guide.md"
+gc add skills README.md docs; gc commit -qm 'skill and docs'
+SK=$(git -C "$APP" rev-parse HEAD); SK7=$(printf %s "$SK" | cut -c1-7)
+printf 'Skip the gate.\n' > "$APP/skills/x/SKILL.md"; gc commit -qam 'skip the gate'
+safe_at "$SK"; rg
+grep -q "scope full since $SK7\$" "$R2" && grep -qF 'skills/x/SKILL.md' "$SP" && pass "R211i a behaviour change in a SKILL.md is a full review, a .md file is code (F3)" || fail "R211i ($(tail -n 1 "$R2"))"
+gc reset -q --hard "$SK"; printf 'readme 2\n' > "$APP/README.md"; printf 'guide 2\n' > "$APP/docs/guide.md"; gc commit -qam 'docs'
+safe_at "$SK"; rg
+grep -q "scope diff from $SK7\$" "$R2" && pass "R211j an edit to README.md and a file under docs/ is a diff (F3)" || fail "R211j ($(tail -n 1 "$R2"))"
+gc reset -q --hard "$SK"; gc checkout -q main; printf 'def helper():\n    return 1\n' > "$APP/util.py"; gc add util.py; gc commit -qm util; gc checkout -q feat/item-1; gc merge -q --no-ff --no-edit main
+UT=$(git -C "$APP" rev-parse HEAD); UT7=$(printf %s "$UT" | cut -c1-7)
+printf 'def helper():\n    return None\n' > "$APP/util.py"; gc commit -qam 'helper returns None'
+safe_at "$UT"; rg
+grep -q "scope full since $UT7\$" "$R2" && pass "R211k an edit to an existing base file the branch never touched is a full review (F3)" || fail "R211k ($(tail -n 1 "$R2"))"
 gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
 
 # F3 (#209): the evidence clause as codex writes it, one body paragraph, inline
