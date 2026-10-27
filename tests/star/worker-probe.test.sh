@@ -616,5 +616,76 @@ out=$(prs); check "#207 a screen held by another project's item of the same name
 sh "$SCR" release --holder projA/ITEM-1 >/dev/null; kill $WS 2>/dev/null; wait $WS 2>/dev/null
 unset JUEL_SCREEN_LOCK JUEL_SCREEN_LOCK_POLL
 
+# #208: the hook state file <H>/workers/<terminal>.json names a stall before the screen is guessed at
+cat > "$TMP/bin/orca" <<'EOF8'
+#!/bin/sh
+case "$*" in
+  *"terminal read"*) cat "$STUB_DIR/screen.json" ;;
+  *"terminal list"*) cat "$STUB_DIR/list.json" ;;
+  *worker-show*) cat "$STUB_DIR/show.json" ;;
+  *worker-read*) cat "$STUB_DIR/read.json" ;;
+  *) echo "unexpected: $*" >&2; exit 9 ;;
+esac
+EOF8
+HW="$TMP/homeW"; mkdir -p "$HW/progress" "$HW/workers"; : > "$HW/progress/W-1.log"
+ZARGS="--item W-1 --home $HW"
+printf '{"result":{"worker":{"stage":"ready","state":"running","agentTerminalHandle":"term_w1"},"dispatch":{"status":"running"}}}\n' > "$TMP/show.json"
+python3 -c 'import json; print(json.dumps({"result":{"terminal":{"tail":["working on it"]}}}))' > "$TMP/read.json"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(ms_ago 20)" > "$TMP/list.json"
+screen() { # screen <source> <line>...
+  src=$1; shift
+  python3 -c 'import json,sys; print(json.dumps({"result":{"terminal":{"source":sys.argv[1],"tail":sys.argv[2:]}}}))' "$src" "$@" > "$TMP/screen.json"
+}
+wstate() { # wstate <event> <kind> <message>: written at 11:50, ten minutes before the probe's clock
+  python3 -c 'import json,sys; json.dump({"handle":"term_w1","session":"s","event":sys.argv[1],"kind":sys.argv[2],"message":sys.argv[3],"at":"2026-10-07T11:50:00Z"},open(sys.argv[4],"w"))' "$1" "$2" "$3" "$HW/workers/term_w1.json"
+}
+screen screen "working on it"
+out=$(z env); check "#208 no state file: the screen decides" "ok"
+wstate StopFailure rate_limit "429"; out=$(z env); check "#208 rate_limit with no usage-limit phrase on screen is at capacity" "stalled: model at capacity"
+screen screen "Claude usage limit reached. Your limit will reset at 3pm"
+wstate StopFailure rate_limit "429"; out=$(z env); check "#208 rate_limit with the usage-limit phrases on screen gives the screen's line" "stuck: usage limit"
+screen screen "Usage limit reached · continuing automatically at 3pm · /extra-usage"
+out=$(z env); check "#208 rate_limit and a self-resuming limit on screen" "stalled: usage-limit until 3pm"
+screen screen "working on it"
+wstate StopFailure overloaded "x"; out=$(z env); check "#208 overloaded is at capacity" "stalled: model at capacity"
+for k in server_error unknown invalid_request max_output_tokens; do
+  wstate StopFailure $k "x"; out=$(z env); check "#208 StopFailure $k is an api error" "stalled: api error"
+done
+for k in authentication_failed oauth_org_not_allowed; do
+  wstate StopFailure $k "x"; out=$(z env); check "#208 StopFailure $k is a login stall" "stuck: login"
+done
+wstate StopFailure authentication_failed "x"
+out=$(z env STAR_LOGIN_SHELL="$TMP/loginsh" STUB_SHELL_CFG=/cfg/work STUB_CLAUDE_RC=1); check "#208 a login stall is followed by the #206 login check" "stuck: login: /cfg/work logged out"
+for k in account_on_hold billing_error verification_required cloud_credential_error model_not_found; do
+  wstate StopFailure $k "x"; out=$(z env); check "#208 StopFailure $k is an account stall" "stuck: account: $k"
+done
+for k in quota_auto_resume_stale quota_auto_resume_disabled; do
+  wstate Notification $k "x"; out=$(z env); check "#208 Notification $k is the usage limit" "stuck: usage limit"
+done
+# a notification is a hint: only a terminal that printed nothing since, with no readable dialog on screen, is stuck
+for k in permission_prompt worker_permission_prompt elicitation_dialog elicitation_url_dialog; do
+  screen stream "working on it"; wstate Notification $k "Allow Bash: rm x?"
+  out=$(z env); check "#208 $k with a silent terminal and a stream tail is a confirmation dialog" "stuck: confirmation dialog: Allow Bash: rm x?"
+done
+for k in idle_prompt agent_needs_input; do
+  wstate Notification $k "Waiting for your input"; out=$(z env); check "#208 $k with a silent terminal is waiting for input" "stuck: waiting for input: Waiting for your input"
+done
+screen screen-unavailable "working on it"; wstate Notification permission_prompt "Allow?"
+out=$(z env); check "#208 a screen-unavailable read counts as no readable dialog" "stuck: confirmation dialog: Allow?"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(ms_ago 5)" > "$TMP/list.json"
+screen stream "working on it"; out=$(z env); check "#208 output after the notification clears the hint" "ok"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(ms_ago 20)" > "$TMP/list.json"
+screen screen "working on it"; out=$(z env); check "#208 a readable rendered screen decides over the hint" "ok"
+screen screen "Do you want to proceed?" "❯ 1. Yes" "  2. No"
+out=$(z env); check "#208 the dialog on a rendered screen keeps its own line" "stuck: confirmation dialog: Do you want to proceed?"
+screen stream "working on it"
+for k in "clear:" "Notification:auth_success" "Notification:quota_auto_resume_fired" "Notification:agent_completed" "Notification:something_new"; do
+  wstate "${k%%:*}" "${k#*:}" "x"; out=$(z env); check "#208 ${k} says nothing: the screen decides" "ok"
+done
+printf 'not json' > "$HW/workers/term_w1.json"; out=$(z env); check "#208 an unreadable state file says nothing" "ok"
+wstate StopFailure server_error "x"; mv "$HW/workers/term_w1.json" "$HW/workers/term_other.json"
+out=$(z env); check "#208 another terminal's state is not this worker's" "ok"
+rm -f "$HW/workers/term_other.json"; ZARGS=""
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
