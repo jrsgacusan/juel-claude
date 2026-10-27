@@ -687,8 +687,11 @@ def sha10(text):
 
 
 def place_of(where):
-    """(path, line) from a finding's place, a path relative to the worktree, or None."""
-    for tok in re.split(r"[\s,;]+", where.replace("`", "")):
+    """(path, line) from a finding's place, a path relative to the worktree, or None. The whole place is tried
+    first, so a path with a space reads; a list of places gives its first."""
+    text = where.replace("`", "").strip()
+    whole = re.fullmatch(r"((?:(?!:\d).)+):(\d+)(?:-\d+)?", text)
+    for tok in ([text] if whole else re.split(r"[\s,;]+", text)):
         m = re.fullmatch(r"(.+):(\d+)(?:-\d+)?", tok)
         if m:
             path = m.group(1)
@@ -699,19 +702,27 @@ def place_of(where):
     return None
 
 
+def cited_line(place, rev):
+    """The stripped text of the line a place cites at rev, or None when it cannot be read."""
+    r = run(["git", "show", f"{rev}:{place[0]}"], 30)
+    lines = r.stdout.splitlines() if r.returncode == 0 else []
+    return lines[place[1] - 1].strip() if 0 < place[1] <= len(lines) else None
+
+
 def fingerprint(where, title, rev):
-    """(path, hash): the path and the sha1 of the cited line at rev, or ('-', the sha1 of the normalized title)
-    for a finding with no place. A line that cannot be read hashes to '-', so only the title can match it (#210)."""
+    """(path, hash): the path (spaces as %20, so an entry stays one word) and the sha1 of the cited line at rev, or
+    ('-', the sha1 of the normalized title) for a finding with no place. A line that cannot be read hashes to '-',
+    so only the title can match it (#210)."""
     place = place_of(where)
     if place is None:
         return "-", sha10(" ".join(words(title)))
-    r = run(["git", "show", f"{rev}:{place[0]}"], 30)
-    lines = r.stdout.splitlines() if r.returncode == 0 else []
-    return place[0], sha10(lines[place[1] - 1].strip()) if 0 < place[1] <= len(lines) else "-"
+    text = cited_line(place, rev)
+    return place[0].replace(" ", "%20"), sha10(text) if text is not None else "-"
 
 
 def round_findings(j):
-    """{n: (p, title, where)} and the head of round j's review file, or ({}, '')."""
+    """{n: (p, title, where, blocked)} and the head of round j's review file, or ({}, ''). A finding blocked
+    in its round when it is a P0 or P1 with neither the unproven nor the repeat mark."""
     found, head_of = {}, ""
     try:
         text = open(os.path.join(reviews, f"{item}-r{j}.md"), encoding="utf-8").read()
@@ -723,7 +734,9 @@ def round_findings(j):
         m = re.match(r"(\d+)\. \[P([0-3])\] (.*)$", line)
         if m:
             title, sep, where = m.group(3).rpartition(" — ")
-            found[int(m.group(1))] = (int(m.group(2)), MARKS.sub("", title if sep else m.group(3)), where if sep else "")
+            shown = title if sep else m.group(3)
+            found[int(m.group(1))] = (int(m.group(2)), MARKS.sub("", shown), where if sep else "",
+                                      int(m.group(2)) <= 1 and not MARKS.search(shown))
     return found, head_of
 
 
@@ -745,8 +758,9 @@ DISMISSED_LINE = re.compile(r"^(\S+) r(\d+)#(\d+) \[P([0-3])\] (\S+) (.*)$")
 
 
 def record_dismissed():
-    """Record, once per finding, every finding an earlier round's -fix.md answered with a Disposition (#210) in
-    <item>-dismissed.md, and return the entries as (path, hash, ref, p, place, title, reason)."""
+    """Record, once per finding, every blocking finding an earlier round's -fix.md answered with a Disposition (#210)
+    in <item>-dismissed.md, and return the entries as (path, hash, ref, p, place, title, reason). A finding that did
+    not block in its round (P2, P3, unproven, repeat) needs no disposition and is never recorded."""
     path = os.path.join(reviews, f"{item}-dismissed.md")
     reasons = {}
     try:
@@ -758,11 +772,11 @@ def record_dismissed():
         found, head_of = round_findings(j)
         for n, reason in dispositions(j).items():
             reasons[(j, n)] = reason
-            if n in found and f"r{j}#{n}" not in have:
-                p, title, where = found[n]
+            if n in found and found[n][3] and f"r{j}#{n}" not in have:
+                p, title, where, _ = found[n]
                 fp = fingerprint(where, title, head_of or "HEAD")
                 place = place_of(where)
-                fresh.append(f"{fp[0]}:{fp[1]} r{j}#{n} [P{p}] {where.replace('`', '') if place else '-'} {title}")
+                fresh.append(f"{fp[0]}:{fp[1]} r{j}#{n} [P{p}] {fp[0] + ':' + str(place[1]) if place else '-'} {title}")
     if fresh:
         with open(path, "a", encoding="utf-8") as f:
             f.write("\n".join(fresh) + "\n")
@@ -781,19 +795,39 @@ def record_dismissed():
 def dismissed_text(entries):
     if not entries:
         return "No finding has been dismissed."
-    listing = "\n".join(f"- {ref} [P{p}] {place} {title}: {reason}" for _, _, ref, p, place, title, reason in entries)
+    listing = "\n".join(f"- {ref} [P{p}] {place.replace('%20', ' ')} {title}: {reason}"
+                        for _, _, ref, p, place, title, reason in entries)
     return ("Findings dismissed in earlier rounds, each with its reason:\n" + listing + "\nThese were dismissed with a "
             "reason. Do not raise them again unless the code at their place has changed since; then say what changed.")
 
 
+TRIVIAL = {"if", "else", "elif", "end", "fi", "then", "do", "done", "for", "while", "return", "try", "catch",
+           "except", "finally", "break", "continue", "pass", "nil", "null", "none", "true", "false", "in", "not",
+           "and", "or", "def", "func", "function", "fn", "class"}
+
+
+def substantial(text):
+    """True when a line has at least two identifier-like tokens that are not a keyword: `}`, `end` and
+    `if err != nil {` are lines every file has, so they never identify a place."""
+    return sum(1 for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text) if t.lower() not in TRIVIAL) >= 2
+
+
 def repeat_of(f, entries, rev):
-    """The ref of the dismissed entry this finding repeats (#210), or None: the same path and the same line hash at
-    rev, or the same path and at least 60% of the entry's title words."""
-    fp_path, fp_hash = fingerprint(f["where"], f["title"], rev)
-    mine = set(words(f["title"]))
-    for e_path, e_hash, ref, _, _, e_title, _ in entries:
-        theirs = set(words(e_title))
-        if e_path == fp_path and ((fp_hash != "-" and fp_hash == e_hash) or (theirs and len(theirs & mine) / len(theirs) >= 0.6)):
+    """The ref of the dismissed entry this finding repeats (#210), or None. With a place: the same path, the
+    stripped text of the cited line at rev hashing to the entry's, within 10 lines of the entry's line, and the
+    line not trivial. Without one: the normalized title hashing to the entry's exactly. Code that changed at the
+    entry's place has another hash, so a finding raised there again counts."""
+    place = place_of(f["where"])
+    if place is None:
+        key = sha10(" ".join(words(f["title"])))
+        return next((ref for e_path, e_hash, ref, *_ in entries if e_path == "-" and e_hash == key), None)
+    text = cited_line(place, rev)
+    if text is None or not substantial(text):
+        return None
+    path, digest = place[0].replace(" ", "%20"), sha10(text)
+    for e_path, e_hash, ref, _, e_place, *_ in entries:
+        e_line = re.search(r":(\d+)(?:-\d+)?$", e_place)
+        if e_path == path and e_hash == digest and e_line and abs(place[1] - int(e_line.group(1))) <= 10:
             return ref
     return None
 
