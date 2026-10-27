@@ -448,6 +448,13 @@ has "Y6 silenceHours comes from yuna.json" '`silenceHours` in `<home>/yuna.json`
 has "Y7 re-review posts by itself" '/juel:review-pr --pr <pr> --since <reviewed head> --from-babysit --yuna <home> --item <item>'
 has "Y8 an approval ends with APPROVED" 'print `APPROVED item=<item> pr=<pr url>` as the last line'
 has "Y9 a stop parks" 'print `PARKED item=<item> reason=<why>` as the last line'
+has "YF1 Phase 1 fetches the PR ref and detaches" 'fetch <remote> pull/<n>/head'
+has "YF2 and checks FETCH_HEAD out detached" 'git -C <worktree> checkout --detach FETCH_HEAD'
+has "YF3 and confirms the head" 'equals the PR'"'"'s `headRefOid`'
+has "YF4 gh pr checkout is not used under yuna" '`gh pr checkout` is not used under `--yuna`'
+has "YF5 Phase 3 step (2) detaches too" '| Phase 3, step (2) |'
+has "YF6 what brings the PR back" 'A new push, or a re-request naming you, brings the PR back'
+
 has "Y10 refused in author mode, unattended and yuki" 'Refused in author mode, with `--unattended`, and with `--yuki`'
 
 # lane C: the push-gate row carries the numbered -fix.md shape and the evidence rule (#209, #210)

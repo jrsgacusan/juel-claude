@@ -61,7 +61,7 @@ reviews again. Yuna's state lives in files, so a compacted or restarted session 
 
 A PR is done when yuna's own review is `APPROVE`, or the PR merges or closes. After a
 `REQUEST_CHANGES` or a `COMMENT` the worker waits. An author who stays silent for 72 hours is
-released, the slot is freed, and a later re-request brings the PR back as a new round. Yuna posts under
+released, the slot is freed, and a new push, or a re-request naming you, brings the PR back as a new round. Yuna posts under
 the account `gh` is signed in to (or the token `Y access` found), so it never reviews a PR that
 account authored.
 
@@ -150,7 +150,7 @@ every worktree finds the same one:
 
 | File | Holds |
 |---|---|
-| `yuna.json` | `maxParallel` (5), `intervalMinutes` (10), `sources`, `minFreeGB` (3), `quietHours` (2), `silenceHours` (72), `tokenCmd`, `owner`, `cron`, `repo`, `reviewer` (yuna's own GitHub login) |
+| `yuna.json` | `maxParallel` (5), `intervalMinutes` (10), `sources`, `minFreeGB` (3), `quietHours` (2), `silenceHours` (72), written by `Y init`, `tokenCmd`, `owner`, `cron`, `repo`, `reviewer` (yuna's own GitHub login) |
 | `items.json` | one row per PR yuna ever took, named `review-<n>`: `running`, `done` (approved, merged or closed, worktree removed), `ended` (the review is over and the worktree could not be removed, so it is kept), `parked` or `dropped`; and `rounds`, how many times the PR came back |
 | `progress/<item>.log` | the worker's lines, `<iso> <step> <text>`: `review <round>`, `posted <verdict> <url>`, `wait author`, `approved <url> <sha>`, `released <reason>`, `parked <reason>`, and the nudge's own `nudged …` lines, which never count as progress |
 
@@ -233,15 +233,19 @@ A tick is short and never waits on anything: no background waits, no reads of wo
    `/juel:orca-review-pr --yuna YUNA_HOME <n> [<n> ...]` with the absolute folder for `YUNA_HOME`. For
    each `SPAWNED item=review-<n> pr=<url> path=<path> branch=<branch> throwaway=<branch> terminal=<handle>`
    line it prints, run `Y add review-<n> ref=<n> pr=<url> path=<path> branch=<branch>
-   throwaway=<branch> terminal=<handle> title=<the PR's title>`. A `SKIPPED item=<item> reason=<why>`
-   line adds nothing, and the PR comes back next tick when the cause is gone. A PR whose `done` row
+   throwaway=<branch> terminal=<handle>`, which also clears any skip recorded for that PR. The PR's
+   title is never passed: it is the author's text, and it would sit in a shell line. A `SKIPPED
+   item=<item> reason=<why>` line adds no row; run `Y skip review-<n> "<reason>"`, which prints `new`
+   the first time a reason is recorded for that PR and `seen` after. A `new` result is news (step 8),
+   so a stuck PR is reported once, not every tick, and the PR is tried again next tick when the cause
+   is gone. A PR whose `done` row
    is listed again comes back as `fresh`, and `Y add` reopens its row as a new round.
-8. **News.** For any step 2 news, and each `prompt … new` line from step 3, load `PushNotification`
+8. **News.** For any step 2 news, each `prompt … new` line from step 3, and each `Y skip` that printed `new` in step 7, load `PushNotification`
    with `ToolSearch` when it is deferred, and send one notification for the whole tick: `yuna:
    parked review-412 (worktree gone), review-418 needs a person: Bash command node -e "..."`. No such
    tool: the status line carries it.
 9. **Status line**, one line:
-   `yuna <HH:MM>: running <n>/<max>[, approved <prs>][, closed <prs>][, released <prs>][, parked <prs>][, quiet <prs>][, nudged <prs>][, prompt <pr>: <kind>; ...][, spawned <prs>][, memory low <x> GB], next tick ~<HH:MM>`.
+   `yuna <HH:MM>: running <n>/<max>[, approved <prs>][, closed <prs>][, released <prs>][, parked <prs>][, quiet <prs>][, nudged <prs>][, prompt <pr>: <kind>; ...][, spawned <prs>][, skipped <prs>][, memory low <x> GB], next tick ~<HH:MM>`.
    With nothing running and nothing fresh, it says `idle: nothing to review`. Yuna keeps ticking,
    since the source is re-queried every time.
 
@@ -256,10 +260,11 @@ A tick is short and never waits on anything: no background waits, no reads of wo
 
 ## What a worker does
 
-The chain, so you can say what a row is doing. You never act on it yourself:
+The chain, so you can say what a row is doing. Every worker is a Claude session. You never act on it yourself:
 
-1. `juel:orca-review-pr --yuna YUNA_HOME <n>` creates the worktree `review-<n>` on the real PR head,
-   copies the untracked files, clears the first-run dialogs and starts
+1. `juel:orca-review-pr --yuna YUNA_HOME <n>` creates the worktree `review-<n>` on the exact PR head, detached
+   (fetched as `pull/<n>/head`, so no local branch is created or moved and the owner's own branch of the
+   same name is never touched), copies the ignored config files (`.env` and the like), clears the first-run dialogs and starts
    `/juel:review-pr --pr <n> --yuna YUNA_HOME --item review-<n>`.
 2. `juel:review-pr --yuna` runs its Steps 1 to 6, then posts the draft verdict with no question. An
    `APPROVE` writes `approved <url> <sha>` and ends. Anything else hands over to
@@ -302,7 +307,7 @@ The worker never pushes, commits or merges. A reviewer only reviews.
 | A worker's terminal was closed by hand | The row stays `running` until the worktree is gone (`parked worktree gone`) or the PR merges or closes. Review it in Orca, or close the row with `Y set <item> state=dropped` |
 | A PR was merged or closed by someone | `Y sweep` sees `MERGED` or `CLOSED` on GitHub and removes the worktree, whatever the worker last wrote |
 | The author pushes after yuna approved and asks for review again | The source lists the PR again, `Y fresh` says `fresh <n>`, and `Y add` reopens its done row as a new round with a new worktree |
-| The author stays silent for 72 hours | The worker writes `released`, the sweep removes the worktree and the slot is free. A later re-request brings the PR back |
+| The author stays silent for 72 hours | The worker writes `released`, the sweep removes the worktree and the slot is free. A new push, or a re-request naming you, brings the PR back |
 | The PR is yuna's own | `Y fresh` prints `skip <n> mine`. Yuna never reviews its own PRs |
 | The PR is a draft | `skip <n> draft`: it is taken once it is ready |
 | The PR's head branch is checked out somewhere else | `skip <n> checked out at <path>`: that worktree is someone's live work, and git would refuse the checkout |
@@ -310,5 +315,6 @@ The worker never pushes, commits or merges. A reviewer only reviews.
 | A worker is `quiet` (no progress for 2 h, not waiting on the author) | One notification. A worker waiting on its author is not quiet. Look at its terminal in Orca; yuna does not stop it |
 | A worker waits on a permission prompt or another dialog | `Y nudge` handles it on the tick that sees it: a read-only command gets Enter, anything else is a `prompt … new` notification at once. Answer it in the worker's terminal in Orca |
 | The sweep cannot remove a worktree (uncommitted changes, or it cannot leave the PR branch) | The row becomes `ended`, the slot is free, the folder is kept, and the line says why. Remove it by hand |
+| A review is finished or parked and you finish it by hand | run `Y set review-<n> state=done`, so a later listing takes the PR again as `fresh` when it changes |
 | Memory is low every tick | Nothing new spawns, and the status line says so. Running workers go on |
 | `orca-review-pr` fails its preflight | Every PR comes back `SKIPPED`, the tick spawns nothing and says why in its status line. The next tick tries again |
