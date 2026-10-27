@@ -10,11 +10,14 @@
 #   SAFE round=<k> findings=<n> unproven=<u> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> unproven=<u> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> tooling=<t> unproven=<u> head=<sha> review=<path>   (with a tooling file, #160)
-# p0 and p1 count only the findings that block: a P0 or P1 with no indented "Evidence:" line (a command in
-# backticks, or "test <path> <name> fails") is unproven (#209, <u> counts them), and a finding that repeats one
-# an earlier round's -fix.md answered with "Disposition:" is marked dismissed (#210, <item>-dismissed.md).
-# After a SAFE round, a small push is reviewed as a diff (#211): the Gate line ends "· scope diff from <sha7>"
-# or "· scope full since <sha7>".
+# p0 and p1 count only the findings that block: a P0 or P1 with no "Evidence:" clause (a command in
+# backticks, or "test <path> <name> fails"; anywhere in the finding, bold or not, inline or on the next line
+# or in a fenced block) is unproven (#209, <u> counts them). A blocking finding that an earlier round's -fix.md
+# answered with "Disposition:" is recorded in <item>-dismissed.md (#210); a finding repeats it only on the same
+# path, within 10 lines, with the same unchanged non-trivial line text (or, with no place, the same title).
+# After a SAFE round, a small push is reviewed as a diff (#211) when every path is added by the push, a test, or
+# a doc (under docs/, README*, CHANGELOG*, LICENSE*): the Gate line ends "· scope diff from <sha7>" or
+# "· scope full since <sha7>". Every claude the gate starts runs without ORCA_TERMINAL_HANDLE (#208).
 #   ERROR <why>
 #   ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>
 #   ERROR gate-down <why>    neither Sol nor the fallback could review: STAR holds new builds
@@ -280,9 +283,18 @@ def die(msg):
     sys.exit(64)
 
 
+def agent_env(cmd):
+    """The environment a gate-started claude gets (#208): its hooks write the worker's state file through
+    ORCA_TERMINAL_HANDLE, so that variable is removed. None (inherit) for any other program."""
+    if cmd[0] != "claude":
+        return None
+    return {key: v for key, v in os.environ.items() if key != "ORCA_TERMINAL_HANDLE"}
+
+
 def run(cmd, timeout=120):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                              env=agent_env(cmd))
     except (OSError, subprocess.TimeoutExpired) as e:
         return subprocess.CompletedProcess(cmd, 127, "", f"{cmd[0]}: {e}")
 
@@ -638,19 +650,44 @@ except ValueError:
     LIMIT = 3600.0
 
 
-EVIDENCE = re.compile(r"^(?:[-*]\s*)?(?:\*\*)?Evidence:(?:\*\*)?\s*(.*?)\s*$", re.I)
+# the label anywhere in a finding, in codex's own shapes: Evidence:, **Evidence:**, **Evidence**: (#209)
+EVIDENCE = re.compile(r"(?<![A-Za-z])Evidence(?:\*\*|\*|_)?\s*:(?:\*\*|\*|_)?", re.I)
+FAILING_TEST = re.compile(r"test\s+\S+\s+\S.*?\s+fails\b", re.I)
 MARKS = re.compile(r"\s*\((?:unproven: [^)]*|repeat of [^)]*)\)\s*$")
-TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.|_test\.|^docs/|\.md$")
+TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.|_test\.")
+DOC_PATH = re.compile(r"^docs/|(^|/)(README|CHANGELOG|LICENSE)[^/]*$")  # any other .md is code: skills and prompts are behaviour
 SMALL_LINES, SMALL_FILES = 400, 15
 SCOPE = {}  # set by since_text when #211's rule applies: the review's "scope ..." footer
 
 
+def proves(clause):
+    """True when an evidence clause is a command in backticks or a test that fails."""
+    return bool(re.search(r"`[^`]+`", clause) or FAILING_TEST.match(clause.strip()))
+
+
+def label_alone(rest):
+    """The clause of an Evidence label with nothing after it: the next non-blank line, or the fenced block after it."""
+    rest = [l.strip() for l in rest if l.strip()]
+    if not rest:
+        return ""
+    if not rest[0].startswith("```"):
+        return rest[0]
+    block = []
+    for line in rest[1:]:
+        if line.startswith("```"):
+            break
+        block.append(line)
+    return f"`{' '.join(block)}`" if block else ""
+
+
 def has_evidence(f):
-    """True when the finding's body has an evidence line (#209): a command in backticks, or a test that fails."""
-    for line in f["body"]:
-        m = EVIDENCE.match(line)
-        if m and (re.search(r"`[^`]+`", m.group(1)) or re.match(r"test\s+\S+\s+\S.*\s+fails\.?$", m.group(1), re.I)):
-            return True
+    """True when an Evidence clause anywhere in the finding's title, place or body (#209) is a command in
+    backticks or a test that fails; a label with nothing after it takes the next line or the fenced block."""
+    lines = [f["title"], f["where"], *f["body"]]
+    for i, line in enumerate(lines):
+        for m in EVIDENCE.finditer(line):
+            if proves(line[m.end():].strip() or label_alone(lines[i + 1:])):
+                return True
     return False
 
 
@@ -663,8 +700,11 @@ def sha10(text):
 
 
 def place_of(where):
-    """(path, line) from a finding's place, a path relative to the worktree, or None."""
-    for tok in re.split(r"[\s,;]+", where.replace("`", "")):
+    """(path, line) from a finding's place, a path relative to the worktree, or None. The whole place is tried
+    first, so a path with a space reads; a list of places gives its first."""
+    text = where.replace("`", "").strip()
+    whole = re.fullmatch(r"((?:(?!:\d).)+):(\d+)(?:-\d+)?", text)
+    for tok in ([text] if whole else re.split(r"[\s,;]+", text)):
         m = re.fullmatch(r"(.+):(\d+)(?:-\d+)?", tok)
         if m:
             path = m.group(1)
@@ -675,19 +715,27 @@ def place_of(where):
     return None
 
 
+def cited_line(place, rev):
+    """The stripped text of the line a place cites at rev, or None when it cannot be read."""
+    r = run(["git", "show", f"{rev}:{place[0]}"], 30)
+    lines = r.stdout.splitlines() if r.returncode == 0 else []
+    return lines[place[1] - 1].strip() if 0 < place[1] <= len(lines) else None
+
+
 def fingerprint(where, title, rev):
-    """(path, hash): the path and the sha1 of the cited line at rev, or ('-', the sha1 of the normalized title)
-    for a finding with no place. A line that cannot be read hashes to '-', so only the title can match it (#210)."""
+    """(path, hash): the path (spaces as %20, so an entry stays one word) and the sha1 of the cited line at rev, or
+    ('-', the sha1 of the normalized title) for a finding with no place. A line that cannot be read hashes to '-',
+    so only the title can match it (#210)."""
     place = place_of(where)
     if place is None:
         return "-", sha10(" ".join(words(title)))
-    r = run(["git", "show", f"{rev}:{place[0]}"], 30)
-    lines = r.stdout.splitlines() if r.returncode == 0 else []
-    return place[0], sha10(lines[place[1] - 1].strip()) if 0 < place[1] <= len(lines) else "-"
+    text = cited_line(place, rev)
+    return place[0].replace(" ", "%20"), sha10(text) if text is not None else "-"
 
 
 def round_findings(j):
-    """{n: (p, title, where)} and the head of round j's review file, or ({}, '')."""
+    """{n: (p, title, where, blocked)} and the head of round j's review file, or ({}, ''). A finding blocked
+    in its round when it is a P0 or P1 with neither the unproven nor the repeat mark."""
     found, head_of = {}, ""
     try:
         text = open(os.path.join(reviews, f"{item}-r{j}.md"), encoding="utf-8").read()
@@ -699,7 +747,9 @@ def round_findings(j):
         m = re.match(r"(\d+)\. \[P([0-3])\] (.*)$", line)
         if m:
             title, sep, where = m.group(3).rpartition(" — ")
-            found[int(m.group(1))] = (int(m.group(2)), MARKS.sub("", title if sep else m.group(3)), where if sep else "")
+            shown = title if sep else m.group(3)
+            found[int(m.group(1))] = (int(m.group(2)), MARKS.sub("", shown), where if sep else "",
+                                      int(m.group(2)) <= 1 and not MARKS.search(shown))
     return found, head_of
 
 
@@ -721,8 +771,9 @@ DISMISSED_LINE = re.compile(r"^(\S+) r(\d+)#(\d+) \[P([0-3])\] (\S+) (.*)$")
 
 
 def record_dismissed():
-    """Record, once per finding, every finding an earlier round's -fix.md answered with a Disposition (#210) in
-    <item>-dismissed.md, and return the entries as (path, hash, ref, p, place, title, reason)."""
+    """Record, once per finding, every blocking finding an earlier round's -fix.md answered with a Disposition (#210)
+    in <item>-dismissed.md, and return the entries as (path, hash, ref, p, place, title, reason). A finding that did
+    not block in its round (P2, P3, unproven, repeat) needs no disposition and is never recorded."""
     path = os.path.join(reviews, f"{item}-dismissed.md")
     reasons = {}
     try:
@@ -734,11 +785,11 @@ def record_dismissed():
         found, head_of = round_findings(j)
         for n, reason in dispositions(j).items():
             reasons[(j, n)] = reason
-            if n in found and f"r{j}#{n}" not in have:
-                p, title, where = found[n]
+            if n in found and found[n][3] and f"r{j}#{n}" not in have:
+                p, title, where, _ = found[n]
                 fp = fingerprint(where, title, head_of or "HEAD")
                 place = place_of(where)
-                fresh.append(f"{fp[0]}:{fp[1]} r{j}#{n} [P{p}] {where.replace('`', '') if place else '-'} {title}")
+                fresh.append(f"{fp[0]}:{fp[1]} r{j}#{n} [P{p}] {fp[0] + ':' + str(place[1]) if place else '-'} {title}")
     if fresh:
         with open(path, "a", encoding="utf-8") as f:
             f.write("\n".join(fresh) + "\n")
@@ -757,27 +808,47 @@ def record_dismissed():
 def dismissed_text(entries):
     if not entries:
         return "No finding has been dismissed."
-    listing = "\n".join(f"- {ref} [P{p}] {place} {title}: {reason}" for _, _, ref, p, place, title, reason in entries)
+    listing = "\n".join(f"- {ref} [P{p}] {place.replace('%20', ' ')} {title}: {reason}"
+                        for _, _, ref, p, place, title, reason in entries)
     return ("Findings dismissed in earlier rounds, each with its reason:\n" + listing + "\nThese were dismissed with a "
             "reason. Do not raise them again unless the code at their place has changed since; then say what changed.")
 
 
+TRIVIAL = {"if", "else", "elif", "end", "fi", "then", "do", "done", "for", "while", "return", "try", "catch",
+           "except", "finally", "break", "continue", "pass", "nil", "null", "none", "true", "false", "in", "not",
+           "and", "or", "def", "func", "function", "fn", "class"}
+
+
+def substantial(text):
+    """True when a line has at least two identifier-like tokens that are not a keyword: `}`, `end` and
+    `if err != nil {` are lines every file has, so they never identify a place."""
+    return sum(1 for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", text) if t.lower() not in TRIVIAL) >= 2
+
+
 def repeat_of(f, entries, rev):
-    """The ref of the dismissed entry this finding repeats (#210), or None: the same path and the same line hash at
-    rev, or the same path and at least 60% of the entry's title words."""
-    fp_path, fp_hash = fingerprint(f["where"], f["title"], rev)
-    mine = set(words(f["title"]))
-    for e_path, e_hash, ref, _, _, e_title, _ in entries:
-        theirs = set(words(e_title))
-        if e_path == fp_path and ((fp_hash != "-" and fp_hash == e_hash) or (theirs and len(theirs & mine) / len(theirs) >= 0.6)):
+    """The ref of the dismissed entry this finding repeats (#210), or None. With a place: the same path, the
+    stripped text of the cited line at rev hashing to the entry's, within 10 lines of the entry's line, and the
+    line not trivial. Without one: the normalized title hashing to the entry's exactly. Code that changed at the
+    entry's place has another hash, so a finding raised there again counts."""
+    place = place_of(f["where"])
+    if place is None:
+        key = sha10(" ".join(words(f["title"])))
+        return next((ref for e_path, e_hash, ref, *_ in entries if e_path == "-" and e_hash == key), None)
+    text = cited_line(place, rev)
+    if text is None or not substantial(text):
+        return None
+    path, digest = place[0].replace(" ", "%20"), sha10(text)
+    for e_path, e_hash, ref, _, e_place, *_ in entries:
+        e_line = re.search(r":(\d+)(?:-\d+)?$", e_place)
+        if e_path == path and e_hash == digest and e_line and abs(place[1] - int(e_line.group(1))) <= 10:
             return ref
     return None
 
 
 def small_push(g, cur):
     """('diff', []) or ('full', [paths whose behaviour changed]) for the push g..cur (#211): a diff when it is at
-    most 400 changed lines in 15 files and every path is new to the branch, a test or doc path, or changed in
-    whitespace only."""
+    most 400 changed lines in 15 files and every path is one the push added, a test, or a doc (a path under docs/ or
+    a README*, CHANGELOG* or LICENSE* file; any other .md is code)."""
     r = run(["git", "diff", "--numstat", "--no-renames", "-z", g, cur], 60)
     if r.returncode != 0:
         return "full", []
@@ -786,10 +857,9 @@ def small_push(g, cur):
         added, deleted, path = rec.split("\t", 2)
         lines += int(added) + int(deleted) if added.isdigit() and deleted.isdigit() else SMALL_LINES + 1
         paths.append(path)
-    earlier = run(["git", "diff", "--name-only", "--no-renames", "-z", f"{base_sha}...{g}"], 60)
-    reviewed = set(earlier.stdout.split("\0")) if earlier.returncode == 0 else set(paths)
-    behaviour = [p for p in paths if p in reviewed and not TEST_PATH.search(p)
-                 and run(["git", "diff", "-w", g, cur, "--", p], 60).stdout.strip()]
+    new = run(["git", "diff", "--diff-filter=A", "--name-only", "--no-renames", "-z", g, cur], 60)
+    new = set(new.stdout.split("\0")) if new.returncode == 0 else set()
+    behaviour = [p for p in paths if p not in new and not TEST_PATH.search(p) and not DOC_PATH.search(p)]
     return ("diff", []) if not behaviour and lines <= SMALL_LINES and len(paths) <= SMALL_FILES else ("full", behaviour)
 
 
@@ -821,8 +891,9 @@ def since_safe_text():
         SCOPE["footer"] = f"scope diff from {g[:7]}"
         return (f"Round {last[0]} found this change SAFE at {g[:7]}. The review covers the push since only: "
                 f"git log --oneline {g}..HEAD; their change: git diff {g}..HEAD. A merge among them brings the base's "
-                f"own changes: grade only the files git diff {base_sha}...HEAD --name-only lists. A finding outside "
-                "those lines is [P2] at most, marked \"(earlier code)\".")
+                f"own changes: grade only the files git diff {base_sha}...HEAD --name-only lists. Raise a new [P1] only "
+                "in code these commits changed, or for a defect they cause elsewhere. A finding outside "
+                "those lines is [P2] at most, marked \"(earlier code)\". A [P0] anywhere still blocks.")
     SCOPE["footer"] = f"scope full since {g[:7]}"
     return (f"Review the whole change. Round {last[0]} found it SAFE at {g[:7]}, and the push since "
             + (f"changes behaviour in: {', '.join(files)}." if files else "is too large for a diff review."))
@@ -1007,7 +1078,7 @@ def attempt(cmd, label, agent, model_):
         try:
             proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     text=True, encoding="utf-8", errors="replace", bufsize=1,
-                                    start_new_session=True)
+                                    start_new_session=True, env=agent_env(cmd))
         except FileNotFoundError:
             se.write(f"{cmd[0]} not found on PATH\n")
             proc = None

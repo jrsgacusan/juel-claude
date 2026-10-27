@@ -205,8 +205,11 @@ hasT "T13b without the NOTE STAR does not guess" 'Without that NOTE, STAR does n
 # lane C: the gate facts and the reviews folder (#209, #210, #211)
 hasT "G209 stages.md: only a proven P0 or P1 makes a round NOT SAFE" 'Only a proven `[P0]` or `[P1]` finding makes a round NOT SAFE'
 hasT "G209b stages.md: a finding without an evidence line is unproven and does not block" 'Without an evidence line it stays in the review marked unproven and does not block'
-hasT "G210 stages.md: dismissed findings are recorded and a repeat never blocks" '<item>-dismissed.md` records every finding a `-fix.md` answered with `Disposition:`'
+hasT "G210 stages.md: dismissed findings are recorded and a repeat never blocks" '<item>-dismissed.md` records every blocking finding a `-fix.md` answered with `Disposition:`'
 hasT "G211 stages.md: a small push on a SAFE head is gated as a diff" 'a small push on a SAFE head is reviewed as a diff'
+hasT "G209c stages.md: the evidence clause may sit anywhere in the finding" 'clause anywhere in the finding'
+hasT "G210c stages.md: a repeat is the same unchanged place" 'on the same path, within 10 lines, with the same unchanged non-trivial line'
+hasT "G211b stages.md: a doc is under docs/ or README, CHANGELOG, LICENSE; a skill is code" 'any other `.md` file is code'
 hasT "G210b state.md lists the dismissed file" '-dismissed.md'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
