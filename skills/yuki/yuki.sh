@@ -6,13 +6,18 @@
 # change. Everything not marked behaves the same for both. In this header Y is yuki.sh [--kind K] [--home H].
 #   yuki.sh [--home H] path                      the folder (exit 1 outside a git repository)
 #   yuki.sh [--home H] init                      create it, and yuki.json when missing; print the folder
-#                                                (yuna: yuna.json, with reviewer and no bot or mergeMethod)
+#                                                (yuna: yuna.json, with reviewer and silenceHours 72, no bot or
+#                                                mergeMethod)
 #   yuki.sh [--home H] config [<key> [<json>]]   print yuki.json, one key's value, or set one key
 #   yuki.sh [--home H] add <item> [k=v ...]      a new running row; ref, path, branch, terminal, title, pr,
 #                                                throwaway (the branch Orca made for a review worktree), rounds
 #                                                (yuna: a done row is reopened instead: running, the new values,
 #                                                rounds + 1, a "reopened round <n>" progress line; any other
 #                                                existing row is refused)
+#   yuki.sh [--home H] skip <item> <reason>      remember why a PR or ticket was passed over (items.json "skips",
+#                                                keyed by item: reason and at): prints "new" the first time a
+#                                                reason is recorded for the item, "seen" after. add clears it.
+#   yuki.sh [--home H] skip <item> --clear       drop the item's skip
 #   yuki.sh [--home H] set <item> k=v ...        change a row (state, pr, note, ...)
 #   yuki.sh [--home H] list [--state <s>]        "<item>\t<state>\t<path>\t<branch>\t<pr>\t<note>" per row
 #   yuki.sh [--home H] whoami                    yuna only: gh api user --jq .login; prints the login and stores
@@ -22,7 +27,8 @@
 #       skip <n> <why>                           <why> is "row <state>" (a running, parked, ended or dropped row
 #                                                for review-<n>; a done row never skips), "mine" (reviewer wrote
 #                                                it), "draft", "not open", "reviewed <sha7>" (reviewer's newest
-#                                                submitted review is on the current head), "checked out at <path>"
+#                                                submitted review is on the current head and no review request
+#                                                names reviewer directly: a team's never counts), "checked out at <path>"
 #                                                (its head branch is checked out in a worktree of this
 #                                                repository) or "gh: <error>"
 #   yuki.sh [--home H] known                     every item ever added, one per line: the tick skips them
@@ -101,7 +107,8 @@
 # sweep reads: "pr <url>", "parked <reason>" and "merged <url> <sha>". GitHub decides a merge, not
 # the log: a row is done only when gh says its PR is MERGED.
 # A worktree is removed with `orca worktree rm --worktree path:<path> --json`, never --force, and
-# only when `git status --porcelain` in it prints nothing. Under yuna, a row with throwaway first runs
+# only when `git status --porcelain` in it prints nothing. Under yuna, a row with no throwaway is never
+# removed ("no throwaway branch"); one with throwaway first runs
 # `git -C <path> checkout <throwaway>` (a failure keeps it: "cannot leave the PR branch: <line>"),
 # because orca worktree rm deletes the branch the worktree has checked out and the PR's head branch may
 # be one the owner keeps. yuna's progress steps: review <round>, posted <verdict> <url>, wait author,
@@ -129,7 +136,7 @@ import time
 
 KIND, NAME = "yuki", "yuki"
 USAGE = ("usage: yuki.sh [--kind yuki|yuna] [--home H] path | init | config [<key> [<json>]]"
-         " | add <item> [k=v ...] | set <item> k=v ... | list [--state <s>] | known | free | sweep"
+         " | add <item> [k=v ...] | set <item> k=v ... | skip <item> <reason>|--clear | list [--state <s>] | known | free | sweep"
          " | nudge [<item> ...] | host | beat <token> | owner | access | gh ... | git ..."
          " | yuki: deps set|unchecked|external|gate|list ... | bot"
          " | yuna: whoami | fresh <pr> ...")
@@ -160,6 +167,7 @@ YUNA_DEFAULTS = {
     "cron": None,
     "tokenCmd": None,
     "reviewer": None,
+    "silenceHours": 72,
 }
 FIELDS = ("ref", "path", "branch", "terminal", "title", "pr", "note", "state", "throwaway", "rounds")
 STATES = ("running", "done", "merged", "parked", "dropped")
@@ -297,8 +305,16 @@ def pairs(args):
             die(64, f"expected key=value with a key in {', '.join(FIELDS)}, got {a!r}")
         if k == "state" and v not in (YUNA_STATES if YUNA else STATES):
             die(64, f"state must be one of {', '.join(YUNA_STATES if YUNA else STATES)}")
+        if k == "rounds" and not re.fullmatch(r"[0-9]+", v):
+            die(64, f"rounds must be digits, got {v!r}")
         out[k] = v
     return out
+
+
+def rounds_of(row):
+    """The row's rounds as a number: 1 when absent or not digits."""
+    value = str(row.get("rounds") or "")
+    return int(value) if re.fullmatch(r"[0-9]+", value) and int(value) else 1
 
 
 def repo_dir(cfg):
@@ -398,8 +414,11 @@ def remove(row):
         return False, "git status failed"
     if status.stdout.strip():
         return False, "uncommitted changes"
-    if YUNA and row.get("throwaway"):
-        # orca worktree rm deletes the branch the worktree has checked out: leave the PR's head branch first
+    if YUNA:
+        # orca worktree rm deletes the branch the worktree has checked out: leave the PR's head branch first,
+        # and keep the folder when there is no throwaway branch to leave for
+        if not row.get("throwaway"):
+            return False, "no throwaway branch"
         left = subprocess.run(["git", "-C", path, "checkout", row["throwaway"]], capture_output=True, text=True)
         if left.returncode != 0:
             first = (left.stderr.strip().splitlines() or ["git checkout failed"])[0]
@@ -620,7 +639,7 @@ def fresh(numbers):
         if row and row.get("state") != "done":
             print(f"skip {n} row {row.get('state')}")
             continue
-        view, err = gh(["pr", "view", n, "--json", "state,isDraft,author,headRefOid,headRefName"], repo_dir(cfg))
+        view, err = gh(["pr", "view", n, "--json", "state,isDraft,author,headRefOid,headRefName,reviewRequests"], repo_dir(cfg))
         try:
             pr = json.loads(view) if view else None
         except ValueError:
@@ -641,7 +660,9 @@ def fresh(numbers):
                 continue
             newest = newest_review(reviews, reviewer)
             head = pr.get("headRefOid") or ""
-            if newest and head and newest.get("commit_id") == head:
+            asked = any(str(q.get("login") or "").lower() == reviewer.lower()
+                        for q in pr.get("reviewRequests") or [] if isinstance(q, dict))
+            if newest and head and newest.get("commit_id") == head and not asked:
                 print(f"skip {n} reviewed {head[:7]}")
                 continue
             if checked_out is None:
@@ -654,7 +675,7 @@ def fresh(numbers):
 
 
 # --- nudge (#214): answer what a person need not answer, report the rest ---
-READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "find", "sed", "awk", "sort",
+READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "find", "sed", "sort",
              "uniq", "cut", "tr", "file", "stat", "du", "df", "pwd", "echo", "printf", "which", "type",
              "command", "test", "realpath", "readlink", "dirname", "basename", "date", "tree",
              "diff", "cmp", "git"}
@@ -1279,12 +1300,13 @@ elif cmd in ("add", "set"):
         data = items()
         row = find(data, item)
         if cmd == "add":
+            data.get("skips", {}).pop(item, None)
             if row and YUNA and row.get("state") == "done":
                 # a PR approved and then pushed again comes back: a new round on the same row
                 ref = values.pop("ref", None)
                 for stale in ("note", "prompt"):
                     row.pop(stale, None)
-                rounds = int(row.get("rounds") or 1) + 1
+                rounds = rounds_of(row) + 1
                 row.update(values, state="running", rounds=rounds, started=iso(), updated=iso())
                 if ref:
                     row["ref"] = ref
@@ -1303,6 +1325,23 @@ elif cmd in ("add", "set"):
             if not values:
                 die(64, "set needs at least one key=value")
             row.update(values, updated=iso())
+        write_json(items_path, data)
+elif cmd == "skip":
+    if not rest or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,79}", rest[0]) or len(rest) != 2 or not rest[1]:
+        die(64, "skip needs <item> and a reason, or <item> --clear")
+    item, reason = rest
+    config()
+    with Locked():
+        data = items()
+        skips = data.setdefault("skips", {})
+        if reason == "--clear":
+            skips.pop(item, None)
+        elif item in skips:
+            print("seen")
+            sys.exit(0)
+        else:
+            skips[item] = {"reason": reason, "at": iso()}
+            print("new")
         write_json(items_path, data)
 elif cmd == "list":
     state = None

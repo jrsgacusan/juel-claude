@@ -346,5 +346,10 @@ no_ 'git --work-tree=x status'
 no_ 'git --exec-path=x status'
 no_ ''
 
+# --- skip memory ---
+[ "$(Y skip K-1 'a first-run dialog')" = new ] && [ "$(Y skip K-1 'a first-run dialog')" = seen ] && pass "skip: new, then seen" || fail "skip"
+Y skip K-1 --clear; [ "$(Y skip K-1 'again')" = new ] && pass "skip --clear drops it" || fail "skip clear"
+Y add K-1 >/dev/null; [ "$(Y skip K-1 'again')" = new ] && pass "add clears the item's skip" || fail "add clears skip"
+
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
