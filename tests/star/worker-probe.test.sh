@@ -484,7 +484,7 @@ esac
 EOF5
 NOW187=2026-10-07T12:00:00Z
 ms_ago() { echo $((1791374400000 - $1 * 60000)); }
-z() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=$NOW187 "$@" sh "$SCRIPT" ctx_1 $ZARGS 2>&1; }
+z() { ORCA_TERMINAL_HANDLE=term_coordinator PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=$NOW187 "$@" sh "$SCRIPT" ctx_1 $ZARGS 2>&1; }
 check() { if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi; }
 ZARGS=""
 printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s}]}}\n' "$(ms_ago 40)" > "$TMP/list.json"
@@ -572,6 +572,7 @@ cat > "$TMP/bin/claude" <<'EOF6'
 #!/bin/sh
 # STUB_WANT_DIR, when set, is the folder the check must run in
 [ -n "${STUB_WANT_DIR:-}" ] && [ "$(pwd -P)" != "$STUB_WANT_DIR" ] && exit 3
+[ -z "${ORCA_TERMINAL_HANDLE:-}" ] || exit 4
 exit "${STUB_CLAUDE_RC:-1}"
 EOF6
 chmod +x "$TMP/bin/claude"

@@ -400,7 +400,8 @@ def login_line():
     shell = os.environ.get("STAR_LOGIN_SHELL") or os.environ.get("SHELL") or "/bin/sh"
     check = "printf 'STAR_CFG=%s\\n' \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"; claude auth status >/dev/null 2>&1"
     # Without our CLAUDE_CONFIG_DIR: the worker's folder and shell startup decide the profile (#206).
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+    # Without ORCA_TERMINAL_HANDLE: a nested claude's hooks would otherwise write this worker's state file.
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CONFIG_DIR", "ORCA_TERMINAL_HANDLE")}
     try:
         proc = subprocess.run([shell, "-ic", check], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=30, cwd=worker_folder(), env=env)
