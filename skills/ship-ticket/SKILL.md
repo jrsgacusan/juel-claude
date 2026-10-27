@@ -417,7 +417,7 @@ that runs in the background (an executor run, a gate round, the regression gate)
 answer to the brief's `## Decisions`, then sends it as a message this session only sees between
 steps. So after every background step returns, before choosing the next step, re-read the brief's
 `## Decisions` and run `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --unread --json`
-(Orca resolves a dispatched worker's mailbox only from its own terminal handle, so name it). A decision
+(Orca's guide has a dispatched worker pass its own terminal explicitly). A decision
 that is new since the last check overrides the next step this file prescribes: apply it, say so in one
 terminal line, and never escalate what it settles.
 Read messages only with `--terminal "$ORCA_TERMINAL_HANDLE" --unread --json` (or
