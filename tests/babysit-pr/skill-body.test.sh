@@ -434,5 +434,17 @@ has "#179d the conflict wake points at the hold" 'push it only as the hold in Ph
 has "FU1 an ERROR fallback-unreadable waits and does not spend the retry" 'An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.'
 has "FU2 the third ERROR fallback-unreadable on a round is review-tool" 'The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`.'
 
+
+# juel:yuna: "Yuna mode" inside "Reviewer mode"
+has "Y1 --yuna argument" '| `--yuna <home>` | off |'
+grep -q '^### Yuna mode' "$SKILL" && pass "Y2 Yuna mode documented" || fail "Y2 Yuna mode documented"
+has "Y3 the keyboard stop does not apply" 'Under `--yuna` this stop does not apply.'
+has "Y4 every wait is logged" 'append `wait author` to the progress log'
+has "Y5 silence releases the PR" 'RELEASED item=<item> reason=author silent for <silenceHours> h'
+has "Y6 silenceHours comes from yuna.json" '`silenceHours` in `<home>/yuna.json` (72 when absent)'
+has "Y7 re-review posts by itself" '/juel:review-pr --pr <pr> --since <reviewed head> --from-babysit --yuna <home> --item <item>'
+has "Y8 an approval ends with APPROVED" 'print `APPROVED item=<item> pr=<pr url>` as the last line'
+has "Y9 a stop parks" 'print `PARKED item=<item> reason=<why>` as the last line'
+has "Y10 refused in author mode, unattended and yuki" 'Refused in author mode, with `--unattended`, and with `--yuki`'
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

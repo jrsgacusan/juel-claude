@@ -93,6 +93,11 @@
       "label": "juel:daily-worktrees",
       "install": "Ships with this plugin"
     },
+    "juel:orca-review-pr": {
+      "kind": "skill",
+      "label": "juel:orca-review-pr",
+      "install": "Ships with this plugin"
+    },
     "juel:orca-ship-tickets": {
       "kind": "skill",
       "label": "juel:orca-ship-tickets",
@@ -531,6 +536,22 @@
       "soft": [
         "linear"
       ]
+    },
+    "yuna": {
+      "hard": [
+        "claude",
+        "gh",
+        "git",
+        "git-repo",
+        "interactive-user",
+        "juel:babysit-pr",
+        "juel:orca-review-pr",
+        "juel:review-pr",
+        "orca",
+        "orca-runtime",
+        "python3"
+      ],
+      "soft": []
     }
   }
 }

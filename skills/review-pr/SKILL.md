@@ -123,8 +123,12 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `--since <sha>` | none | A re-review: the review agents get the commits `<sha>..HEAD` as their scope (Step 2). When `<sha>` is not an ancestor of `HEAD` (a force-push), the whole PR diff is reviewed and the evidence line says so |
 | `--from-babysit` | off | Set by `juel:babysit-pr`'s reviewer mode. Step 7 hands off to nothing, a moved head ends Step 7 instead of only stopping it, and the last line is a `REVIEW-PR` result line (Steps 1 and 7) |
 
+| `--yuna <home>` | off | Run as a `juel:yuna` worker (see "Yuna mode"): Step 7 posts the draft verdict with no question, every `gh` call carries yuna's token, and the review ends in `approved`, `released` or `parked` lines in yuna's progress log. `<home>` is yuna's folder, absolute |
+| `--item <item>` | none | Required with `--yuna`: the row this review belongs to (`review-<n>`). Names the progress log, `<home>/progress/<item>.log` |
+
 Usage: `/juel:review-pr`, `/juel:review-pr SAVI-1234`, or, from `juel:babysit-pr`'s reviewer mode,
-`/juel:review-pr --pr 412 --since 4f2a1c9 --from-babysit`.
+`/juel:review-pr --pr 412 --since 4f2a1c9 --from-babysit`. From `juel:orca-review-pr --yuna`:
+`/juel:review-pr --pr 412 --yuna /path/to/yuna --item review-412`.
 
 ## Workflow
 
@@ -189,7 +193,8 @@ title=$(gh pr view $PR_SEL --json title --jq='.title' 2>/dev/null)
 DENY='^(feat|fix|chore|refactor|docs|test|hotfix|release|wip|perf|build|ci|style|v|part|step|pr|review|backup|bugfix|day|demo|draft|new|old|phase|poc|revert|spike|sprint|sync|task|temp|tmp|update|week)$'
 
 _ref_from_segment() {
-  seg=$1
+  # No numbered positional parameters: the skill loader rewrites them.
+  seg=; for a in "$@"; do seg=$a; break; done
   case "$seg" in
     *-*) : ;;
     *) return 1 ;;
@@ -226,7 +231,8 @@ _ref_from_segment() {
 }
 
 detect_ref() {
-  str=$1; pat=${2:-}
+  str=; pat=; n=0
+  for a in "$@"; do n=$((n + 1)); if [ "$n" -eq 1 ]; then str=$a; else pat=$a; fi; done
   result=$(printf '%s\n' "$str" | tr '/' '\n' | while IFS= read -r seg; do
     if ref=$(_ref_from_segment "$seg") && [ -n "$ref" ]; then
       if [ -n "$pat" ]; then
@@ -591,7 +597,8 @@ no blocking findings, the verdict is `APPROVE` with an empty inline table.
 
 **This step never posts without an explicit "yes" from the user in this turn.** No prior
 confirmation (from an earlier phase, an earlier run, or an argument) satisfies this — the gate is
-per-invocation.
+per-invocation. The one exception is `--yuna`: the owner started yuna knowing it posts its own
+reviews, so see "Yuna mode" below, where the draft verdict posts without a question.
 
 Skip this step entirely, marking its task `completed` with a one-line "SKIPPED: <reason>", when
 any of the following hold — check in order:
@@ -599,6 +606,7 @@ any of the following hold — check in order:
 1. `gh` is not installed → "SKIPPED: gh not installed".
 2. There is no open PR to post to (`gh pr view $PR_SEL --json number` fails) → "SKIPPED: no open PR".
 3. This session cannot ask the user anything (no interactive user) → "SKIPPED: non-interactive session".
+   Under `--yuna` this rule does not apply: no question is asked, so nothing is skipped for lack of one.
 
 None of these block the skill overall — Step 6's verdict and posting plan already live in
 `$REPORT` for the user to post by hand. Under `--from-babysit`, a skip ends with the last line
@@ -627,13 +635,15 @@ review ran (state the commit count between them via `git rev-list --count
 $REVIEWED_COMMIT..$COMMIT` if the ref is locally available, otherwise state the two SHAs), and that
 findings may be anchored to lines that no longer exist in the new diff. Mark the task `completed`
 with that evidence and stop this step here — do not proceed to the confirmation question below.
-Re-running `review-pr` from Step 2 is the user's decision, never auto-triggered. Under
+Re-running `review-pr` from Step 2 is the user's decision, never auto-triggered. Under `--yuna`
+the rule differs (see "Yuna mode"). Under
 `--from-babysit` the step ends instead with the last line
 `REVIEW-PR head-moved from=<REVIEWED_COMMIT> to=<COMMIT>`, and babysit runs the review again once
 the new head has settled. If
 `REVIEWED_COMMIT` is empty (Step 2 recorded none) or matches `COMMIT`, continue below unchanged.
 
-Present the full draft to the user: the Good-to-merge line, the verdict, the summary body, the
+Under `--yuna` skip this question and the draft's presentation: the draft verdict is posted as
+"Post now" (see "Yuna mode"). Otherwise present the full draft to the user: the Good-to-merge line, the verdict, the summary body, the
 inline comment table, and the two thread tables from Step 6. Then ask both questions in one call.
 The draft's verdict is the first option of the first question, and
 the other two follow in the order APPROVE, REQUEST_CHANGES, COMMENT:
@@ -764,6 +774,8 @@ followed by one line per failure, naming the thread and the error.
 `REVIEW-PR posted verdict=<the event that posted> commit=<COMMIT> url=<REVIEW_URL>`. The event is
 `COMMENT` when the self-approval fallback ran. The step ends there.
 
+**Under `--yuna`,** follow "Yuna mode" instead of the hand-off below.
+
 **Otherwise, hand off to reviewer mode** when both hold:
 
 - the posted event is not `APPROVE`;
@@ -773,6 +785,43 @@ Mark this step `completed`, say "Watching PR #<PR> for the author's response", t
 invoke `/juel:babysit-pr <PR>`. On a PR you did not author it runs its reviewer mode: it waits for
 the author, then runs this skill again. An `APPROVE`, a review of your own PR, or "Don't post"
 hands off nothing.
+
+## Yuna mode
+
+`--yuna <home> --item <item>` is how a `juel:yuna` worker runs this skill. Nobody is at the keyboard
+and yuna's owner already chose to let it post reviews by itself, so the steps that wait for a person
+do not wait. Everything in Steps 1 to 6 runs as written. Both arguments are required together; either
+one alone stops the review with "--yuna needs --item" (and, under `--from-babysit`, the matching
+`REVIEW-PR stopped` line).
+
+`Y` is `sh <yuna.sh>`, where `<yuna.sh>` is `../yuna/yuna.sh` from this file. Three things change:
+
+- **Token.** Every `gh` command in this skill that reaches GitHub runs as `sh <yuna.sh> --home <home> gh …`
+  (and `git fetch` as `… git …`). The wrapper carries yuna's GitHub token, which a worker in an Orca
+  worktree does not otherwise have. `ME` in Step 1 comes from the same wrapper, so it is yuna's login.
+- **Step 7 asks nothing.** Skip rule 3 (non-interactive) does not apply, the question is not asked, and
+  the draft verdict posts as if "Post now" had been chosen. "Edit first" and "Don't post" never
+  happen: a review that cannot post must say so in the log, not wait.
+- **Stale head.** On the first review (no `--from-babysit`), a head that moved since Step 2 re-runs
+  Steps 1 to 7 on the new head: fetch it with `Y git fetch`, `git checkout --detach <new head>`, and
+  start again. After 3 moves in a row, stop with `parked head keeps moving`. Under `--from-babysit` the
+  step ends with the `head-moved` last line as written, and babysit reviews again once the head settles.
+  A review of code that has changed since is worth nothing, which is why it re-runs instead of posting.
+
+Every progress line is `printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<text>" >> <home>/progress/<item>.log`.
+
+- Step 2 starts: `review <round>`, where round is 1, or the number of reviews this item has had.
+- Any `gh api` failure at Step 7, or any stop: append `parked <first line of the error>` and end with
+  the last line `PARKED item=<item> reason=<the same text>`. Nothing is retried, as written in Step 7.
+- After the review posts: append `posted <verdict> <review url>`. The self-approval fallback cannot
+  happen in practice (yuna skips its own PRs) and stays as written.
+- Then, without `--from-babysit`:
+  - the posted event is `APPROVE` → append `approved <review url> <commit>`, print the last line
+    `APPROVED item=<item> pr=<url>`, and end;
+  - anything else → invoke `/juel:babysit-pr <PR> --yuna <home> --item <item>` instead of the plain
+    hand-off. It waits for the author and runs this skill again with `--from-babysit`.
+- With `--from-babysit` the last line is the `REVIEW-PR posted …` line as written, and
+  `juel:babysit-pr` writes the `approved` step and the `APPROVED` line.
 
 ## Edge cases
 
@@ -802,6 +851,8 @@ hands off nothing.
 | No prior threads, or the threads query fails | Prior threads is one line saying so; the review goes on |
 | A Confirmed finding matches a prior thread still open | Not posted again; the thread gets a `Still open at <short sha>` reply |
 | The user picks a verdict other than the draft's | The report's Verdict and Good-to-merge lines follow the chosen verdict |
+| `--yuna` without `--item`, or the reverse | The review stops at once with "--yuna needs --item" |
+| `--yuna`, and the head moved before Step 7 posted | Re-run Steps 1 to 7 on the new head, up to 3 times, then `parked head keeps moving` (under `--from-babysit`: the `head-moved` line) |
 | A thread reply or resolve fails | Report its error, no retry; the rest still run and the posted review stands |
 | A posted review that is not APPROVE, on someone else's PR | Hand off to `/juel:babysit-pr <PR>` (reviewer mode), unless `--from-babysit` |
 | A moved head under `--from-babysit` | Post nothing; the last line is `REVIEW-PR head-moved from=<REVIEWED_COMMIT> to=<COMMIT>` |
