@@ -638,19 +638,43 @@ except ValueError:
     LIMIT = 3600.0
 
 
-EVIDENCE = re.compile(r"^(?:[-*]\s*)?(?:\*\*)?Evidence:(?:\*\*)?\s*(.*?)\s*$", re.I)
+# the label anywhere in a finding, in codex's own shapes: Evidence:, **Evidence:**, **Evidence**: (#209)
+EVIDENCE = re.compile(r"(?<![A-Za-z])Evidence(?:\*\*|\*|_)?\s*:(?:\*\*|\*|_)?", re.I)
+FAILING_TEST = re.compile(r"test\s+\S+\s+\S.*?\s+fails\b", re.I)
 MARKS = re.compile(r"\s*\((?:unproven: [^)]*|repeat of [^)]*)\)\s*$")
 TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec)/|\.(test|spec)\.|_test\.|^docs/|\.md$")
 SMALL_LINES, SMALL_FILES = 400, 15
 SCOPE = {}  # set by since_text when #211's rule applies: the review's "scope ..." footer
 
 
+def proves(clause):
+    """True when an evidence clause is a command in backticks or a test that fails."""
+    return bool(re.search(r"`[^`]+`", clause) or FAILING_TEST.match(clause.strip()))
+
+
+def label_alone(rest):
+    """The clause of an Evidence label with nothing after it: the next non-blank line, or the fenced block after it."""
+    rest = [l.strip() for l in rest if l.strip()]
+    if not rest:
+        return ""
+    if not rest[0].startswith("```"):
+        return rest[0]
+    block = []
+    for line in rest[1:]:
+        if line.startswith("```"):
+            break
+        block.append(line)
+    return f"`{' '.join(block)}`" if block else ""
+
+
 def has_evidence(f):
-    """True when the finding's body has an evidence line (#209): a command in backticks, or a test that fails."""
-    for line in f["body"]:
-        m = EVIDENCE.match(line)
-        if m and (re.search(r"`[^`]+`", m.group(1)) or re.match(r"test\s+\S+\s+\S.*\s+fails\.?$", m.group(1), re.I)):
-            return True
+    """True when an Evidence clause anywhere in the finding's title, place or body (#209) is a command in
+    backticks or a test that fails; a label with nothing after it takes the next line or the fenced block."""
+    lines = [f["title"], f["where"], *f["body"]]
+    for i, line in enumerate(lines):
+        for m in EVIDENCE.finditer(line):
+            if proves(line[m.end():].strip() or label_alone(lines[i + 1:])):
+                return True
     return False
 
 

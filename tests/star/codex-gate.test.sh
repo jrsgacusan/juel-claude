@@ -917,6 +917,26 @@ safe_at "$HEAD"; rg
 ! grep -q 'scope ' "$R2" && grep -qF 'Round 1 reviewed this same head.' "$SP" && pass "R211h a SAFE head that is HEAD keeps its text and no scope" || fail "R211h"
 gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
 
+# F3 (#209): the evidence clause as codex writes it, one body paragraph, inline
+gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
+verdict_of() { name=$1; shift; fixture "$@"; reset; plan "0 $name"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); }
+verdict_of in-1 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  add(a, b) returns a - b, so every caller gets the wrong value. Evidence: `git show HEAD:f` shows the subtraction.'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209i an inline Evidence clause in the one body paragraph blocks (F3)" || fail "E209i ($out)"
+verdict_of in-2 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  **Evidence**: `git show HEAD:f`'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209j a bold label with the colon outside blocks (F3)" || fail "E209j ($out)"
+verdict_of in-3 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  It breaks callers. **Evidence:** `git show HEAD:f`'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209k a bold label with the colon inside, after prose, blocks (F3)" || fail "E209k ($out)"
+verdict_of in-4 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  Evidence:' '  ```' '  git show HEAD:f' '  ```'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209l an Evidence label followed by a fenced block blocks (F3)" || fail "E209l ($out)"
+verdict_of in-5 'x' '' 'Review comment:' '' '- [P0] Deletes the table. Evidence: `git show HEAD:f` — f:1'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=1 p1=0 unproven=0 head=$HEAD review=$R1" ] && pass "E209m a P0 with the evidence on the title line blocks (F3)" || fail "E209m ($out)"
+verdict_of in-6 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  Evidence:' '  `git show HEAD:f`'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209n an Evidence label with the command on the next line blocks (F3)" || fail "E209n ($out)"
+verdict_of in-7 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  It is plainly wrong. Evidence: read the code at line 1, it subtracts.'
+[ "$out" = "SAFE round=1 findings=1 unproven=1 head=$HEAD review=$R1" ] && pass "E209o an inline Evidence clause with no command and no test is still unproven (F3)" || fail "E209o ($out)"
+verdict_of in-8 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  The test fails. Evidence: test tests/calc.test.sh adds two numbers fails.'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209p an inline failing-test clause blocks (F3)" || fail "E209p ($out)"
+
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
