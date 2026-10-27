@@ -453,7 +453,9 @@ has "Y10 refused in author mode, unattended and yuki" 'Refused in author mode, w
 # lane C: the push-gate row carries the numbered -fix.md shape and the evidence rule (#209, #210)
 gate_row=$(grep -F 'every push is gated first' "$SKILL")
 [ "$(printf '%s\n' "$gate_row" | wc -l | tr -d ' ')" = 1 ] && pass "C209a the push-gate row is still one physical line" || fail "C209a"
-printf '%s\n' "$gate_row" | grep -qF 'one line per finding of that round, numbered as in `<item>-r<k>.md`: `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`' && pass "C210a the row names the numbered -fix.md shape" || fail "C210a"
+printf '%s\n' "$gate_row" | grep -qF 'one line per blocking finding of that round, numbered as in `<item>-r<k>.md`: `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`' && pass "C210a the row names the numbered -fix.md shape" || fail "C210a"
+printf '%s\n' "$gate_row" | grep -qF 'Run it only when it is read-only' && printf '%s\n' "$gate_row" | grep -qF 'Any other command is not run' && pass "F3a the row runs an evidence command only when it is read-only" || fail "F3a"
+printf '%s\n' "$gate_row" | grep -qF 'needs no line; when it gets one it is `<n>. Not blocking.`, and the gate never records it' && pass "F3c the row: a finding that did not block needs no line" || fail "F3c"
 printf '%s\n' "$gate_row" | grep -qF "Run each finding's evidence line first" && pass "C209b the row runs each finding's evidence line first" || fail "C209b"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
