@@ -10,11 +10,14 @@
 #   SAFE round=<k> findings=<n> unproven=<u> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> unproven=<u> head=<sha> review=<path>
 #   NOT-SAFE round=<k> findings=<n> p0=<a> p1=<b> tooling=<t> unproven=<u> head=<sha> review=<path>   (with a tooling file, #160)
-# p0 and p1 count only the findings that block: a P0 or P1 with no indented "Evidence:" line (a command in
-# backticks, or "test <path> <name> fails") is unproven (#209, <u> counts them), and a finding that repeats one
-# an earlier round's -fix.md answered with "Disposition:" is marked dismissed (#210, <item>-dismissed.md).
-# After a SAFE round, a small push is reviewed as a diff (#211): the Gate line ends "· scope diff from <sha7>"
-# or "· scope full since <sha7>".
+# p0 and p1 count only the findings that block: a P0 or P1 with no "Evidence:" clause (a command in
+# backticks, or "test <path> <name> fails"; anywhere in the finding, bold or not, inline or on the next line
+# or in a fenced block) is unproven (#209, <u> counts them). A blocking finding that an earlier round's -fix.md
+# answered with "Disposition:" is recorded in <item>-dismissed.md (#210); a finding repeats it only on the same
+# path, within 10 lines, with the same unchanged non-trivial line text (or, with no place, the same title).
+# After a SAFE round, a small push is reviewed as a diff (#211) when every path is added by the push, a test, or
+# a doc (under docs/, README*, CHANGELOG*, LICENSE*): the Gate line ends "· scope diff from <sha7>" or
+# "· scope full since <sha7>". Every claude the gate starts runs without ORCA_TERMINAL_HANDLE (#208).
 #   ERROR <why>
 #   ERROR base-moved <ref> at <B7> changes <path>, a file this branch changes: merge it in, then run round <k>
 #   ERROR gate-down <why>    neither Sol nor the fallback could review: STAR holds new builds
@@ -280,9 +283,18 @@ def die(msg):
     sys.exit(64)
 
 
+def agent_env(cmd):
+    """The environment a gate-started claude gets (#208): its hooks write the worker's state file through
+    ORCA_TERMINAL_HANDLE, so that variable is removed. None (inherit) for any other program."""
+    if cmd[0] != "claude":
+        return None
+    return {key: v for key, v in os.environ.items() if key != "ORCA_TERMINAL_HANDLE"}
+
+
 def run(cmd, timeout=120):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                              env=agent_env(cmd))
     except (OSError, subprocess.TimeoutExpired) as e:
         return subprocess.CompletedProcess(cmd, 127, "", f"{cmd[0]}: {e}")
 
@@ -1066,7 +1078,7 @@ def attempt(cmd, label, agent, model_):
         try:
             proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     text=True, encoding="utf-8", errors="replace", bufsize=1,
-                                    start_new_session=True)
+                                    start_new_session=True, env=agent_env(cmd))
         except FileNotFoundError:
             se.write(f"{cmd[0]} not found on PATH\n")
             proc = None

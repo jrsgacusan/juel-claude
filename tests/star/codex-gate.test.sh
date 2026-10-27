@@ -68,6 +68,7 @@ chmod +x "$TMP/bin/codex" "$TMP/bin/gh"
 cat > "$TMP/bin/claude" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUB_DIR/claude-calls"
+printf '%s\n' "${ORCA_TERMINAL_HANDLE-unset}" >> "$STUB_DIR/claude-env"
 # the plan's line n serves the n-th call since reset; past its end, its last line serves again
 n=$(($(cat "$STUB_DIR/claude-n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$STUB_DIR/claude-n"
 line=$(sed -n "${n}p" "$STUB_DIR/claude-plan" 2>/dev/null)
@@ -90,7 +91,7 @@ esac
 exit "$rc"
 EOF
 chmod +x "$TMP/bin/claude"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/tokens" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/claude-n" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/tokens" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/claude-n" "$TMP/claude-env" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
 cplan() { printf '%s\n' "$@" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -1010,6 +1011,14 @@ printf 'def add(a, b):\n    return a - b - 1\n\ndef sub(a, b):\n    return a - b
 plan1 "0 g15"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 2 --base main)
 case "$out" in "NOT-SAFE round=2 findings=1 p0=0 p1=1 unproven=0 "*) pass "D210r code changed at the dismissed place: the same finding blocks again (F3)" ;; *) fail "D210r ($out)" ;; esac
 gc reset -q --hard "$HEAD"
+
+# F3 (item 6): no worker state from the gate's own claude
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
+( export ORCA_TERMINAL_HANDLE=term_worker; G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null )
+[ "$(cat "$TMP/claude-env")" = unset ] && pass "H208a the fallback review runs without ORCA_TERMINAL_HANDLE (F3)" || fail "H208a ($(cat "$TMP/claude-env" 2>/dev/null))"
+printf 'ok\n' > "$TMP/fix/ok.txt"; reset; plan "1 - boom"; cplan "0 ok"
+out=$( export ORCA_TERMINAL_HANDLE=term_worker JUEL_STAR_HOME="$H"; GF check )
+[ "$out" = "up claude:opus" ] && [ "$(cat "$TMP/claude-env")" = unset ] && pass "H208b the ping runs without ORCA_TERMINAL_HANDLE (F3)" || fail "H208b ($out, $(cat "$TMP/claude-env" 2>/dev/null))"
 
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
