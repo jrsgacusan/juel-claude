@@ -1,4 +1,5 @@
 The change replaces addition with subtraction, so add() no longer returns the sum.
 
 - **[P1]** Return the sum instead of the difference — /repo/calc.py:2-2
+  Evidence: `git show HEAD:calc.py` shows the subtraction
   For any inputs where the sum differs from the difference, add(a, b) now returns a - b.

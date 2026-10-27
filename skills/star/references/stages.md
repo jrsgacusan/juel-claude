@@ -85,7 +85,18 @@ headless `codex review` of the branch against its base on `star.json`'s `gate` m
 xhigh), read-only and with no MCP server. Facts STAR relies on:
 
 - It writes `reviews/<project>/<item>-r<k>.md` (first line `VERDICT item=<item> round=<k> SAFE|NOT-SAFE
-  findings=<n> head=<sha>`), `.raw.md` and `.log`. Only a `[P0]` or `[P1]` finding makes a round NOT SAFE.
+  findings=<n> head=<sha>`), `.raw.md` and `.log`. Only a proven `[P0]` or `[P1]` finding makes a round NOT SAFE. The line the gate
+  prints also carries `unproven=<n>` before `head=`.
+- A `[P0]` or `[P1]` is proven by its evidence line: one indented `Evidence:` line under it, a command in
+  backticks whose output shows the defect, or `test <path> <name> fails`. Without an evidence line it stays in the
+  review marked unproven and does not block. (`--evidence` is the Phase 6 live-check folder, a different thing.)
+- `reviews/<project>/<item>-dismissed.md` records every finding a `-fix.md` answered with `Disposition:` (the
+  worker writes `<n>. Fixed in <sha>.` or `<n>. Disposition: <reason>` per finding). A later round's finding at the
+  same place, or with the same words, is marked `(repeat of r<j>#<n>, dismissed)` and never blocks, so a round
+  with only repeats, unproven findings or `[P2]` and `[P3]` is SAFE.
+- After a SAFE round, a small push on a SAFE head is reviewed as a diff: at most 400 changed lines and 15 files,
+  and every path new to the branch, a test or doc path, or changed in whitespace only. Any other push gets a full
+  review. The review's `Gate:` line ends `scope diff from <sha>` or `scope full since <sha>`.
   An attempt that ends in `ERROR` writes none of them, so rounds count verdicts only.
 - A capacity error is retried after 60 and 180 seconds, then, or at once when the Codex account is out of
   usage, the same prompt runs through `gate.fallback` (a headless `claude -p` review on Opus, read-only).

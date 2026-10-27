@@ -446,5 +446,12 @@ has "Y7 re-review posts by itself" '/juel:review-pr --pr <pr> --since <reviewed 
 has "Y8 an approval ends with APPROVED" 'print `APPROVED item=<item> pr=<pr url>` as the last line'
 has "Y9 a stop parks" 'print `PARKED item=<item> reason=<why>` as the last line'
 has "Y10 refused in author mode, unattended and yuki" 'Refused in author mode, with `--unattended`, and with `--yuki`'
+
+# lane C: the push-gate row carries the numbered -fix.md shape and the evidence rule (#209, #210)
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+[ "$(printf '%s\n' "$gate_row" | wc -l | tr -d ' ')" = 1 ] && pass "C209a the push-gate row is still one physical line" || fail "C209a"
+printf '%s\n' "$gate_row" | grep -qF 'one line per finding of that round, numbered as in `<item>-r<k>.md`: `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`' && pass "C210a the row names the numbered -fix.md shape" || fail "C210a"
+printf '%s\n' "$gate_row" | grep -qF "Run each finding's evidence line first" && pass "C209b the row runs each finding's evidence line first" || fail "C209b"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
