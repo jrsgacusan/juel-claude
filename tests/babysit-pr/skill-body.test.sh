@@ -434,5 +434,11 @@ has "#179d the conflict wake points at the hold" 'push it only as the hold in Ph
 has "FU1 an ERROR fallback-unreadable waits and does not spend the retry" 'An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.'
 has "FU2 the third ERROR fallback-unreadable on a round is review-tool" 'The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`.'
 
+# lane C: the push-gate row carries the numbered -fix.md shape and the evidence rule (#209, #210)
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+[ "$(printf '%s\n' "$gate_row" | wc -l | tr -d ' ')" = 1 ] && pass "C209a the push-gate row is still one physical line" || fail "C209a"
+printf '%s\n' "$gate_row" | grep -qF 'one line per finding of that round, numbered as in `<item>-r<k>.md`: `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`' && pass "C210a the row names the numbered -fix.md shape" || fail "C210a"
+printf '%s\n' "$gate_row" | grep -qF "Run each finding's evidence line first" && pass "C209b the row runs each finding's evidence line first" || fail "C209b"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

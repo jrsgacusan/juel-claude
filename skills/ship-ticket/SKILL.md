@@ -1398,7 +1398,8 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
    folder is exit 64 with a message on stderr and no verdict line.
    The review streams on its stderr while it runs, so anyone watching the terminal sees it work.
    When it ends, read only the last line of its output: that is the verdict line (`SAFE …`,
-   `NOT-SAFE …` or `ERROR …`). Never read the transcript back.
+   `NOT-SAFE …` or `ERROR …`). Never read the transcript back. A finding marked `(unproven: no evidence, does not block)` never counts, and `unproven=<n>` on the verdict line counts them;
+   the `p0=` and `p1=` figures count only the findings that block. After a SAFE round, a small push on a SAFE head is reviewed as a diff, and the review file ends `scope diff from <sha>` or `scope full since <sha>`.
 3. `SAFE …`: `sh <codex-gate.sh> post-pass --pr <url> --round <k> --head <the full head> --review <the review path the gate printed>`,
    then mark the PR ready: `gh pr ready <url>`, then a progress line with the step `ready`. The
    head is final here and has passed the gate, and a hosted reviewer such as Greptile starts its
@@ -1414,9 +1415,13 @@ no `gh` there is no PR to gate: skip it, and Phase 8 ends the run.
 4. `NOT-SAFE …`: when this is the run's `tries.perStep`-th NOT-SAFE round (3 by default),
    go straight to step 5, before any fix. Otherwise read that review file's findings. Validate each
    `[P0]` and `[P1]` finding with `superpowers:receiving-code-review` against the brief; one outside
-   the brief's scope ends the run as `RESCOPE item=<item> reason=brief review=<file>`. The round's `-fix.md` is
-   `<star.reviews>/<item>-r<k>-fix.md`: one line per finding, `Fixed in <sha>.` or
-   `Disposition: <the technical reason>`. For each accepted `[P0]` or `[P1]` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its `-fix.md` line names the sites (`Fixed in <sha>. Sites: <path:line>, <path:line>.`).
+   the brief's scope ends the run as `RESCOPE item=<item> reason=brief review=<file>`. Run each finding's evidence line first (the gate's word for the command or failing test it asks of a
+   `[P0]` or `[P1]`; `--evidence` is the Phase 6 folder): a command whose output does not show the defect, or a test that
+   passes, is a `Disposition:` with that output as the reason. The round's `-fix.md` is
+   `<star.reviews>/<item>-r<k>-fix.md`: one line per finding of that round, numbered as in `<item>-r<k>.md`:
+   `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`. The gate keeps the numbers: a finding a
+   `Disposition:` line answered goes to `<item>-dismissed.md`, and a later round marks a repeat of it
+   `(repeat of r<j>#<n>, dismissed)`, so it never blocks again. For each accepted `[P0]` or `[P1]` finding, the fix searches the branch for every other site of the same pattern and fixes them all in the same round, and its `-fix.md` line names the sites (`Fixed in <sha>. Sites: <path:line>, <path:line>.`).
    No finding accepted: skip the plan, the executor, the tests, Phase 6, the commit and the push;
    write the `-fix.md` and run the next round on the same head (its prompt carries the dispositions).
    Otherwise write a fix plan (`superpowers:writing-plans`, a new `-vN`) whose header carries `**Base:** spec implemented at <the full head>; apply only the tasks below.`, the `**Scratch:**` line and the `## Execution rules` block (Phase 3), and whose tasks each

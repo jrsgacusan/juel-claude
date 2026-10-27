@@ -418,5 +418,13 @@ has "RF2l two projects may each have an issue-12 (screen)" 'two projects may eac
 has "RF2m an inherited defect adds a NOTE" 'NOTE: inherited from <base>: <one line>'
 has "RF2n the inherited NOTE is the report's one own NOTE" 'it is the report'"'"'s one `NOTE` of your own'
 
+# lane C: the codex gate's evidence line, dismissed findings and diff re-gate (#209, #210, #211)
+has "E209i the loop runs each finding's evidence line before accepting it" "Run each finding's evidence line first"
+has "E209j a command that does not show the defect, or a passing test, is a Disposition" "a command whose output does not show the defect, or a test that passes, is a \`Disposition:\` with that output as the reason"
+has "E209k unproven findings and the unproven= count on the verdict line" 'A finding marked `(unproven: no evidence, does not block)` never counts, and `unproven=<n>` on the verdict line counts them'
+has "D210j the -fix.md has one numbered line per finding" 'one line per finding of that round, numbered as in `<item>-r<k>.md`: `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`'
+has "D210k a dismissed finding is not raised again" 'a finding a `Disposition:` line answered goes to `<item>-dismissed.md`, and a later round marks a repeat of it `(repeat of r<j>#<n>, dismissed)`'
+has "R211i the gate reviews a small push on a SAFE head as a diff" 'a small push on a SAFE head is reviewed as a diff, and the review file ends `scope diff from <sha>` or `scope full since <sha>`'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]
