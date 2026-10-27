@@ -3,6 +3,8 @@ One defect in the harness and one in the app.
 Review comment:
 
 - [P1] The runner drops every failed case — eval/run.py:3-4
+  Evidence: `git show HEAD:calc.py` shows the subtraction
   The loop swallows the exception and reports success.
 - [P1] Return the sum instead of the difference — src/app.py:2
+  Evidence: `git show HEAD:calc.py` shows the subtraction
   add(a, b) returns a - b.
