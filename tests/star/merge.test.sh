@@ -205,11 +205,12 @@ import json, sys
 out, head, state, entry, auto = sys.argv[1:6]
 reason = sys.argv[6] if len(sys.argv) > 6 else ""
 on = sys.argv[7] if len(sys.argv) > 7 else head
+ev = sys.argv[8] if len(sys.argv) > 8 else "RE_1"
 pr = {"state": state, "headRefOid": head, "mergeStateStatus": "CLEAN",
       "mergeCommit": {"oid": "9e8d7c6b5a49382716051423324150617e8f9a0b"} if state == "MERGED" else None,
       "autoMergeRequest": {"enabledAt": "2026-10-27T10:00:00Z"} if auto == "1" else None,
       "mergeQueueEntry": {"state": "QUEUED"} if entry == "1" else None,
-      "timelineItems": {"nodes": [{"reason": reason, "beforeCommit": {"oid": on}}] if reason else []}}
+      "timelineItems": {"nodes": [{"id": ev, "reason": reason, "beforeCommit": {"oid": on}}] if reason else []}}
 json.dump({"data": {"repository": {"pullRequest": pr}}}, open(out, "w"))
 PY
 }
@@ -278,7 +279,19 @@ qreset; qr OPEN 0 0 "Merge conflict with the base branch"; out=$(M)
 qreset; qr OPEN 0 0 "Merge conflict" 1111111111111111111111111111111111111111; out=$(M)
 [ "$out" = "QUEUED head=$HEAD" ] && pass "#212 a removal on an older head does not stop a new head from queueing" || fail "#212 old removal ($out)"
 qreset; qr CLOSED 0 0; out=$(M)
-[ "$out" = "FAIL merge: left the merge queue: the PR is closed" ] && pass "#212 a closed PR is FAIL merge: left the merge queue" || fail "#212 closed ($out)"
+[ "$out" = "FAIL closed" ] && ! grep -q '^pr merge' "$TMP/calls" && pass "#212 a closed PR on a queue base is FAIL closed, the gate's line" || fail "#212 closed ($out)"
+# a queue removal is reported once per event id, kept in <home>/merges/<item>.removed
+REMOVED="$SH/merges/ITEM-1.removed"; rm -f "$REMOVED"
+qlive() { qreset; LD set ITEM-1 state=verifying dispatch=- >/dev/null; }
+qlive; qr OPEN 0 0 "Merge conflict" "$HEAD" RE_A; out=$(MW)
+[ "$out" = "FAIL merge: left the merge queue: Merge conflict" ] && [ "$(cat "$REMOVED")" = RE_A ] && pass "#212 a removal is reported and its id recorded" || fail "#212 removal recorded ($out, $(cat "$REMOVED" 2>/dev/null))"
+qlive; qr OPEN 0 0 "Merge conflict" "$HEAD" RE_A; out=$(MW)
+[ "$out" = "QUEUED head=$HEAD" ] && grep -q '^pr merge' "$TMP/calls" && pass "#212 a removal already reported queues the PR again" || fail "#212 reported twice ($out)"
+qlive; qr OPEN 0 0 "Checks failed" "$HEAD" RE_B; out=$(MW)
+[ "$out" = "FAIL merge: left the merge queue: Checks failed" ] && [ "$(cat "$REMOVED")" = "RE_A
+RE_B" ] && pass "#212 a new removal is reported and appended" || fail "#212 second removal ($out, $(cat "$REMOVED"))"
+rm -f "$REMOVED"; qreset; qr OPEN 0 0 "Merge conflict" "$HEAD" RE_A; M >/dev/null; M >/dev/null
+out=$(M); [ "$out" = "FAIL merge: left the merge queue: Merge conflict" ] && [ ! -e "$REMOVED" ] && pass "#212 without --home a removal is reported every time" || fail "#212 no home ($out)"
 qreset; qr OPEN 1 0; python3 - "$TMP/queue.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1])); d["data"]["repository"]["pullRequest"]["headRefOid"] = "2222222222222222222222222222222222222222"; json.dump(d, open(sys.argv[1], "w"))

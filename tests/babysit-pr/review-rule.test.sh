@@ -82,7 +82,8 @@ reset; printf '[{"type":"required_status_checks","parameters":{"strict_required_
 # #193: a merge_queue rule prints queue, before strict
 reset; printf '[{"type":"merge_queue","parameters":{}},{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]\n' > "$TMP/rules.json"
 [ "$(R o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "a merge queue rule prints queue before strict" || fail "queue ($(R o/r main))"
-# #212: on a queue base, no-merge-group when no workflow at the base declares a merge_group trigger
+RW() { R --workflows "$@"; }
+# #212: on a queue base, with --workflows, no-merge-group when no workflow at the base declares a merge_group trigger
 QUEUE_RULES='[{"type":"merge_queue","parameters":{}},{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]'
 wf() { # wf <name> <yaml text>: a workflow file at the base, as the contents API returns it
   rm -f "$TMP/workflows.err"
@@ -91,21 +92,37 @@ wf() { # wf <name> <yaml text>: a workflow file at the base, as the contents API
   printf '{"content":"%s","encoding":"base64"}\n' "$(printf '%s' "$2" | base64 | tr -d '\n')" > "$TMP/wf-$1.json"
 }
 reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"
-[ "$(R o/r main | tr '\n' ' ')" = "none check ci queue no-merge-group strict " ] && pass "#212 a queue base with no merge_group workflow prints no-merge-group, between queue and strict" || fail "#212 no-merge-group ($(R o/r main))"
+[ "$(RW o/r main | tr '\n' ' ')" = "none check ci queue no-merge-group strict " ] && pass "#212 a queue base with no merge_group workflow prints no-merge-group, between queue and strict" || fail "#212 no-merge-group ($(RW o/r main))"
 grep -q 'repos/o/r/contents/.github/workflows?ref=main' "$TMP/calls" && pass "#212 the workflows are read at the base" || fail "#212 workflows call ($(cat "$TMP/calls"))"
 reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"; wf queue.yaml "$(printf 'on:\n  merge_group:\n    types: [checks_requested]\n')"
-[ "$(R o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "#212 a merge_group trigger in any workflow file prints no warning" || fail "#212 merge_group ($(R o/r main))"
+[ "$(RW o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "#212 a merge_group trigger in any workflow file prints no warning" || fail "#212 merge_group ($(RW o/r main))"
 reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on: [push, merge_group]\n')"
-[ "$(R o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 the inline list form counts" || fail "#212 inline list"
+[ "$(RW o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 the inline list form counts" || fail "#212 inline list"
 reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  push:\n# merge_group: later\n')"
-[ "$(R o/r main | grep -c no-merge-group)" = 1 ] && pass "#212 a commented-out trigger does not count" || fail "#212 comment"
+[ "$(RW o/r main | grep -c no-merge-group)" = 1 ] && pass "#212 a commented-out trigger does not count" || fail "#212 comment"
 reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"
-[ "$(R o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "#212 workflows that cannot be read print nothing extra" || fail "#212 unreadable ($(R o/r main))"
+[ "$(RW o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "#212 workflows that cannot be read print nothing extra" || fail "#212 unreadable ($(RW o/r main))"
 reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"; printf 'gh: HTTP 502\n' > "$TMP/wf-ci.yml.err"; rm -f "$TMP/wf-ci.yml.json"
-[ "$(R o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 a workflow file that cannot be read prints nothing extra" || fail "#212 unreadable file"
+[ "$(RW o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 a workflow file that cannot be read prints nothing extra" || fail "#212 unreadable file"
 reset; printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[]}}]\n' > "$TMP/rules.json"; wf ci.yml "x"
-R o/r main >/dev/null; ! grep -q 'contents' "$TMP/calls" && pass "#212 a base with no queue reads no workflows" || fail "#212 read workflows without a queue"
+RW o/r main >/dev/null; ! grep -q 'contents' "$TMP/calls" && pass "#212 a base with no queue reads no workflows, even with --workflows" || fail "#212 read workflows without a queue"
 
+# without --workflows the workflows are not read at all (pr-verify.sh and babysit-pr keep their timeouts)
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"
+out=$(R o/r main | tr '\n' ' ')
+[ "$out" = "none check ci queue strict " ] && ! grep -q 'contents' "$TMP/calls" && pass "#212 no --workflows: the workflows are not read and no-merge-group is not printed" || fail "#212 no flag ($out)"
+# merge_group counts only as a trigger
+for body in 'on:\n  merge_group:\n' 'on:\n  push:\n  merge_group:   # queue\n' 'on:\n  - merge_group\n' 'on: merge_group\n' 'on: [push, merge_group]  # q\n'; do
+  reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf "$body")"
+  [ "$(RW o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 a trigger counts: $(printf "$body" | tr '\n' '|')" || fail "#212 trigger $body"
+done
+for body in 'on:\n  push:\njobs:\n  a:\n    if: github.event_name != '"'"'merge_group'"'"'\n' 'on:\n  push: # merge_group\n' 'on:\n  push:\n    branches: [merge_group_x]\n' 'name: merge_group tests\non: push\n'; do
+  reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf "$body")"
+  [ "$(RW o/r main | grep -c no-merge-group)" = 1 ] && pass "#212 not a trigger: $(printf "$body" | tr '\n' '|' | cut -c1-50)" || fail "#212 non-trigger $body"
+done
+# a total deadline: past it nothing extra is printed
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"
+[ "$(REVIEW_RULE_WORKFLOWS_DEADLINE=0 RW o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 past the workflow deadline nothing extra is printed" || fail "#212 deadline"
 reset; printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[]}}]\n' > "$TMP/rules.json"
 R o/r main | grep -qx queue && fail "queue printed with no merge_queue rule" || pass "no merge_queue rule prints no queue"
 
