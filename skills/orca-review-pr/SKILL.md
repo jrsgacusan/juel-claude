@@ -369,7 +369,7 @@ the real head — Orca reads git and follows, so `worktree show` reports the bra
 `juel:review-pr` resolves its own ref rather than blocking. `AGENT_PROMPT_PREFIX` is the slash
 command's lead-in (`/` for Claude, a dollar sign for Codex, see `references/resolution.md`) and carries no trailing space, so
 the skill name follows it directly: the prompt reads `/juel:review-pr --pr 1234 SAVI-1162`. An
-earlier form wrote `"$AGENT_PROMPT_PREFIX $PR"`, which expanded to `/ 1234` and ran no skill.
+earlier form put a space between the prefix and the PR number, which expanded to `/ 1234` and ran no skill.
 
 **Orca's view of the branch is eventually consistent.** A `worktree show` issued immediately after
 the checkout can still report the branch Orca created; a moment later it reports the checked-out
