@@ -31,7 +31,7 @@ case "$1 $2" in
       200) echo '{"merged":true}'; exit 0 ;;
       *) if [ -f "$STUB_DIR/rest-body" ]; then cat "$STUB_DIR/rest-body"; else echo "{\"message\":\"x\"}"; fi; cat "$STUB_DIR/rest-err" >&2; exit 1 ;;
     esac ;;
-  "api "*) case "$2" in *rules/branches*) if [ -f "$STUB_DIR/rules.json" ]; then cat "$STUB_DIR/rules.json"; else echo '[]'; fi ;; *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;; esac ;;
+  "api "*) case "$2" in graphql) [ -f "$STUB_DIR/queue-fail" ] && { echo "HTTP 502" >&2; exit 1; }; cat "$STUB_DIR/queue.json" ;; *contents/.github/workflows*) if [ -f "$STUB_DIR/wf-empty" ]; then echo '[]'; else echo "gh: Not Found (HTTP 404)" >&2; exit 1; fi ;; *rules/branches*) if [ -f "$STUB_DIR/rules.json" ]; then cat "$STUB_DIR/rules.json"; else echo '[]'; fi ;; *) echo "gh: Not Found (HTTP 404)" >&2; exit 1 ;; esac ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 EOF
@@ -40,7 +40,7 @@ state() { # state <GitHub's word for the PR after the merge call> [merge state] 
   printf '{"state":"%s","mergeCommit":{"oid":"9e8d7c6b5a49382716051423324150617e8f9a0b"},"headRefOid":"%s","mergeStateStatus":"%s"}\n' "$1" "${3:-$HEAD}" "${2:-CLEAN}" > "$TMP/state.json"
 }
 pre() { printf '{"headRefOid":"%s","mergeStateStatus":"%s"}\n' "$HEAD" "$1" > "$TMP/pre.json"; }
-reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json" "$TMP/rest-status" "$TMP/rest-err" "$TMP/rest-body" "$TMP/comment-fail"; pre CLEAN; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[],"baseRefName":"dev"}\n' > "$TMP/pr.json"; state MERGED; }
+reset() { rm -f "$TMP/calls" "$TMP/tokens" "$TMP/posted" "$TMP/merge-err" "$TMP/repo-fail" "$TMP/state-fail" "$TMP/rules.json" "$TMP/rest-status" "$TMP/rest-err" "$TMP/rest-body" "$TMP/comment-fail" "$TMP/queue.json" "$TMP/queue-fail" "$TMP/wf-empty"; pre CLEAN; printf '{"squashMergeAllowed":true,"mergeCommitAllowed":true,"rebaseMergeAllowed":true}\n' > "$TMP/repo.json"; printf '{"author":{"login":"me"},"comments":[],"baseRefName":"dev"}\n' > "$TMP/pr.json"; state MERGED; }
 M() { PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" sh "$SCRIPT" "$PR" --head "$HEAD" "$@"; }
 
 reset; out=$(M)
@@ -199,6 +199,20 @@ out=$(M); [ "$out" = "FAIL merge: conflicts with the base" ] && pass "#193 a DIR
 reset; printf 'GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN; touch "$TMP/state-fail"
 out=$(M); [ "$out" = "FAIL head moved" ] && pass "#193 with the PR unreadable the error text still says head moved" || fail "#193 unreadable moved ($out)"
 
+qr() { # qr <state> <queue entry 0|1> <auto-merge 0|1> [removed-from-queue reason] [removed-on head]: what GitHub says about the PR before the call
+  python3 - "$TMP/queue.json" "$HEAD" "$@" <<'PY'
+import json, sys
+out, head, state, entry, auto = sys.argv[1:6]
+reason = sys.argv[6] if len(sys.argv) > 6 else ""
+on = sys.argv[7] if len(sys.argv) > 7 else head
+pr = {"state": state, "headRefOid": head, "mergeStateStatus": "CLEAN",
+      "mergeCommit": {"oid": "9e8d7c6b5a49382716051423324150617e8f9a0b"} if state == "MERGED" else None,
+      "autoMergeRequest": {"enabledAt": "2026-10-27T10:00:00Z"} if auto == "1" else None,
+      "mergeQueueEntry": {"state": "QUEUED"} if entry == "1" else None,
+      "timelineItems": {"nodes": [{"reason": reason, "beforeCommit": {"oid": on}}] if reason else []}}
+json.dump({"data": {"repository": {"pullRequest": pr}}}, open(out, "w"))
+PY
+}
 # #193: a BEHIND PR on a base with no strict, unknown or queue rule merges through the REST endpoint
 RESTCALL="api -X PUT repos/o/r/pulls/5/merge -f sha=$HEAD -f merge_method=squash"
 reset; pre BEHIND; echo 200 > "$TMP/rest-status"
@@ -207,8 +221,8 @@ out=$(M); [ "$out" = "$MERGED_LINE" ] && grep -qx "$RESTCALL" "$TMP/calls" && ! 
 reset; pre CLEAN; M >/dev/null; ! grep -q '^api -X' "$TMP/calls" && grep -q 'pr merge' "$TMP/calls" && pass "#193 a PR that is not BEHIND keeps gh pr merge" || fail "#193 clean path"
 reset; pre BEHIND; printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]\n' > "$TMP/rules.json"
 M >/dev/null; grep -q 'pr merge' "$TMP/calls" && ! grep -q '^api -X' "$TMP/calls" && pass "#193 a strict base keeps gh pr merge" || fail "#193 strict"
-reset; pre BEHIND; printf '[{"type":"merge_queue","parameters":{}}]\n' > "$TMP/rules.json"
-M >/dev/null; grep -q 'pr merge' "$TMP/calls" && ! grep -q '^api -X' "$TMP/calls" && pass "#193 a merge queue keeps gh pr merge" || fail "#193 queue"
+reset; pre BEHIND; printf '[{"type":"merge_queue","parameters":{}}]\n' > "$TMP/rules.json"; qr OPEN 0 0; state OPEN
+M >/dev/null; grep -q 'pr merge' "$TMP/calls" && ! grep -q '^api -X' "$TMP/calls" && pass "#193 a merge queue keeps gh pr merge (and --auto, #212)" || fail "#193 queue"
 reset; pre BEHIND; echo 409 > "$TMP/rest-status"; printf 'gh: Head branch was modified (HTTP 409)\n' > "$TMP/rest-err"; state OPEN BEHIND 3333333333333333333333333333333333333333
 out=$(M); [ "$out" = "FAIL head moved" ] && ! [ -f "$TMP/posted" ] && pass "#193 REST 409 with a different head is head moved" || fail "#193 rest 409 ($out)"
 reset; pre BEHIND; echo 405 > "$TMP/rest-status"; printf 'gh: Pull Request is not mergeable (HTTP 405)\n' > "$TMP/rest-err"; state OPEN DIRTY
@@ -234,5 +248,56 @@ reset; pre BEHIND; echo 405 > "$TMP/rest-status"; : > "$TMP/rest-err"; printf '{
 out=$(M); [ "$out" = "PENDING check required checks not reported" ] && pass "S6 a message with no quoted name gives required checks, not a JSON key" || fail "S6 key ($out)"
 reset; pre BEHIND; echo 405 > "$TMP/rest-status"; : > "$TMP/rest-err"; printf '{"message":"Required status check \\"ci/build\\" is expected.","status":"405"}\n' > "$TMP/rest-body"; state OPEN BEHIND
 out=$(M); [ "$out" = "PENDING check ci/build not reported" ] && pass "S6 the name is read from the JSON body's message field" || fail "S6 body ($out)"
+
+# #212: a base that requires a merge queue is merged through it: gh pr merge --auto, no strategy
+QUEUE_RULES='[{"type":"merge_queue","parameters":{}}]'
+MERGE_SHA=9e8d7c6b5a49382716051423324150617e8f9a0b
+qreset() { reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; qr OPEN 0 0; state OPEN; }
+qreset; out=$(M); rc=$?
+[ "$out" = "QUEUED head=$HEAD" ] && [ "$rc" -eq 0 ] && pass "#212 a queue base: the PR is put on the queue" || fail "#212 queue ($out)"
+[ "$(grep '^pr merge' "$TMP/calls")" = "pr merge $PR --auto --match-head-commit $HEAD" ] && pass "#212 the merge is --auto on the exact head with no strategy flag" || fail "#212 queue call ($(grep 'merge' "$TMP/calls"))"
+! grep -q -- '--admin\|--squash\|--merge \|--rebase\|^api -X' "$TMP/calls" && [ ! -f "$TMP/posted" ] && pass "#212 never --admin or a strategy, and no merge comment while the PR is only queued" || fail "#212 queue flags ($(cat "$TMP/calls"))"
+qreset; qr OPEN 0 0; pre BEHIND; out=$(M)
+[ "$out" = "QUEUED head=$HEAD" ] && ! grep -q '^api -X' "$TMP/calls" && pass "#212 a BEHIND PR on a queue base is queued, not merged over REST" || fail "#212 behind ($out)"
+qreset; cfgm=$(printf '{"squashMergeAllowed":false,"mergeCommitAllowed":false,"rebaseMergeAllowed":true}'); printf '%s\n' "$cfgm" > "$TMP/repo.json"; out=$(M)
+grep -qx "pr merge $PR --auto --match-head-commit $HEAD" "$TMP/calls" && pass "#212 the repo's merge methods do not change the queue call" || fail "#212 methods ($out)"
+qreset; touch "$TMP/wf-empty"; out=$(M)
+[ "$out" = "QUEUED head=$HEAD warn=no-merge-group" ] && pass "#212 a queue base whose workflows have no merge_group trigger warns" || fail "#212 warn ($out)"
+qreset; qr OPEN 1 0; out=$(M)
+[ "$out" = "QUEUED head=$HEAD" ] && ! grep -q '^pr merge' "$TMP/calls" && pass "#212 a PR already in the queue is QUEUED again with no second merge call" || fail "#212 in queue ($out)"
+qreset; qr OPEN 0 1; out=$(M)
+[ "$out" = "QUEUED head=$HEAD" ] && ! grep -q '^pr merge' "$TMP/calls" && pass "#212 a PR with auto-merge already set is QUEUED, no second merge call" || fail "#212 auto set ($out)"
+qreset; qr OPEN 1 0; touch "$TMP/wf-empty"; out=$(M)
+[ "$out" = "QUEUED head=$HEAD warn=no-merge-group" ] && pass "#212 the warning repeats on a later QUEUED line" || fail "#212 repeat warn ($out)"
+qreset; qr MERGED 0 0; out=$(M)
+[ "$out" = "MERGED $MERGE_SHA" ] && ! grep -q '^pr merge' "$TMP/calls" && [ "$(cat "$TMP/posted")" = "Merging head $HEAD: codex PASS, required checks green." ] && pass "#212 a queued PR GitHub says is MERGED is MERGED, and gets the merge comment" || fail "#212 merged by queue ($out)"
+qreset; qr MERGED 0 0; printf '{"author":{"login":"me"},"comments":[{"author":{"login":"me"},"body":"Merging head %s: codex PASS, required checks green."}],"baseRefName":"dev"}\n' "$HEAD" > "$TMP/pr.json"; out=$(M)
+[ "$out" = "MERGED $MERGE_SHA" ] && [ ! -f "$TMP/posted" ] && pass "#212 the merge comment is not posted twice" || fail "#212 comment twice ($out)"
+qreset; qr OPEN 0 0 "Merge conflict with the base branch"; out=$(M)
+[ "$out" = "FAIL merge: left the merge queue: Merge conflict with the base branch" ] && ! grep -q '^pr merge' "$TMP/calls" && pass "#212 a PR the queue removed on this head is FAIL merge: left the merge queue" || fail "#212 removed ($out)"
+qreset; qr OPEN 0 0 "Merge conflict" 1111111111111111111111111111111111111111; out=$(M)
+[ "$out" = "QUEUED head=$HEAD" ] && pass "#212 a removal on an older head does not stop a new head from queueing" || fail "#212 old removal ($out)"
+qreset; qr CLOSED 0 0; out=$(M)
+[ "$out" = "FAIL merge: left the merge queue: the PR is closed" ] && pass "#212 a closed PR is FAIL merge: left the merge queue" || fail "#212 closed ($out)"
+qreset; qr OPEN 1 0; python3 - "$TMP/queue.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); d["data"]["repository"]["pullRequest"]["headRefOid"] = "2222222222222222222222222222222222222222"; json.dump(d, open(sys.argv[1], "w"))
+PY
+out=$(M); [ "$out" = "FAIL head moved" ] && ! grep -q '^pr merge' "$TMP/calls" && pass "#212 a head that moved is FAIL head moved, even in the queue" || fail "#212 moved ($out)"
+qreset; printf 'GraphQL: Pull request is not mergeable (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN BEHIND
+out=$(M); [ "$out" = "FAIL merge: GraphQL: Pull request is not mergeable (mergePullRequest)" ] && pass "#212 on a queue base a refusal is never PENDING behind: the queue does the sync" || fail "#212 refusal ($out)"
+qreset; printf 'GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)\n' > "$TMP/merge-err"; state OPEN CLEAN 1111111111111111111111111111111111111111
+out=$(M); [ "$out" = "FAIL head moved" ] && pass "#212 a refused queue call on a moved head is FAIL head moved" || fail "#212 call moved ($out)"
+qreset; state MERGED; out=$(M)
+[ "$out" = "MERGED $MERGE_SHA" ] && pass "#212 a queue call that merged at once is MERGED" || fail "#212 merged at once ($out)"
+qreset; touch "$TMP/queue-fail"; out=$(M)
+[ "$out" = "FAIL merge: HTTP 502" ] && ! grep -q '^pr merge' "$TMP/calls" && pass "#212 a queue entry that cannot be read is a FAIL, nothing is merged" || fail "#212 unreadable ($out)"
+qreset; touch "$TMP/state-fail"; out=$(M 2>/dev/null); rc=$?
+[ -z "$out" ] && [ "$rc" -eq 69 ] && pass "#212 a queue call whose PR cannot be read afterwards prints no line, exit 69" || fail "#212 state unreadable (rc=$rc, out=$out)"
+qreset; out=$(M --dry-run); [ "$out" = "DRY-RUN squash $HEAD" ] && ! grep -q 'pr merge' "$TMP/calls" && pass "#212 a dry run on a queue base merges nothing" || fail "#212 dry ($out)"
+reset; out=$(M); grep -q 'rules/branches/dev' "$TMP/calls" && pass "#212 review-rule.sh runs for every merge, not only a BEHIND PR" || fail "#212 rule not read ($(cat "$TMP/calls"))"
+reset; printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]\n' > "$TMP/rules.json"; out=$(M)
+grep -q -- "pr merge $PR --squash" "$TMP/calls" && ! grep -q -- '--auto' "$TMP/calls" && pass "#212 a base with no queue keeps the strategy merge" || fail "#212 no queue ($out)"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

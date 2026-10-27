@@ -153,7 +153,13 @@ if grep -qF "STAR adds the item once more" "$tmp/text"; then fail "A25 can't now
 # the rule-book lines for #176, #177, #180 and #181
 has "A26 the merge gate says when behind holds it" "GitHub's merge state not blocked or dirty, and not behind when the base requires up-to-date branches"
 if tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF "not blocked, behind or dirty"; then fail "A26 the old behind wording is gone"; else pass "A26 the old behind wording is gone"; fi
-hasT "A27 stages.md says behind needs a strict base" '`pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict`, or the rule cannot be read).'
+hasT "A27 stages.md says behind needs a strict base" '`pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict` without `queue`, or the rule cannot be read).'
+hasT "#212a stages.md: STAR never syncs on a queue base" 'On a queue base (`review-rule.sh` prints `queue`) STAR never syncs the PR with the base itself: the queue tests base plus PR.'
+hasT "#212b stages.md: the QUEUED line waits and spends no try" '`QUEUED head=<sha>[ warn=no-merge-group]` | the PR is in the merge queue or set to enter it: nothing is merged yet. No try'
+hasT "#212c stages.md: QUEUED is followed by merge.sh again" 'the next tick runs `merge.sh` again for it, not the gate, until it prints `MERGED` or `FAIL`'
+hasT "#212d stages.md: the no-merge-group warning is told once" 'the base requires a merge queue and no workflow has a merge_group trigger: required checks never report in the queue'
+hasT "#212e stages.md: leaving the queue is a FAIL merge row" '`FAIL merge: left the merge queue: <reason>`'
+has "#212f SKILL.md: merge.sh merges through the queue and posts after" 'merges with `--match-head-commit` (on a base that requires a merge queue, `--auto` with no strategy flag, and never `--admin`) and posts'
 hasT "A28 stages.md says parallel starts are safe" 'Parallel starts are safe: `stage-start.sh` holds a lock per repository around the branch step.'
 # hasF <name> <file under references/> <text>: the text is in that one reference once line breaks are folded
 hasF() { tr '\n' ' ' < "$S/references/$2" | tr -s ' ' | grep -qF -- "$3" && pass "$1" || fail "$1"; }

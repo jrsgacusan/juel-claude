@@ -10,8 +10,12 @@
 # then one line per status check the rules require:
 #   check <context>
 # then, once each and in this order, when they apply:
-#   queue            a ruleset that applies to the branch has a rule of type merge_queue; only
-#                    star/merge.sh reads it, to stay off the REST merge path (#193)
+#   queue            a ruleset that applies to the branch has a rule of type merge_queue; STAR's
+#                    merge.sh reads it to merge through the queue (#212), babysit-pr Phase 4 to
+#                    leave its sync triggers, pr-verify.sh to stop asking for an up-to-date head
+#   no-merge-group   only with queue: no workflow file at the base declares a merge_group
+#                    trigger, so required checks never report in the queue (#212). Nothing is
+#                    printed when the workflows cannot be read: unknown is not a warning
 #   strict           a rule requires branches to be up to date before merging
 # Sources: the rulesets that apply to the branch (repos/<repo>/rules/branches/<base>, readable
 # with read access) and classic branch protection (repos/<repo>/branches/<base>/protection,
@@ -26,8 +30,10 @@
 # a value that is not a number falls back to 60).
 # Exit: 0, or 64 on bad usage.
 exec python3 - "$@" <<'PY'
+import base64
 import json
 import os
+import re
 import subprocess
 import sys
 from urllib.parse import quote
@@ -111,8 +117,33 @@ if isinstance(classic, dict):
 print(f"required {max(counts)}" if counts else "none")
 for c in dict.fromkeys(checks):
     print(f"check {c}")
+
+
+def has_merge_group_workflow():
+    """True or False when the base's workflow files can all be read, None when any cannot."""
+    listing, err = api(f"repos/{repo}/contents/.github/workflows?ref={BRANCH}")
+    if err or not isinstance(listing, list):
+        return None
+    for entry in listing:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name.endswith((".yml", ".yaml")):
+            continue
+        item, err = api(f"repos/{repo}/contents/.github/workflows/{quote(name)}?ref={BRANCH}")
+        if err or not isinstance(item, dict) or not isinstance(item.get("content"), str):
+            return None
+        try:
+            text = base64.b64decode(item["content"]).decode("utf-8", "replace")
+        except ValueError:
+            return None
+        if any(re.search(r"\bmerge_group\b", l) for l in text.splitlines() if not l.lstrip().startswith("#")):
+            return True
+    return False
+
+
 if queue:
     print("queue")
+    if has_merge_group_workflow() is False:
+        print("no-merge-group")
 if strict:
     print("strict")
 PY

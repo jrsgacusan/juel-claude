@@ -358,9 +358,11 @@ approval by default: when the base branch's protection requires one, the row wai
 - **One merge per base at a time**, since two merges on one base race and GitHub refuses the second.
 - **A hosted reviewer that is down** is waited on, never merged past, because it is that project's own bar.
 - **`merge.sh <pr url> --head <sha> --home HOME_DIR --item <item> [--hosted <login>]`** is the only merge, with
-  `--hosted` exactly when the gate got it. It posts `Merging head
-  <sha>: codex PASS, required checks green[, <login> passed].` first and merges with `--match-head-commit`, so a
-  head that moved is GitHub's refusal. `FAIL owner branch <base>` → `set-aside`. `FAIL merge methods: <method>
+  `--hosted` exactly when the gate got it. It merges with `--match-head-commit` (on a base that requires a
+  merge queue, `--auto` with no strategy flag, and never `--admin`) and posts `Merging head
+  <sha>: codex PASS, required checks green[, <login> passed].` once the PR is merged, so a head that
+  moved is GitHub's refusal. On a queue base it prints `QUEUED head=<sha>` until the queue merges the PR,
+  and STAR runs it again each tick. `FAIL owner branch <base>` → `set-aside`. `FAIL merge methods: <method>
   not allowed` and `FAIL settings: <why>` → a `person` item of kind `access`. `PENDING approval` → a `person` item of kind `approval`.
   Every other verdict and line, and what each costs, is in `references/stages.md`.
 
