@@ -196,5 +196,12 @@ hasT "T10c worker_done release failure is replayed" 'When `release` prints `FAIL
 hasT "T11 state.md: babysit never syncs on behind alone" 'never on behind alone, so that pass'
 hasT "T13 the inherited cause needs the worker's NOTE" 'The worker marks such a cause with a line `NOTE: inherited from <base>: <one line>`'
 hasT "T13b without the NOTE STAR does not guess" 'Without that NOTE, STAR does not guess'
+# lane C: the gate facts and the reviews folder (#209, #210, #211)
+hasT "G209 stages.md: only a proven P0 or P1 makes a round NOT SAFE" 'Only a proven `[P0]` or `[P1]` finding makes a round NOT SAFE'
+hasT "G209b stages.md: a finding without an evidence line is unproven and does not block" 'Without an evidence line it stays in the review marked unproven and does not block'
+hasT "G210 stages.md: dismissed findings are recorded and a repeat never blocks" '<item>-dismissed.md` records every finding a `-fix.md` answered with `Disposition:`'
+hasT "G211 stages.md: a small push on a SAFE head is gated as a diff" 'a small push on a SAFE head is reviewed as a diff'
+hasT "G210b state.md lists the dismissed file" '-dismissed.md'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

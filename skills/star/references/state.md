@@ -33,6 +33,7 @@ chat/                   the dashboard's thread, one file per message, never rewr
 items/<project>/        spec items from free text, splits, follow-ups and re-scopes
 briefs/<project>/<item>.md
 reviews/<project>/<item>-r<k>.md       the codex gate's verdict file (first line the verdict), with .raw.md, .log, -fix.md, -carried.md, .run and -error-<n>.log beside it
+reviews/<project>/<item>-dismissed.md the findings a -fix.md dismissed with a Disposition, one line each: `<fp> r<j>#<n> [P<p>] <path>:<line> <title>`
 reviews/<project>/<item>-hosted.log    one line per hosted-reviewer run a babysit worker logged
 reviews/<project>/<item>-hosted-p<n>.md   hosted findings that sent an item to a re-scope
 specs/<project>/<item>-gate-r<k>.md    the gate's prompt (codex-gate.sh)
