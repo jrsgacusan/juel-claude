@@ -416,11 +416,18 @@ answer it in one line and carry on with what you were doing.
 that runs in the background (an executor run, a gate round, the regression gate): STAR appends each
 answer to the brief's `## Decisions`, then sends it as a message this session only sees between
 steps. So after every background step returns, before choosing the next step, re-read the brief's
-`## Decisions` and run `orca orchestration check --unread --json`. A decision that is new since the
-last check overrides the next step this file prescribes: apply it, say so in one terminal line, and
-never escalate what it settles. Read messages only with `--unread --json` (or `--peek --json` to
-look without consuming them). A plain `orca orchestration check` prints only the subjects and still
-marks them read; if that happened, run `orca orchestration check --all --json` and read the bodies.
+`## Decisions` and run `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --unread --json`
+(Orca resolves a dispatched worker's mailbox only from its own terminal handle, so name it). A decision
+that is new since the last check overrides the next step this file prescribes: apply it, say so in one
+terminal line, and never escalate what it settles.
+Read messages only with `--terminal "$ORCA_TERMINAL_HANDLE" --unread --json` (or
+`--terminal "$ORCA_TERMINAL_HANDLE" --peek --json` to look without consuming them).
+A plain `orca orchestration check` prints only the subjects and still
+marks them read; if that happened,
+run `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json` and read the bodies.
+Act on each message once: before acting on one, look for its id in `<star.home>/progress/<item>.log`
+and skip it when the id is there; after acting, append `<iso> message <id>` to that log. Orca has been
+seen to return a message it already delivered (#213), so `--unread` alone does not make a message new.
 
 **Resume on an existing draft PR.** A build whose branch already carries the item's draft PR (a
 re-scope, a report STAR could not check, an item STAR moved from v1 in the middle of its review)
