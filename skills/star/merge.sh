@@ -4,6 +4,13 @@
 # Prints one line and exits 0:
 #   MERGED <merge commit sha>
 #   DRY-RUN <method> <sha>   with --dry-run: everything checked, nothing posted or merged
+#   QUEUED head=<sha>[ warn=no-merge-group]
+#                            the base requires a merge queue (review-rule.sh prints queue) and the PR
+#                            is in it or set to enter it (#212); nothing is merged yet. Ask again
+#                            later: the next run prints QUEUED again, MERGED once GitHub says
+#                            merged, or FAIL merge: left the merge queue: <reason>. warn= says no
+#                            workflow at the base has a merge_group trigger, so required checks
+#                            never report in the queue
 #   PENDING check <name> not reported
 #                            GitHub refused the merge with an error that has "required status
 #                            check" and "expected" in it (any case): a required check has not
@@ -39,7 +46,16 @@
 # "Merging head <sha>:", and a refused merge never leaves one (#193). A comment that fails after the
 # merge prints MERGED all the same, with "merge.sh: comment failed: <why>" on stderr.
 # The merge is gh pr merge --<method> --match-head-commit <sha>, so GitHub itself refuses when the
-# head moved. One exception: a PR whose mergeStateStatus is BEHIND, on a base for which
+# head moved. review-rule.sh runs for every merge. On a base that requires a merge queue (#212) the
+# call is gh pr merge --auto --match-head-commit <sha> with no strategy flag (the manual: on a queue
+# base no strategy is needed; with checks still pending auto-merge is enabled, with checks passed the
+# PR joins the queue; only --admin bypasses it, and merge.sh never passes --admin). Before the call
+# it reads the PR and its queue entry (GraphQL mergeQueueEntry, autoMergeRequest, the newest
+# RemovedFromMergeQueueEvent): merged is MERGED (the merge comment is posted then, if the PR has none
+# for this head), closed or removed from the queue on this head is "FAIL merge: left the merge queue:
+# <reason>", a different head is FAIL head moved, an entry or auto-merge already set is QUEUED with no
+# second call, and an entry that cannot be read is FAIL merge. No BEHIND rule applies on a queue base:
+# the queue tests base plus PR, so the PR is never synced. The other exception: a PR whose mergeStateStatus is BEHIND, on a base for which
 # review-rule.sh (babysit-pr) prints none of strict, unknown and queue, is merged through
 # gh api -X PUT repos/<repo>/pulls/<n>/merge -f sha=<head> -f merge_method=<method>, since gh pr
 # merge refuses BEHIND before it asks GitHub. GitHub still refuses a moved head there (409).
@@ -248,9 +264,51 @@ def rest_merge_allowed():
     pre = as_json(run(["gh", "pr", "view", pr, "--json", "headRefOid,mergeStateStatus"], 60)) or {}
     if str(pre.get("mergeStateStatus") or "").upper() != "BEHIND":
         return False
-    rule = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh"), url.group(1), base], 120)
-    words = {l.split()[0] for l in (rule.stdout or "").splitlines() if l.split()}
-    return rule.returncode == 0 and not words & {"strict", "queue", "unknown"}
+    return rule_ok and not rule_words & {"strict", "queue", "unknown"}
+
+
+# What the base's rules say, read for every merge (#212): review-rule.sh prints "queue" when the base
+# requires a merge queue, and "no-merge-group" after it when no workflow has a merge_group trigger.
+rule = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh"), url.group(1), base], 120)
+rule_ok = rule.returncode == 0
+rule_words = {l.split()[0] for l in (rule.stdout or "").splitlines() if l.split()}
+on_queue = rule_ok and "queue" in rule_words
+QUEUE_QUERY = ("query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){"
+               "state headRefOid mergeStateStatus mergeCommit{oid} autoMergeRequest{enabledAt} mergeQueueEntry{state} "
+               "timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{"
+               "... on RemovedFromMergeQueueEvent{reason beforeCommit{oid}}}}}}}")
+
+
+def queue_check():
+    """On a queue base, before any merge call: MERGED, a failure, or QUEUED when the PR is already
+    in the queue or set to enter it (a later run of a PR queued earlier). Falls through to the merge
+    call when the PR is neither. The queue tests base plus PR, so nothing here syncs the base in."""
+    owner, name = url.group(1).split("/")
+    r = run(["gh", "api", "graphql", "-f", f"query={QUEUE_QUERY}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"p={number}"], 60)
+    try:
+        node = json.loads(r.stdout)["data"]["repository"]["pullRequest"] if r.returncode == 0 else None
+    except (ValueError, KeyError, TypeError):
+        node = None
+    if not isinstance(node, dict):
+        out("FAIL merge: " + (first(r) if r.returncode else "unreadable queue entry"))
+    state_now = str(node.get("state") or "").upper()
+    if state_now == "MERGED":
+        post_comment()
+        out("MERGED " + ((node.get("mergeCommit") or {}).get("oid") or "unknown"))
+    if state_now == "CLOSED":
+        out("FAIL merge: left the merge queue: the PR is closed")
+    if str(node.get("headRefOid") or "").lower() not in ("", head):
+        out("FAIL head moved")
+    if node.get("mergeQueueEntry") or node.get("autoMergeRequest"):
+        out(queued_line())
+    nodes = ((node.get("timelineItems") or {}).get("nodes") or [])
+    for event in reversed([n for n in nodes if isinstance(n, dict)]):
+        if str(((event.get("beforeCommit") or {}).get("oid") or "")).lower() == head:
+            out("FAIL merge: left the merge queue: " + (str(event.get("reason") or "").splitlines() or ["no reason given"])[0][:120])
+
+
+def queued_line():
+    return f"QUEUED head={head}" + (" warn=no-merge-group" if "no-merge-group" in rule_words else "")
 
 
 def error_text(proc):
@@ -266,8 +324,14 @@ def error_text(proc):
     return (proc.stderr or "") + out_text
 
 
-via_rest = rest_merge_allowed()
-if via_rest:
+via_rest = False
+if on_queue:
+    queue_check()
+    # No strategy: the queue picks the merge method from the ruleset. --auto sets the PR to enter
+    # the queue once its required checks pass, or enters it now when they have. Never --admin.
+    mg = run(["gh", "pr", "merge", pr, "--auto", "--match-head-commit", head], 300)
+elif rest_merge_allowed():
+    via_rest = True
     mg = run(["gh", "api", "-X", "PUT", f"repos/{url.group(1)}/pulls/{number}/merge", "-f", f"sha={head}", "-f", f"merge_method={method}"], 300)
 else:
     mg = run(["gh", "pr", "merge", pr, f"--{method}", "--match-head-commit", head], 300)
@@ -292,11 +356,13 @@ if mg.returncode != 0:
         out("FAIL head moved")
     if via_rest and re.search(r"HTTP (422|403|429)|rate limit", said, re.I):
         out("FAIL merge: " + first(mg))
-    if merge_state == "BEHIND":
+    if merge_state == "BEHIND" and not on_queue:
         out("PENDING merge state: behind the base branch")
     if merge_state == "DIRTY" or re.search(r"merge conflict|conflicts? with", said, re.I):
         out("FAIL merge: conflicts with the base")
     out("FAIL merge: " + first(mg))
+if on_queue and state == "OPEN":
+    out(queued_line())
 if not state:
     unknown("the merge call worked but GitHub does not say what became of the PR")
 out(f"FAIL merge: GitHub says {state} after the merge call")

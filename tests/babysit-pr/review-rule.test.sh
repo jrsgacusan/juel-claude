@@ -15,6 +15,8 @@ printf '%s\n' "$*" >> "$STUB_DIR/calls"
 case "$*" in
   *"/rules/branches/"*) f=rules ;;
   *"/protection"*) f=protection ;;
+  *"/contents/.github/workflows/"*) n=${2##*/workflows/}; n=${n%%\?*}; f="wf-$n" ;;
+  *"/contents/.github/workflows"*) f=workflows ;;
   *) echo "unexpected gh call: $*" >&2; exit 9 ;;
 esac
 if [ -f "$STUB_DIR/$f.err" ]; then cat "$STUB_DIR/$f.err" >&2; exit 1; fi
@@ -22,7 +24,7 @@ cat "$STUB_DIR/$f.json"
 EOF
 chmod +x "$TMP/bin/gh"; ln -s "$(command -v python3)" "$TMP/bin/python3"
 # by default: no rulesets, and classic protection is not readable (404), as for most callers
-reset() { rm -f "$TMP"/rules.* "$TMP"/protection.* "$TMP/calls"; printf '[]\n' > "$TMP/rules.json"; printf 'gh: Not Found (HTTP 404)\n' > "$TMP/protection.err"; }
+reset() { rm -f "$TMP"/rules.* "$TMP"/protection.* "$TMP"/workflows.* "$TMP"/wf-* "$TMP/calls"; printf 'gh: HTTP 502\n' > "$TMP/workflows.err"; printf '[]\n' > "$TMP/rules.json"; printf 'gh: Not Found (HTTP 404)\n' > "$TMP/protection.err"; }
 R() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" sh "$SCRIPT" "$@"; }
 
 reset
@@ -80,6 +82,30 @@ reset; printf '[{"type":"required_status_checks","parameters":{"strict_required_
 # #193: a merge_queue rule prints queue, before strict
 reset; printf '[{"type":"merge_queue","parameters":{}},{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]\n' > "$TMP/rules.json"
 [ "$(R o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "a merge queue rule prints queue before strict" || fail "queue ($(R o/r main))"
+# #212: on a queue base, no-merge-group when no workflow at the base declares a merge_group trigger
+QUEUE_RULES='[{"type":"merge_queue","parameters":{}},{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[{"context":"ci"}]}}]'
+wf() { # wf <name> <yaml text>: a workflow file at the base, as the contents API returns it
+  rm -f "$TMP/workflows.err"
+  if [ -f "$TMP/workflows.json" ]; then python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d.append({"name":sys.argv[2],"type":"file"}); json.dump(d,open(sys.argv[1],"w"))' "$TMP/workflows.json" "$1"
+  else printf '[{"name":"%s","type":"file"}]\n' "$1" > "$TMP/workflows.json"; fi
+  printf '{"content":"%s","encoding":"base64"}\n' "$(printf '%s' "$2" | base64 | tr -d '\n')" > "$TMP/wf-$1.json"
+}
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"
+[ "$(R o/r main | tr '\n' ' ')" = "none check ci queue no-merge-group strict " ] && pass "#212 a queue base with no merge_group workflow prints no-merge-group, between queue and strict" || fail "#212 no-merge-group ($(R o/r main))"
+grep -q 'repos/o/r/contents/.github/workflows?ref=main' "$TMP/calls" && pass "#212 the workflows are read at the base" || fail "#212 workflows call ($(cat "$TMP/calls"))"
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"; wf queue.yaml "$(printf 'on:\n  merge_group:\n    types: [checks_requested]\n')"
+[ "$(R o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "#212 a merge_group trigger in any workflow file prints no warning" || fail "#212 merge_group ($(R o/r main))"
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on: [push, merge_group]\n')"
+[ "$(R o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 the inline list form counts" || fail "#212 inline list"
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  push:\n# merge_group: later\n')"
+[ "$(R o/r main | grep -c no-merge-group)" = 1 ] && pass "#212 a commented-out trigger does not count" || fail "#212 comment"
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"
+[ "$(R o/r main | tr '\n' ' ')" = "none check ci queue strict " ] && pass "#212 workflows that cannot be read print nothing extra" || fail "#212 unreadable ($(R o/r main))"
+reset; printf '%s\n' "$QUEUE_RULES" > "$TMP/rules.json"; wf ci.yml "$(printf 'on:\n  pull_request:\n')"; printf 'gh: HTTP 502\n' > "$TMP/wf-ci.yml.err"; rm -f "$TMP/wf-ci.yml.json"
+[ "$(R o/r main | grep -c no-merge-group)" = 0 ] && pass "#212 a workflow file that cannot be read prints nothing extra" || fail "#212 unreadable file"
+reset; printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[]}}]\n' > "$TMP/rules.json"; wf ci.yml "x"
+R o/r main >/dev/null; ! grep -q 'contents' "$TMP/calls" && pass "#212 a base with no queue reads no workflows" || fail "#212 read workflows without a queue"
+
 reset; printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[]}}]\n' > "$TMP/rules.json"
 R o/r main | grep -qx queue && fail "queue printed with no merge_queue rule" || pass "no merge_queue rule prints no queue"
 
