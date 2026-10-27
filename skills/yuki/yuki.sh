@@ -38,9 +38,12 @@
 #   yuki.sh [--home H] nudge [<item> ...]        read each running row's terminal (default: every one with a
 #                                                terminal) and look at the last dialog on its rendered screen;
 #                                                at most one line per item, nothing when there is no dialog:
-#       nudged <item> permission: <command>      a Bash permission prompt whose command is read-only (the
-#                                                allowlist in read_only()): the screen is read again and, only
-#                                                when the same dialog is still last, Enter is sent once
+#       nudged <item> permission: <command>      a Bash permission prompt whose command is one screen row, not
+#                                                reaching the box's right edge, and read-only (the allowlist in
+#                                                read_only(): plain words only, no path outside the worktree, no
+#                                                jq or awk, git with no option but --no-pager): the screen is
+#                                                read again and, only when the same dialog is still last, Enter
+#                                                is sent once (a failing re-read: "unknown <item> <why>")
 #       nudged <item> trust|bypass dialog        Claude Code's folder-trust or bypass-permissions dialog on its
 #                                                "No, exit" default: Down, then Enter, once
 #       prompt <item> new <kind>: <text>         any other dialog, the first tick: kind is permission (a command
@@ -653,44 +656,50 @@ def fresh(numbers):
 # --- nudge (#214): answer what a person need not answer, report the rest ---
 READ_ONLY = {"ls", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "rg", "find", "sed", "awk", "sort",
              "uniq", "cut", "tr", "file", "stat", "du", "df", "pwd", "echo", "printf", "which", "type",
-             "command", "test", "[", "realpath", "readlink", "dirname", "basename", "date", "jq", "tree",
+             "command", "test", "realpath", "readlink", "dirname", "basename", "date", "tree",
              "diff", "cmp", "git"}
 GIT_READ_ONLY = {"status", "log", "diff", "show", "rev-parse", "ls-files", "ls-tree", "blame", "grep", "cat-file",
                  "branch", "describe", "merge-base"}
 GIT_BRANCH_FLAGS = {"-a", "-r", "-v", "-vv", "--all", "--remotes", "--verbose", "--show-current", "--list"}
 
 
+SAFE_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./:@%+,=*?~-")
+
+
 def shell_parts(command):
-    """The simple commands of a line split on | & ; and newlines outside quotes, or None when it holds a
-    redirection outside quotes, a command substitution or a backtick anywhere, or an open quote."""
-    parts, cur, quote, i = [], [], None, 0
-    while i < len(command):
-        c = command[i]
-        if c == "\\" and quote != "'" and i + 1 < len(command):
-            cur.append(command[i:i + 2])
-            i += 2
-            continue
-        if quote:
-            if c == quote:
+    """The simple commands of a line split on | & and ;, or None when it holds anything the shell could read
+    as more than plain words: outside single quotes only SAFE_CHARS, spaces and the separators; inside
+    double quotes SAFE_CHARS, spaces and a single quote (so never $, a backslash or a backtick); an open
+    quote. Single-quoted text is literal, so it may hold anything."""
+    parts, cur, quote = [], [], None
+    for c in command:
+        if quote == "'":
+            quote = None if c == "'" else quote
+        elif quote == '"':
+            if c == '"':
                 quote = None
-            elif c == "`" or (c == "$" and command[i + 1:i + 2] == "("):
+            elif c not in SAFE_CHARS and c not in " '":
                 return None
-            cur.append(c)
         elif c in "'\"":
             quote = c
-            cur.append(c)
-        elif c == "`" or (c == "$" and command[i + 1:i + 2] == "(") or c in "<>":
-            return None
-        elif c in "|&;\n":
+        elif c in "|&;":
             parts.append("".join(cur))
             cur = []
-        else:
-            cur.append(c)
-        i += 1
+            continue
+        elif c not in SAFE_CHARS and c != " ":
+            return None
+        cur.append(c)
     if quote:
         return None
     parts.append("".join(cur))
     return [p.strip() for p in parts if p.strip()]
+
+
+def reaches_outside(word):
+    """A word that names a path outside the worktree: absolute, home-relative or holding .. . An option's
+    name is stripped first, so -f/x and --file=/x count."""
+    m = re.match(r"--?[A-Za-z][A-Za-z0-9-]*=?", word)
+    return (word[m.end():] if m else word).startswith(("/", "~")) or ".." in word
 
 
 def sed_script_ok(script):
@@ -782,13 +791,6 @@ def sed_ok(args):
     return not expect and bool(scripts) and all(sed_script_ok(sc) for sc in scripts)
 
 
-def awk_ok(args):
-    for a in args:
-        if re.search(r"system|>|\||getline", a) or re.match(r"-(f|i|l)|--(file|include|load|source)", a):
-            return False
-    return True
-
-
 def read_only(command):
     """(True, "") when every part of the command is on the allowlist, else (False, why). A deterministic
     rule, never a judgement over screen text."""
@@ -805,11 +807,13 @@ def read_only(command):
         prog, args = words[0], words[1:]
         if "sudo" in words:
             return False, "sudo"
+        if any(reaches_outside(w) for w in args):
+            return False, "a path outside the worktree"
         if prog not in READ_ONLY:
             return False, f"{prog} is not on the list"
         if prog == "git":
-            while args[:1] == ["--no-pager"] or (args[:1] == ["-C"] and len(args) > 1):
-                args = args[2:] if args[0] == "-C" else args[1:]
+            if args[:1] == ["--no-pager"]:
+                args = args[1:]
             if not args or args[0] not in GIT_READ_ONLY:
                 return False, "git subcommand"
             sub, args = args[0], args[1:]
@@ -826,9 +830,6 @@ def read_only(command):
         elif prog == "sed":
             if not sed_ok(args):
                 return False, "sed"
-        elif prog == "awk":
-            if not awk_ok(args):
-                return False, "awk"
         elif prog == "sort":
             if any(re.match(r"-[A-Za-z]*o|--output|--compress-program", a) for a in args):
                 return False, "sort output"
@@ -859,6 +860,25 @@ OPT_ROW = r"^(❯\s*)?(\d+)\.\s+(\S.*)$"
 MAX_BELOW = 8  # a live dialog is at the bottom of the screen: footer rows only below its options
 
 
+class Rows(list):
+    """The rendered rows with the box borders stripped; raw keeps them, for the width of the dialog's box."""
+    raw = ()
+
+
+# a command row this close to the box's right edge may be one row of a wrapped command: the renderer breaks
+# at the last space that fits, so the next word can be as long as this
+WRAP_SLACK = 20
+
+
+def command_row_fits(rows, header, row):
+    """True when the command row stops well short of the dialog's right edge, so it is not a wrapped row. The
+    edge is the text width of the box whose top border is above the Bash command header, or, with no border,
+    the longest row of the dialog."""
+    border = next((r.strip() for r in reversed(rows.raw[:header]) if re.fullmatch(r"[╭┌]─+[╮┐]", r.strip())), None)
+    width = len(border) - 4 if border else max(len(r) for r in rows[header:])
+    return len(row) <= width - WRAP_SLACK
+
+
 def clean_text(text, limit):
     return " ".join(text.split())[:limit]
 
@@ -881,7 +901,9 @@ def read_screen(handle):
         return None, "terminal cannot be read"
     if term.get("source", "screen") != "screen":
         return None, "no rendered screen"
-    return [str(l).strip(BOXCHARS) for l in tail], None
+    rows = Rows(str(l).strip(BOXCHARS) for l in tail)
+    rows.raw = [str(l) for l in tail]
+    return rows, None
 
 
 def find_dialog(rows):
@@ -932,12 +954,15 @@ def find_dialog(rows):
         if header is not None and not any(re.search(Q_ROW, rows[k], re.IGNORECASE) or re.match(OPT_ROW, rows[k])
                                           for k in range(header + 1, ask)):
             shown = [r for r in rows[header + 1:ask] if r]
-            if len(shown) >= 2:
-                description, command = shown[-1], " ".join(shown[:-1])
+            if len(shown) == 2:
+                # one command row and its description. A command on more rows is told to a person, whole:
+                # its second row could be anything that looks like a description
+                command, description = shown
                 plain = (len(description.split()) >= 2 and not description.startswith("-")
                          and not re.search(r"[|&;<>$`\\{}]", description))
-                ok = plain and read_only(command)[0]
-                return {"kind": "permission", "text": clean_text(command, 2000), "auto": "enter" if ok else None}
+                if plain and command_row_fits(rows, header, command):
+                    ok = read_only(command)[0]
+                    return {"kind": "permission", "text": clean_text(command, 2000), "auto": "enter" if ok else None}
             if shown:
                 return {"kind": "permission", "text": clean_text(" ".join(shown), 2000), "auto": None}
         return {"kind": "dialog", "text": clean_text(question, 400), "auto": None}
@@ -986,7 +1011,10 @@ def nudge(names):
         log = None
         if dialog["auto"] == "enter":
             again, why = read_screen(handle)
-            same = find_dialog(again) if again else None
+            if again is None:
+                out.append(f"unknown {item} {why}")
+                continue
+            same = find_dialog(again)
             if not (same and same["kind"] == dialog["kind"] and same["text"] == dialog["text"] and same["auto"]):
                 continue
             if not send_keys(handle, "enter"):
