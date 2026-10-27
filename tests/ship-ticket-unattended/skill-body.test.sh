@@ -206,7 +206,7 @@ g "L81c a resumed build's plan carries one" 'spec implemented at <the branch hea
 g "L81d the in-session run is told the Base line wins" "The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness."
 g "L78d the gate loop runs the scope check" "(Phase 4's line, its session tasks, its capacity rule and its scope check)"
 g "L83a decisions are read after every background step" 'after every background step returns, before choosing the next step'
-g "L83b through orca's unread messages" 'orca orchestration check --unread --json'
+g "L83b through orca's unread messages, naming the worker's own terminal (#213)" 'orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json'
 g "L89a the gate lock line takes the progress log" '[--progress <star.home>/progress/<item>.log]'
 g "L89b never inside a plan the executor runs" 'Never put `--progress` in a plan the executor runs'
 g "L89c the progress row says gate-lock writes the wait" '`gate-lock.sh --progress` writes this step itself every 10 minutes'
@@ -247,10 +247,14 @@ g "L105f the resolution sentence is unchanged" 'it must not install or run'
 g "L105g exit 71 for missing dependencies installs once, then reruns" '`dependencies are not installed`: run the resolved `commands.install` once (Phase 4'"'"'s'
 g "L105h a second 71 is step=review-tool" 'a second 71 is `step=review-tool`'
 g "L105i the escalation list names the failed install" 'dependency install failed (Phase 4'"'"'s "Dependencies")'
-g "L99a messages are read only with --unread --json or --peek --json" 'Read messages only with `--unread --json` (or `--peek --json` to'
+g "L99a messages are read only with --unread --json or --peek --json, each with --terminal" 'Read messages only with `${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json` (or'
+g "L99a2 the peek variant names the terminal too" '`${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --peek --json` to look without consuming them)'
 g "L99b a plain check prints only subjects and marks them read" 'A plain `orca orchestration check` prints only the subjects and still'
-g "L99c a consumed body is read back with --all --json" 'run `orca orchestration check --all --json` and read the bodies.'
-grep -oE 'orchestration check( --?[a-z-]+)+' "$SKILL" | grep -vqF -- '--json' && fail "L99d every orchestration check with flags carries --json" || pass "L99d every orchestration check with flags carries --json"
+g "L99c a consumed body is read back with --all --json" 'run `orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --all --json` and read the bodies.'
+grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--json' && fail "L99d every orchestration check with flags carries --json" || pass "L99d every orchestration check with flags carries --json"
+grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"}' && fail "#213 every orchestration check names --terminal" || pass "#213 every orchestration check names --terminal"
+g "#213 a message is acted on once, by its id in the progress log" 'Act on each message once'
+g "#213 the id is appended after acting" '<iso> message <id>'
 g "L106a an outside-merged path is never restored" 'An `outside-merged <path>` line is never restored'
 g "L106b restoring it would drop the base's change" 'restoring it from that sha would drop the base'"'"'s'
 g "L106c it is reported with a fixed NOTE" 'report every such path in one fixed line, `NOTE: scope outside-merged <path>[, <path> ...]`'
@@ -417,6 +421,18 @@ has "RF2k the screen lock shares the gate lock's label" 'there it is `--holder "
 has "RF2l two projects may each have an issue-12 (screen)" 'two projects may each have an `issue-12`, and one label must name one holder'
 has "RF2m an inherited defect adds a NOTE" 'NOTE: inherited from <base>: <one line>'
 has "RF2n the inherited NOTE is the report's one own NOTE" 'it is the report'"'"'s one `NOTE` of your own'
+
+# lane C: the codex gate's evidence line, dismissed findings and diff re-gate (#209, #210, #211)
+has "E209i the loop runs each finding's evidence line before accepting it" "Run each finding's evidence line first"
+has "E209j a command that does not show the defect, or a passing test, is a Disposition" "a command whose output does not show the defect, or a test that passes, is a \`Disposition:\` with that output as the reason"
+has "E209k unproven findings and the unproven= count on the verdict line" 'A finding marked `(unproven: no evidence, does not block)` never counts, and `unproven=<n>` on the verdict line counts them'
+has "D210j the -fix.md has one numbered line per finding" 'one line per blocking finding of that round, numbered as in `<item>-r<k>.md`: `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`'
+has "D210k a dismissed finding is not raised again" 'a finding a `Disposition:` line answered goes to `<item>-dismissed.md`, and a later round marks a repeat of it `(repeat of r<j>#<n>, dismissed)`'
+has "F3a the evidence command runs only when it is read-only" 'Run it only when it is read-only'
+has "F3b any other command is not run, and why" 'Any other command is not run'
+has "F3c a finding that did not block needs no line" 'needs no line; when it gets one it is `<n>. Not blocking.`, and the gate never records it'
+has "F3d a repeat is the same unchanged place" 'a repeat is a finding on the same path, within 10 lines, whose cited line has the same text'
+has "R211i the gate reviews a small push on a SAFE head as a diff" 'a small push on a SAFE head is reviewed as a diff, and the review file ends `scope diff from <sha>` or `scope full since <sha>`'
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

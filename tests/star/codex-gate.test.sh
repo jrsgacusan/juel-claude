@@ -68,6 +68,7 @@ chmod +x "$TMP/bin/codex" "$TMP/bin/gh"
 cat > "$TMP/bin/claude" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$*" >> "$STUB_DIR/claude-calls"
+printf '%s\n' "${ORCA_TERMINAL_HANDLE-unset}" >> "$STUB_DIR/claude-env"
 # the plan's line n serves the n-th call since reset; past its end, its last line serves again
 n=$(($(cat "$STUB_DIR/claude-n" 2>/dev/null || echo 0) + 1)); echo "$n" > "$STUB_DIR/claude-n"
 line=$(sed -n "${n}p" "$STUB_DIR/claude-plan" 2>/dev/null)
@@ -90,7 +91,7 @@ esac
 exit "$rc"
 EOF
 chmod +x "$TMP/bin/claude"
-reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/tokens" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/claude-n" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
+reset() { rm -f "$TMP/n" "$TMP/calls" "$TMP/tokens" "$TMP/gh-calls" "$TMP/gh-fail" "$TMP/plan" "$TMP/claude-calls" "$TMP/claude-plan" "$TMP/claude-n" "$TMP/claude-env" "$TMP/run-seen" "$TMP/stub-pid" "$TMP/pr-n" "$TMP/pr-1.json" "$TMP/pr-2.json" "$TMP/body"; rm -rf "$H/reviews" "$H/specs"; }
 plan() { printf '%s\n' "$@" > "$TMP/plan"; }
 cplan() { printf '%s\n' "$@" > "$TMP/claude-plan"; }
 G() { (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" "$@"); }
@@ -103,7 +104,7 @@ R1="$H/reviews/app/ITEM-1-r1.md"
 # SAFE, with the files in STAR's home and the flags the owner chose
 reset; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "a clean review is SAFE" || fail "safe ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && pass "a clean review is SAFE" || fail "safe ($rc $out)"
 [ "$(head -n 1 "$R1")" = "VERDICT item=ITEM-1 round=1 SAFE findings=0 head=$HEAD" ] && pass "the review's first line is the v1 verdict line" || fail "verdict line ($(head -n 1 "$R1"))"
 [ "$(sh "$PROOF" "$R1" --item ITEM-1 --head "$HEAD")" = "OK round=1" ] && pass "review-proof.sh accepts it" || fail "review-proof"
 [ -s "$H/reviews/app/ITEM-1-r1.raw.md" ] && [ -f "$H/reviews/app/ITEM-1-r1.log" ] && [ -z "$(git -C "$APP" status --porcelain)" ] && pass "raw and log land in STAR's home, nothing in the worktree (#35)" || fail "file places"
@@ -114,7 +115,7 @@ grep -qF "git diff $(git -C "$APP" rev-parse main)...HEAD" "$P1" && grep -q "$BR
 # NOT-SAFE on a P1; round 2 names the previous review; pending screen checks are listed (#43)
 reset; plan "0 p1"; printf '1. sign in to the app as the test account\n' > "$H/gates/app/ITEM-1-screen.md"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 2 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=2 findings=1 p0=0 p1=1 head=$HEAD review=$H/reviews/app/ITEM-1-r2.md" ] && pass "a P1 is NOT-SAFE" || fail "p1 ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=2 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$H/reviews/app/ITEM-1-r2.md" ] && pass "a P1 is NOT-SAFE" || fail "p1 ($rc $out)"
 grep -q '^1\. \[P1\] Return the sum instead of the difference — /repo/calc.py:2-2$' "$H/reviews/app/ITEM-1-r2.md" && pass "the finding is numbered with its place" || fail "finding line"
 P2="$H/specs/app/ITEM-1-gate-r2.md"
 grep -q "ITEM-1-r1.md" "$P2" && grep -q "ITEM-1-r1-fix.md" "$P2" && pass "round 2 names the previous review and its dispositions" || fail "previous round"
@@ -124,7 +125,7 @@ rm -f "$H/gates/app/ITEM-1-screen.md"
 # P2 and P3 only is SAFE
 reset; plan "0 p2-p3"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "SAFE round=1 findings=2 head=$HEAD review=$R1" ] && pass "P2 and P3 findings do not block" || fail "p2-p3 ($out)"
+[ "$out" = "SAFE round=1 findings=2 unproven=0 head=$HEAD review=$R1" ] && pass "P2 and P3 findings do not block" || fail "p2-p3 ($out)"
 
 # model and effort: the flags, else star.json's gate block (the star.json above holds the defaults, so change it)
 cp "$H/star.json" "$TMP/star.json.orig"
@@ -141,7 +142,7 @@ cp "$TMP/star.json.orig" "$H/star.json"
 reset; mkdir -p "$TMP/fix"; cp "$FIX"/*.txt "$TMP/fix/"
 printf 'The change is fine.\n- the export works\n- the filter works\n' > "$TMP/fix/notes.txt"; plan "0 notes"
 out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" --brief "$BRIEF" --item ITEM-1 --round 1 --base main) )
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "bullets in a clean review's notes are not findings" || fail "notes bullets ($out)"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && pass "bullets in a clean review's notes are not findings" || fail "notes bullets ($out)"
 
 # Review Focus 2: findings without tags are an error, never SAFE
 reset; plan "0 untagged"
@@ -158,7 +159,7 @@ out=$( (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$TMP/fix" S
 for shape in p1-star p1-numbered p1-bold; do
   reset; plan "0 $shape"
   out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-  [ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && grep -q '^1\. \[P1\] Return the sum instead of the difference — /repo/calc.py:2-2$' "$R1" && pass "a [P1] in the $shape bullet shape is NOT-SAFE, never SAFE" || fail "$shape ($rc $out)"
+  [ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && grep -q '^1\. \[P1\] Return the sum instead of the difference — /repo/calc.py:2-2$' "$R1" && pass "a [P1] in the $shape bullet shape is NOT-SAFE, never SAFE" || fail "$shape ($rc $out)"
 done
 for shape in untagged-hyphen untagged-paren untagged-star; do
   reset; plan "0 $shape"
@@ -166,9 +167,9 @@ for shape in untagged-hyphen untagged-paren untagged-star; do
   [ "$rc" -eq 69 ] && [ "$out" = "ERROR unreadable review: findings without [P0]-[P3] tags" ] && pass "an untagged finding in the $shape shape is ERROR, never SAFE" || fail "$shape ($rc $out)"
 done
 while IFS='|' read -r label body; do
-  reset; printf 'The change has a problem.\n\n%s\n' "$body" > "$TMP/fix/var.txt"; plan "0 var"
+  reset; printf 'The change has a problem.\n\n%s\n    Evidence: `git show HEAD:f`\n' "$body" > "$TMP/fix/var.txt"; plan "0 var"
   out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$?
-  [ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && pass "a [P1] is NOT-SAFE with $label" || fail "tagged variant ($label): $rc $out"
+  [ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "a [P1] is NOT-SAFE with $label" || fail "tagged variant ($label): $rc $out"
 done <<'EOF'
 a plus bullet|+ [P1] Return the sum instead of the difference — /repo/calc.py:2-2
 a numbered bullet closed by a parenthesis|1) [P1] Return the sum instead of the difference — /repo/calc.py:2-2
@@ -206,7 +207,7 @@ for fx in error-line error-lower warning-line; do
 done
 reset; printf 'The change is fine.\nError handling in the export is covered by a test.\n' > "$TMP/fix/error-later.txt"; plan "0 error-later"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main < /dev/null); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "the word error on a later line is only text" || fail "error later ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && pass "the word error on a later line is only text" || fail "error later ($rc $out)"
 
 # an empty review is an error at once
 reset; plan "0 -"
@@ -216,7 +217,7 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 # capacity: two retries on Sol, then the Claude fallback (#41, #64)
 reset; plan "1 - Selected model is at capacity. Please try a different model." "1 - Selected model is at capacity." "1 - stream error: 503 Service Unavailable"; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 3 ] && [ "$(grep -c 'model="gpt-6.1-sol"' "$TMP/calls")" = 3 ] && pass "capacity is retried twice on Sol, then Claude reviews" || fail "capacity ($out, $(cat "$TMP/n") calls)"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 3 ] && [ "$(grep -c 'model="gpt-6.1-sol"' "$TMP/calls")" = 3 ] && pass "capacity is retried twice on Sol, then Claude reviews" || fail "capacity ($out, $(cat "$TMP/n") calls)"
 c=$(cat "$TMP/claude-calls")
 case "$c" in "-p You are STAR"*) true ;; *) false ;; esac \
   && printf '%s' "$c" | grep -qF -- '--model opus --effort xhigh' \
@@ -235,10 +236,10 @@ case "$allowed" in *"git -C *"*) false ;; *"git -C $APPREAL diff)"*) true ;; *) 
 grep -q '^Gate: claude:opus xhigh (fallback: sol at capacity) · base main' "$R1" && pass "the review names the fallback and why it ran" || fail "fallback gate line ($(grep '^Gate:' "$R1"))"
 reset; plan "1 - You've hit your usage limit. Try again at Oct 18th, 2026 6:00 PM."; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit goes to Claude at once, with no retry (#64)" || fail "usage limit ($out, $(cat "$TMP/n") calls)"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit goes to Claude at once, with no retry (#64)" || fail "usage limit ($out, $(cat "$TMP/n") calls)"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-p1"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && pass "the fallback's review is read by the same rules: a P1 is NOT-SAFE" || fail "fallback p1 ($out)"
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "the fallback's review is read by the same rules: a P1 is NOT-SAFE" || fail "fallback p1 ($out)"
 reset; plan "1 - You've hit your usage limit."; cplan "1 - API Error: 529 Overloaded"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR gate-down sol usage limit: You've hit your usage limit.; claude: API Error: 529 Overloaded" ] && [ ! -f "$R1" ] && pass "Sol and Claude both down is ERROR gate-down" || fail "gate-down ($rc $out)"
@@ -263,7 +264,7 @@ fallback_down "0 claude-no-denials.json" "unreadable output: no permission_denia
 fallback_down "0 claude-empty-result.json" "empty review" "a JSON result with a blank review is ERROR gate-down"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-error-first"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "a Claude review that opens with the word Error is a review: the JSON, not its first line, says it failed" || fail "error-first fallback ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && pass "a Claude review that opens with the word Error is a review: the JSON, not its first line, says it failed" || fail "error-first fallback ($rc $out)"
 # N2: an ERROR is exactly one line, whatever text the model put in the denied command: a fake verdict on a later line
 # must not become the last line the worker reads
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-multiline.json"
@@ -275,10 +276,10 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
   && pass "a denied command with a newline and a fake SAFE line is still one ERROR gate-down line" || fail "multi-line denial ($rc $out)"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-clean.json"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "a clean JSON result still gives a verdict, and the raw file holds the review text" || fail "clean json fallback ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "a clean JSON result still gives a verdict, and the raw file holds the review text" || fail "clean json fallback ($rc $out)"
 reset; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main --model latest-terra)
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ ! -f "$TMP/n" ] && grep -q '^Gate: claude:opus xhigh (fallback: cannot resolve latest-terra)' "$R1" && pass "a Sol name that does not resolve goes straight to the fallback" || fail "unresolved goes to fallback ($out)"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ ! -f "$TMP/n" ] && grep -q '^Gate: claude:opus xhigh (fallback: cannot resolve latest-terra)' "$R1" && pass "a Sol name that does not resolve goes straight to the fallback" || fail "unresolved goes to fallback ($out)"
 cp "$H/star.json" "$TMP/star.json.orig2"
 printf '{"gate": {"model": "latest-sol", "effort": "xhigh", "fallback": null}}\n' > "$H/star.json"
 reset; plan "1 - at capacity" "1 - at capacity" "1 - at capacity"
@@ -449,7 +450,7 @@ G --brief "$BRIEF" --item ITEM-1 --round 4 --base main >/dev/null
 [ -f "$R4-error-2.log" ] && grep -q '^--- stdout$' "$R4-error-2.log" && grep -q 'ERROR unreadable review' "$R4-error-2.log" && [ ! -e "$R4.raw.md" ] && pass "a second ERROR on the same round is error-2, with the review text kept" || fail "error-2 ($(ls "$H/reviews/app"))"
 rm -f "$TMP/n" "$TMP/calls"; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 4 --base main)
-[ "$out" = "SAFE round=4 findings=0 head=$HEAD review=$R4.md" ] && [ -f "$R4-error-1.log" ] && [ -f "$R4-error-2.log" ] && [ -s "$R4.raw.md" ] && pass "the next run of the same round gives it its verdict; the error logs stay" || fail "round 4 after errors ($out)"
+[ "$out" = "SAFE round=4 findings=0 unproven=0 head=$HEAD review=$R4.md" ] && [ -f "$R4-error-1.log" ] && [ -f "$R4-error-2.log" ] && [ -s "$R4.raw.md" ] && pass "the next run of the same round gives it its verdict; the error logs stay" || fail "round 4 after errors ($out)"
 
 # the run file names the review agent while a round runs (#70 reads it)
 reset; export STUB_RUN="$H/reviews/app/ITEM-1-r1.run"; plan "0 peek"
@@ -482,10 +483,10 @@ kill -TERM -- "-$(cat "$TMP/stub-pid")" 2>/dev/null; wait
 # #71: the review streams to the terminal; the verdict is still the only stdout line, and the last line
 reset; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main 2> "$TMP/stream")
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q 'The change adds the CSV export' "$TMP/stream" && grep -q '^--- codex review gpt-6.1-sol xhigh ' "$TMP/stream" && grep -q 'The change adds the CSV export' "$H/reviews/app/ITEM-1-r1.raw.md" && pass "codex's output streams on stderr and still lands in the raw file (#71)" || fail "stream ($out / $(cat "$TMP/stream"))"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && grep -q 'The change adds the CSV export' "$TMP/stream" && grep -q '^--- codex review gpt-6.1-sol xhigh ' "$TMP/stream" && grep -q 'The change adds the CSV export' "$H/reviews/app/ITEM-1-r1.raw.md" && pass "codex's output streams on stderr and still lands in the raw file (#71)" || fail "stream ($out / $(cat "$TMP/stream"))"
 reset; plan "1 - Selected model is at capacity." "0 safe"
 G --brief "$BRIEF" --item ITEM-1 --round 1 --base main > "$TMP/both" 2>&1
-[ "$(tail -n 1 "$TMP/both")" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q 'Selected model is at capacity.' "$TMP/both" && grep -q 'Selected model is at capacity.' "$H/reviews/app/ITEM-1-r1.log" && pass "stderr streams too and still reaches the log; the verdict is the last line" || fail "combined ($(tail -n 3 "$TMP/both"))"
+[ "$(tail -n 1 "$TMP/both")" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && grep -q 'Selected model is at capacity.' "$TMP/both" && grep -q 'Selected model is at capacity.' "$H/reviews/app/ITEM-1-r1.log" && pass "stderr streams too and still reaches the log; the verdict is the last line" || fail "combined ($(tail -n 3 "$TMP/both"))"
 reset; plan "0 sleep"
 (cd "$APP" && PATH="$TMP/bin:$PATH" STUB_DIR="$TMP" STUB_FIX="$FIX" STUB_MODELS="$MODELS" CODEX_GATE_SLEEP=0 sh "$SCRIPT" --brief "$BRIEF" --item ITEM-1 --round 1 --base main > "$TMP/bg.out" 2> "$TMP/bg.err") &
 i=0; while ! grep -q '^reviewing$' "$TMP/bg.err" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
@@ -577,7 +578,7 @@ grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Use only Rea
 # lane c: a denied fallback run is asked once more inside the round (#100)
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-two.json" "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "one denial, then a clean run in the same round, gives a verdict (#100)" || fail "denial then clean ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && [ "$(head -n 1 "$H/reviews/app/ITEM-1-r1.raw.md")" = "The change adds the CSV export the brief asks for, and I found no defect that should block it." ] && pass "one denial, then a clean run in the same round, gives a verdict (#100)" || fail "denial then clean ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
 grep -qxF 'Your previous run was denied: git diff --word-diff=porcelain --word-diff-regex=[^[:space:]&]+ origin/main...HEAD -- package.json. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" \
   && grep -qxF 'Your previous run was denied: git ls-tree --name-only origin/dev docs/decisions/. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" \
   && [ "$(grep -c '^Your previous run was denied: ' "$TMP/claude-calls")" = 2 ] \
@@ -630,7 +631,7 @@ reset
 MAINSHA=$(git -C "$APP" rev-parse main)
 reset; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -q "^Gate: gpt-6.1-sol xhigh · base main $MAINSHA · raw " "$R1" && pass "the review's Gate line names the base and the commit the round pinned (#113)" || fail "pinned Gate line ($rc $out, $(grep '^Gate:' "$R1"))"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && grep -q "^Gate: gpt-6.1-sol xhigh · base main $MAINSHA · raw " "$R1" && pass "the review's Gate line names the base and the commit the round pinned (#113)" || fail "pinned Gate line ($rc $out, $(grep '^Gate:' "$R1"))"
 P1="$H/specs/app/ITEM-1-gate-r1.md"
 grep -qF "git diff $MAINSHA...HEAD" "$P1" && grep -qF "git show $MAINSHA:AGENTS.md" "$P1" && ! grep -qF 'main...HEAD' "$P1" && pass "the prompt names the pinned commit in place of the ref, so a fetch during the round cannot move it (#113)" || fail "pinned prompt ($(grep -F 'git ' "$P1"))"
 reset; plan "0 safe"
@@ -647,14 +648,14 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 2 --base main); rc=$?
 MERGEDB=$(git -C "$APP" rev-parse HEAD)
 reset; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 2 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=2 findings=0 head=$MERGEDB review=$H/reviews/app/ITEM-1-r2.md" ] && [ "$(cat "$TMP/n")" = 1 ] && pass "once the branch holds the newest base, the same round runs and keeps its number (Review Focus 3)" || fail "after the merge ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=2 findings=0 unproven=0 head=$MERGEDB review=$H/reviews/app/ITEM-1-r2.md" ] && [ "$(cat "$TMP/n")" = 1 ] && pass "once the branch holds the newest base, the same round runs and keeps its number (Review Focus 3)" || fail "after the merge ($rc $out)"
 # the base moves again, this time only in g, a file the branch never changes
 git -C "$APP" reset -q --hard "$HEAD"; git -C "$APP" update-ref refs/heads/main "$MAINSHA"
 (cd "$APP" && git checkout -q main && printf 'other\n' > g && git add g && git -c user.email=t@t -c user.name=t commit -qm "base adds g" && git checkout -q feat/item-1)
 GONLY=$(git -C "$APP" rev-parse main)
 reset; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && grep -qF "git diff $GONLY...HEAD" "$H/specs/app/ITEM-1-gate-r1.md" && grep -q "^Gate: gpt-6.1-sol xhigh · base main $GONLY · " "$R1" && pass "a base that moved only in files the branch never changes is reviewed, pinned to its new commit (Review Focus 3)" || fail "disjoint move ($rc $out)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && grep -qF "git diff $GONLY...HEAD" "$H/specs/app/ITEM-1-gate-r1.md" && grep -q "^Gate: gpt-6.1-sol xhigh · base main $GONLY · " "$R1" && pass "a base that moved only in files the branch never changes is reviewed, pinned to its new commit (Review Focus 3)" || fail "disjoint move ($rc $out)"
 git -C "$APP" update-ref refs/heads/main "$MAINSHA"
 reset
 
@@ -664,7 +665,7 @@ G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'any other command is refused, and a refused command fails the review. Search with Grep and find files with Glob, never git grep, grep or rg. Single-quote any argument' && pass "the fallback is told to search with Grep and Glob, never git grep, grep or rg (#117)" || fail "search rule ($(grep -F -- '--append-system-prompt' "$TMP/claude-calls"))"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-denied-grep.json" "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit whose fallback was denied git grep still ends in a verdict, not gate-down (#117)" || fail "git grep denial ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "a usage limit whose fallback was denied git grep still ends in a verdict, not gate-down (#117)" || fail "git grep denial ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) claude runs)"
 grep -qxF 'Your previous run was denied: git grep -n chain origin/main -- package.json. Search with Grep and find files with Glob (never git grep, grep or rg), read a file with Read, and run any other git command as one plain command, single-quoting any argument that holds a shell metacharacter.' "$TMP/claude-calls" && pass "the retry sends the denied git grep to Grep and Glob (#117)" || fail "git grep retry line ($(grep 'denied' "$TMP/claude-calls"))"
 # lane f: a path a build marked as tooling is graded for safety only, and its blocking findings are counted (#160)
 reset; plan "0 p1"
@@ -672,18 +673,18 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 grep -qF 'No path is tooling: grade every file in full.' "$H/specs/app/ITEM-1-gate-r1.md" && ! printf '%s' "$out" | grep -q 'tooling=' && pass "TL160a without a tooling file the prompt says no path is tooling and the line has no tooling=" || fail "TL160a ($out)"
 reset; plan "0 tooling-p1"; printf 'eval/\n' > "$H/gates/app/ITEM-1-tooling.md"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-grep -qF 'Tooling, graded for safety only: eval/.' "$H/specs/app/ITEM-1-gate-r1.md" && [ "$out" = "NOT-SAFE round=1 findings=2 p0=0 p1=2 tooling=2 head=$HEAD review=$R1" ] && pass "TL160b a tooling file puts the prefixes in the prompt and tooling=2 on the line" || fail "TL160b ($out)"
+grep -qF 'Tooling, graded for safety only: eval/.' "$H/specs/app/ITEM-1-gate-r1.md" && [ "$out" = "NOT-SAFE round=1 findings=2 p0=0 p1=2 tooling=2 unproven=0 head=$HEAD review=$R1" ] && pass "TL160b a tooling file puts the prefixes in the prompt and tooling=2 on the line" || fail "TL160b ($out)"
 grep -q '^VERDICT item=ITEM-1 round=1 NOT-SAFE findings=2 head=' "$R1" && pass "TL160b2 the review's VERDICT line is unchanged" || fail "TL160b2 ($(head -n 1 "$R1"))"
 reset; plan "0 tooling-mixed"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "NOT-SAFE round=1 findings=2 p0=0 p1=2 tooling=1 head=$HEAD review=$R1" ] && pass "TL160c a finding outside the prefixes is not counted" || fail "TL160c ($out)"
+[ "$out" = "NOT-SAFE round=1 findings=2 p0=0 p1=2 tooling=1 unproven=0 head=$HEAD review=$R1" ] && pass "TL160c a finding outside the prefixes is not counted" || fail "TL160c ($out)"
 reset; plan "0 p1"; printf '# nothing is tooling yet\n\n' > "$H/gates/app/ITEM-1-tooling.md"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
 grep -qF 'No path is tooling' "$H/specs/app/ITEM-1-gate-r1.md" && ! printf '%s' "$out" | grep -q 'tooling=' && pass "TL160d a tooling file with only a comment counts as none" || fail "TL160d ($out)"
 reset; plan "0 abs"; printf 'eval\n' > "$H/gates/app/ITEM-1-tooling.md"
-printf 'x\n\nReview comment:\n\n- [P1] Runner drops failures \xe2\x80\x94 `%s/eval/run.py:3`\n  body\n' "$APPREAL" > "$TMP/fix/abs.txt"
+printf 'x\n\nReview comment:\n\n- [P1] Runner drops failures \xe2\x80\x94 `%s/eval/run.py:3`\n  Evidence: `git show HEAD:f`\n  body\n' "$APPREAL" > "$TMP/fix/abs.txt"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 tooling=1 head=$HEAD review=$R1" ] && pass "TL160e an absolute place under the worktree counts" || fail "TL160e ($out)"
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 tooling=1 unproven=0 head=$HEAD review=$R1" ] && pass "TL160e an absolute place under the worktree counts" || fail "TL160e ($out)"
 rm -f "$H/gates/app/ITEM-1-tooling.md"
 
 # audit lane C: {{since}} and the out-of-credits phrases
@@ -721,10 +722,10 @@ grep -qF 'Review the whole change.' "$SP" && pass "since: a head dropped by a re
 gc reset -q --hard "$HEAD"
 reset; plan "1 - You are out of credits for this workspace."; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "out of credits goes to Claude at once" || fail "credits ($out)"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "out of credits goes to Claude at once" || fail "credits ($out)"
 reset; plan "1 - Your credit balance is too low"; cplan "0 claude-safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "credit balance goes to Claude at once" || fail "balance ($out)"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/n")" = 1 ] && grep -q '^Gate: claude:opus xhigh (fallback: sol usage limit)' "$R1" && pass "credit balance goes to Claude at once" || fail "balance ($out)"
 
 # audit lane C: usage-limit words count only in codex's last lines, not in quoted diff content
 { printf '+ the credit balance is shown here\n'; i=1; while [ "$i" -le 30 ]; do printf 'reviewing line %s\n' "$i"; i=$((i + 1)); done; } > "$TMP/fix/quoted-usage.txt"
@@ -739,7 +740,7 @@ G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'only at the start of a finding bullet' && ! grep -qF 'P1, not [P1]' "$TMP/claude-calls" && pass "the fallback is told a tag belongs only at the start of a finding bullet (#185)" || fail "tag rule ($(cat "$TMP/claude-calls"))"
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-tag-in-verdict.json" "0 claude-clean.json"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] \
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 2 ] \
   && [ "$(grep -c 'Your previous review wrote a grade tag outside a finding bullet' "$TMP/claude-calls")" = 1 ] \
   && grep -qF 'wrote a grade tag outside a finding bullet: "No [P0] or [P1] findings, so ITEM-1 can merge.". Write a [P0] to [P3] tag only at the start of a finding bullet.' "$TMP/claude-calls" \
   && pass "an unreadable fallback review is run once more with the offending line quoted, and a clean re-run gives a verdict (#185)" || fail "re-run ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) runs)"
@@ -781,7 +782,7 @@ out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 reset; plan "1 - You've hit your usage limit."; cplan "0 prose-p1-plain"
 GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 grep -qxF "Your previous review had no VERDICT line. $V" "$TMP/claude-calls" && pass "the re-run for a missing VERDICT line names it and repeats the rule (#185)" || fail "no-verdict correction ($(cat "$TMP/claude-calls"))"
-printf 'Not safe: P1 data loss in src/b.ts.\n\n- [P1] Data loss — src/b.ts:9\n\nVERDICT: NOT-SAFE\n' > "$TMP/fix/prose-p1-fixed.txt"
+printf 'Not safe: P1 data loss in src/b.ts.\n\n- [P1] Data loss — src/b.ts:9\n  Evidence: `git show HEAD:f`\n\nVERDICT: NOT-SAFE\n' > "$TMP/fix/prose-p1-fixed.txt"
 reset; plan "1 - You've hit your usage limit."; cplan "0 prose-p1-tagged" "0 prose-p1-fixed"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 0 ] && case "$out" in "NOT-SAFE round=1 findings=1 p0=0 p1=1 "*) true ;; *) false ;; esac && pass "a re-run that tags the P1 bullet and says VERDICT: NOT-SAFE is NOT-SAFE (#185)" || fail "prose p1 fixed ($rc $out)"
@@ -797,10 +798,10 @@ out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 [ "$rc" -eq 69 ] && [ "$out" = "ERROR fallback-unreadable VERDICT NOT-SAFE without a P0 or P1 finding" ] && [ "$(cat "$TMP/claude-n")" = 2 ] \
   && grep -qxF "Your previous review ended VERDICT: NOT-SAFE but had no P0 or P1 finding bullet. State every P0 or P1 problem as a finding bullet that starts with its [P0] or [P1] tag, or end with VERDICT: SAFE. $V" "$TMP/claude-calls" \
   && pass "VERDICT: NOT-SAFE with only a P2 bullet is unreadable, re-run once with the rule repeated (#185)" || fail "notsafe p2 ($rc $out)"
-printf 'Fine.\n\n- [P1] Data loss — src/b.ts:9\n\nVERDICT: SAFE\n' > "$TMP/fix/safe-p1.txt"
+printf 'Fine.\n\n- [P1] Data loss — src/b.ts:9\n  Evidence: `git show HEAD:f`\n\nVERDICT: SAFE\n' > "$TMP/fix/safe-p1.txt"
 reset; plan "1 - You've hit your usage limit."; cplan "0 safe-p1"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 1 ] \
+[ "$rc" -eq 0 ] && [ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && [ "$(cat "$TMP/claude-n")" = 1 ] \
   && ! grep -q 'VERDICT: SAFE' "$R1" && pass "VERDICT: SAFE with a [P1] bullet is NOT-SAFE: the bullets win (#185)" || fail "safe with p1 ($rc $out)"
 # the VERDICT line is neither a note nor a finding
 reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
@@ -809,12 +810,12 @@ G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
 # a codex review needs no VERDICT line
 reset; plan "0 safe"
 out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
-[ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] && pass "a codex review needs no VERDICT line (#185)" || fail "codex no verdict ($out)"
+[ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] && pass "a codex review needs no VERDICT line (#185)" || fail "codex no verdict ($out)"
 # an untagged bullet gets its own correction line
 printf 'Looks fine.\n\n- Data loss — src/b.ts:9\n\nVERDICT: NOT-SAFE\n' > "$TMP/fix/untagged-claude.txt"
 reset; plan "1 - You've hit your usage limit."; cplan "0 untagged-claude" "0 claude-safe"
 out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
-[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 head=$HEAD review=$R1" ] \
+[ "$rc" -eq 0 ] && [ "$out" = "SAFE round=1 findings=0 unproven=0 head=$HEAD review=$R1" ] \
   && grep -qxF 'Your previous review had a finding bullet without a [P0] to [P3] tag: "- Data loss — src/b.ts:9". Start every finding bullet with its tag.' "$TMP/claude-calls" \
   && [ "$(grep -c 'wrote a grade tag outside' "$TMP/claude-calls")" = 0 ] \
   && pass "an untagged finding bullet gets a correction line that names the missing tag (#185)" || fail "untagged correction ($rc $out / $(cat "$TMP/claude-calls"))"
@@ -824,6 +825,200 @@ out=$(G --brief "$BRIEF" --item ITEM-1 --round 1 --base main); rc=$?
 git -C "$APP" reset -q --hard "$HEAD"
 [ "$rc" -eq 69 ] && case "$out" in "ERROR HEAD moved during the review ("*" to "*")") true ;; *) false ;; esac && [ "$(cat "$TMP/claude-n")" = 1 ] \
   && pass "HEAD moving during the first fallback run is ERROR HEAD moved, with one claude run (#185)" || fail "head moved in run 1 ($rc $out, $(cat "$TMP/claude-n" 2>/dev/null) runs)"
+
+# #209: a P0 or P1 blocks only with an evidence line, a command in backticks or a test that fails
+plan1() { rm -f "$TMP/n"; plan "$@"; }
+fixture() { printf '%s\n' "$@" > "$TMP/fix/$name.txt"; }
+name=ev-none; fixture 'One finding.' '' 'Review comment:' '' '- [P1] Swallowed error — f:1' '  The loop hides the exception.'
+reset; plan "0 ev-none"
+out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "SAFE round=1 findings=1 unproven=1 head=$HEAD review=$R1" ] && pass "E209a a P1 with no evidence line is SAFE and counted as unproven" || fail "E209a ($out)"
+grep -qF '1. [P1] Swallowed error (unproven: no evidence, does not block) — f:1' "$R1" && [ "$(head -n 1 "$R1")" = "VERDICT item=ITEM-1 round=1 SAFE findings=1 head=$HEAD" ] && pass "E209b the finding stays in the review, marked, and the VERDICT line keeps its shape" || fail "E209b ($(cat "$R1"))"
+name=ev-empty; fixture 'x' '' 'Review comment:' '' '- [P1] Empty evidence — f:1' '  Evidence:' '  detail'
+reset; plan "0 ev-empty"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "SAFE round=1 findings=1 unproven=1 head=$HEAD review=$R1" ] && pass "E209c an empty evidence line is unproven" || fail "E209c ($out)"
+name=ev-prose; fixture 'x' '' 'Review comment:' '' '- [P1] Prose evidence — f:1' '  Evidence: it is obviously wrong'
+reset; plan "0 ev-prose"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "SAFE round=1 findings=1 unproven=1 head=$HEAD review=$R1" ] && pass "E209d an evidence line naming no command and no test is unproven" || fail "E209d ($out)"
+name=ev-test; fixture 'x' '' 'Review comment:' '' '- [P1] Failing test — f:1' '  Evidence: test tests/calc.test.sh adds two numbers fails'
+reset; plan "0 ev-test"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209e a failing test named in the evidence line blocks" || fail "E209e ($out)"
+name=ev-mixed; fixture 'x' '' 'Review comment:' '' '- [P0] Proven — f:1' '  Evidence: `git show HEAD:f`' '- [P1] Unproven — f:1' '  Just my read.' '- [P2] Minor — f:1'
+reset; plan "0 ev-mixed"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main)
+[ "$out" = "NOT-SAFE round=1 findings=3 p0=1 p1=0 unproven=1 head=$HEAD review=$R1" ] && ! grep -q 'P2\] Minor.*unproven' "$R1" && pass "E209f only proven P0 and P1 count; unproven is counted apart; P2 is never marked" || fail "E209f ($out)"
+reset; plan "0 safe"; G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+grep -qF 'Evidence:' "$H/specs/app/ITEM-1-gate-r1.md" && grep -qF 'a test that fails' "$H/specs/app/ITEM-1-gate-r1.md" && pass "E209g the prompt asks every P0 and P1 for an evidence line" || fail "E209g"
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"; G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+grep -F -- '--append-system-prompt' "$TMP/claude-calls" | grep -qF 'Evidence:' && pass "E209h the fallback's format asks for the evidence line" || fail "E209h"
+
+# #210: a finding dismissed with a reason in a -fix.md is not raised again
+printf 'config = read_config(path)\n' > "$APP/f"; gc commit -qam 'f holds a real line'; HEAD=$(git -C "$APP" rev-parse HEAD)
+LH=$(printf 'config = read_config(path)' | shasum | cut -c1-10)
+name=dis-1; fixture 'x' '' 'Review comment:' '' '- [P1] Missing null guard before reading config — f:1' '  Evidence: `git show HEAD:f`' '- [P1] Second finding — f:1' '  Evidence: `git show HEAD:f`'
+reset; mkdir -p "$H/reviews/app"; plan "0 dis-1"; GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+printf 'junk line\n1. Disposition: the brief says config is validated upstream\n2. Fixed in abc1234.\nnot numbered Disposition: x\n' > "$H/reviews/app/ITEM-1-r1-fix.md"
+name=dis-2; fixture 'x' '' 'Review comment:' '' '- [P1] Config read has no null guard — f:1' '  Evidence: `git show HEAD:f`'
+plan1 "0 dis-2"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 2 --base main)
+D="$H/reviews/app/ITEM-1-dismissed.md"
+[ "$(cat "$D")" = "f:$LH r1#1 [P1] f:1 Missing null guard before reading config" ] && pass "D210a a Disposition line is recorded once with its fingerprint; Fixed and malformed lines are not" || fail "D210a ($(cat "$D" 2>/dev/null))"
+[ "$out" = "SAFE round=2 findings=1 unproven=0 head=$HEAD review=$H/reviews/app/ITEM-1-r2.md" ] && grep -qF '1. [P1] Config read has no null guard (repeat of r1#1, dismissed) — f:1' "$H/reviews/app/ITEM-1-r2.md" && pass "D210b the same line at the same head is a repeat: marked, never counted, the round is SAFE" || fail "D210b ($out)"
+P2="$H/specs/app/ITEM-1-gate-r2.md"
+grep -qF 'the brief says config is validated upstream' "$P2" && grep -qF 'Missing null guard before reading config' "$P2" && grep -qF 'Do not raise them again unless the code at their place has changed since' "$P2" && ! grep -qF 'judge it again on its merits' "$P2" && pass "D210c the prompt lists the dismissed findings with their reasons and the rule" || fail "D210c"
+plan1 "0 dis-2"; GF --brief "$BRIEF" --item ITEM-1 --round 3 --base main >/dev/null
+[ "$(wc -l < "$D" | tr -d ' ')" = 1 ] && pass "D210d a later round does not record the same finding twice" || fail "D210d"
+name=dis-3; fixture 'x' '' 'Review comment:' '' '- [P1] Missing null guard before config reading — f:9' '  Evidence: `git show HEAD:f`'
+plan1 "0 dis-3"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 4 --base main)
+case "$out" in "NOT-SAFE round=4 findings=1 p0=0 p1=1 unproven=0 "*) pass "D210e the same path with a title sharing 60% of the words, at another place, is not a repeat (F3)" ;; *) fail "D210e ($out)" ;; esac
+name=dis-4; fixture 'x' '' 'Review comment:' '' '- [P1] Race in the cache writer — f:9' '  Evidence: `git show HEAD:f`'
+plan1 "0 dis-4"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 5 --base main)
+case "$out" in "NOT-SAFE round=5 findings=1 p0=0 p1=1 unproven=0 "*) pass "D210f an unrelated finding on the same path still blocks" ;; *) fail "D210f ($out)" ;; esac
+name=dis-5; fixture 'x' '' 'Review comment:' '' '- [P1] Missing null guard before reading config — g.py:1' '  Evidence: `git show HEAD:f`'
+plan1 "0 dis-5"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 6 --base main)
+case "$out" in "NOT-SAFE round=6 "*) pass "D210g the same title on another path is not a repeat" ;; *) fail "D210g ($out)" ;; esac
+# a finding with no place is fingerprinted by its title
+reset; mkdir -p "$H/reviews/app"
+name=nop-1; fixture 'x' '' 'Review comment:' '' '- [P1] The rollout lacks a rollback plan' '  Evidence: `git log -1`'
+plan "0 nop-1"; GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+printf '1. Disposition: out of scope, see the brief\n' > "$H/reviews/app/ITEM-1-r1-fix.md"
+plan1 "0 nop-1"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 2 --base main)
+NH=$(printf 'the rollout lacks a rollback plan' | shasum | cut -c1-10)
+[ "$(cat "$D")" = "-:$NH r1#1 [P1] - The rollout lacks a rollback plan" ] && case "$out" in "SAFE round=2 findings=1 unproven=0 "*) true ;; *) false ;; esac && pass "D210h a finding with no place is fingerprinted by its normalized title" || fail "D210h ($out $(cat "$D"))"
+# no -fix.md at all: nothing is recorded, the prompt says so
+reset; mkdir -p "$H/reviews/app"; printf 'VERDICT item=ITEM-1 round=1 NOT-SAFE findings=1 head=%s\n' "$HEAD" > "$H/reviews/app/ITEM-1-r1.md"
+plan "0 safe"; G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null
+[ ! -s "$D" ] && grep -qF 'No finding has been dismissed.' "$H/specs/app/ITEM-1-gate-r2.md" && pass "D210i without a -fix.md nothing is dismissed" || fail "D210i"
+
+# #211: after a small push on a SAFE head only the diff is re-gated
+gc reset -q --hard "$HEAD"
+GREV="$H/reviews/app"
+safe_at() { reset; mkdir -p "$GREV"; printf 'VERDICT item=ITEM-1 round=1 SAFE findings=0 head=%s\n' "$1" > "$GREV/ITEM-1-r1.md"; plan "0 safe"; }
+rg() { G --brief "$BRIEF" --item ITEM-1 --round 2 --base main >/dev/null; }
+G7=$(printf %s "$HEAD" | cut -c1-7)
+SP="$H/specs/app/ITEM-1-gate-r2.md"; R2="$GREV/ITEM-1-r2.md"
+mkdir -p "$APP/tests"; printf '#!/bin/sh\necho ok\n' > "$APP/tests/new.test.sh"; printf 'notes\n' > "$APP/NOTES.md"; gc add tests NOTES.md; gc commit -qm 'add a test and a note'
+safe_at "$HEAD"; rg
+grep -qF "Round 1 found this change SAFE at $G7." "$SP" && grep -qF "[P2] at most" "$SP" && grep -qF "git diff $HEAD..HEAD" "$SP" && grep -qF 'or for a defect they cause elsewhere' "$SP" && grep -qF 'A [P0] anywhere still blocks.' "$SP" && pass "R211a a new test and a doc after a SAFE head: the prompt reviews the diff only" || fail "R211a ($(cat "$SP" | tail -n 8))"
+grep -q "^Gate: .* · scope diff from $G7\$" "$R2" && pass "R211b the Gate footer ends with scope diff from <G7>" || fail "R211b ($(tail -n 1 "$R2"))"
+printf 'c\n' >> "$APP/f"; gc commit -qam 'change f'
+safe_at "$HEAD"; rg
+grep -qF 'Review the whole change' "$SP" && grep -qF 'f' "$SP" && grep -q "^Gate: .* · scope full since $G7\$" "$R2" && pass "R211c a behaviour change in a reviewed file: a full review" || fail "R211c ($(tail -n 1 "$R2"))"
+gc reset -q --hard HEAD~1; printf 'config = read_config(path)  \n' > "$APP/f"; gc commit -qam 'trailing blanks'
+safe_at "$HEAD"; rg
+grep -q "scope full since $G7\$" "$R2" && pass "R211d a whitespace-only change in a reviewed file is a full review (no whitespace exemption, F3)" || fail "R211d ($(tail -n 1 "$R2"))"
+gc reset -q --hard HEAD~1; i=0; while [ "$i" -lt 450 ]; do echo "line $i"; i=$((i + 1)); done > "$APP/tests/big.test.sh"; gc add tests; gc commit -qm 'big test'
+safe_at "$HEAD"; rg
+grep -q "scope full since $G7\$" "$R2" && pass "R211e more than 400 changed lines is a full review" || fail "R211e ($(tail -n 1 "$R2"))"
+gc reset -q --hard HEAD~1; mkdir -p "$APP/src"; echo 'x' > "$APP/src/new.py"; gc add src; gc commit -qm 'new source file'
+safe_at "$HEAD"; rg
+grep -q "scope diff from $G7\$" "$R2" && pass "R211f a path new to the branch is a diff" || fail "R211f ($(tail -n 1 "$R2"))"
+gc reset -q --hard "$HEAD"; gc commit -q --allow-empty -m next
+reset; mkdir -p "$GREV"; vline "$HEAD"; plan "0 safe"; rg
+! grep -q 'scope ' "$R2" && grep -qF "Round 1 reviewed $G7." "$SP" && pass "R211g after a NOT-SAFE round the k-1 since text stays and no scope is footed" || fail "R211g"
+gc reset -q --hard "$HEAD"
+safe_at "$HEAD"; rg
+! grep -q 'scope ' "$R2" && grep -qF 'Round 1 reviewed this same head.' "$SP" && pass "R211h a SAFE head that is HEAD keeps its text and no scope" || fail "R211h"
+gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
+
+# F3 (#211): a diff review keeps the k-1 guard; a doc is under docs/ or named README*, CHANGELOG*, LICENSE*; a skill is code
+gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
+mkdir -p "$APP/skills/x" "$APP/docs"; printf 'Run the gate.\n' > "$APP/skills/x/SKILL.md"; printf 'readme\n' > "$APP/README.md"; printf 'guide\n' > "$APP/docs/guide.md"
+gc add skills README.md docs; gc commit -qm 'skill and docs'
+SK=$(git -C "$APP" rev-parse HEAD); SK7=$(printf %s "$SK" | cut -c1-7)
+printf 'Skip the gate.\n' > "$APP/skills/x/SKILL.md"; gc commit -qam 'skip the gate'
+safe_at "$SK"; rg
+grep -q "scope full since $SK7\$" "$R2" && grep -qF 'skills/x/SKILL.md' "$SP" && pass "R211i a behaviour change in a SKILL.md is a full review, a .md file is code (F3)" || fail "R211i ($(tail -n 1 "$R2"))"
+gc reset -q --hard "$SK"; printf 'readme 2\n' > "$APP/README.md"; printf 'guide 2\n' > "$APP/docs/guide.md"; gc commit -qam 'docs'
+safe_at "$SK"; rg
+grep -q "scope diff from $SK7\$" "$R2" && pass "R211j an edit to README.md and a file under docs/ is a diff (F3)" || fail "R211j ($(tail -n 1 "$R2"))"
+gc reset -q --hard "$SK"; gc checkout -q main; printf 'def helper():\n    return 1\n' > "$APP/util.py"; gc add util.py; gc commit -qm util; gc checkout -q feat/item-1; gc merge -q --no-ff --no-edit main
+UT=$(git -C "$APP" rev-parse HEAD); UT7=$(printf %s "$UT" | cut -c1-7)
+printf 'def helper():\n    return None\n' > "$APP/util.py"; gc commit -qam 'helper returns None'
+safe_at "$UT"; rg
+grep -q "scope full since $UT7\$" "$R2" && pass "R211k an edit to an existing base file the branch never touched is a full review (F3)" || fail "R211k ($(tail -n 1 "$R2"))"
+gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
+
+# F3 (#209): the evidence clause as codex writes it, one body paragraph, inline
+gc reset -q --hard "$HEAD"; git -C "$APP" clean -qfd
+verdict_of() { name=$1; shift; fixture "$@"; reset; plan "0 $name"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main); }
+verdict_of in-1 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  add(a, b) returns a - b, so every caller gets the wrong value. Evidence: `git show HEAD:f` shows the subtraction.'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209i an inline Evidence clause in the one body paragraph blocks (F3)" || fail "E209i ($out)"
+verdict_of in-2 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  **Evidence**: `git show HEAD:f`'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209j a bold label with the colon outside blocks (F3)" || fail "E209j ($out)"
+verdict_of in-3 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  It breaks callers. **Evidence:** `git show HEAD:f`'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209k a bold label with the colon inside, after prose, blocks (F3)" || fail "E209k ($out)"
+verdict_of in-4 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  Evidence:' '  ```' '  git show HEAD:f' '  ```'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209l an Evidence label followed by a fenced block blocks (F3)" || fail "E209l ($out)"
+verdict_of in-5 'x' '' 'Review comment:' '' '- [P0] Deletes the table. Evidence: `git show HEAD:f` — f:1'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=1 p1=0 unproven=0 head=$HEAD review=$R1" ] && pass "E209m a P0 with the evidence on the title line blocks (F3)" || fail "E209m ($out)"
+verdict_of in-6 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  Evidence:' '  `git show HEAD:f`'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209n an Evidence label with the command on the next line blocks (F3)" || fail "E209n ($out)"
+verdict_of in-7 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  It is plainly wrong. Evidence: read the code at line 1, it subtracts.'
+[ "$out" = "SAFE round=1 findings=1 unproven=1 head=$HEAD review=$R1" ] && pass "E209o an inline Evidence clause with no command and no test is still unproven (F3)" || fail "E209o ($out)"
+verdict_of in-8 'x' '' 'Review comment:' '' '- [P1] add() subtracts — f:1' '  The test fails. Evidence: test tests/calc.test.sh adds two numbers fails.'
+[ "$out" = "NOT-SAFE round=1 findings=1 p0=0 p1=1 unproven=0 head=$HEAD review=$R1" ] && pass "E209p an inline failing-test clause blocks (F3)" || fail "E209p ($out)"
+
+# F3 (#210): repeats only on the same unchanged place; only blocking findings are dismissed
+printf 'def add(a, b):\n    return a - b\n\ndef sub(a, b):\n    return a - b\n}\n}\n' > "$APP/calc.py"
+{ i=1; while [ "$i" -le 30 ]; do if [ "$i" = 2 ] || [ "$i" = 25 ]; then echo 'x = compute_total(items)'; else echo "line_$i = $i"; fi; i=$((i + 1)); done; } > "$APP/long.py"
+printf 'value = compute_total(items)\n' > "$APP/my file.py"
+gc add calc.py long.py "my file.py"; gc commit -qm 'calc'
+HEAD=$(git -C "$APP" rev-parse HEAD)
+dismiss_then() { # <name1> <fix text> <name2> <round-2 args...>: round 1 with fixture name1, the -fix.md, then round 2
+  reset; mkdir -p "$RV"; plan "0 $1"; GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+  printf '%s\n' "$2" > "$RV/ITEM-1-r1-fix.md"; plan1 "0 $3"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 2 --base main)
+}
+RV="$H/reviews/app"
+name=g1; fixture 'x' '' 'Review comment:' '' '- [P1] Proven other — calc.py:4' '  Evidence: `git show HEAD:calc.py`' '- [P1] add() returns the difference — calc.py:2' '  add(a, b) returns a - b.' '- [P2] Style nit — calc.py:6' '  Evidence: `git show HEAD:calc.py`'
+name=g2; fixture 'x' '' 'Review comment:' '' '- [P1] add() returns the difference — calc.py:2' '  Evidence: `git show HEAD:calc.py` shows return a - b'
+dismiss_then g1 '2. Disposition: unproven, it has no evidence line and does not block
+3. Disposition: a nit' g2
+[ ! -s "$D" ] && case "$out" in "NOT-SAFE round=2 findings=1 p0=0 p1=1 unproven=0 "*) true ;; *) false ;; esac && pass "D210j a finding that never blocked (unproven, P2) is not recorded, so its evidenced repeat blocks (F3)" || fail "D210j ($out / $(cat "$D" 2>/dev/null))"
+name=g3; fixture 'x' '' 'Review comment:' '' '- [P1] Return the sum instead of the difference — calc.py:2' '  Evidence: `git show HEAD:calc.py`'
+name=g4; fixture 'x' '' 'Review comment:' '' '- [P1] Return the error instead of the value — calc.py:4' '  Evidence: `git show HEAD:calc.py`'
+dismiss_then g3 '1. Disposition: the brief asks for a difference here' g4
+case "$out" in "NOT-SAFE round=2 findings=1 p0=0 p1=1 unproven=0 "*) pass "D210k a title sharing words with a dismissed one, on another line of the path, blocks (F3)" ;; *) fail "D210k ($out)" ;; esac
+name=g5; fixture 'x' '' 'Review comment:' '' '- [P1] Acceptance criterion 3 is not met' '  Evidence: `git log -1`'
+name=g6; fixture 'x' '' 'Review comment:' '' '- [P1] Acceptance criterion 4 is not met' '  Evidence: `git log -1`'
+dismiss_then g5 '1. Disposition: criterion 3 is pending at the screen' g6
+case "$out" in "NOT-SAFE round=2 findings=1 p0=0 p1=1 unproven=0 "*) pass "D210l two placeless findings whose titles differ in one word are not a repeat (F3)" ;; *) fail "D210l ($out)" ;; esac
+name=g7; fixture 'x' '' 'Review comment:' '' '- [P1] Stray brace breaks the module — calc.py:6' '  Evidence: `git show HEAD:calc.py`'
+name=g8; fixture 'x' '' 'Review comment:' '' '- [P0] Deletes the user table on import — calc.py:7' '  Evidence: `git show HEAD:calc.py`'
+dismiss_then g7 '1. Disposition: generated file' g8
+case "$out" in "NOT-SAFE round=2 findings=1 p0=1 p1=0 unproven=0 "*) pass "D210m a closing brace elsewhere in the file is not a repeat: a trivial line never matches (F3)" ;; *) fail "D210m ($out)" ;; esac
+name=g9; fixture 'x' '' 'Review comment:' '' '- [P1] Subtraction in add() — calc.py:2' '  Evidence: `git show HEAD:calc.py`'
+name=g10; fixture 'x' '' 'Review comment:' '' '- [P1] Subtraction in sub() — calc.py:5' '  Evidence: `git show HEAD:calc.py`'
+dismiss_then g9 '1. Disposition: the brief asks for a difference' g10
+case "$out" in "SAFE round=2 findings=1 unproven=0 "*) pass "D210n the same non-trivial line within 10 lines of the dismissed place is a repeat (F3)" ;; *) fail "D210n ($out)" ;; esac
+name=g11; fixture 'x' '' 'Review comment:' '' '- [P1] Total computed from items — long.py:2' '  Evidence: `git show HEAD:long.py`'
+name=g12; fixture 'x' '' 'Review comment:' '' '- [P1] Total computed from items — long.py:25' '  Evidence: `git show HEAD:long.py`'
+dismiss_then g11 '1. Disposition: intended' g12
+case "$out" in "NOT-SAFE round=2 findings=1 p0=0 p1=1 unproven=0 "*) pass "D210o the same line text more than 10 lines away is not a repeat (F3)" ;; *) fail "D210o ($out)" ;; esac
+# a repeat is not dismissed again in the round after it
+name=g13; fixture 'x' '' 'Review comment:' '' '- [P1] Subtraction in add() — calc.py:2' '  Evidence: `git show HEAD:calc.py`'
+dismiss_then g13 '1. Disposition: the brief asks for a difference' g13
+printf '1. Disposition: still dismissed\n' > "$RV/ITEM-1-r2-fix.md"; plan1 "0 g13"; GF --brief "$BRIEF" --item ITEM-1 --round 3 --base main >/dev/null
+[ "$(wc -l < "$D" | tr -d ' ')" = 1 ] && grep -qF '(repeat of r1#1, dismissed)' "$RV/ITEM-1-r2.md" && pass "D210p a finding marked as a repeat is not recorded as dismissed (F3)" || fail "D210p ($(cat "$D"))"
+# F3 (#210, item 7): a path with a space
+name=g14; fixture 'x' '' 'Review comment:' '' '- [P1] Total computed from items — my file.py:1' '  Evidence: `git show HEAD:calc.py`'
+dismiss_then g14 '1. Disposition: intended' g14
+plan1 "0 g14"; GF --brief "$BRIEF" --item ITEM-1 --round 3 --base main >/dev/null
+[ "$(wc -l < "$D" | tr -d ' ')" = 1 ] && grep -q '^my%20file.py:' "$D" && case "$out" in "SAFE round=2 findings=1 unproven=0 "*) true ;; *) false ;; esac && pass "D210q a path with a space is encoded: the entry loads, repeats, and is not appended each round (F3)" || fail "D210q ($out / $(cat "$D"))"
+# the code at the dismissed place changes: the same finding counts again
+name=g15; fixture 'x' '' 'Review comment:' '' '- [P1] Subtraction in add() — calc.py:2' '  Evidence: `git show HEAD:calc.py`'
+reset; mkdir -p "$RV"; plan "0 g15"; GF --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null
+printf '1. Disposition: the brief asks for a difference\n' > "$RV/ITEM-1-r1-fix.md"
+printf 'def add(a, b):\n    return a - b - 1\n\ndef sub(a, b):\n    return a - b\n}\n}\n' > "$APP/calc.py"; gc commit -qam 'add changed'
+plan1 "0 g15"; out=$(GF --brief "$BRIEF" --item ITEM-1 --round 2 --base main)
+case "$out" in "NOT-SAFE round=2 findings=1 p0=0 p1=1 unproven=0 "*) pass "D210r code changed at the dismissed place: the same finding blocks again (F3)" ;; *) fail "D210r ($out)" ;; esac
+gc reset -q --hard "$HEAD"
+
+# F3 (item 6): no worker state from the gate's own claude
+reset; plan "1 - You've hit your usage limit."; cplan "0 claude-safe"
+( export ORCA_TERMINAL_HANDLE=term_worker; G --brief "$BRIEF" --item ITEM-1 --round 1 --base main >/dev/null )
+[ "$(cat "$TMP/claude-env")" = unset ] && pass "H208a the fallback review runs without ORCA_TERMINAL_HANDLE (F3)" || fail "H208a ($(cat "$TMP/claude-env" 2>/dev/null))"
+printf 'ok\n' > "$TMP/fix/ok.txt"; reset; plan "1 - boom"; cplan "0 ok"
+out=$( export ORCA_TERMINAL_HANDLE=term_worker JUEL_STAR_HOME="$H"; GF check )
+[ "$out" = "up claude:opus" ] && [ "$(cat "$TMP/claude-env")" = unset ] && pass "H208b the ping runs without ORCA_TERMINAL_HANDLE (F3)" || fail "H208b ($out, $(cat "$TMP/claude-env" 2>/dev/null))"
 
 reset
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"

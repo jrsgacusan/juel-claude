@@ -205,6 +205,11 @@ const DEFINITIONS = {
     label: 'juel:orca-ship-tickets',
     install: 'Ships with this plugin',
   },
+  'juel:orca-review-pr': {
+    kind: 'skill',
+    label: 'juel:orca-review-pr',
+    install: 'Ships with this plugin',
+  },
   'juel:daily-worktrees': {
     kind: 'skill',
     label: 'juel:daily-worktrees',

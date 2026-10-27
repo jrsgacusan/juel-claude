@@ -338,6 +338,9 @@ oa "no approval needed still needs green checks" "FAIL checks: ci" "$OWN" "$OK,$
 STRICT="$TMP/strict-rules.json"
 printf '[{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]\n' > "$STRICT"
 oa "no approval needed still waits for a branch that is behind a strict base" "PENDING merge state: behind the base branch" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\"" "$STRICT"
+QSTRICT="$TMP/queue-strict-rules.json"
+printf '[{"type":"merge_queue","parameters":{}},{"type":"required_status_checks","parameters":{"strict_required_status_checks_policy":true,"required_status_checks":[]}}]\n' > "$QSTRICT"
+oa "#212 behind a merge queue base passes the gate even when a strict rule is also set: the queue tests base plus PR" "PASS no approval required" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\"" "$QSTRICT"
 oa "#180 behind a base that does not require up-to-date branches passes the gate" "PASS no approval required" "$OWN" "$NOREV,\"mergeStateStatus\":\"BEHIND\""
 printf '{"required_status_checks":{"strict":true,"contexts":[]}}\n' > "$TMP/protection.json"
 STUB_PROTECTION="$TMP/protection.json"; export STUB_PROTECTION

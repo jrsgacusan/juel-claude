@@ -184,10 +184,11 @@ def rule_lines(d):
 
 
 def base_requires_up_to_date(d):
-    """True when the base needs branches up to date (a strict rule), or when that cannot be read."""
+    """True when the base needs branches up to date (a strict rule), or when that cannot be read.
+    A merge queue base never does: the queue tests base plus PR (#212)."""
     lines = rule_lines(d)
     # review-rule.sh reports an unreadable rule as "unknown <why>", and this script's own fallback is a bare "unknown".
-    return lines[0] == "unknown" or lines[0].startswith("unknown ") or "strict" in lines
+    return lines[0] == "unknown" or lines[0].startswith("unknown ") or ("strict" in lines and "queue" not in lines)
 
 
 def review_rule(d):

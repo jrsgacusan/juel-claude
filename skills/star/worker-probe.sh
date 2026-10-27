@@ -66,6 +66,20 @@
 #     (/private)/tmp/claude-<uid>/<project>/<session>/scratchpad/<something>, by its text and by its
 #     realpath. The worktree or scratchpad root itself is not bounded.
 # <operands> are those paths, normalized and space-separated. A check that fails is the stuck line.
+# "stuck: account: <kind>" (#208) is a StopFailure only the owner can fix: account_on_hold, billing_error,
+# verification_required, cloud_credential_error or model_not_found.
+# The hook state (#208): hooks/worker-state.sh writes <H>/workers/<terminal>.json (H is --home, else the
+# folder star-home.sh prints from the current directory) on every StopFailure and Notification, and clears it
+# on SessionStart, UserPromptSubmit and Stop. A StopFailure names the stall (authentication_failed and
+# oauth_org_not_allowed: stuck: login; account kinds: stuck: account: <kind>; overloaded: stalled: model at
+# capacity; server_error, unknown, invalid_request, max_output_tokens: stalled: api error; rate_limit: the
+# usage-limit lines when the screen has its phrases, else stalled: model at capacity), read before the screen
+# phrases. quota_auto_resume_stale and _disabled are "stuck: usage limit". The input-wanting notifications
+# (permission and elicitation prompts, idle_prompt, agent_needs_input) are only a hint: when the terminal printed
+# nothing since the notification (2 s of slack) and the screen cannot be read as a dialog (a stream or
+# screen-unavailable read), they are "stuck: confirmation dialog: <message>" (waiting for input: <message>
+# for idle_prompt and agent_needs_input); otherwise the screen decides. No file, an unreadable one and
+# every other state leave the screen to decide.
 # The terminal is worker.agentTerminalHandle (Orca 1.4.230), else
 # worker.agent_terminal_handle, else dispatch.assigneeHandle (#187, #191).
 # With --item and --home, progress decides: the newest of <H>/progress/<item>.log, the worktree's
@@ -386,7 +400,8 @@ def login_line():
     shell = os.environ.get("STAR_LOGIN_SHELL") or os.environ.get("SHELL") or "/bin/sh"
     check = "printf 'STAR_CFG=%s\\n' \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"; claude auth status >/dev/null 2>&1"
     # Without our CLAUDE_CONFIG_DIR: the worker's folder and shell startup decide the profile (#206).
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+    # Without ORCA_TERMINAL_HANDLE: a nested claude's hooks would otherwise write this worker's state file.
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CONFIG_DIR", "ORCA_TERMINAL_HANDLE")}
     try:
         proc = subprocess.run([shell, "-ic", check], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=30, cwd=worker_folder(), env=env)
@@ -413,6 +428,75 @@ def phrase_stop(lines):
     return None
 
 
+def epoch_seconds(value):
+    """Seconds since the epoch for an ISO string or epoch milliseconds (#191); None when unreadable."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and re.fullmatch(r"\d+(\.\d+)?", value.strip()):
+        value = float(value)
+    if isinstance(value, (int, float)):
+        return value / 1000 if value > 1e11 else value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    return None
+
+
+def terminal_output_time():
+    """The terminal's lastOutputAt in seconds, or None when the list or the terminal cannot be read."""
+    try:
+        proc = subprocess.run([orca, "terminal", "list", "--limit", "500", "--json"],
+                              capture_output=True, text=True, timeout=30)
+        terminals = json.loads(proc.stdout)["result"]["terminals"]
+        last = next((t.get("lastOutputAt") for t in terminals if isinstance(t, dict) and t.get("handle") == handle), None)
+    except Exception:
+        return None
+    return epoch_seconds(last) if isinstance(last, (int, float)) else None
+
+
+def hook_state():
+    """#208: (event, kind, message, at in seconds) from <H>/workers/<terminal>.json, or None."""
+    if not handle or not re.fullmatch(r"[A-Za-z0-9_.-]+", handle):
+        return None
+    home = opts.get("home")
+    if not home:
+        try:
+            script = os.path.join(os.environ["STAR_SKILLS_DIR"], "star", "star-home.sh")
+            home = subprocess.run(["sh", script, "path"], capture_output=True, text=True, timeout=30).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+    try:
+        data = json.load(open(os.path.join(home, "workers", handle + ".json"), encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("handle") not in (None, handle):
+            return None
+        at = epoch_seconds(data.get("at"))
+        text = " ".join(str(data.get("message") or "").split())[:120]
+        return str(data.get("event") or ""), str(data.get("kind") or ""), text, at
+    except (OSError, ValueError):
+        return None
+
+
+STATE = hook_state()
+if STATE and STATE[0] == "StopFailure":
+    # A failed turn leaves a quiet terminal; one that printed since is working again, whatever the file says.
+    _printed = terminal_output_time()
+    if _printed is None or STATE[3] is None or _printed > STATE[3] + 10:
+        STATE = None
+STATE_LINES = {}
+for _kinds, _line in ((("overloaded",), "stalled: model at capacity"),
+                      (("server_error", "unknown", "invalid_request", "max_output_tokens"), "stalled: api error"),
+                      (("authentication_failed", "oauth_org_not_allowed"), None)):
+    for _kind in _kinds:
+        STATE_LINES[("StopFailure", _kind)] = _line
+for _kind in ("account_on_hold", "billing_error", "verification_required", "cloud_credential_error", "model_not_found"):
+    STATE_LINES[("StopFailure", _kind)] = "stuck: account: " + _kind
+for _kind in ("quota_auto_resume_stale", "quota_auto_resume_disabled"):
+    STATE_LINES[("Notification", _kind)] = "stuck: usage limit"
+if STATE and (STATE[0], STATE[1]) in STATE_LINES:
+    out(STATE_LINES[(STATE[0], STATE[1])] or login_line())
+
 if stream is not None:  # the stream's phrases first, then worker-read's below (#187)
     hit = phrase_stop(clean(stream[-25:])[1])
     if hit:
@@ -430,6 +514,16 @@ rows, lines = clean(lines)
 hit = phrase_stop(lines)
 if hit:
     out(hit)
+if STATE and STATE[:2] == ("StopFailure", "rate_limit"):
+    out("stalled: model at capacity")  # no usage-limit phrase on screen: the API said it is rate limited
+HINTS = {"permission_prompt": "confirmation dialog", "worker_permission_prompt": "confirmation dialog",
+         "elicitation_dialog": "confirmation dialog", "elicitation_url_dialog": "confirmation dialog",
+         "agent_needs_input": "waiting for input", "idle_prompt": "waiting for input"}
+if STATE and STATE[0] == "Notification" and STATE[1] in HINTS and STATE[3] is not None \
+        and source in ("stream", "screen-unavailable"):
+    printed = terminal_output_time()
+    if printed is not None and printed <= STATE[3] + 2:
+        out("stuck: " + HINTS[STATE[1]] + ": " + STATE[2])
 
 
 def api_error_stall(screen):
@@ -596,34 +690,6 @@ def linked_worktree(wt):
     except (OSError, subprocess.TimeoutExpired):
         return wt
     return None if git and git == common else wt
-
-
-def epoch_seconds(value):
-    """Seconds since the epoch for an ISO string or epoch milliseconds (#191); None when unreadable."""
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, str) and re.fullmatch(r"\d+(\.\d+)?", value.strip()):
-        value = float(value)
-    if isinstance(value, (int, float)):
-        return value / 1000 if value > 1e11 else value
-    if isinstance(value, str):
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
-        except ValueError:
-            return None
-    return None
-
-
-def terminal_output_time():
-    """The terminal's lastOutputAt in seconds, or None when the list or the terminal cannot be read."""
-    try:
-        proc = subprocess.run([orca, "terminal", "list", "--limit", "500", "--json"],
-                              capture_output=True, text=True, timeout=30)
-        terminals = json.loads(proc.stdout)["result"]["terminals"]
-        last = next((t.get("lastOutputAt") for t in terminals if isinstance(t, dict) and t.get("handle") == handle), None)
-    except Exception:
-        return None
-    return epoch_seconds(last) if isinstance(last, (int, float)) else None
 
 
 def progress_minutes():

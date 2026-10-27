@@ -192,7 +192,7 @@ g "L90c a red fixed outside runtime is refunded" 'A red is refunded, and does no
 g "L90d the Phase 4 red row counts the same way" 'counted as the row above counts them'
 g "L89d babysit's gate lock reports its wait" '--progress <star.home>/progress/<item>.log -- sh <run-gates.sh>'
 g "L83c decisions are read after every background step" '| after every background step (an executor run, a gate round, the regression gate, a CI poll, a Phase 2 wake) |'
-g "L83d through orca's unread messages" 'orca orchestration check --unread --json'
+g "L83d through orca's unread messages" 'orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json'
 
 # lane h: reviewer mode
 review_mode=$(awk '/^## Reviewer mode/ { f = 1; next } /^## / { f = 0 } f' "$SKILL")
@@ -264,9 +264,11 @@ gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "#108a NOT-SAFE rounds count from the newest SAFE round or the last push" 'NOT-SAFE rounds are counted since the newest SAFE round or the last push, whichever is later.'
 grow "#108b an unpushed SAFE round starts a fresh count" 'A SAFE round that could not be pushed, because the PR needed a base merge first, starts a fresh count.'
 printf '%s\n' "$gate_row" | grep -qF 'NOT-SAFE round for this push' && fail "#108c the per-push count is gone" || pass "#108c the per-push count is gone"
-g "#99a messages are read only with --json" 'Read messages only with `--unread --json` (or `--peek --json` to look without consuming them).'
-g "#99b a body a plain check consumed is read back" 'if that happened, run `orca orchestration check --all --json` and read the bodies'
+g "#99a messages are read only with --json" 'Read messages only with `${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json` (or `${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --peek --json` to look without consuming them).'
+g "#99b a body a plain check consumed is read back" 'if that happened, run `orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --all --json` and read the bodies'
 grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--json' && fail "#99c every orchestration check carries --json" || pass "#99c every orchestration check carries --json"
+grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"}' && fail "#213 every orchestration check names --terminal" || pass "#213 every orchestration check names --terminal"
+g "#213 a message is acted on once, by its id in the progress log" 'Act on each message once'
 phase() { awk -v h="## Phase $1:" 'index($0, h) == 1 { f = 1; next } /^## / { f = 0 } f' "$SKILL"; }
 phase 3 | grep -qF 'Gate the round as `juel:ship-ticket`'"'"'s "Gate once per PR" says' && pass "#97a Phase 3 gates a round once per PR" || fail "#97a Phase 3 gates a round once per PR"
 phase 3 | grep -qF -- '--root <repo root> sweep' && pass "#97b a round runs the sweep" || fail "#97b a round runs the sweep"
@@ -372,9 +374,10 @@ g "Q157f away is not a reason to wait" 'nothing holds marking ready, replies, re
 # audit lane d: final sync
 has "D2a Phase 4 step 1 merges the base in only when" 'merges the base in only when'
 has "D2b step 1 reads review-rule.sh" 'review-rule.sh <repo> <base>'
-has "D2c step 1 names strict, queue and unknown" 'prints `strict`, `queue` or `unknown'
+has "D2c step 1 names strict and unknown" 'prints `strict` or `unknown'
 has "D2d the hosted row's base merge takes the same condition" "Phase 4 step 1's condition holds"
 has "D2e the description says when the base is merged" 'merges the base branch in when the base requires it or the PR conflicts'
+has "#212b the behind paragraph drops the merge queue from the sync triggers" 'a base that requires an up-to-date head or is unreadable, or a STAR order'
 has "D2f the behind paragraph says the merge gate still sends a strict base back" "STAR's merge gate still sends a strict base back"
 has "D3a a SAFE round's P2 and P3 get no push of their own" "A SAFE round's \`[P2]\` and \`[P3]\` findings stay in its review: no commit and no push after a SAFE round for them alone."
 
@@ -394,9 +397,9 @@ has "AU6 By hand the resolved hunks are shown before the commit" 'show the user 
 has "AU6b a lockfile is regenerated, never merged by hand" 'A lockfile is never merged by hand: take the base'"'"'s version, run the project'"'"'s install command to regenerate it, and stage the result.'
 has "#204a behind alone is not a reason to sync" '`behind` alone is not a reason (#204)'
 has "#204b the exact Decisions line STAR writes orders the sync" '`## Decisions` holds the line `synced with <base> at <sha7>`, which STAR'"'"'s "Sync after the base moved" writes'
-has "#204e strict, queue and unknown all sync" 'prints `strict`, `queue` or `unknown …`, or the brief'"'"'s'
-has "#204f a queue base refuses a BEHIND merge too" 'A `queue` base refuses a BEHIND merge too, so it syncs like a strict one'
-has "#204g the hosted row names queue and unknown" 'or `review-rule.sh` prints `strict`, `queue` or `unknown …`, or the `synced with <base> at <sha7>` line'
+has "#204e strict and unknown sync" 'prints `strict` or `unknown …`, or the brief'"'"'s'
+has "#212a a queue base is not a reason to sync" 'A `queue` base is no reason to sync (#212): the queue tests the base plus the PR on its own branch, so a sync only gives it a head to test again'
+has "#204g the hosted row names strict and unknown" 'or `review-rule.sh` prints `strict` or `unknown …`, or the `synced with <base> at <sha7>` line'
 has "#205a the report carries the inherited NOTE" '`NOTE: inherited from <base>: <one line>` once when the cause of an `ESCALATION` is a defect the PR took over from its base branch'
 has "#204c at most one sync per run" 'Phase 4 syncs at most once per run'
 has "#204d the hosted last pass uses the same rule" 'never `behind` alone'
@@ -433,6 +436,34 @@ has "#179d the conflict wake points at the hold" 'push it only as the hold in Ph
 # an unreadable fallback review is retried without spending the round (#185)
 has "FU1 an ERROR fallback-unreadable waits and does not spend the retry" 'An `ERROR fallback-unreadable …` line waits 10 minutes and runs the same round again; it never counts toward the second `ERROR` and casts no vote toward `tries.perStep`.'
 has "FU2 the third ERROR fallback-unreadable on a round is review-tool" 'The third `ERROR fallback-unreadable` on the same round ends as `step=review-tool`.'
+
+
+# juel:yuna: "Yuna mode" inside "Reviewer mode"
+has "Y1 --yuna argument" '| `--yuna <home>` | off |'
+grep -q '^### Yuna mode' "$SKILL" && pass "Y2 Yuna mode documented" || fail "Y2 Yuna mode documented"
+has "Y3 the keyboard stop does not apply" 'Under `--yuna` this stop does not apply.'
+has "Y4 every wait is logged" 'append `wait author` to the progress log'
+has "Y5 silence releases the PR" 'RELEASED item=<item> reason=author silent for <silenceHours> h'
+has "Y6 silenceHours comes from yuna.json" '`silenceHours` in `<home>/yuna.json` (72 when absent)'
+has "Y7 re-review posts by itself" '/juel:review-pr --pr <pr> --since <reviewed head> --from-babysit --yuna <home> --item <item>'
+has "Y8 an approval ends with APPROVED" 'print `APPROVED item=<item> pr=<pr url>` as the last line'
+has "Y9 a stop parks" 'print `PARKED item=<item> reason=<why>` as the last line'
+has "YF1 Phase 1 fetches the PR ref and detaches" 'fetch <remote> pull/<n>/head'
+has "YF2 and checks FETCH_HEAD out detached" 'git -C <worktree> checkout --detach FETCH_HEAD'
+has "YF3 and confirms the head" 'equals the PR'"'"'s `headRefOid`'
+has "YF4 gh pr checkout is not used under yuna" '`gh pr checkout` is not used under `--yuna`'
+has "YF5 Phase 3 step (2) detaches too" '| Phase 3, step (2) |'
+has "YF6 what brings the PR back" 'A new push, or a re-request naming you, brings the PR back'
+
+has "Y10 refused in author mode, unattended and yuki" 'Refused in author mode, with `--unattended`, and with `--yuki`'
+
+# lane C: the push-gate row carries the numbered -fix.md shape and the evidence rule (#209, #210)
+gate_row=$(grep -F 'every push is gated first' "$SKILL")
+[ "$(printf '%s\n' "$gate_row" | wc -l | tr -d ' ')" = 1 ] && pass "C209a the push-gate row is still one physical line" || fail "C209a"
+printf '%s\n' "$gate_row" | grep -qF 'one line per blocking finding of that round, numbered as in `<item>-r<k>.md`: `<n>. Fixed in <sha>.[ Sites: …]` or `<n>. Disposition: <the technical reason>`' && pass "C210a the row names the numbered -fix.md shape" || fail "C210a"
+printf '%s\n' "$gate_row" | grep -qF 'Run it only when it is read-only' && printf '%s\n' "$gate_row" | grep -qF 'Any other command is not run' && pass "F3a the row runs an evidence command only when it is read-only" || fail "F3a"
+printf '%s\n' "$gate_row" | grep -qF 'needs no line; when it gets one it is `<n>. Not blocking.`, and the gate never records it' && pass "F3c the row: a finding that did not block needs no line" || fail "F3c"
+printf '%s\n' "$gate_row" | grep -qF "Run each finding's evidence line first" && pass "C209b the row runs each finding's evidence line first" || fail "C209b"
 
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

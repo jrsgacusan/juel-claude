@@ -153,7 +153,17 @@ if grep -qF "STAR adds the item once more" "$tmp/text"; then fail "A25 can't now
 # the rule-book lines for #176, #177, #180 and #181
 has "A26 the merge gate says when behind holds it" "GitHub's merge state not blocked or dirty, and not behind when the base requires up-to-date branches"
 if tr '\n' ' ' < "$SKILL" | tr -s ' ' | grep -qF "not blocked, behind or dirty"; then fail "A26 the old behind wording is gone"; else pass "A26 the old behind wording is gone"; fi
-hasT "A27 stages.md says behind needs a strict base" '`pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict`, or the rule cannot be read).'
+hasT "A27 stages.md says behind needs a strict base" '`pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict` without `queue`, or the rule cannot be read).'
+hasT "#212a stages.md: STAR never syncs on a queue base" 'On a queue base (`review-rule.sh` prints `queue`) STAR never syncs the PR with the base itself: the queue tests base plus PR.'
+hasT "#212b stages.md: the QUEUED line waits and spends no try" '`QUEUED head=<sha>[ warn=no-merge-group]` | the PR is in the merge queue or set to enter it: nothing is merged yet. No try'
+hasT "#212c stages.md: QUEUED is followed by merge.sh again" 'the next tick runs `merge.sh` again for it, not the gate, until it prints `MERGED` or `FAIL`'
+hasT "#212d stages.md: the no-merge-group warning is told once" 'the base requires a merge queue and no workflow has a merge_group trigger: required checks never report in the queue'
+hasT "#212e stages.md: leaving the queue is a FAIL merge row" '`FAIL merge: left the merge queue: <reason>`'
+hasT "#212f stages.md: the MERGED gate run leaves out queued rows" 'every other `verifying` row on that base except a row whose brief has a `merge queued at <sha7>` line for its current head'
+hasT "#212g stages.md: those rows run merge.sh and each gets its own MERGED line" 'those run `merge.sh` instead, so each queued PR gets its own `MERGED` line, comment and notification'
+hasT "#212h stages.md: a removal is reported once" 'A queue removal is reported once: `merge.sh` keeps the event ids in `merges/<item>.removed`'
+hasT "#208a stages.md: a StopFailure counts only while the terminal is quiet" 'StopFailure counts only while the terminal printed nothing in the 10 seconds after it'
+has "#212f SKILL.md: merge.sh merges through the queue and posts after" 'merges with `--match-head-commit` (on a base that requires a merge queue, `--auto` with no strategy flag, and never `--admin`) and posts'
 hasT "A28 stages.md says parallel starts are safe" 'Parallel starts are safe: `stage-start.sh` holds a lock per repository around the branch step.'
 # hasF <name> <file under references/> <text>: the text is in that one reference once line breaks are folded
 hasF() { tr '\n' ' ' < "$S/references/$2" | tr -s ' ' | grep -qF -- "$3" && pass "$1" || fail "$1"; }
@@ -196,5 +206,15 @@ hasT "T10c worker_done release failure is replayed" 'When `release` prints `FAIL
 hasT "T11 state.md: babysit never syncs on behind alone" 'never on behind alone, so that pass'
 hasT "T13 the inherited cause needs the worker's NOTE" 'The worker marks such a cause with a line `NOTE: inherited from <base>: <one line>`'
 hasT "T13b without the NOTE STAR does not guess" 'Without that NOTE, STAR does not guess'
+# lane C: the gate facts and the reviews folder (#209, #210, #211)
+hasT "G209 stages.md: only a proven P0 or P1 makes a round NOT SAFE" 'Only a proven `[P0]` or `[P1]` finding makes a round NOT SAFE'
+hasT "G209b stages.md: a finding without an evidence line is unproven and does not block" 'Without an evidence line it stays in the review marked unproven and does not block'
+hasT "G210 stages.md: dismissed findings are recorded and a repeat never blocks" '<item>-dismissed.md` records every blocking finding a `-fix.md` answered with `Disposition:`'
+hasT "G211 stages.md: a small push on a SAFE head is gated as a diff" 'a small push on a SAFE head is reviewed as a diff'
+hasT "G209c stages.md: the evidence clause may sit anywhere in the finding" 'clause anywhere in the finding'
+hasT "G210c stages.md: a repeat is the same unchanged place" 'on the same path, within 10 lines, with the same unchanged non-trivial line'
+hasT "G211b stages.md: a doc is under docs/ or README, CHANGELOG, LICENSE; a skill is code" 'any other `.md` file is code'
+hasT "G210b state.md lists the dismissed file" '-dismissed.md'
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

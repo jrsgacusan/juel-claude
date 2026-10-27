@@ -85,7 +85,21 @@ headless `codex review` of the branch against its base on `star.json`'s `gate` m
 xhigh), read-only and with no MCP server. Facts STAR relies on:
 
 - It writes `reviews/<project>/<item>-r<k>.md` (first line `VERDICT item=<item> round=<k> SAFE|NOT-SAFE
-  findings=<n> head=<sha>`), `.raw.md` and `.log`. Only a `[P0]` or `[P1]` finding makes a round NOT SAFE.
+  findings=<n> head=<sha>`), `.raw.md` and `.log`. Only a proven `[P0]` or `[P1]` finding makes a round NOT SAFE. The line the gate
+  prints also carries `unproven=<n>` before `head=`.
+- A `[P0]` or `[P1]` is proven by its evidence: an `Evidence:` clause anywhere in the finding (inline in its
+  paragraph, on its own line, bold or not; a label alone takes the next line or the fenced block after it), a command in
+  backticks whose output shows the defect, or `test <path> <name> fails`. Without an evidence line it stays in the
+  review marked unproven and does not block. (`--evidence` is the Phase 6 live-check folder, a different thing.)
+- `reviews/<project>/<item>-dismissed.md` records every blocking finding a `-fix.md` answered with `Disposition:` (the
+  worker writes `<n>. Fixed in <sha>.` or `<n>. Disposition: <reason>` per blocking finding; a finding that did not
+  block needs no line). A later round's finding on the same path, within 10 lines, with the same unchanged non-trivial line
+  text (with no place, the same title) is marked `(repeat of r<j>#<n>, dismissed)` and never blocks, so a round
+  with only repeats, unproven findings or `[P2]` and `[P3]` is SAFE. Code changed at the place is raised again.
+- After a SAFE round, a small push on a SAFE head is reviewed as a diff: at most 400 changed lines and 15 files,
+  and every path added by the push, a test, or a doc (under `docs/`, or a `README*`, `CHANGELOG*` or `LICENSE*` file;
+  any other `.md` file is code, since skills and prompts are behaviour). Any other push, a whitespace edit included, gets a full
+  review. The review's `Gate:` line ends `scope diff from <sha>` or `scope full since <sha>`.
   An attempt that ends in `ERROR` writes none of them, so rounds count verdicts only.
 - A capacity error is retried after 60 and 180 seconds, then, or at once when the Codex account is out of
   usage, the same prompt runs through `gate.fallback` (a headless `claude -p` review on Opus, read-only).
@@ -289,7 +303,8 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 
 | Line | Then |
 |---|---|
-| `MERGED <sha>` | as the verdict `MERGED`; print it and push one notification, "merged <item>: PR #<n>". Run the gate at once, in this tick, for every other `verifying` row on that base |
+| `MERGED <sha>` | as the verdict `MERGED`; print it and push one notification, "merged <item>: PR #<n>". Run the gate at once, in this tick, for every other `verifying` row on that base except a row whose brief has a `merge queued at <sha7>` line for its current head: those run `merge.sh` instead, so each queued PR gets its own `MERGED` line, comment and notification |
+| `QUEUED head=<sha>[ warn=no-merge-group]` | the PR is in the merge queue or set to enter it: nothing is merged yet. No try, `verify=retry=<now + 2 min>`. Append "- <iso> merge queued at <sha7>" to `## Decisions` unless that line exists: the next tick runs `merge.sh` again for it, not the gate, until it prints `MERGED` or `FAIL`, since a PR in the queue can read BLOCKED, which the gate holds. The first `warn=no-merge-group` for the item is told to the owner once, as one notification, never a question: the base requires a merge queue and no workflow has a merge_group trigger: required checks never report in the queue (#212) |
 | `FAIL head moved` | as the verdict `MOVED`. `merge.sh` prints it only when it read the PR again and the head differs from `--head`, so it is a real move (#193) |
 | `PENDING merge state: behind the base branch` | the PR is behind a base that wants an up-to-date head (a BEHIND PR on a base with no such rule is merged by `merge.sh` itself): the sync rule below. No try. `merge.sh` posted no comment |
 | `FAIL merge: conflicts with the base` | the sync rule below, as the verdict `FAIL conflicts`: row `babysit-queued` with a `## Decisions` line, no try |
@@ -298,6 +313,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | `FAIL owner branch <base>` | the PR targets a branch only the owner merges into: row `set-aside`, "<base> is an owner branch" |
 | `FAIL merge methods: <method> not allowed` | add a `person` item of kind `access`: "allow <method> merges on <repo>, or change mergeMethod". The row stays `verifying` with `verify=retry=<now + 10 min>`; the gate and `merge.sh` run again after that |
 | `PENDING check <name> not reported` | a required check has not reported on the head; nothing is wrong. `verify=retry=<now + 2 min>`. No try |
+| `FAIL merge: left the merge queue: <reason>` | the queue removed the PR after it was queued on this head. A queue removal is reported once: `merge.sh` keeps the event ids in `merges/<item>.removed`, so the next run for a removal already reported queues the PR again (a closed PR is `FAIL closed`, above): append "- <date> the merge gate said: left the merge queue: <reason>. Fix it on the PR." to `## Decisions`, spend a try, row `babysit-queued`. A conflict reason is the worker's conflict rule; nothing syncs the PR before that |
 | `FAIL ledger: <why>` | STAR's own bug, nothing on the PR is wrong: file an improvement issue and `verify=retry=<now + 10 min>` |
 | `FAIL comment: …` or any other `FAIL merge: …` | spend a try, `verify=retry=<now + 10 min>`; at `tries.perStep` the row is set aside |
 | exit 64 | `merge.sh` refused its arguments: file an improvement issue, change nothing |
@@ -316,7 +332,7 @@ moved since babysit last merged it in, most often because STAR merged a sibling 
 When `## Decisions` has no line "synced with <base> at <sha7>", append it and send the row to
 `babysit-queued` (it resumes with `--since <cursor>`; its Phase 4 merges the base in and resolves the
 conflicts itself, spec section 7). This spends no try. When the line is there, syncing did not help: spend a
-try and do the same; at `tries.perStep` the row is set aside. `pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict`, or the rule cannot be read).
+try and do the same; at `tries.perStep` the row is set aside. `pr-verify.sh` reports behind only when the base requires branches to be up to date (`review-rule.sh` prints `strict` without `queue`, or the rule cannot be read). On a queue base (`review-rule.sh` prints `queue`) STAR never syncs the PR with the base itself: the queue tests base plus PR. `merge.sh` queues the PR (`gh pr merge --auto`, no strategy, never `--admin`) and prints `QUEUED` above; it never prints behind there.
 
 ## Report items
 
@@ -369,7 +385,7 @@ whose `verify` holds `retry=` has reported: skip it), and so does the start's re
 (no `--worktree` for a `briefing` or `posting` row: they change nothing in a worktree, so the probe reads
 the dispatch's heartbeat and the terminal's output as their progress; a `--worktree` that is the main
 checkout is read the same way, since a build's own worktree is always a linked one). It reads the worker's
-screen and progress and prints one line, so none of that enters STAR's context. STAR never answers a worker's screen for it, with one exception
+screen and progress and prints one line, so none of that enters STAR's context. It reads the worker's hook state first (`workers/<terminal>.json`, written by `hooks/worker-state.sh` on a StopFailure or Notification and cleared when the worker takes a new turn), so a stall the hooks named does not wait for the screen to show it (#208). A StopFailure counts only while the terminal printed nothing in the 10 seconds after it: output since means the worker is working again, whatever the file says; a hint notification such as `idle_prompt` never replaces it. STAR never answers a worker's screen for it, with one exception
 (`prompt bounded`). A ` holds-screen <m>` ending goes in the status line (`screen: <item> <m> min`).
 
 STAR remembers what it sent a worker in `sent.log`, not in counters: one line per nudge,
@@ -385,6 +401,7 @@ STAR remembers what it sent a worker in `sent.log`, not in counters: one line pe
 | `stuck: login: <dir> logged out` | the worker sits on Claude Code's login screen, most often after an account switch logged every session out, and the probe checked `<dir>` in the worker's own shell and folder. Keep the worker. Add one `person` item of kind `screen` per `<dir>` (when it is open add nothing): "the Claude login for <dir> is lost: run /login in a Claude Code session that uses it (`CLAUDE_CONFIG_DIR=<dir> claude`)". Close it on the first tick no probe prints this line for that `<dir>`. When every probe this tick says `stuck: login`, the status line says so and the item's title ends ` (machine-wide login loss)` |
 | `stuck: login: <dir> signed in` | the login is fine in the worker's environment, so the screen is stale: a lost worker, but spend no try |
 | `stuck: login` (nothing after it) | the check could not run. Check `claude auth status >/dev/null 2>&1` from the project folder. It fails: keep the worker and add one `person` item of kind `screen` "the Claude login is lost: run /login in any Claude Code session of this profile" (one for every row; close it on the first tick the check passes). It passes: a lost worker, but spend no try |
+| `stuck: account: <kind>` (#208) | Claude Code stopped the worker with `<kind>` (`account_on_hold`, `billing_error`, `verification_required`, `cloud_credential_error` or `model_not_found`), which only the owner can fix. Keep the worker and spend no try. Add one `person` item of kind `screen` per `<kind>` (when it is open add nothing): "the Claude account stopped a worker with <kind>: fix it, then the worker goes on". Close it on the first tick no probe prints this line for that `<kind>` |
 | `stuck: usage limit` | a lost worker at step `worker` |
 | `stuck: <what>` (any other) | `sh S/stage-start.sh --home HOME_DIR stop <dispatch>`, and spend a try at step `screen`; the row goes to its waiting state |
 | `settled <state> [<reason>]` | its report is in the run's inbox and the Messages step applies it. If this tick's Messages step processed no report for that dispatch, a lost worker. `agent_prompt_stalled` (the worker never took its prompt, most often a trust dialog) is a try at step `screen` |

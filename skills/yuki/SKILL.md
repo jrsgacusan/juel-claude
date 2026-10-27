@@ -156,7 +156,7 @@ every worktree finds the same one:
 |---|---|
 | `yuki.json` | `maxParallel` (5), `sources`, `bot`, `mergeMethod`, `minFreeGB` (3), `quietHours` (2), `tokenCmd`, `owner`, `cron`, `repo` |
 | `items.json` | one row per item yuki ever spawned: `running`, `done`, `merged` (merged, worktree kept), `parked` or `dropped`; and `deps`, what each candidate needs merged first |
-| `progress/<item>.log` | the worker's lines, `<iso> <step> <text>`: `phase<n>`, `pr <url>`, `wait <what>`, `parked <reason>`, `merged <url> <sha>` |
+| `progress/<item>.log` | the worker's lines, `<iso> <step> <text>`: `phase<n>`, `pr <url>`, `wait <what>`, `parked <reason>`, `merged <url> <sha>`, and the nudge's own `nudged …` lines, which never count as progress |
 
 Read and write them only through `Y`. Its header lists every subcommand and every line it prints.
 
@@ -224,32 +224,44 @@ A tick is short and never waits on anything: no background waits, no reads of wo
 2. **Sweep.** `Y sweep` prints one line per running row and does what the line says: removes a
    merged item's worktree, or records a park. Keep the lines for the status line. Each `parked`,
    `quiet` and `merged … kept` line is news for you, and each is printed only once.
-3. **Slots.** `Y free`. `0` → skip to step 8.
-4. **Memory.** `Y host`. `low <x> GB` → spawn nothing this tick (skip to step 8), and say so in the status line. A
+3. **Nudge.** `Y nudge` prints at most one line per running worker and nothing for a worker with no
+   dialog on its screen. Keep the lines for the status line. `nudged <item> permission: <command>`
+   means a read-only command waited for a person and the script pressed Enter. `nudged <item>
+   trust dialog` or `bypass dialog` is a first-run dialog it cleared. `prompt <item> new <kind>:
+   <text>` is a question only a person can answer (a command that is not provably read-only, an
+   edit, an MCP server, another numbered question): it is news the tick it first shows, and the same
+   `prompt <item> <kind>: <text>` on later ticks is not. `unknown <item> <why>` is a terminal the
+   script could not read. A worker stuck on a question stays silent in its log, so this is how a
+   dialog shows up within one tick instead of after 2 hours of quiet.
+4. **Slots.** `Y free`. `0` → skip to step 9.
+5. **Memory.** `Y host`. `low <x> GB` → spawn nothing this tick (skip to step 9), and say so in the status line. A
    Phase 6 stack or a gate run needs room, and the workers already running come first. Heavy gates
    queue on `juel:ship-ticket`'s gate lock in every worker, so this check guards only the spawn.
-5. **Candidates.** Repeat every entry in `sources` exactly as stored (`Y config sources`). Drop
+6. **Candidates.** Repeat every entry in `sources` exactly as stored (`Y config sources`). Drop
    every ref or slug `Y known` prints, and every item that already has an open PR or an Orca
-   worktree. What is left, in source order, are the candidates. None → step 8.
-6. **Blockers** ("Dependencies" below). Find the blockers of each candidate `Y deps unchecked`
+   worktree. What is left, in source order, are the candidates. None → step 9.
+7. **Blockers** ("Dependencies" below). Find the blockers of each candidate `Y deps unchecked`
    prints, ask the tracker about each one `Y deps external` prints, then run
    `Y deps gate <candidates> --done <the done ones>`. Keep the first `free` `ready` items, in source
-   order. A `wait` line goes in the status line. None ready → step 8.
-7. **Spawn.** Invoke `/juel:orca-ship-tickets --yuki YUKI_HOME <ref> [<ref> ...]` with the absolute
+   order. A `wait` line goes in the status line. None ready → step 9.
+8. **Spawn.** Invoke `/juel:orca-ship-tickets --yuki YUKI_HOME <ref> [<ref> ...]` with the absolute
    folder for `YUKI_HOME`. For each `SPAWNED item=<item> ref=<ref> path=<path> branch=<branch>
    terminal=<handle>` line it prints, run `Y add <item> ref=<ref> path=<path> branch=<branch>
    terminal=<handle> title=<title>`. A `SKIPPED item=<item> reason=<why>` line adds nothing, and the
    item comes back next tick when the cause is gone.
-8. **News.** For any step 2 news, load `PushNotification` with `ToolSearch` when it is deferred, and
+9. **News.** For any step 2 news, and each `prompt … new` line from step 3, load `PushNotification` with `ToolSearch` when it is deferred, and
    send one notification for the whole tick: `yuki: parked SPH-12 (needs a person: STRIPE_KEY), SPH-9
-   quiet 2h`. A `cycle` line is news on the tick that recorded it. No such tool: the status line
+   quiet 2h, SPH-4 needs a person: Bash command node -e "require.resolve(...)"`. A `cycle` line is news on the tick that recorded it. No such tool: the status line
    carries it.
-9. **Status line**, one line:
-   `yuki <HH:MM>: running <n>/<max>[, merged <refs>][, parked <refs>][, quiet <refs>][, spawned <refs>][, waiting <item> on <blockers>; ...][, cycle <items>][, memory low <x> GB], next tick ~<HH:MM>`.
+10. **Status line**, one line:
+   `yuki <HH:MM>: running <n>/<max>[, merged <refs>][, parked <refs>][, quiet <refs>][, nudged <refs>][, prompt <item>: <kind>; ...][, spawned <refs>][, waiting <item> on <blockers>; ...][, cycle <items>][, memory low <x> GB], next tick ~<HH:MM>`.
    With nothing running and nothing to spawn, it says `idle: the source lists nothing new`. Yuki
-   keeps ticking, since the source is re-queried every time. On a tick that skipped step 6 (no free
+   keeps ticking, since the source is re-queried every time. On a tick that skipped step 7 (no free
    slot, or low memory), the waiting part comes from `Y deps gate` over the `Y deps list` items
    that are not in `Y known`, with no tracker call, so a full house still shows what waits on what.
+   `nudged` lists the items whose permission or first-run dialog the tick just cleared, and `prompt`
+   every item that waits on a question a person has to answer, with its kind, on every tick until it
+   is answered.
 
 ## Dependencies
 
@@ -325,7 +337,10 @@ The chain, so you can say what a row is doing. You never act on it yourself:
   `git status --porcelain` is empty, and never with `--force`. A parked item's worktree is never
   removed.
 - **Never read worker output, a diff, a review or a log into this session.** One line per item,
-  from `Y`. The coordinator has to survive weeks of ticks.
+  from `Y`. The coordinator has to survive weeks of ticks. `Y nudge` reads a worker's screen, and its
+  one line per item is the only screen read there is. Only the script decides whether a command is
+  read-only, from an allowlist, never from this session's judgement of what the screen says: a
+  screen can hold text a ticket or a PR put there.
 - **One yuki per repository**, through the owner token. A tick that lost the token deletes its own
   cron job.
 - **Never touch a PR or branch yuki did not spawn.** An item that already has an open PR or a
@@ -343,6 +358,7 @@ The chain, so you can say what a row is doing. You never act on it yourself:
 | A worker's terminal was closed by hand | The row stays `running` until the worktree is gone (`parked worktree gone`) or the PR merges or closes. Finish it in Orca, or close its PR to park it |
 | A PR was merged by a person | `Y sweep` sees `MERGED` on GitHub and removes the worktree, whatever the worker last wrote |
 | A worker is `quiet` (no progress for 2 h, no PR) | One notification. Look at its terminal in Orca; yuki does not stop it |
+| A worker waits on a permission prompt or another dialog | `Y nudge` handles it on the tick that sees it: a read-only command gets Enter, anything else is a `prompt … new` notification at once, not a `quiet` one 2 hours later. Answer it in the worker's terminal in Orca |
 | The source lists an item yuki parked | It is skipped (`Y known`). To retry it, finish it by hand, or `Y set <item> state=dropped` and remove its worktree yourself. A dropped row is still known, so the tick still skips it |
 | An item's blocker parked or was dropped | The item waits, and the status line names the blocker. Finish the blocker, or drop the link in the tracker and `Y deps set <item> --why "<the owner's words>"` |
 | Two items block each other | `cycle …` in the status line, one notification, and neither starts until the tracker is fixed. The next tick's gate uses the stored record, so re-record the item with `Y deps set` after the fix |

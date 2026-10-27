@@ -95,5 +95,28 @@ g "F6d the frontmatter check stays static" 'check: "gh pr view --json number"'
 g "C145o the docs root entry comes from docsRoot" 'for d in "${docsRoot#"$ROOT"/}" .superpowers; do'
 g "C145p each entry is appended anchored" "printf '/%s/\n' \"\$d\" >> \"\$EXCLUDE\""
 g "C145q an earlier review's unanchored lines are dropped first" "grep -vxF -e 'superpowers/' -e '.superpowers/' \"\$EXCLUDE\""
+
+# juel:yuna: the --yuna mode, the positional-parameter guard (#208)
+if grep -nE '\$[0-9]' "$SKILL"; then fail "Y0 no positional parameters"; else pass "Y0 no positional parameters"; fi
+g "Y1 --yuna argument" '| `--yuna <home>` |'
+g "Y2 --item argument" '| `--item <item>` |'
+g "Y3 Yuna mode section" '## Yuna mode'
+srow "Y4 Step 7 skips the question under --yuna" 7 'Under `--yuna` skip this question'
+srow "Y5 skip rule 3 does not apply under --yuna" 7 'Under `--yuna` this rule does not apply'
+g "Y6 gh carries yuna's token" 'runs as `sh <yuna.sh> --home <home> gh …`'
+g "Y7 a moved head re-runs up to 3 times, then parks" 'After 3 moves in a row, stop with `parked head keeps moving`.'
+g "Y8 APPROVE ends with the APPROVED line" '`APPROVED item=<item> pr=<url>`'
+g "Y9 anything else hands off to babysit with --yuna" '`/juel:babysit-pr <PR> --yuna <home> --item <item>`'
+g "Y10 progress steps are written" 'append `posted <verdict> <review url>`'
+g "Y11 a failure parks" '`PARKED item=<item> reason=<the same text>`'
+# review fixes (F2)
+g "F2a the moved-head re-run fetches the PR ref" 'fetch <remote> pull/<n>/head'
+g "F2b and checks it out detached" 'checkout --detach FETCH_HEAD'
+g "F2c and confirms the head" 'headRefOid'
+fold() { tr '\n' ' ' < "$SKILL" | tr -s ' '; }
+fold | grep -qF 'Without `--from-babysit`, any stop' && pass "F2d any stop leaves one last line" || fail "F2d any stop leaves one last line"
+fold | grep -qF 'the stop is the `REVIEW-PR stopped reason=<why>` line Step 7 already prints' && pass "F2e under babysit the stop is the REVIEW-PR line" || fail "F2e under babysit the stop is the REVIEW-PR line"
+grep -A1 -F '| `--from-babysit` |' "$SKILL" | tail -1 | grep -qF '| `--yuna <home>` |' && pass "F2f no blank line splits the Arguments table" || fail "F2f no blank line splits the Arguments table"
+
 [ "$fails" -eq 0 ] && echo "all passed" || echo "$fails failed"
 [ "$fails" -eq 0 ]

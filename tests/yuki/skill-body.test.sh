@@ -72,5 +72,14 @@ has "$B" "babysit-pr: leaves its own worktree" 'never remove the one this sessio
 has "$R" "receive-review: --autopilot decides ambiguous findings" 'An ambiguous finding is decided, not reported.'
 has "$R" "receive-review: --autopilot still aborts unmergeable conflicts" 'still ends with `git merge --abort` and the `CONFLICT:` line'
 
+
+# The nudge (#214)
+has "$Y" "yuki: the tick nudges stuck workers" '**Nudge.** `Y nudge` prints at most one line per running worker'
+has "$Y" "yuki: a read-only permission prompt gets Enter" '`nudged <item> permission: <command>`'
+has "$Y" "yuki: another dialog is news once" '`prompt <item> new <kind>: <text>`'
+has "$Y" "yuki: the status line carries the nudge" '[, nudged <refs>][, prompt <item>: <kind>; ...]'
+has "$Y" "yuki: the nudge is the one screen read" 'its one line per item is the only screen read there is'
+has "$Y" "yuki: only the script judges what is read-only" 'Only the script decides whether a command is read-only'
+has "$Y" "yuki: a dialog shows within a tick" 'not a `quiet` one 2 hours later'
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
