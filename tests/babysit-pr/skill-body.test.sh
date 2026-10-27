@@ -192,7 +192,7 @@ g "L90c a red fixed outside runtime is refunded" 'A red is refunded, and does no
 g "L90d the Phase 4 red row counts the same way" 'counted as the row above counts them'
 g "L89d babysit's gate lock reports its wait" '--progress <star.home>/progress/<item>.log -- sh <run-gates.sh>'
 g "L83c decisions are read after every background step" '| after every background step (an executor run, a gate round, the regression gate, a CI poll, a Phase 2 wake) |'
-g "L83d through orca's unread messages" 'orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --unread --json'
+g "L83d through orca's unread messages" 'orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json'
 
 # lane h: reviewer mode
 review_mode=$(awk '/^## Reviewer mode/ { f = 1; next } /^## / { f = 0 } f' "$SKILL")
@@ -264,10 +264,10 @@ gate_row=$(grep -F 'every push is gated first' "$SKILL")
 grow "#108a NOT-SAFE rounds count from the newest SAFE round or the last push" 'NOT-SAFE rounds are counted since the newest SAFE round or the last push, whichever is later.'
 grow "#108b an unpushed SAFE round starts a fresh count" 'A SAFE round that could not be pushed, because the PR needed a base merge first, starts a fresh count.'
 printf '%s\n' "$gate_row" | grep -qF 'NOT-SAFE round for this push' && fail "#108c the per-push count is gone" || pass "#108c the per-push count is gone"
-g "#99a messages are read only with --json" 'Read messages only with `--terminal "$ORCA_TERMINAL_HANDLE" --unread --json` (or `--terminal "$ORCA_TERMINAL_HANDLE" --peek --json` to look without consuming them).'
-g "#99b a body a plain check consumed is read back" 'if that happened, run `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json` and read the bodies'
+g "#99a messages are read only with --json" 'Read messages only with `${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json` (or `${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --peek --json` to look without consuming them).'
+g "#99b a body a plain check consumed is read back" 'if that happened, run `orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --all --json` and read the bodies'
 grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--json' && fail "#99c every orchestration check carries --json" || pass "#99c every orchestration check carries --json"
-grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--terminal "$ORCA_TERMINAL_HANDLE"' && fail "#213 every orchestration check names --terminal" || pass "#213 every orchestration check names --terminal"
+grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"}' && fail "#213 every orchestration check names --terminal" || pass "#213 every orchestration check names --terminal"
 g "#213 a message is acted on once, by its id in the progress log" 'Act on each message once'
 phase() { awk -v h="## Phase $1:" 'index($0, h) == 1 { f = 1; next } /^## / { f = 0 } f' "$SKILL"; }
 phase 3 | grep -qF 'Gate the round as `juel:ship-ticket`'"'"'s "Gate once per PR" says' && pass "#97a Phase 3 gates a round once per PR" || fail "#97a Phase 3 gates a round once per PR"

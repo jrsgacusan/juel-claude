@@ -300,7 +300,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 
 | Line | Then |
 |---|---|
-| `MERGED <sha>` | as the verdict `MERGED`; print it and push one notification, "merged <item>: PR #<n>". Run the gate at once, in this tick, for every other `verifying` row on that base |
+| `MERGED <sha>` | as the verdict `MERGED`; print it and push one notification, "merged <item>: PR #<n>". Run the gate at once, in this tick, for every other `verifying` row on that base except a row whose brief has a `merge queued at <sha7>` line for its current head: those run `merge.sh` instead, so each queued PR gets its own `MERGED` line, comment and notification |
 | `QUEUED head=<sha>[ warn=no-merge-group]` | the PR is in the merge queue or set to enter it: nothing is merged yet. No try, `verify=retry=<now + 2 min>`. Append "- <iso> merge queued at <sha7>" to `## Decisions` unless that line exists: the next tick runs `merge.sh` again for it, not the gate, until it prints `MERGED` or `FAIL`, since a PR in the queue can read BLOCKED, which the gate holds. The first `warn=no-merge-group` for the item is told to the owner once, as one notification, never a question: the base requires a merge queue and no workflow has a merge_group trigger: required checks never report in the queue (#212) |
 | `FAIL head moved` | as the verdict `MOVED`. `merge.sh` prints it only when it read the PR again and the head differs from `--head`, so it is a real move (#193) |
 | `PENDING merge state: behind the base branch` | the PR is behind a base that wants an up-to-date head (a BEHIND PR on a base with no such rule is merged by `merge.sh` itself): the sync rule below. No try. `merge.sh` posted no comment |
@@ -310,7 +310,7 @@ Each tick, every `verifying` row (past the `retry=` time in its `verify`) runs
 | `FAIL owner branch <base>` | the PR targets a branch only the owner merges into: row `set-aside`, "<base> is an owner branch" |
 | `FAIL merge methods: <method> not allowed` | add a `person` item of kind `access`: "allow <method> merges on <repo>, or change mergeMethod". The row stays `verifying` with `verify=retry=<now + 10 min>`; the gate and `merge.sh` run again after that |
 | `PENDING check <name> not reported` | a required check has not reported on the head; nothing is wrong. `verify=retry=<now + 2 min>`. No try |
-| `FAIL merge: left the merge queue: <reason>` | the queue removed the PR, or it closed, after it was queued on this head: append "- <date> the merge gate said: left the merge queue: <reason>. Fix it on the PR." to `## Decisions`, spend a try, row `babysit-queued`. A conflict reason is the worker's conflict rule; nothing syncs the PR before that |
+| `FAIL merge: left the merge queue: <reason>` | the queue removed the PR after it was queued on this head. A queue removal is reported once: `merge.sh` keeps the event ids in `merges/<item>.removed`, so the next run for a removal already reported queues the PR again (a closed PR is `FAIL closed`, above): append "- <date> the merge gate said: left the merge queue: <reason>. Fix it on the PR." to `## Decisions`, spend a try, row `babysit-queued`. A conflict reason is the worker's conflict rule; nothing syncs the PR before that |
 | `FAIL ledger: <why>` | STAR's own bug, nothing on the PR is wrong: file an improvement issue and `verify=retry=<now + 10 min>` |
 | `FAIL comment: …` or any other `FAIL merge: …` | spend a try, `verify=retry=<now + 10 min>`; at `tries.perStep` the row is set aside |
 | exit 64 | `merge.sh` refused its arguments: file an improvement issue, change nothing |
@@ -382,7 +382,7 @@ whose `verify` holds `retry=` has reported: skip it), and so does the start's re
 (no `--worktree` for a `briefing` or `posting` row: they change nothing in a worktree, so the probe reads
 the dispatch's heartbeat and the terminal's output as their progress; a `--worktree` that is the main
 checkout is read the same way, since a build's own worktree is always a linked one). It reads the worker's
-screen and progress and prints one line, so none of that enters STAR's context. It reads the worker's hook state first (`workers/<terminal>.json`, written by `hooks/worker-state.sh` on a StopFailure or Notification and cleared when the worker takes a new turn), so a stall the hooks named does not wait for the screen to show it (#208). STAR never answers a worker's screen for it, with one exception
+screen and progress and prints one line, so none of that enters STAR's context. It reads the worker's hook state first (`workers/<terminal>.json`, written by `hooks/worker-state.sh` on a StopFailure or Notification and cleared when the worker takes a new turn), so a stall the hooks named does not wait for the screen to show it (#208). A StopFailure counts only while the terminal printed nothing in the 10 seconds after it: output since means the worker is working again, whatever the file says; a hint notification such as `idle_prompt` never replaces it. STAR never answers a worker's screen for it, with one exception
 (`prompt bounded`). A ` holds-screen <m>` ending goes in the status line (`screen: <item> <m> min`).
 
 STAR remembers what it sent a worker in `sent.log`, not in counters: one line per nudge,

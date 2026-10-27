@@ -206,7 +206,7 @@ g "L81c a resumed build's plan carries one" 'spec implemented at <the branch hea
 g "L81d the in-session run is told the Base line wins" "The plan's Base line overrides its Spec: apply the tasks, and do not re-check the spec for completeness."
 g "L78d the gate loop runs the scope check" "(Phase 4's line, its session tasks, its capacity rule and its scope check)"
 g "L83a decisions are read after every background step" 'after every background step returns, before choosing the next step'
-g "L83b through orca's unread messages, naming the worker's own terminal (#213)" 'orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --unread --json'
+g "L83b through orca's unread messages, naming the worker's own terminal (#213)" 'orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json'
 g "L89a the gate lock line takes the progress log" '[--progress <star.home>/progress/<item>.log]'
 g "L89b never inside a plan the executor runs" 'Never put `--progress` in a plan the executor runs'
 g "L89c the progress row says gate-lock writes the wait" '`gate-lock.sh --progress` writes this step itself every 10 minutes'
@@ -247,12 +247,12 @@ g "L105f the resolution sentence is unchanged" 'it must not install or run'
 g "L105g exit 71 for missing dependencies installs once, then reruns" '`dependencies are not installed`: run the resolved `commands.install` once (Phase 4'"'"'s'
 g "L105h a second 71 is step=review-tool" 'a second 71 is `step=review-tool`'
 g "L105i the escalation list names the failed install" 'dependency install failed (Phase 4'"'"'s "Dependencies")'
-g "L99a messages are read only with --unread --json or --peek --json, each with --terminal" 'Read messages only with `--terminal "$ORCA_TERMINAL_HANDLE" --unread --json` (or'
-g "L99a2 the peek variant names the terminal too" '`--terminal "$ORCA_TERMINAL_HANDLE" --peek --json` to look without consuming them)'
+g "L99a messages are read only with --unread --json or --peek --json, each with --terminal" 'Read messages only with `${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --unread --json` (or'
+g "L99a2 the peek variant names the terminal too" '`${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --peek --json` to look without consuming them)'
 g "L99b a plain check prints only subjects and marks them read" 'A plain `orca orchestration check` prints only the subjects and still'
-g "L99c a consumed body is read back with --all --json" 'run `orca orchestration check --terminal "$ORCA_TERMINAL_HANDLE" --all --json` and read the bodies.'
+g "L99c a consumed body is read back with --all --json" 'run `orca orchestration check ${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"} --all --json` and read the bodies.'
 grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--json' && fail "L99d every orchestration check with flags carries --json" || pass "L99d every orchestration check with flags carries --json"
-grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '--terminal "$ORCA_TERMINAL_HANDLE"' && fail "#213 every orchestration check names --terminal" || pass "#213 every orchestration check names --terminal"
+grep -oE 'orchestration check[^`]*' "$SKILL" | grep -vxF 'orchestration check' | grep -vqF -- '${ORCA_TERMINAL_HANDLE:+--terminal "$ORCA_TERMINAL_HANDLE"}' && fail "#213 every orchestration check names --terminal" || pass "#213 every orchestration check names --terminal"
 g "#213 a message is acted on once, by its id in the progress log" 'Act on each message once'
 g "#213 the id is appended after acting" '<iso> message <id>'
 g "L106a an outside-merged path is never restored" 'An `outside-merged <path>` line is never restored'
