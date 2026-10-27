@@ -4,7 +4,8 @@
 # <star home>/workers/<ORCA_TERMINAL_HANDLE>.json, so worker-probe.sh can name a stall from the event
 # instead of guessing from the screen: {"handle", "session", "event", "kind", "message", "at"}.
 # StopFailure writes kind=error, Notification kind=notification_type; SessionStart, UserPromptSubmit
-# and Stop write event "clear", so a state stands only until the worker takes a new turn.
+# and Stop write event "clear", so a state stands only until the worker takes a new turn. A hint Notification (idle_prompt and the
+# like) leaves a StopFailure of the same session alone; quota_auto_resume_* and auth_success replace it.
 # Prints nothing (a UserPromptSubmit hook's stdout reaches the model), deletes files in workers/
 # older than 7 days, and never fails a session: always exit 0.
 [ -n "${ORCA_TERMINAL_HANDLE:-}" ] || exit 0
@@ -44,6 +45,15 @@ try:
               "message": " ".join(state[2].split())[:120],
               "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     path = os.path.join(folder, handle + ".json")
+    if state[0] == "Notification" and not re.fullmatch(r"clear|quota_auto_resume_\w+|auth_success", state[1]):
+        # A hint (idle_prompt comes about 60 s after any turn ends, a failed one too) keeps a StopFailure of this session.
+        try:
+            with open(path, encoding="utf-8") as f:
+                old = json.load(f)
+            if isinstance(old, dict) and old.get("event") == "StopFailure" and old.get("session") == record["session"]:
+                raise SystemExit(0)
+        except (OSError, ValueError):
+            pass
     tmp = path + f".{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(record, f)

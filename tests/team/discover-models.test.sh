@@ -60,6 +60,11 @@ check "claude alias flag only on versionless ids" \
 check "claude resolves_to carried" \
   'next(l for l in lines if l["id"] == "opus")["resolves_to"] == "claude-opus-5-5"'
 
+# 1b. a nested claude never carries the worker's terminal handle, or its hooks would write the worker's state
+B="$TMP/envcheck"; stub "$B" codex "$CODEX_OK"; stub "$B" claude "printenv ORCA_TERMINAL_HANDLE > '$TMP/handle-seen'; $CLAUDE_OK"
+ORCA_TERMINAL_HANDLE=term_x run "$B" 5
+[ ! -s "$TMP/handle-seen" ] && echo "ok   claude runs without ORCA_TERMINAL_HANDLE" || { echo "FAIL claude saw ORCA_TERMINAL_HANDLE"; fails=$((fails + 1)); }
+
 # 2. codex missing
 B="$TMP/nocodex"; stub "$B" claude "$CLAUDE_OK"; run "$B" 5
 check "codex missing: unavailable line, claude still listed, exit 0" \

@@ -159,6 +159,10 @@ hasT "#212b stages.md: the QUEUED line waits and spends no try" '`QUEUED head=<s
 hasT "#212c stages.md: QUEUED is followed by merge.sh again" 'the next tick runs `merge.sh` again for it, not the gate, until it prints `MERGED` or `FAIL`'
 hasT "#212d stages.md: the no-merge-group warning is told once" 'the base requires a merge queue and no workflow has a merge_group trigger: required checks never report in the queue'
 hasT "#212e stages.md: leaving the queue is a FAIL merge row" '`FAIL merge: left the merge queue: <reason>`'
+hasT "#212f stages.md: the MERGED gate run leaves out queued rows" 'every other `verifying` row on that base except a row whose brief has a `merge queued at <sha7>` line for its current head'
+hasT "#212g stages.md: those rows run merge.sh and each gets its own MERGED line" 'those run `merge.sh` instead, so each queued PR gets its own `MERGED` line, comment and notification'
+hasT "#212h stages.md: a removal is reported once" 'A queue removal is reported once: `merge.sh` keeps the event ids in `merges/<item>.removed`'
+hasT "#208a stages.md: a StopFailure counts only while the terminal is quiet" 'StopFailure counts only while the terminal printed nothing in the 10 seconds after it'
 has "#212f SKILL.md: merge.sh merges through the queue and posts after" 'merges with `--match-head-commit` (on a base that requires a merge queue, `--auto` with no strategy flag, and never `--admin`) and posts'
 hasT "A28 stages.md says parallel starts are safe" 'Parallel starts are safe: `stage-start.sh` holds a lock per repository around the branch step.'
 # hasF <name> <file under references/> <text>: the text is in that one reference once line breaks are folded

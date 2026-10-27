@@ -400,7 +400,8 @@ def login_line():
     shell = os.environ.get("STAR_LOGIN_SHELL") or os.environ.get("SHELL") or "/bin/sh"
     check = "printf 'STAR_CFG=%s\\n' \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}\"; claude auth status >/dev/null 2>&1"
     # Without our CLAUDE_CONFIG_DIR: the worker's folder and shell startup decide the profile (#206).
-    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_CONFIG_DIR"}
+    # Without ORCA_TERMINAL_HANDLE: a nested claude's hooks would otherwise write this worker's state file.
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CONFIG_DIR", "ORCA_TERMINAL_HANDLE")}
     try:
         proc = subprocess.run([shell, "-ic", check], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=30, cwd=worker_folder(), env=env)
@@ -478,6 +479,11 @@ def hook_state():
 
 
 STATE = hook_state()
+if STATE and STATE[0] == "StopFailure":
+    # A failed turn leaves a quiet terminal; one that printed since is working again, whatever the file says.
+    _printed = terminal_output_time()
+    if _printed is None or STATE[3] is None or _printed > STATE[3] + 10:
+        STATE = None
 STATE_LINES = {}
 for _kinds, _line in ((("overloaded",), "stalled: model at capacity"),
                       (("server_error", "unknown", "invalid_request", "max_output_tokens"), "stalled: api error"),

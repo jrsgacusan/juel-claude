@@ -24,7 +24,9 @@ class Unavailable(Exception):
 
 def run(argv, stdin=None):
     try:
-        proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=TIMEOUT)
+        # No ORCA_TERMINAL_HANDLE: a nested claude's hooks would otherwise write the calling worker's state file.
+        env = {k: v for k, v in os.environ.items() if k != "ORCA_TERMINAL_HANDLE"}
+        proc = subprocess.run(argv, input=stdin, capture_output=True, text=True, timeout=TIMEOUT, env=env)
     except FileNotFoundError:
         raise Unavailable(f"{argv[0]} not found on PATH")
     except subprocess.TimeoutExpired:

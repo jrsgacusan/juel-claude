@@ -8,7 +8,9 @@
 #                            the base requires a merge queue (review-rule.sh prints queue) and the PR
 #                            is in it or set to enter it (#212); nothing is merged yet. Ask again
 #                            later: the next run prints QUEUED again, MERGED once GitHub says
-#                            merged, or FAIL merge: left the merge queue: <reason>. warn= says no
+#                            merged, or FAIL merge: left the merge queue: <reason> (once per removal
+#                            event: with --home and --item its id goes into <home>/merges/<item>.removed
+#                            and the next run queues the PR again), FAIL closed for a closed PR. warn= says no
 #                            workflow at the base has a merge_group trigger, so required checks
 #                            never report in the queue
 #   PENDING check <name> not reported
@@ -52,8 +54,8 @@
 # PR joins the queue; only --admin bypasses it, and merge.sh never passes --admin). Before the call
 # it reads the PR and its queue entry (GraphQL mergeQueueEntry, autoMergeRequest, the newest
 # RemovedFromMergeQueueEvent): merged is MERGED (the merge comment is posted then, if the PR has none
-# for this head), closed or removed from the queue on this head is "FAIL merge: left the merge queue:
-# <reason>", a different head is FAIL head moved, an entry or auto-merge already set is QUEUED with no
+# for this head), closed is FAIL closed, removed from the queue on this head is "FAIL merge: left the merge queue:
+# <reason>" (once per removal event, see QUEUED), a different head is FAIL head moved, an entry or auto-merge already set is QUEUED with no
 # second call, and an entry that cannot be read is FAIL merge. No BEHIND rule applies on a queue base:
 # the queue tests base plus PR, so the PR is never synced. The other exception: a PR whose mergeStateStatus is BEHIND, on a base for which
 # review-rule.sh (babysit-pr) prints none of strict, unknown and queue, is merged through
@@ -269,14 +271,14 @@ def rest_merge_allowed():
 
 # What the base's rules say, read for every merge (#212): review-rule.sh prints "queue" when the base
 # requires a merge queue, and "no-merge-group" after it when no workflow has a merge_group trigger.
-rule = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh"), url.group(1), base], 120)
+rule = run(["sh", os.path.join(os.environ["JUEL_SKILLS_DIR"], "babysit-pr", "review-rule.sh"), "--workflows", url.group(1), base], 120)
 rule_ok = rule.returncode == 0
 rule_words = {l.split()[0] for l in (rule.stdout or "").splitlines() if l.split()}
 on_queue = rule_ok and "queue" in rule_words
 QUEUE_QUERY = ("query($o:String!,$n:String!,$p:Int!){repository(owner:$o,name:$n){pullRequest(number:$p){"
                "state headRefOid mergeStateStatus mergeCommit{oid} autoMergeRequest{enabledAt} mergeQueueEntry{state} "
                "timelineItems(last:10,itemTypes:[REMOVED_FROM_MERGE_QUEUE_EVENT]){nodes{"
-               "... on RemovedFromMergeQueueEvent{reason beforeCommit{oid}}}}}}}")
+               "... on RemovedFromMergeQueueEvent{id reason beforeCommit{oid}}}}}}}")
 
 
 def queue_check():
@@ -296,15 +298,31 @@ def queue_check():
         post_comment()
         out("MERGED " + ((node.get("mergeCommit") or {}).get("oid") or "unknown"))
     if state_now == "CLOSED":
-        out("FAIL merge: left the merge queue: the PR is closed")
+        out("FAIL closed")
     if str(node.get("headRefOid") or "").lower() not in ("", head):
         out("FAIL head moved")
     if node.get("mergeQueueEntry") or node.get("autoMergeRequest"):
         out(queued_line())
     nodes = ((node.get("timelineItems") or {}).get("nodes") or [])
+    reported_file = os.path.join(home, "merges", item + ".removed") if home else None
+    try:
+        reported = open(reported_file, encoding="utf-8").read().split() if reported_file else []
+    except OSError:
+        reported = []
     for event in reversed([n for n in nodes if isinstance(n, dict)]):
-        if str(((event.get("beforeCommit") or {}).get("oid") or "")).lower() == head:
-            out("FAIL merge: left the merge queue: " + (str(event.get("reason") or "").splitlines() or ["no reason given"])[0][:120])
+        if str(((event.get("beforeCommit") or {}).get("oid") or "")).lower() != head:
+            continue
+        event_id = str(event.get("id") or "")
+        if event_id and event_id in reported:
+            break  # already reported: the PR is queued again
+        if reported_file and event_id:
+            try:
+                os.makedirs(os.path.dirname(reported_file), exist_ok=True)
+                with open(reported_file, "a", encoding="utf-8") as f:
+                    f.write(event_id + "\n")
+            except OSError:
+                pass
+        out("FAIL merge: left the merge queue: " + (str(event.get("reason") or "").splitlines() or ["no reason given"])[0][:120])
 
 
 def queued_line():

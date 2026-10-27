@@ -484,7 +484,7 @@ esac
 EOF5
 NOW187=2026-10-07T12:00:00Z
 ms_ago() { echo $((1791374400000 - $1 * 60000)); }
-z() { PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=$NOW187 "$@" sh "$SCRIPT" ctx_1 $ZARGS 2>&1; }
+z() { ORCA_TERMINAL_HANDLE=term_coordinator PATH="$TMP/bin:/usr/bin:/bin" STUB_DIR="$TMP" ORCA_CLI_COMMAND=orca STAR_NOW=$NOW187 "$@" sh "$SCRIPT" ctx_1 $ZARGS 2>&1; }
 check() { if [ "$out" = "$2" ]; then echo "ok   $1"; else echo "FAIL $1 (got: $out)"; fails=$((fails + 1)); fi; }
 ZARGS=""
 printf '{"result":{"terminals":[{"handle":"term_c1","lastOutputAt":%s}]}}\n' "$(ms_ago 40)" > "$TMP/list.json"
@@ -572,6 +572,7 @@ cat > "$TMP/bin/claude" <<'EOF6'
 #!/bin/sh
 # STUB_WANT_DIR, when set, is the folder the check must run in
 [ -n "${STUB_WANT_DIR:-}" ] && [ "$(pwd -P)" != "$STUB_WANT_DIR" ] && exit 3
+[ -z "${ORCA_TERMINAL_HANDLE:-}" ] || exit 4
 exit "${STUB_CLAUDE_RC:-1}"
 EOF6
 chmod +x "$TMP/bin/claude"
@@ -682,6 +683,14 @@ screen stream "working on it"
 for k in "clear:" "Notification:auth_success" "Notification:quota_auto_resume_fired" "Notification:agent_completed" "Notification:something_new"; do
   wstate "${k%%:*}" "${k#*:}" "x"; out=$(z env); check "#208 ${k} says nothing: the screen decides" "ok"
 done
+# a StopFailure counts only while the terminal is quiet: output more than 10 s after its `at` means the worker moved on
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(ms_ago 5)" > "$TMP/list.json"
+wstate StopFailure overloaded "x"; out=$(z env); check "#208 a StopFailure the screen has moved past says nothing" "ok"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":1791373805000}]}}\n' > "$TMP/list.json"
+wstate StopFailure overloaded "x"; out=$(z env); check "#208 a StopFailure with output 5 s later still counts" "stalled: model at capacity"
+printf '{"result":{"terminals":[{"handle":"term_w1"}]}}\n' > "$TMP/list.json"
+wstate StopFailure overloaded "x"; out=$(z env); check "#208 a StopFailure with no lastOutputAt: the screen decides" "ok"
+printf '{"result":{"terminals":[{"handle":"term_w1","lastOutputAt":%s}]}}\n' "$(ms_ago 20)" > "$TMP/list.json"
 printf 'not json' > "$HW/workers/term_w1.json"; out=$(z env); check "#208 an unreadable state file says nothing" "ok"
 wstate StopFailure server_error "x"; mv "$HW/workers/term_w1.json" "$HW/workers/term_other.json"
 out=$(z env); check "#208 another terminal's state is not this worker's" "ok"
