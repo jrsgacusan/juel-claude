@@ -424,6 +424,53 @@ Y config unblock '"yes"' 2>/dev/null && fail "invalid unblock accepted" || pass 
 Y config unblock '"merge"'; [ "$(Y config unblock)" = merge ] && Y config unblock null && pass "unblock merge can be set and cleared" || fail "unblock setting"
 (cd "$APP" && PATH="$TMP/bin:$PATH" sh "$SCRIPT" --kind yuna queue 2>&1) | grep -q 'queue is a yuki command' && pass "yuna refuses queue" || fail "yuna queue refusal"
 
+# --- sweep review fixes (#215) ---
+st() { Y list | awk -F '\t' -v i="$1" '$1==i{print $2}'; }
+fld() { python3 -c 'import json,sys; r=next(x for x in json.load(open(sys.argv[1]))["items"] if x["item"]==sys.argv[2]); print(r.get(sys.argv[3], "-"))' "$H/items.json" "$1" "$2"; }
+X1=$(wt X-1); Y add X-1 "path=$X1"; Y set X-1 state=done >/dev/null; printf '\377\n' >> "$P/X-1.log"
+X2=$(wt X-2); Y add X-2 "path=$X2"; printf '\377\n' > "$P/X-2.log"
+X3=$(wt X-3); Y add X-3 "path=$X3"; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/X-3.log"
+out=$(Y sweep 2>&1)
+echo "$out" | grep -q '^running X-2 ' && echo "$out" | grep -q '^running X-3 ' && pass "invalid UTF-8 in done and running logs does not stop the sweep" || fail "invalid UTF-8 sweep ($out)"
+: > "$P/X-1.log"; : > "$P/X-2.log"
+Y add X-4 "path=$TMP/wt/not-created" pr=https://github.com/o/r/pull/804; echo CLOSED > "$TMP/pr-804"
+printf '%s phase8 reviewing\n' "$(stamp "$NOW")" > "$P/X-4.log"; Y sweep >/dev/null
+printf '%s phase8 reviewing again\n' "$(stamp $((NOW + 60)))" >> "$P/X-4.log"
+out=$(YUKI_NOW=$((NOW + 120)) Y sweep)
+[ -z "$(echo "$out" | grep '^unparked X-4 ')" ] && [ "$(st X-4)" = parked ] && pass "a newer line does not unpark a sweep PR-closed park" || fail "PR-closed park was unparked ($out)"
+Y add X-5 "path=$TMP/wt/also-not-created"
+printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/X-5.log"; Y sweep >/dev/null
+printf '%s phase4 by hand\n' "$(stamp $((NOW + 180)))" >> "$P/X-5.log"
+out=$(YUKI_NOW=$((NOW + 240)) Y sweep)
+[ -z "$(echo "$out" | grep '^unparked X-5 ')" ] && [ "$(st X-5)" = parked ] && pass "a newer line does not unpark a sweep worktree-gone park" || fail "worktree-gone park was unparked ($out)"
+X6=$(wt X-6); Y add X-6 "path=$X6"; printf '%s parked needs a person: key\n' "$(stamp "$NOW")" > "$P/X-6.log"; Y sweep >/dev/null
+printf '%s phase4 executing\n' "$(stamp $((NOW + 60)))" >> "$P/X-6.log"; out=$(YUKI_NOW=$((NOW + 120)) Y sweep)
+(YUKI_NOW=$((NOW + 180)) Y set X-6 state=parked note=held >/dev/null)
+out=$(YUKI_NOW=$((NOW + 240)) Y sweep)
+[ -z "$(echo "$out" | grep '^unparked X-6 ')" ] && [ "$(st X-6)" = parked ] && [ "$(fld X-6 parkedAt)" != - ] && pass "Y set stamps a manual park so sweep keeps it" || fail "manual park was unparked ($out)"
+X7=$(wt X-7); Y add X-7 "path=$X7"; printf '%s parked out of tries: first plan=a.md\n' "$(stamp "$NOW")" > "$P/X-7.log"; Y sweep >/dev/null
+printf '%s parked out of tries: gate plan=b.md\n' "$(stamp $((NOW + 60)))" >> "$P/X-7.log"
+out=$(YUKI_NOW=$((NOW + 120)) Y sweep)
+echo "$out" | grep -qx 'parked X-7 out of tries: gate' && [ "$(fld X-7 plan)" = b.md ] && pass "a newer worker park refreshes note and plan" || fail "newer park line ($out; plan $(fld X-7 plan))"
+X8=$(wt X-8); Y add X-8 "path=$X8"; printf '%s parked out of tries: x plan=p.md  \n' "$(stamp "$NOW")" > "$P/X-8.log"
+Y sweep >/dev/null
+[ "$(Y list | awk -F '\t' '$1=="X-8"{print $6}')" = 'out of tries: x' ] && [ "$(fld X-8 plan)" = p.md ] && pass "split_plan accepts trailing spaces" || fail "trailing plan spaces"
+X21=$(wt X-21); Y add X-21 "path=$X21"; Y set X-21 state=parked note=legacy >/dev/null
+python3 - "$H/items.json" "$(stamp "$NOW")" <<'PY'
+import json, sys
+p, t = sys.argv[1:]
+d = json.load(open(p))
+r = next(x for x in d["items"] if x["item"] == "X-21")
+r.pop("parkedAt", None)
+r["updated"] = t
+json.dump(d, open(p, "w"))
+PY
+printf '%s phase4 by hand\n' "$(stamp $((NOW + 60)))" > "$P/X-21.log"
+(YUKI_NOW=$((NOW + 120)) Y sweep) | grep -qx 'unparked X-21 phase4' && pass "P17 a legacy parked row un-parks by updated" || fail "P17"
+for spec in "Q-1 901 #702" "Q-2 902 #701" "Q-3 903 #702"; do set -- $spec; Y add "$1" "path=$(wt "$1")" "pr=https://github.com/o/r/pull/$2"; printf '%s phase8 x\n%s followup %s\n' "$(stamp "$NOW")" "$(stamp "$NOW")" "$3" > "$P/$1.log"; echo MERGED > "$TMP/pr-$2"; done
+Y sweep >/dev/null
+[ "$(Y queue | tr '\n' ' ')" = '#702 #701 ' ] && pass "P19 queue keeps row order and one line per ref" || fail "P19 ($(Y queue | tr '\n' ' '))"
+
 # --- unblock (#215) ---
 idle() { screen "$1" "⏺ Done." "" "────────────────────────────" "❯ " "────────────────────────────" "  ⏵⏵ bypass permissions on (shift+tab to cycle)"; }
 tt() { python3 -c 'import os,sys; t=int(sys.argv[2]); os.utime(sys.argv[1], (t,t))' "$1" "$2"; }
@@ -472,7 +519,7 @@ mkdir -p "$V20/docs/superpowers/plans"; : > "$V20/docs/superpowers/plans/fix.md"
 printf '%s parked out of tries: gate plan=docs/superpowers/plans/fix.md\n' "$(stamp "$NOW")" > "$P/V-20.log"; Y sweep >/dev/null; idle tV20; : > "$TMP/orca-calls"
 out=$(YUKI_NOW=$((NOW + 7200)) Y unblock V-20)
 [ "$out" = 'resumed V-20 plan docs/superpowers/plans/fix.md' ] && [ "$(Y list | awk -F '\t' '$1=="V-20"{print $2}')" = running ] && grep -F 'yuki: resume V-20 (plan ' "$TMP/orca-calls" >/dev/null && pass "a parked plan resumes once" || fail "plan resume ($out)"
-: > "$V20/docs/superpowers/plans/fix2.md"; printf '%s parked out of tries: gate plan=docs/superpowers/plans/fix2.md\n' "$(stamp $((NOW + 7300)))" >> "$P/V-20.log"; YUKI_NOW=$((NOW + 7300)) Y sweep >/dev/null
+: > "$V20/docs/superpowers/plans/fix2.md"; printf '%s parked out of tries: gate plan=docs/superpowers/plans/fix2.md\n' "$(stamp $((NOW + 7300)))" >> "$P/V-20.log"; (YUKI_NOW=$((NOW + 7300)) Y sweep >/dev/null)
 out=$(YUKI_NOW=$((NOW + 7400)) Y unblock V-20)
 echo "$out" | grep -q 'resumed V-20 plan' && fail "a plan is resumed twice" || pass "a parked row gets only one plan resume"
 V21=$(wt V-21); Y add V-21 "path=$V21" terminal=tV21; printf '%s parked out of tries: gate plan=nope.md\n' "$(stamp "$NOW")" > "$P/V-21.log"; Y sweep >/dev/null; idle tV21; : > "$TMP/orca-calls"
@@ -488,7 +535,7 @@ printf '%s phase8 reviewing\n%s parked out of tries: ci red\n' "$(stamp "$NOW")"
 Y config unblock '"merge"'
 out=$(YUKI_NOW=$((NOW + 7200)) Y unblock V-30)
 [ "$out" = 'unblocking V-30 https://github.com/o/r/pull/30' ] && [ "$(Y list | awk -F '\t' '$1=="V-30"{print $2}')" = running ] && grep -F 'yuki: unblock V-30 (merge)' "$TMP/orca-calls" >/dev/null && pass "eligible parked PR is unblocked" || fail "unblock merge ($out)"
-printf '%s parked out of tries: ci red\n' "$(stamp $((NOW + 7300)))" >> "$P/V-30.log"; YUKI_NOW=$((NOW + 7300)) Y sweep >/dev/null
+printf '%s parked out of tries: ci red\n' "$(stamp $((NOW + 7300)))" >> "$P/V-30.log"; (YUKI_NOW=$((NOW + 7300)) Y sweep >/dev/null)
 out=$(YUKI_NOW=$((NOW + 7400)) Y unblock V-30)
 echo "$out" | grep -q '^unblocking V-30 ' && fail "a row is unblocked twice" || pass "unblock is once per row"
 V31=$(wt V-31); Y add V-31 "path=$V31" terminal=tV31; printf '%s phase7 reviewing\n%s parked needs a person: STRIPE_KEY\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/V-31.log"; Y sweep >/dev/null; idle tV31; : > "$TMP/orca-calls"

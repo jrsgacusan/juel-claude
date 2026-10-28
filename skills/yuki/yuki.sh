@@ -401,6 +401,7 @@ def real_lines(lines):
 
 
 def split_plan(text):
+    text = text.strip()
     match = re.search(r"^(.*) plan=(\S+)$", text)
     return (match.group(1), match.group(2)) if match else (text, None)
 
@@ -414,7 +415,7 @@ def max_phase(lines):
 def last_progress(item):
     path = os.path.join(home, "progress", f"{item}.log")
     try:
-        with open(path) as f:
+        with open(path, errors="replace") as f:
             lines = [l.rstrip("\n") for l in f if l.strip()]
     except OSError:
         lines = []
@@ -480,9 +481,9 @@ def remove(row):
     return True, "removed"
 
 
-def park(row, reason):
+def park(row, reason, by="worker"):
     note, plan = split_plan(reason)
-    row.update(state="parked", note=note, parkedAt=iso(), updated=iso())
+    row.update(state="parked", note=note, parkedAt=iso(), parkedBy=by, updated=iso())
     if plan:
         row["plan"] = plan
     else:
@@ -499,14 +500,18 @@ def sweep():
         out = []
         for row in data["items"]:
             item = row["item"]
-            stamp, step, text, lines = last_progress(item)
-            if row.get("state") == "parked":
-                parked_at = parse_iso(row.get("parkedAt") or row.get("updated") or "")
-                if step and step != "parked" and stamp and parked_at and stamp > parked_at:
-                    row.update(state="running", note="", updated=iso())
-                    out.append(f"unparked {item} {step}")
+            state = row.get("state")
+            if state not in ("running", "parked"):
                 continue
-            if row.get("state") != "running":
+            stamp, step, text, lines = last_progress(item)
+            if state == "parked":
+                parked_at = parse_iso(row.get("parkedAt") or row.get("updated") or "")
+                if step == "parked" and stamp and parked_at and stamp > parked_at:
+                    out.append(park(row, text or "parked by the worker", by="worker"))
+                elif step and step != "parked" and stamp and parked_at and stamp > parked_at and row.get("parkedBy") != "sweep":
+                    row.update(state="running", note="", updated=iso())
+                    row.pop("parkedAt", None)
+                    out.append(f"unparked {item} {step}")
                 continue
             followups = [line.partition(" ")[2].partition(" ")[2].strip()
                          for line in lines if line.partition(" ")[2].partition(" ")[0] == "followup"]
@@ -536,10 +541,10 @@ def sweep():
                         out.append(f"merged {item} {pr} kept {row.get('path') or '-'}: {why}")
                     continue
                 if state == "CLOSED":
-                    out.append(park(row, "PR closed without a merge"))
+                    out.append(park(row, "PR closed without a merge", by="sweep"))
                     continue
             if row.get("path") and not os.path.isdir(row["path"]):
-                out.append(park(row, "worktree gone"))
+                out.append(park(row, "worktree gone", by="sweep"))
                 continue
             work_since = stamp if stamp is not None else parse_iso(row.get("added") or "") or now()
             since = max(work_since, resumed) if resumed is not None else work_since
@@ -1611,7 +1616,10 @@ elif cmd in ("add", "set"):
                 die(64, f"no row {item}")
             if not values:
                 die(64, "set needs at least one key=value")
-            row.update(values, updated=iso())
+            at = iso()
+            row.update(values, updated=at)
+            if values.get("state") == "parked":
+                row.update(parkedAt=at, parkedBy="owner")
         write_json(items_path, data)
 elif cmd == "skip":
     if not rest or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,79}", rest[0]) or len(rest) != 2 or not rest[1]:
