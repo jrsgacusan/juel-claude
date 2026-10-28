@@ -289,6 +289,9 @@ confirmation:
 - writing the tracker status;
 - posting a report to the item STAR was handed.
 
+A `juel:yuki` worker following a `yuki: unblock` prompt files its follow-up item and writes the status
+the same way, without a preview: the owner opted in.
+
 Run by hand, every rule above holds.
 
 ## 6. Authoring templates (extracted from `create-ticket`, provider-neutral)
@@ -385,4 +388,5 @@ If user says **Edit**: apply their changes and re-preview. If **Cancel**: stop. 
 This step is MANDATORY for any provider-neutral authoring flow, exactly as it is today for
 `create-ticket` — never create a work item without showing this preview first.
 
-Under `juel:star` (`--unattended`), filing a follow-up item skips this preview; run by hand, it is never skipped.
+Under `juel:star` (`--unattended`) or by a `juel:yuki` worker following a `yuki: unblock` prompt,
+filing a follow-up item skips this preview; run by hand, it is never skipped.

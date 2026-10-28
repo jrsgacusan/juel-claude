@@ -3,7 +3,8 @@
 # it is never committed, and every worktree of the repository (Orca's included) finds the same one.
 # --kind yuna (first option, before --home; skills/yuna/yuna.sh passes it) is juel:yuna's: the folder is
 # <git common dir>/yuna, the config yuna.json, errors start "yuna.sh:", and the lines marked "yuna" below
-# change. Everything not marked behaves the same for both. In this header Y is yuki.sh [--kind K] [--home H].
+# change. Everything not marked behaves the same for both; commands marked "yuki only" are refused under
+# yuna. In this header Y is yuki.sh [--kind K] [--home H].
 #   yuki.sh [--home H] path                      the folder (exit 1 outside a git repository)
 #   yuki.sh [--home H] init                      create it, and yuki.json when missing; print the folder
 #                                                (yuna: yuna.json, with reviewer and silenceHours 72, no bot or
@@ -33,14 +34,17 @@
 #                                                repository) or "gh: <error>"
 #   yuki.sh [--home H] known                     every item ever added, one per line: the tick skips them
 #   yuki.sh [--home H] free                      maxParallel minus the running rows, never below 0
-#   yuki.sh [--home H] sweep                     check every running row and apply what it finds:
+#   yuki.sh [--home H] sweep                     check running and parked rows and apply what it finds:
+#       unparked <item> <step>                   a newer real non-park line un-parks a row, unless sweep made its park
 #       done <item> <pr> removed <path>          merged, and its worktree removed
 #       merged <item> <pr> kept <path>: <why>    merged, the worktree left in place (the slot is free)
-#       parked <item> <reason>                   the worker parked it, its PR closed unmerged, or its
-#                                                worktree is gone: the worktree is kept, the slot is free
+#       parked <item> <reason>                   a worker parked it, a newer worker park updated it, its PR
+#                                                closed unmerged, or its worktree is gone; plan= is cut off and kept
 #       quiet <item> <age> <step>                no progress line for quietHours and no PR yet; printed
 #                                                once, later sweeps print the running line ending " quiet"
 #       running <item> <step> <age>[ quiet]
+#   yuki.sh [--home H] queue (yuki only)          follow-ups of done or merged rows not named by any row's item
+#                                                or ref, one per ref in row order
 #   yuki.sh [--home H] nudge [<item> ...]        read each running row's terminal (default: every one with a
 #                                                terminal) and look at the last dialog on its rendered screen;
 #                                                at most one line per item, nothing when there is no dialog:
@@ -59,6 +63,26 @@
 #       unknown <item> <why>                     the terminal cannot be read (nothing is sent)
 #     <text> is one line, 120 characters at most. A nudge appends "<iso> nudged ..." to the progress log;
 #     the sweep skips those lines, so a nudge neither changes a row's step nor resets its quiet clock.
+#   yuki.sh [--home H] unblock [<item> ...] (yuki only)
+#                                                resume idle running rows or parked rows with an unused plan,
+#                                                or merge-eligible parked rows when unblock is "merge":
+#       resumed <item> idle <age> <step>         an idle running row got its one-line resume prompt
+#       parked <item> idle after a resume        the same stall returned without real work; no second prompt
+#       resumed <item> plan <path>               a parked row got its one-time fix-plan prompt
+#       unblocking <item> <pr or ->              an eligible parked row got its opt-in merge prompt
+#       unknown <item> <why>                     no terminal or an unreadable terminal
+#       unknown <item> worktree gone             a parked plan has no worktree; the plan is kept
+#       unknown <item> git failed: <one line>     activity could not be read
+#       unknown <item> row changed during unblock a concurrent update prevented a row change
+#       unknown <item> send failed: <orca reason> Orca did not accept the prompt
+#       unknown <item> <ExcType>: <message>       an unexpected error for this row
+#     A running or parked row waits idleMinutes (default 30) since the newest real log line, commit, changed
+#     path or resumed acknowledgement. A worker's "resumed:" acknowledgement counts for quiet time, not work.
+#     Parked rows wait the same interval. An idle screen has an empty prompt between rules and no
+#     "esc to interrupt" row anywhere. An idle row parks after a resume unless work follows. A parked plan
+#     resumes once; with unblock "merge", only a note starting "out of tries" and an open PR or phase6 work
+#     can unblock. A successful plan or unblock resumes the row. Yuki's own "resumed ..." and "nudged ..."
+#     log lines never count as progress.
 #   yuki.sh [--home H] readonly <command>        "yes" (exit 0) or "no: <why>" (exit 1): the allowlist nudge uses
 #   yuki.sh [--home H] host                      "ok <x.x> GB" or "low <x.x> GB": free plus inactive memory
 #                                                against minFreeGB (exit 0 either way)
@@ -104,7 +128,8 @@
 #                                                merged PRs (CI, dependency and deploy bots excluded), or
 #                                                greptile-apps[bot] commenting on one; "unknown <why>" exit 1
 # A worker writes <home>/progress/<item>.log, one "<iso> <step> <text>" line per step. The steps
-# sweep reads: "pr <url>", "parked <reason>" and "merged <url> <sha>". GitHub decides a merge, not
+# sweep reads: "pr <url>", "parked <reason> plan=<path>", "followup <ref>" and "merged <url> <sha>".
+# Yuki's "resumed …" and "nudged …" lines never count as progress. GitHub decides a merge, not
 # the log: a row is done only when gh says its PR is MERGED.
 # A worktree is removed with `orca worktree rm --worktree path:<path> --json`, never --force, and
 # only when `git status --porcelain` in it prints nothing. Under yuna, a row with no throwaway is never
@@ -118,8 +143,9 @@
 # The plugin's SessionStart hook gives every session in the repository the same token.
 # Test seams: ORCA_CLI_COMMAND, YUKI_NOW (epoch seconds), YUKI_FREE_GB.
 # Exit: 0; 1 not in a git repository (path, init), a bot lookup GitHub refused or whoami failing;
-# 2 the folder or a file in it cannot be read; 64 usage (bot and deps under yuna: "yuna.sh: <sub> is a
-# yuki command"; whoami and fresh under yuki likewise).
+# 2 the folder or a file in it cannot be read; 64 usage (bot, deps, unblock and queue under yuna:
+# "yuna.sh: <sub> is a yuki command"; whoami and fresh under yuki likewise).
+YUKI_DIR=$(cd "$(dirname "$0")" && pwd); export YUKI_DIR
 exec python3 - "$@" <<'PY'
 import calendar
 import fcntl
@@ -134,10 +160,18 @@ import subprocess
 import sys
 import time
 
+SHIP_SKILL = os.path.join(os.path.dirname(os.environ.get("YUKI_DIR") or "."), "ship-ticket", "SKILL.md")
+PROTOCOL = ("Juel protocol: phases run in order, each with its progress line; codex exec runs with "
+            "run_in_background: true, watched and waited on, its output never redirected to a file, never "
+            "polled or tailed; pr-review-toolkit:review-pr's agents run all parallel in the foreground "
+            "(run_in_background: false), code-simplifier in the foreground; heavy gates go through "
+            "gate-lock.sh; ask nothing and take the recommended option; park with a parked <reason> progress "
+            "line only for what a person must supply, or where Resumed by yuki says to.")
+
 KIND, NAME = "yuki", "yuki"
 USAGE = ("usage: yuki.sh [--kind yuki|yuna] [--home H] path | init | config [<key> [<json>]]"
          " | add <item> [k=v ...] | set <item> k=v ... | skip <item> <reason>|--clear | list [--state <s>] | known | free | sweep"
-         " | nudge [<item> ...] | host | beat <token> | owner | access | gh ... | git ..."
+         " | nudge [<item> ...] | unblock [<item> ...] | queue | host | beat <token> | owner | access | gh ... | git ..."
          " | yuki: deps set|unchecked|external|gate|list ... | bot"
          " | yuna: whoami | fresh <pr> ...")
 NAME_RE = r"[A-Za-z0-9_#][A-Za-z0-9._#/-]{0,79}"
@@ -150,6 +184,8 @@ DEFAULTS = {
     "mergeMethod": None,
     "minFreeGB": 3,
     "quietHours": 2,
+    "idleMinutes": 30,
+    "unblock": None,
     "repo": None,
     "owner": None,
     "cron": None,
@@ -231,7 +267,7 @@ if not argv:
     die(64, USAGE)
 cmd, rest = argv[0], argv[1:]
 YUNA = KIND == "yuna"
-if YUNA and cmd in ("bot", "deps"):
+if YUNA and cmd in ("bot", "deps", "unblock", "queue"):
     die(64, f"{cmd} is a yuki command")
 if not YUNA and cmd in ("whoami", "fresh"):
     die(64, f"{cmd} is a yuna command")
@@ -369,14 +405,33 @@ def orca_bin():
     return None
 
 
+PROGRESS_SKIP = ("nudged", "resumed")
+
+
+def real_lines(lines):
+    return [line for line in lines if line.partition(" ")[2].partition(" ")[0] not in PROGRESS_SKIP]
+
+
+def split_plan(text):
+    text = text.strip()
+    match = re.search(r"^(.*) plan=(\S+)$", text)
+    return (match.group(1), match.group(2)) if match else (text, None)
+
+
+def max_phase(lines):
+    phases = [int(match[1]) for line in real_lines(lines)
+              if (match := re.match(r"^\S+ phase(\d+)\b", line))]
+    return max(phases, default=0)
+
+
 def last_progress(item):
     path = os.path.join(home, "progress", f"{item}.log")
     try:
-        with open(path) as f:
+        with open(path, errors="replace") as f:
             lines = [l.rstrip("\n") for l in f if l.strip()]
     except OSError:
         lines = []
-    steps = [l for l in lines if l.partition(" ")[2].partition(" ")[0] != "nudged"]
+    steps = real_lines(lines)
     if not steps:
         return None, None, None, lines
     stamp, _, tail = steps[-1].partition(" ")
@@ -438,9 +493,14 @@ def remove(row):
     return True, "removed"
 
 
-def park(row, reason):
-    row.update(state="parked", note=reason, updated=iso())
-    return f"parked {row['item']} {reason}"
+def park(row, reason, by="worker"):
+    note, plan = split_plan(reason)
+    row.update(state="parked", note=note, parkedAt=iso(), parkedBy=by, updated=iso())
+    if plan:
+        row["plan"] = plan
+    else:
+        row.pop("plan", None)
+    return f"parked {row['item']} {note}"
 
 
 def sweep():
@@ -451,11 +511,26 @@ def sweep():
         data = items()
         out = []
         for row in data["items"]:
-            if row.get("state") != "running":
-                continue
             item = row["item"]
+            state = row.get("state")
+            if state not in ("running", "parked"):
+                continue
             stamp, step, text, lines = last_progress(item)
-            if step == "parked":
+            if state == "parked":
+                parked_at = parse_iso(row.get("parkedAt") or row.get("updated") or "")
+                if step == "parked" and stamp and parked_at and stamp > parked_at:
+                    out.append(park(row, text or "parked by the worker", by="worker"))
+                elif step and step != "parked" and stamp and parked_at and stamp > parked_at and row.get("parkedBy") != "sweep":
+                    row.update(state="running", note="", updated=iso())
+                    row.pop("parkedAt", None)
+                    out.append(f"unparked {item} {step}")
+                continue
+            followups = [line.partition(" ")[2].partition(" ")[2].strip()
+                         for line in lines if line.partition(" ")[2].partition(" ")[0] == "followup"]
+            if followups and followups[-1]:
+                row["followup"] = followups[-1]
+            resumed = parse_iso(row.get("resumed") or "")
+            if step == "parked" and (resumed is None or (stamp is not None and stamp > resumed)):
                 out.append(park(row, text or "parked by the worker"))
                 continue
             pr, err = pr_of(row, lines, cfg)
@@ -478,12 +553,13 @@ def sweep():
                         out.append(f"merged {item} {pr} kept {row.get('path') or '-'}: {why}")
                     continue
                 if state == "CLOSED":
-                    out.append(park(row, "PR closed without a merge"))
+                    out.append(park(row, "PR closed without a merge", by="sweep"))
                     continue
             if row.get("path") and not os.path.isdir(row["path"]):
-                out.append(park(row, "worktree gone"))
+                out.append(park(row, "worktree gone", by="sweep"))
                 continue
-            since = stamp if stamp is not None else parse_iso(row.get("added") or "") or now()
+            work_since = stamp if stamp is not None else parse_iso(row.get("added") or "") or now()
+            since = max(work_since, resumed) if resumed is not None else work_since
             label = step or "spawned"
             if err:
                 label = f"{label} (gh: {err})"
@@ -503,6 +579,18 @@ def sweep():
 def pr_number(row, pr):
     tail = (pr or "").rstrip("/").rsplit("/", 1)[-1]
     return tail if tail.isdigit() else str(row.get("ref") or "")
+
+
+def queue():
+    rows = items()["items"]
+    known = {row.get("item") for row in rows}
+    known.update(row.get("ref") for row in rows if row.get("ref"))
+    seen = set()
+    for row in rows:
+        ref = row.get("followup")
+        if row.get("state") in ("done", "merged") and ref and ref not in known and ref not in seen:
+            print(ref)
+            seen.add(ref)
 
 
 def submitted_reviews(number, cfg):
@@ -898,6 +986,12 @@ class Rows(list):
     raw = ()
 
 
+# Keep these rendered-prompt patterns in step with skills/star/worker-probe.sh.
+RULE = r"^\s*[╭╰]?─{3,}[╮╯]?\s*$"
+PROMPT_ROW = r"^\s*│?\s*[❯>](\s|$)"
+EMPTY_PROMPT = r"^\s*│?\s*[❯>]\s*│?\s*$"
+
+
 # a command row this close to the box's right edge may be one row of a wrapped command: the renderer breaks
 # at the last space that fits, so the next word can be as long as this
 WRAP_SLACK = 20
@@ -1082,6 +1176,265 @@ def nudge(names):
             write_json(items_path, data)
     for line in out:
         print(line)
+
+
+def idle_screen(rows: Rows) -> bool:
+    """Whether the rendered rows show the empty prompt and no active turn footer."""
+    raw = rows.raw
+    prompt = None
+    for i in range(1, len(raw) - 1):
+        if (re.match(PROMPT_ROW, raw[i]) and re.fullmatch(RULE, raw[i - 1])
+                and re.fullmatch(RULE, raw[i + 1])):
+            prompt = i
+    if prompt is None or not re.fullmatch(EMPTY_PROMPT, raw[prompt]):
+        return False
+    return not any(re.search(r"esc to interrupt", line, re.IGNORECASE) for line in raw)
+
+
+def activity(row, lines) -> tuple[int | None, int | None, str | None]:
+    """Return (latest work, latest activity including acknowledgements and resumes, error)."""
+    work_times, progress_times = [], []
+    for line in real_lines(lines):
+        parts = line.split(" ", 2)
+        if len(parts) < 2:
+            continue
+        stamp = parse_iso(parts[0])
+        if stamp is None:
+            continue
+        progress_times.append(stamp)
+        if len(parts) < 3 or not parts[2].startswith("resumed:"):
+            work_times.append(stamp)
+
+    path = row.get("path") or ""
+    if path and os.path.isdir(path):
+
+        def git(args):
+            try:
+                result = subprocess.run(["git", "--no-optional-locks", "-C", path, *args],
+                                        capture_output=True, text=True, timeout=30)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                return None, str(e)
+            if result.returncode != 0:
+                lines = (result.stderr or "").strip().splitlines()
+                return None, lines[0] if lines else f"git exited {result.returncode}"
+            return result.stdout, None
+
+        commit, error = git(["log", "-1", "--format=%ct"])
+        if error:
+            return None, None, error
+        if commit and commit.strip().isdigit():
+            work_times.append(int(commit.strip()))
+
+        status, error = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+        if error:
+            return None, None, error
+        skip_old_path = False
+        for entry in status.split("\0"):
+            if skip_old_path:
+                skip_old_path = False
+                continue
+            if not entry:
+                continue
+            code, listed = entry[:2], entry[3:] if len(entry) >= 3 else ""
+            if "R" in code or "C" in code:
+                skip_old_path = True
+            if listed:
+                try:
+                    work_times.append(int(os.path.getmtime(os.path.join(path, listed))))
+                except OSError:
+                    pass
+
+    work = max(work_times) if work_times else parse_iso(row.get("added") or "") or now()
+    resumed = parse_iso(row.get("resumed") or "")
+    latest = max([work, *progress_times, *([resumed] if resumed is not None else [])])
+    return work, latest, None
+
+
+def send_text(handle: str, text: str) -> tuple[bool, str]:
+    orca = orca_bin()
+    if not orca:
+        return False, "orca not found"
+    text = " ".join(text.split())
+    try:
+        p = subprocess.run([orca, "terminal", "send", "--terminal", handle, "--text", text, "--enter"],
+                           capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    except OSError as e:
+        return False, str(e)
+    if p.returncode != 0:
+        lines = (p.stderr or "").strip().splitlines()
+        return False, lines[-1] if lines else f"orca exited {p.returncode}"
+    return True, ""
+
+
+def resume_prompt(kind: str, row: dict, cfg: dict, detail: str) -> str:
+    if kind == "idle":
+        age_text, step = detail.split(" ", 1)
+        head = f"yuki: resume {row['item']} (idle): no progress for {age_text}, last step {step}."
+    elif kind == "plan":
+        head = f"yuki: resume {row['item']} (plan {detail}): this is its one extra try."
+    else:
+        method = cfg.get("mergeMethod") or "the first of squash, merge and rebase the repository allows"
+        head = f"yuki: unblock {row['item']} (merge): still failing; merge method {method}."
+    common = (f' Follow "Resumed by yuki" in juel:ship-ticket\'s Yuki mode ({SHIP_SKILL}), reading it first '
+              f"when it is not in your context. Ref {row.get('ref') or row['item']}, yuki folder {home}, "
+              f"progress log {home}/progress/{row['item']}.log. ")
+    return head + common + PROTOCOL
+
+
+def unblock(names: list[str]) -> None:
+    cfg = config()
+    snapshot = [dict(row) for row in items()["items"]]
+    byname = {row["item"]: row for row in snapshot}
+    if names:
+        todo = []
+        for name in names:
+            if name not in byname:
+                print(f"unknown {name} no such row", flush=True)
+            else:
+                todo.append(byname[name])
+    else:
+        todo = [row for row in snapshot if row.get("state") in ("running", "parked") and row.get("terminal")]
+
+    idle_minutes = cfg.get("idleMinutes")
+    if type(idle_minutes) is not int:
+        idle_minutes = 30
+
+    def persist(row, updates, drop=()):
+        with Locked():
+            data = items()
+            current = find(data, row["item"])
+            if (current is None or current.get("state") != row.get("state")
+                    or current.get("updated") != row.get("updated")):
+                return False
+            for key in drop:
+                current.pop(key, None)
+            current.update(updates)
+            write_json(items_path, data)
+        return True
+
+    def log_resume(row, message):
+        os.makedirs(os.path.join(home, "progress"), exist_ok=True)
+        with open(os.path.join(home, "progress", f"{row['item']}.log"), "a") as f:
+            f.write(f"{iso()} {message}\n")
+
+    def emit(message):
+        print(message, flush=True)
+
+    def row_changed(item):
+        emit(f"unknown {item} row changed during unblock")
+
+    def screen_is_idle(row):
+        rows, why = read_screen(row["terminal"])
+        if rows is None:
+            emit(f"unknown {row['item']} {why}")
+            return False
+        if find_dialog(rows) is not None or not idle_screen(rows):
+            return False
+        return True
+
+    for row in todo:
+        item = row["item"]
+        try:
+            state, handle = row.get("state"), row.get("terminal")
+            if state not in ("running", "parked"):
+                emit(f"unknown {item} not running or parked")
+                continue
+            if not handle:
+                emit(f"unknown {item} no terminal")
+                continue
+            stamp, step, text, lines = last_progress(item)
+            work, latest, error = activity(row, lines)
+            if error:
+                emit(f"unknown {item} git failed: {error}")
+                continue
+            if latest is None or now() - latest < idle_minutes * 60:
+                continue
+
+            if state == "running":
+                if not screen_is_idle(row):
+                    continue
+                resumed = parse_iso(row.get("resumed") or "")
+                if resumed is not None and work is not None and work <= resumed:
+                    updated = dict(row)
+                    park(updated, "idle after a resume", by="yuki")
+                    changes = {key: updated[key] for key in ("state", "note", "parkedAt", "parkedBy", "updated")}
+                    if not persist(row, changes, ("plan", "idleResumed")):
+                        row_changed(item)
+                        continue
+                    emit(f"parked {item} idle after a resume")
+                    continue
+
+                age_text, last_step = age(now() - (work if work is not None else now())), step or "spawned"
+                prompt = resume_prompt("idle", row, cfg, f"{age_text} {last_step}")
+                ok, reason = send_text(handle, prompt)
+                if not ok:
+                    emit(f"unknown {item} send failed: {reason}")
+                    continue
+                at = iso()
+                if not persist(row, {"idleResumed": at, "resumed": at, "updated": at}):
+                    row_changed(item)
+                    continue
+                log_resume(row, f"resumed idle {age_text} {last_step}")
+                emit(f"resumed {item} idle {age_text} {last_step}")
+                continue
+
+            plan = row.get("plan")
+            if plan and not row.get("planResumed"):
+                path = row.get("path") or ""
+                if not path or not os.path.isdir(path):
+                    emit(f"unknown {item} worktree gone")
+                    continue
+                plan_path = plan if os.path.isabs(plan) else os.path.join(path, plan)
+                if not os.path.isfile(plan_path):
+                    if not persist(row, {}, ("plan",)):
+                        row_changed(item)
+                    else:
+                        emit(f"unknown {item} no such plan {plan}")
+                    continue
+                if not screen_is_idle(row):
+                    continue
+                ok, reason = send_text(handle, resume_prompt("plan", row, cfg, plan))
+                if not ok:
+                    emit(f"unknown {item} send failed: {reason}")
+                    continue
+                at = iso()
+                if not persist(row, {"state": "running", "note": "", "planResumed": at,
+                                     "resumed": at, "updated": at}):
+                    row_changed(item)
+                    continue
+                log_resume(row, f"resumed plan {plan}")
+                emit(f"resumed {item} plan {plan}")
+                continue
+
+            if (cfg.get("unblock") != "merge" or row.get("unblocked")
+                    or not str(row.get("note") or "").lower().startswith("out of tries")):
+                continue
+            pr = row.get("pr")
+            if not pr:
+                for line in reversed(lines):
+                    parts = line.split(" ", 2)
+                    if len(parts) == 3 and parts[1] == "pr" and parts[2].startswith("http"):
+                        pr = parts[2]
+                        break
+            if not (pr or max_phase(lines) >= 6):
+                continue
+            if not screen_is_idle(row):
+                continue
+            ok, reason = send_text(handle, resume_prompt("unblock", row, cfg, ""))
+            if not ok:
+                emit(f"unknown {item} send failed: {reason}")
+                continue
+            at = iso()
+            if not persist(row, {"state": "running", "note": "", "unblocked": at,
+                                 "resumed": at, "updated": at}):
+                row_changed(item)
+                continue
+            log_resume(row, "resumed unblock")
+            emit(f"unblocking {item} {pr or '-'}")
+        except Exception as e:
+            emit(f"unknown {item} {type(e).__name__}: {e}")
 
 
 def host():
@@ -1295,6 +1648,10 @@ elif cmd == "config":
             die(64, f"{rest[1]!r} is not JSON (quote a string: '\"squash\"')")
         if rest[0] == "maxParallel" and not (isinstance(value, int) and 1 <= value <= 20):
             die(64, "maxParallel must be a whole number from 1 to 20")
+        if rest[0] == "idleMinutes" and not (type(value) is int and 5 <= value <= 1440):
+            die(64, "idleMinutes must be a whole number from 5 to 1440")
+        if rest[0] == "unblock" and value not in (None, "merge"):
+            die(64, 'unblock is null or "merge"')
         with Locked():
             data = read_json(cfg_path, {})
             data[rest[0]] = value
@@ -1334,7 +1691,10 @@ elif cmd in ("add", "set"):
                 die(64, f"no row {item}")
             if not values:
                 die(64, "set needs at least one key=value")
-            row.update(values, updated=iso())
+            at = iso()
+            row.update(values, updated=at)
+            if values.get("state") == "parked":
+                row.update(parkedAt=at, parkedBy="owner")
         write_json(items_path, data)
 elif cmd == "skip":
     if not rest or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,79}", rest[0]) or len(rest) != 2 or not rest[1]:
@@ -1368,6 +1728,8 @@ elif cmd == "known":
         print(row["item"])
         if row.get("ref") and row["ref"] != row["item"]:
             print(row["ref"])
+elif cmd == "queue":
+    queue()
 elif cmd == "free":
     cfg = config()
     running = sum(1 for r in items()["items"] if r.get("state") == "running")
@@ -1376,6 +1738,8 @@ elif cmd == "sweep":
     sweep()
 elif cmd == "nudge":
     nudge(rest)
+elif cmd == "unblock":
+    unblock(rest)
 elif cmd == "whoami":
     whoami()
 elif cmd == "fresh":

@@ -787,7 +787,8 @@ this section names apply. `--yuki` with `--unattended` or `--brief` is refused i
 **Progress.** One line per step in `<home>/progress/<item>.log`, which `juel:yuki` reads:
 `printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<step>" "<one line>" >> <home>/progress/<item>.log`.
 `<step>` is one token: `phase<n>` at the start of each phase, `pr` once the PR is open (its text
-is the URL), `parked` when parking. Never from a background timer: a line means the step ran.
+is the URL), `parked` when parking, and `followup <ref>` when the unblock follow-up is filed; its text
+is the follow-up's ref alone. Never from a background timer: a line means the step ran.
 
 **Parking.** When the Phase 6 stack is up, run Phase 6 step 7's cleanup first. Then append
 `parked <reason>` to the progress log, print `PARKED item=<item> reason=<reason>` as the last line,
@@ -795,6 +796,43 @@ and end the run. `<reason>` is one line naming what is needed, such as
 `needs a person: STRIPE_SECRET_KEY for the test stack` or
 `out of tries: regression gate, test_checkout fails`. Yuki frees the slot and tells the owner. The
 worktree and this session stay, so the owner can finish the item here.
+A park whose reason starts `<reason>` with `out of tries: ` is eligible for yuki's unblock. A park out
+of tries with a written fix plan that has not been run: end `<reason>` with ` plan=<path>` (the path
+from the repo root, or absolute), and yuki resumes the item once with that plan. A second `plan=`
+park is not resumed.
+
+**Resumed by yuki.** A tick may type a one-line `yuki:` prompt into this session after it stopped.
+Follow it at once, asking nothing.
+
+1. `yuki: resume <item> (idle)`: append a `phase<n> resumed: <what>` line, read `git status`, the
+   plan's ledger and the progress log, and finish the step that was running. Never start again from
+   Phase 1. For a background command that never finished, read its output; stop and rerun one that
+   hung, wait on one still working, and never start a second copy. Yuki counts the `resumed:`
+   acknowledgement for quiet time, but not as work when judging a stall.
+2. `yuki: resume <item> (plan <path>)`: append `phase4 resumed: fix plan <path>`, run it as Phase 4
+   runs a plan, including its progress line, ledger, session tasks and scope check. With a PR open,
+   gate as "Gate once per PR" item 1 says, rerun the Phase 6 live checks the change touched, push,
+   and go on to Phase 8. With no PR yet, run Phase 6 in full, then Phase 7, then Phase 8. This is
+   the item's one extra try; a failure parks again.
+3. `yuki: unblock <item> (merge)`: do these in order, with no retry. On any failure, park
+   `unblock failed: <why>`.
+   (a) Write the open findings, each failing check or gate and every unfixed P0 or P1 with its
+   evidence, as a follow-up titled `Follow-up to <ref>: <the failure in a few words>` and linked to
+   the parent as blocked by the parent (Linear `blockedBy`, GitHub a `Blocked by #<n>` line, Jira an
+   "is blocked by" link, or a spec file with `Blocked by: <parent>`), so yuki starts it only after
+   the parent merged, and append `followup <ref>`, whose text is only the follow-up ref.
+   (b) Push the branch and, if there is no PR, open one ready for review as Phase 7 does. Add a
+   **Follow-up** section to its body naming the follow-up and open findings.
+   (c) Merge by `juel:babysit-pr`'s Yuki merge check steps 2, 5, 6, 7 and 8, skipping steps 1, 3
+   and 4 because their open items are the follow-up's. A step that sends you to step 1 goes to step 2.
+   From step 5 take the wait and the one rerun of a failing check, not its fix tries; if it is still
+   red after the rerun, park. The merge must be green, never on red. While a step waits, wait as the
+   babysit-pr Yuki-mode wait row says, with `--max-seconds 120`. Use `--match-head-commit`, never
+   `--admin` and never `--auto`.
+   (d) Set the parent to done through the work source's `update_status`, with no preview. A provider
+   with no status field prints its one `Status: skipped …` line.
+   (e) Append `merged <url> <merge commit sha>`, print `MERGED item=<item> pr=<url>` as the last
+   line, and end.
 
 ## Workflow
 
@@ -1503,7 +1541,7 @@ and "Ready for you to merge" or why it stopped.
 | Not in a worktree | Ask user; do not auto-create one. |
 | `--unattended` hits anything on the escalation list | Print the `ESCALATION` line and end the run. Never work around it, never mark an unverifiable item PASS. |
 | `--unattended` without `--brief` | Refuse with `reason=out-of-tries step=worker`; never run unattended without a brief. |
-| Phase 8 stops (a step out of tries, a need only a person can supply, PR closed) | babysit-pr reports why; fix or decide, then resume with `/juel:babysit-pr <pr>`. Never merge the PR from this skill. |
+| Phase 8 stops (a step out of tries, a need only a person can supply, PR closed) | babysit-pr reports why; fix or decide, then resume with `/juel:babysit-pr <pr>`. Never merge the PR from this skill. Only a `yuki: unblock` prompt merges from this skill, as 'Resumed by yuki' says. |
 
 ## Common mistakes
 

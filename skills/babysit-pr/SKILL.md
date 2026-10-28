@@ -259,6 +259,10 @@ never remove the one this session runs in.
 **Parking.** Append `parked <reason>` to the progress log, print `PARKED item=<item> reason=<reason>`
 as the last line, and end. `<reason>` is one line naming what is needed. Yuki frees the slot and
 tells the owner, and the worktree and this session stay. Never merge to avoid a park.
+A park whose reason starts `<reason>` with `out of tries: ` is eligible for yuki's unblock. A park out
+of tries with a written fix plan that has not been run: end `<reason>` with ` plan=<path>` (the path
+from the repo root, or absolute), and yuki resumes the item once with that plan. A second `plan=`
+park is not resumed.
 
 ## Reviewer mode
 

@@ -6,12 +6,13 @@ O="$ROOT/skills/orca-ship-tickets/SKILL.md"
 T="$ROOT/skills/ship-ticket/SKILL.md"
 B="$ROOT/skills/babysit-pr/SKILL.md"
 R="$ROOT/skills/receive-review-and-execute/SKILL.md"
+W="$ROOT/references/work-source.md"
 fails=0
 pass() { echo "ok   $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 # has <file> <name> <text>: the text is in the file once line breaks and repeated spaces are folded
 has() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -qF -- "$3" && pass "$2" || fail "$2"; }
-for f in "$Y" "$O" "$T" "$B" "$R"; do [ -f "$f" ] || { echo "FAIL missing $f"; exit 1; }; done
+for f in "$Y" "$O" "$T" "$B" "$R" "$W"; do [ -f "$f" ] || { echo "FAIL missing $f"; exit 1; }; done
 
 # The skill loader replaces $0..$9 in a skill body with the invocation's arguments, and these take arguments.
 for f in "$Y" "$O"; do
@@ -78,8 +79,32 @@ has "$Y" "yuki: the tick nudges stuck workers" '**Nudge.** `Y nudge` prints at m
 has "$Y" "yuki: a read-only permission prompt gets Enter" '`nudged <item> permission: <command>`'
 has "$Y" "yuki: another dialog is news once" '`prompt <item> new <kind>: <text>`'
 has "$Y" "yuki: the status line carries the nudge" '[, nudged <refs>][, prompt <item>: <kind>; ...]'
-has "$Y" "yuki: the nudge is the one screen read" 'its one line per item is the only screen read there is'
+has "$Y" "yuki: only nudge and unblock read worker screens" '`Y nudge` reads worker screens for dialogs; `Y unblock` reads them to check for an empty prompt'
 has "$Y" "yuki: only the script judges what is read-only" 'Only the script decides whether a command is read-only'
 has "$Y" "yuki: a dialog shows within a tick" 'not a `quiet` one 2 hours later'
+
+# The unblock (#215)
+has "$Y" "yuki: the tick unblocks after the nudge" '**Unblock.** `Y unblock`'
+has "$Y" "yuki: an idle worker is resumed" '`resumed <item> idle <age> <step>`'
+has "$Y" "yuki: a parked worker with a plan is resumed once" '`resumed <item> plan <path>`'
+has "$Y" "yuki: unblock is opt-in" '`unblock: "merge"`'
+has "$Y" "yuki: the unblock line" '`unblocking <item> <pr or ->`'
+has "$Y" "yuki: a parked row un-parks" '`unparked <item> <step>`'
+has "$Y" "yuki: follow-ups come first" '`Y queue`'
+has "$Y" "yuki: the coordinator still never merges" 'The coordinator never merges.'
+has "$Y" "yuki: --unblock command" '/juel:yuki --unblock merge\|off'
+has "$T" "ship-ticket: Resumed by yuki" '**Resumed by yuki.**'
+has "$T" "ship-ticket: the unblock never merges on red" 'never on red'
+has "$T" "ship-ticket: the unblock records the follow-up" 'append `followup <ref>`'
+has "$T" "ship-ticket: a park carries its plan" 'end `<reason>` with ` plan=<path>`'
+has "$B" "babysit-pr: a park carries its plan" 'end `<reason>` with ` plan=<path>`'
+has "$W" "work-source: yuki's unblock files without a preview" 'A `juel:yuki` worker following a `yuki: unblock` prompt'
+has "$T" "ship-ticket: an out-of-tries park says so" 'starts `<reason>` with `out of tries: `'
+has "$B" "babysit-pr: an out-of-tries park says so" 'starts `<reason>` with `out of tries: `'
+has "$T" "ship-ticket: the follow-up waits for its parent" 'blocked by the parent'
+has "$T" "ship-ticket: the unblock loops back to step 2" 'goes to step 2'
+has "$T" "ship-ticket: only the unblock merges from this skill" 'Only a `yuki: unblock` prompt merges from this skill'
+has "$Y" "yuki: the unblock skips reviews, said plainly" 'without waiting for reviews'
+has "$Y" "yuki: follow-ups come before the source" '`Y queue` refs first'
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
