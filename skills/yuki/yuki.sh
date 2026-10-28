@@ -3,7 +3,8 @@
 # it is never committed, and every worktree of the repository (Orca's included) finds the same one.
 # --kind yuna (first option, before --home; skills/yuna/yuna.sh passes it) is juel:yuna's: the folder is
 # <git common dir>/yuna, the config yuna.json, errors start "yuna.sh:", and the lines marked "yuna" below
-# change. Everything not marked behaves the same for both. In this header Y is yuki.sh [--kind K] [--home H].
+# change. Everything not marked behaves the same for both; commands marked "yuki only" are refused under
+# yuna. In this header Y is yuki.sh [--kind K] [--home H].
 #   yuki.sh [--home H] path                      the folder (exit 1 outside a git repository)
 #   yuki.sh [--home H] init                      create it, and yuki.json when missing; print the folder
 #                                                (yuna: yuna.json, with reviewer and silenceHours 72, no bot or
@@ -33,16 +34,17 @@
 #                                                repository) or "gh: <error>"
 #   yuki.sh [--home H] known                     every item ever added, one per line: the tick skips them
 #   yuki.sh [--home H] free                      maxParallel minus the running rows, never below 0
-#   yuki.sh [--home H] sweep                     check every running row and apply what it finds:
-#       unparked <item> <step>                   the parked worker has a newer real progress line
+#   yuki.sh [--home H] sweep                     check running and parked rows and apply what it finds:
+#       unparked <item> <step>                   a newer real non-park line un-parks a row, unless sweep made its park
 #       done <item> <pr> removed <path>          merged, and its worktree removed
 #       merged <item> <pr> kept <path>: <why>    merged, the worktree left in place (the slot is free)
-#       parked <item> <reason>                   the worker parked it, its PR closed unmerged, or its
-#                                                worktree is gone: the worktree is kept, the slot is free
+#       parked <item> <reason>                   a worker parked it, a newer worker park updated it, its PR
+#                                                closed unmerged, or its worktree is gone; plan= is cut off and kept
 #       quiet <item> <age> <step>                no progress line for quietHours and no PR yet; printed
 #                                                once, later sweeps print the running line ending " quiet"
 #       running <item> <step> <age>[ quiet]
-#   yuki.sh [--home H] queue                     follow-ups of merged rows that are not known yet, one per line
+#   yuki.sh [--home H] queue (yuki only)          follow-ups of done or merged rows not named by any row's item
+#                                                or ref, one per ref in row order
 #   yuki.sh [--home H] nudge [<item> ...]        read each running row's terminal (default: every one with a
 #                                                terminal) and look at the last dialog on its rendered screen;
 #                                                at most one line per item, nothing when there is no dialog:
@@ -61,16 +63,26 @@
 #       unknown <item> <why>                     the terminal cannot be read (nothing is sent)
 #     <text> is one line, 120 characters at most. A nudge appends "<iso> nudged ..." to the progress log;
 #     the sweep skips those lines, so a nudge neither changes a row's step nor resets its quiet clock.
-#   yuki.sh [--home H] unblock [<item> ...]      resume idle running rows, parked rows with an unused plan,
-#                                                or parked rows under the opt-in merge policy:
+#   yuki.sh [--home H] unblock [<item> ...] (yuki only)
+#                                                resume idle running rows or parked rows with an unused plan,
+#                                                or merge-eligible parked rows when unblock is "merge":
 #       resumed <item> idle <age> <step>         an idle running row got its one-line resume prompt
 #       parked <item> idle after a resume        the same stall returned without real work; no second prompt
 #       resumed <item> plan <path>               a parked row got its one-time fix-plan prompt
 #       unblocking <item> <pr or ->              an eligible parked row got its opt-in merge prompt
-#       unknown <item> <why>                     its terminal is unreadable, send failed, or plan is missing
-#     An idle screen has an empty prompt between two rule rows, with no turn-running footer. Activity is the
-#     newest real progress line, worktree commit or changed-path mtime; the quiet clock also includes resumed.
-#     Each prompt appends "<iso> resumed ...", which never counts as progress.
+#       unknown <item> <why>                     no terminal or an unreadable terminal
+#       unknown <item> worktree gone             a parked plan has no worktree; the plan is kept
+#       unknown <item> git failed: <one line>     activity could not be read
+#       unknown <item> row changed during unblock a concurrent update prevented a row change
+#       unknown <item> send failed: <orca reason> Orca did not accept the prompt
+#       unknown <item> <ExcType>: <message>       an unexpected error for this row
+#     A running or parked row waits idleMinutes (default 30) since the newest real log line, commit, changed
+#     path or resumed acknowledgement. A worker's "resumed:" acknowledgement counts for quiet time, not work.
+#     Parked rows wait the same interval. An idle screen has an empty prompt between rules and no
+#     "esc to interrupt" row anywhere. An idle row parks after a resume unless work follows. A parked plan
+#     resumes once; with unblock "merge", only a note starting "out of tries" and an open PR or phase6 work
+#     can unblock. A successful plan or unblock resumes the row. Yuki's own "resumed ..." and "nudged ..."
+#     log lines never count as progress.
 #   yuki.sh [--home H] readonly <command>        "yes" (exit 0) or "no: <why>" (exit 1): the allowlist nudge uses
 #   yuki.sh [--home H] host                      "ok <x.x> GB" or "low <x.x> GB": free plus inactive memory
 #                                                against minFreeGB (exit 0 either way)
@@ -131,8 +143,8 @@
 # The plugin's SessionStart hook gives every session in the repository the same token.
 # Test seams: ORCA_CLI_COMMAND, YUKI_NOW (epoch seconds), YUKI_FREE_GB.
 # Exit: 0; 1 not in a git repository (path, init), a bot lookup GitHub refused or whoami failing;
-# 2 the folder or a file in it cannot be read; 64 usage (bot and deps under yuna: "yuna.sh: <sub> is a
-# yuki command"; whoami and fresh under yuki likewise).
+# 2 the folder or a file in it cannot be read; 64 usage (bot, deps, unblock and queue under yuna:
+# "yuna.sh: <sub> is a yuki command"; whoami and fresh under yuki likewise).
 YUKI_DIR=$(cd "$(dirname "$0")" && pwd); export YUKI_DIR
 exec python3 - "$@" <<'PY'
 import calendar

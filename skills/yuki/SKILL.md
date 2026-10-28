@@ -142,7 +142,7 @@ This list is the source for `TaskCreate`: one task per phase, `subject` is the p
 | `/juel:yuki` | Ask what to work on, then start. With a source already saved, offer to resume it |
 | `/juel:yuki <source> [--max <n>]` | Start on that source. With yuki already running in another session: add the source there and end |
 | `/juel:yuki --max <n>` | Change the slot count (1 to 20). The next tick uses it |
-| `/juel:yuki --unblock merge|off` | Set `Y config unblock '"merge"'` or `Y config unblock null`, like `--max` |
+| `/juel:yuki --unblock merge\|off` | Set `Y config unblock '"merge"'` or `Y config unblock null`, like `--max`. An out-of-tries worker files its open findings as a follow-up and merges on green CI without waiting for reviews |
 | `/juel:yuki take over` | Move a running yuki into this session. The old session's next tick removes its own cron job |
 | `/juel:yuki tick <token>` | The cron job's prompt: one tick. Never typed by hand |
 | `/juel:yuki status` | Print the slots, every row that is not done, and the next tick. Read-only |
@@ -167,11 +167,12 @@ Read and write them only through `Y`. Its header lists every subcommand and ever
    it prints `<token> <minutes>` or `none`, and exit 2 means no folder yet, so nothing runs. Yuki
    runs in another session when the token is not this session's own (the one in this session's
    `/juel:yuki tick` prompts), its minutes are under 25, and the text is not `take over`. Then: a
-   source is added to `sources` in step 4's form, and `--max <n>` is `Y config maxParallel <n>`.
+   source is added to `sources` in step 4's form, `--max <n>` is `Y config maxParallel <n>`, and
+   `--unblock merge|off` is `Y config unblock '"merge"'` or `Y config unblock null`.
    Say the running yuki's next tick picks it up, and end. With neither, say "yuki is already
    running in another session (last tick <n> min ago); `/juel:yuki take over` moves it here", and
-   end. When the token is this session's own, apply a source or `--max <n>` the same way and end,
-   and a bare `/juel:yuki` prints `status`.
+   end. When the token is this session's own, apply a source, `--max <n>` or `--unblock merge|off`
+   the same way and end, and a bare `/juel:yuki` prints `status`.
 2. **Preflight**, then the task list (rule 1).
 3. **Folder and token.** `Y init`. Then make a new token for this session:
    `python3 -c 'import secrets; print("yuki-" + secrets.token_hex(3))'`, and `Y beat <token>`. The
@@ -198,7 +199,8 @@ Read and write them only through `Y`. Its header lists every subcommand and ever
    `gh issue list` line, a folder path, or for plain refs the refs themselves. Open items only:
    todo, backlog or unstarted, never in progress or done. Order by the provider's own priority. A
    source that lists nothing now is kept, since re-querying is the point. `--max <n>` →
-   `Y config maxParallel <n>`.
+   `Y config maxParallel <n>`. `--unblock merge|off` → `Y config unblock '"merge"'` or
+   `Y config unblock null`.
 5. **Bot reviewer.** `Y bot`. A login → `Y config bot '"<login>"'` and say "bot reviewer: <login>,
    one review per PR". `none` → `Y config bot null`. `unknown …` → say so, set `null`, and go on. The
    project's `CLAUDE.md` or `AGENTS.md` saying the bot is paused also means `null`.
@@ -222,9 +224,9 @@ A tick is short and never waits on anything: no background waits, no reads of wo
 1. **Still the owner?** `Y owner`. A token other than this tick's means another session took over:
    `CronList`, `CronDelete` the job whose prompt is `/juel:yuki tick <this token>`, say "yuki moved
    to another session; this one stopped", and end. Otherwise `Y beat <token>`.
-2. **Sweep.** `Y sweep` prints one line per running row or parked row it un-parks, and does what
-   the line says: removes a
-   merged item's worktree, records a park, or un-parks a row after newer real progress. Keep the
+2. **Sweep.** `Y sweep` checks running and parked rows and does what each line says: removes a
+   merged item's worktree, records a park, or un-parks a parked row after a newer real non-park line
+   when Yuki did not make that park. A newer worker `parked` line updates the note and plan. Keep the
    lines for the status line. Each `parked`, `quiet`, `merged … kept` and `unparked <item> <step>`
    line is news for you, and each is printed only once.
 3. **Nudge.** `Y nudge` prints at most one line per running worker and nothing for a worker with no
@@ -236,28 +238,32 @@ A tick is short and never waits on anything: no background waits, no reads of wo
    `prompt <item> <kind>: <text>` on later ticks is not. `unknown <item> <why>` is a terminal the
    script could not read. A worker stuck on a question stays silent in its log, so this is how a
    dialog shows up within one tick instead of after 2 hours of quiet.
-4. **Unblock.** `Y unblock` checks idle running rows and parked rows with an unused plan or an
-   opted-in merge. It prints at most one line per row:
+4. **Unblock.** `Y unblock` checks running and parked rows with terminals. Each must have no activity
+   for `idleMinutes` (default 30), measured from its newest real progress line, commit, changed path
+   or resume acknowledgement; the worker's `resumed:` acknowledgement is not work for a stall check.
+   Parked rows wait the same interval. An idle screen has an empty prompt between rule lines and no
+   `esc to interrupt` anywhere on screen. It prints at most one line per row:
    - `resumed <item> idle <age> <step>` when an idle worker gets its one-line resume prompt.
    - `parked <item> idle after a resume` when it stalls again without real work; no second prompt is sent.
    - `resumed <item> plan <path>` when a parked worker gets its one-time fix-plan prompt.
    - `unblocking <item> <pr or ->` when `unblock: "merge"` lets a still-failing worker follow the merge procedure.
    - `unknown <item> <why>` when a terminal cannot be read, a send fails, or the plan file is missing.
-   A resume does not need a free slot. `resumed`, `unblocking` and `parked … idle after a resume`
-   are news for this tick.
+   A resume does not need a free slot. A successfully resumed row is running again. If it parks
+   `idle after a resume`, include it in the status line's `parked <refs>`. `resumed`, `unblocking`
+   and `parked … idle after a resume` are news for this tick.
 5. **Slots.** `Y free`. `0` → skip to step 10.
 6. **Memory.** `Y host`. `low <x> GB` → spawn nothing this tick (skip to step 10), and say so in the status line. A
    Phase 6 stack or a gate run needs room, and the workers already running come first. Heavy gates
    queue on `juel:ship-ticket`'s gate lock in every worker, so this check guards only the spawn.
-7. **Candidates.** Take refs from `Y queue` first. Repeat every entry in `sources` exactly as stored
-   (`Y config sources`). Drop every ref or slug `Y known` prints, and every item that already
-   has an open PR or an Orca worktree. What is left, in source order, are the candidates. None → step 10.
+7. **Candidates.** Repeat every entry in `sources` exactly as stored (`Y config sources`). Drop every
+   ref or slug `Y known` prints, and every item that already has an open PR or an Orca worktree.
+   What is left, `Y queue` refs first and then in source order, are the candidates. None → step 10.
 8. **Blockers** ("Dependencies" below). Find the blockers of each candidate `Y deps unchecked`
    prints, ask the tracker about each one `Y deps external` prints, then run
    `Y deps gate <candidates> --done <the done ones>`. Keep the first `free` `ready` items, in source
    order. A `wait` line goes in the status line. None ready → step 10.
 9. **Spawn.** Invoke `/juel:orca-ship-tickets --yuki YUKI_HOME <ref> [<ref> ...]` with the absolute
-   folder for `YUKI_HOME`. For each `SPAWNED item=<item> ref=<ref> path=<path> branch=<branch>
+   folder for `YUKI_HOME`, in candidate order. For each `SPAWNED item=<item> ref=<ref> path=<path> branch=<branch>
    terminal=<handle>` line it prints, run `Y add <item> ref=<ref> path=<path> branch=<branch>
    terminal=<handle> title=<title>`. A `SKIPPED item=<item> reason=<why>` line adds nothing, and the
    item comes back next tick when the cause is gone.
@@ -344,9 +350,10 @@ The chain, so you can say what a row is doing. You never act on it yourself:
 
 ## Hard rules
 
-- **The coordinator never merges.** A worker merges through `juel:babysit-pr --yuki`'s merge check,
-  or, only with `unblock: "merge"`, through `juel:ship-ticket`'s **Resumed by yuki** after it files
-  the follow-up. Both use the exact head and never `--admin`.
+- **The coordinator never merges.** A worker merges through `juel:babysit-pr --yuki`'s merge check.
+  Only with `unblock: "merge"`, a `juel:ship-ticket` worker following **Resumed by yuki** files its
+  open findings as a follow-up and merges on green CI without waiting for reviews. Both paths use the
+  exact head and never `--admin`.
 - **Only `Y sweep` removes a worktree**, only for a PR GitHub says is merged, only when
   `git status --porcelain` is empty, and never with `--force`. A parked item's worktree is never
   removed.
@@ -374,10 +381,10 @@ The chain, so you can say what a row is doing. You never act on it yourself:
 | A PR was merged by a person | `Y sweep` sees `MERGED` on GitHub and removes the worktree, whatever the worker last wrote |
 | A worker is `quiet` (no progress for 2 h, no PR) | If its screen is at an idle empty prompt, `Y unblock` resumes it; after one resume with no real work, it parks `idle after a resume` |
 | A parked worker has a fix plan | `Y unblock` resumes it once with the plan when the plan file exists and its screen is idle |
-| A still-failing worker is parked | With `unblock` off it stays parked and is news. With `unblock: "merge"`, `Y unblock` prompts the worker to file a follow-up and use the merge check |
+| A still-failing worker is parked | With `unblock` off it stays parked and is news. With `unblock: "merge"`, the worker files its open findings as a follow-up and merges on green CI without waiting for reviews |
 | A parked worker resumes by hand | New real progress unparks the row on `Y sweep`, which prints `unparked <item> <step>` |
 | A parent has a follow-up | `Y queue` lists its ref only after the parent is merged, and only until the follow-up is known |
-| A worker waits on a permission prompt or another dialog | `Y nudge` handles it on the tick that sees it: a read-only command gets Enter, anything else is a `prompt … new` notification at once, not a `quiet` one 2 hours later. Answer it in the worker's terminal in Orca |
+| A worker waits on a permission prompt or another dialog | `Y nudge` handles it on the tick that sees it: a read-only command gets Enter, anything else is a `prompt … new` notification at once, not a `quiet` one 2 hours later. One notification. Look at its terminal in Orca; yuki does not stop it. An idle prompt was already handled by `Y unblock` |
 | The source lists an item yuki parked | It is skipped (`Y known`). To retry it, finish it by hand, or `Y set <item> state=dropped` and remove its worktree yourself. A dropped row is still known, so the tick still skips it |
 | An item's blocker parked or was dropped | The item waits, and the status line names the blocker. Finish the blocker, or drop the link in the tracker and `Y deps set <item> --why "<the owner's words>"` |
 | Two items block each other | `cycle …` in the status line, one notification, and neither starts until the tracker is fixed. The next tick's gate uses the stored record, so re-record the item with `Y deps set` after the fix |
