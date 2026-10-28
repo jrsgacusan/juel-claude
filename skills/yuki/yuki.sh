@@ -61,6 +61,16 @@
 #       unknown <item> <why>                     the terminal cannot be read (nothing is sent)
 #     <text> is one line, 120 characters at most. A nudge appends "<iso> nudged ..." to the progress log;
 #     the sweep skips those lines, so a nudge neither changes a row's step nor resets its quiet clock.
+#   yuki.sh [--home H] unblock [<item> ...]      resume idle running rows, parked rows with an unused plan,
+#                                                or parked rows under the opt-in merge policy:
+#       resumed <item> idle <age> <step>         an idle running row got its one-line resume prompt
+#       parked <item> idle after a resume        the same stall returned without real work; no second prompt
+#       resumed <item> plan <path>               a parked row got its one-time fix-plan prompt
+#       unblocking <item> <pr or ->              an eligible parked row got its opt-in merge prompt
+#       unknown <item> <why>                     its terminal is unreadable, send failed, or plan is missing
+#     An idle screen has an empty prompt between two rule rows, with no turn-running footer. Activity is the
+#     newest real progress line, worktree commit or changed-path mtime; the quiet clock also includes resumed.
+#     Each prompt appends "<iso> resumed ...", which never counts as progress.
 #   yuki.sh [--home H] readonly <command>        "yes" (exit 0) or "no: <why>" (exit 1): the allowlist nudge uses
 #   yuki.sh [--home H] host                      "ok <x.x> GB" or "low <x.x> GB": free plus inactive memory
 #                                                against minFreeGB (exit 0 either way)
@@ -123,6 +133,7 @@
 # Exit: 0; 1 not in a git repository (path, init), a bot lookup GitHub refused or whoami failing;
 # 2 the folder or a file in it cannot be read; 64 usage (bot and deps under yuna: "yuna.sh: <sub> is a
 # yuki command"; whoami and fresh under yuki likewise).
+YUKI_DIR=$(cd "$(dirname "$0")" && pwd); export YUKI_DIR
 exec python3 - "$@" <<'PY'
 import calendar
 import fcntl
@@ -137,10 +148,18 @@ import subprocess
 import sys
 import time
 
+SHIP_SKILL = os.path.join(os.path.dirname(os.environ.get("YUKI_DIR") or "."), "ship-ticket", "SKILL.md")
+PROTOCOL = ("Juel protocol: phases run in order, each with its progress line; codex exec runs with "
+            "run_in_background: true, watched and waited on, its output never redirected to a file, never "
+            "polled or tailed; pr-review-toolkit:review-pr's agents run all parallel in the foreground "
+            "(run_in_background: false), code-simplifier in the foreground; heavy gates go through "
+            "gate-lock.sh; ask nothing and take the recommended option; only what a person must supply "
+            "parks the item with a parked <reason> progress line.")
+
 KIND, NAME = "yuki", "yuki"
 USAGE = ("usage: yuki.sh [--kind yuki|yuna] [--home H] path | init | config [<key> [<json>]]"
          " | add <item> [k=v ...] | set <item> k=v ... | skip <item> <reason>|--clear | list [--state <s>] | known | free | sweep"
-         " | nudge [<item> ...] | queue | host | beat <token> | owner | access | gh ... | git ..."
+         " | nudge [<item> ...] | unblock [<item> ...] | queue | host | beat <token> | owner | access | gh ... | git ..."
          " | yuki: deps set|unchecked|external|gate|list ... | bot"
          " | yuna: whoami | fresh <pr> ...")
 NAME_RE = r"[A-Za-z0-9_#][A-Za-z0-9._#/-]{0,79}"
@@ -950,6 +969,12 @@ class Rows(list):
     raw = ()
 
 
+# Keep these rendered-prompt patterns in step with skills/star/worker-probe.sh.
+RULE = r"^\s*[╭╰]?─{3,}[╮╯]?\s*$"
+PROMPT_ROW = r"^\s*│?\s*[❯>](\s|$)"
+EMPTY_PROMPT = r"^\s*│?\s*[❯>]\s*│?\s*$"
+
+
 # a command row this close to the box's right edge may be one row of a wrapped command: the renderer breaks
 # at the last space that fits, so the next word can be as long as this
 WRAP_SLACK = 20
@@ -1131,6 +1156,202 @@ def nudge(names):
                         row.pop("prompt", None)
                     else:
                         row["prompt"] = changes[row["item"]]
+            write_json(items_path, data)
+    for line in out:
+        print(line)
+
+
+def idle_screen(rows: Rows) -> bool:
+    """Whether the rendered rows show the empty prompt and no active turn footer."""
+    raw = rows.raw
+    prompt = None
+    for i in range(1, len(raw) - 1):
+        if (re.match(PROMPT_ROW, raw[i]) and re.fullmatch(RULE, raw[i - 1])
+                and re.fullmatch(RULE, raw[i + 1])):
+            prompt = i
+    if prompt is None or not re.fullmatch(EMPTY_PROMPT, raw[prompt]):
+        return False
+    return not any(re.search(r"esc to interrupt", line, re.IGNORECASE) for line in raw[max(0, prompt - 4):])
+
+
+def activity(row, lines) -> tuple[int, int]:
+    """Return (latest real work, latest activity including a yuki resume)."""
+    work_times = [stamp for line in real_lines(lines)
+                  if (stamp := parse_iso(line.partition(" ")[0])) is not None]
+    path = row.get("path") or ""
+    if path and os.path.isdir(path):
+        commit = subprocess.run(["git", "-C", path, "log", "-1", "--format=%ct"],
+                                 capture_output=True, text=True)
+        if commit.returncode == 0 and commit.stdout.strip().isdigit():
+            work_times.append(int(commit.stdout.strip()))
+        status = subprocess.run(["git", "-C", path, "status", "--porcelain"],
+                                capture_output=True, text=True)
+        if status.returncode == 0:
+            for line in status.stdout.splitlines():
+                listed = line[3:].strip() if len(line) > 3 else ""
+                if " -> " in listed:
+                    listed = listed.rsplit(" -> ", 1)[1]
+                if listed.startswith('"') and listed.endswith('"'):
+                    try:
+                        listed = json.loads(listed)
+                    except ValueError:
+                        pass
+                changed = os.path.join(path, listed)
+                try:
+                    work_times.append(int(os.path.getmtime(changed)))
+                except OSError:
+                    continue
+    work = max(work_times) if work_times else parse_iso(row.get("added") or "") or now()
+    resumed = parse_iso(row.get("resumed") or "")
+    return work, max(work, resumed) if resumed is not None else work
+
+
+def send_text(handle: str, text: str) -> bool:
+    orca = orca_bin()
+    if not orca:
+        return False
+    try:
+        p = subprocess.run([orca, "terminal", "send", "--terminal", handle, "--text", text, "--enter"],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return p.returncode == 0
+
+
+def resume_prompt(kind: str, row: dict, cfg: dict, detail: str) -> str:
+    if kind == "idle":
+        age_text, step = detail.split(" ", 1)
+        head = f"yuki: resume {row['item']} (idle): no progress for {age_text}, last step {step}."
+    elif kind == "plan":
+        head = f"yuki: resume {row['item']} (plan {detail}): this is its one extra try."
+    else:
+        method = cfg.get("mergeMethod") or "the first of squash, merge and rebase the repository allows"
+        head = f"yuki: unblock {row['item']} (merge): still failing; merge method {method}."
+    common = (f' Follow "Resumed by yuki" in juel:ship-ticket\'s Yuki mode ({SHIP_SKILL}), reading it first '
+              f"when it is not in your context. Ref {row.get('ref') or row['item']}, yuki folder {home}, "
+              f"progress log {home}/progress/{row['item']}.log. ")
+    return head + common + PROTOCOL
+
+
+def unblock(names: list[str]) -> None:
+    cfg = config()
+    snapshot = [dict(row) for row in items()["items"]]
+    byname = {row["item"]: row for row in snapshot}
+    out, changes = [], {}
+    if names:
+        todo = []
+        for name in names:
+            if name not in byname:
+                out.append(f"unknown {name} no such row")
+            else:
+                todo.append(byname[name])
+    else:
+        todo = [row for row in snapshot if row.get("state") in ("running", "parked") and row.get("terminal")]
+
+    def record(row, keys, drop=()):
+        update = {key: row[key] for key in keys if key in row}
+        if drop:
+            update["__drop"] = list(drop)
+        changes[row["item"]] = update
+
+    def log_resume(row, message):
+        os.makedirs(os.path.join(home, "progress"), exist_ok=True)
+        with open(os.path.join(home, "progress", f"{row['item']}.log"), "a") as f:
+            f.write(f"{iso()} {message}\n")
+
+    def screen_is_idle(row):
+        rows, why = read_screen(row["terminal"])
+        if rows is None:
+            out.append(f"unknown {row['item']} {why}")
+            return False
+        if find_dialog(rows) is not None or not idle_screen(rows):
+            return False
+        return True
+
+    for row in todo:
+        item, state, handle = row["item"], row.get("state"), row.get("terminal")
+        if state not in ("running", "parked"):
+            out.append(f"unknown {item} not running or parked")
+            continue
+        if not handle:
+            out.append(f"unknown {item} no terminal")
+            continue
+        stamp, step, text, lines = last_progress(item)
+        if state == "running":
+            work, latest = activity(row, lines)
+            if now() - latest < int(cfg.get("idleMinutes") or 30) * 60:
+                continue
+            if not screen_is_idle(row):
+                continue
+            idle_resumed = parse_iso(row.get("idleResumed") or "")
+            if row.get("idleResumed") and idle_resumed is not None and work <= idle_resumed:
+                park(row, "idle after a resume")
+                record(row, ("state", "note", "parkedAt", "updated"), ("plan",))
+                out.append(f"parked {item} idle after a resume")
+                continue
+            age_text, last_step = age(now() - work), step or "spawned"
+            prompt = resume_prompt("idle", row, cfg, f"{age_text} {last_step}")
+            if not send_text(handle, prompt):
+                out.append(f"unknown {item} send failed")
+                continue
+            row.update(idleResumed=iso(), resumed=iso(), updated=iso())
+            log_resume(row, f"resumed idle {age_text} {last_step}")
+            record(row, ("idleResumed", "resumed", "updated"))
+            out.append(f"resumed {item} idle {age_text} {last_step}")
+            continue
+
+        plan = row.get("plan")
+        if plan and not row.get("planResumed"):
+            plan_path = plan if os.path.isabs(plan) else os.path.join(row.get("path") or "", plan)
+            if not os.path.isfile(plan_path):
+                row.pop("plan", None)
+                record(row, (), ("plan",))
+                out.append(f"unknown {item} no such plan {plan}")
+                continue
+            if not screen_is_idle(row):
+                continue
+            if not send_text(handle, resume_prompt("plan", row, cfg, plan)):
+                out.append(f"unknown {item} send failed")
+                continue
+            row.update(state="running", note="", planResumed=iso(), resumed=iso(), updated=iso())
+            log_resume(row, f"resumed plan {plan}")
+            record(row, ("state", "note", "planResumed", "resumed", "updated"))
+            out.append(f"resumed {item} plan {plan}")
+            continue
+
+        if (cfg.get("unblock") != "merge" or row.get("unblocked")
+                or (plan and not row.get("planResumed"))
+                or str(row.get("note") or "").lower().startswith("needs a person")):
+            continue
+        pr = row.get("pr")
+        if not pr:
+            for line in reversed(lines):
+                parts = line.split(" ", 2)
+                if len(parts) == 3 and parts[1] == "pr" and parts[2].startswith("http"):
+                    pr = parts[2]
+                    break
+        if not (pr or max_phase(lines) >= 6):
+            continue
+        if not screen_is_idle(row):
+            continue
+        if not send_text(handle, resume_prompt("unblock", row, cfg, "")):
+            out.append(f"unknown {item} send failed")
+            continue
+        row.update(state="running", note="", unblocked=iso(), resumed=iso(), updated=iso())
+        log_resume(row, "resumed unblock")
+        record(row, ("state", "note", "unblocked", "resumed", "updated"))
+        out.append(f"unblocking {item} {pr or '-'}")
+
+    if changes:
+        with Locked():
+            data = items()
+            for current in data["items"]:
+                if current["item"] not in changes:
+                    continue
+                update = changes[current["item"]]
+                for key in update.pop("__drop", []):
+                    current.pop(key, None)
+                current.update(update)
             write_json(items_path, data)
     for line in out:
         print(line)
@@ -1434,6 +1655,8 @@ elif cmd == "sweep":
     sweep()
 elif cmd == "nudge":
     nudge(rest)
+elif cmd == "unblock":
+    unblock(rest)
 elif cmd == "whoami":
     whoami()
 elif cmd == "fresh":
