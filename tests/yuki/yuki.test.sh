@@ -366,5 +366,63 @@ no_ ''
 Y skip K-1 --clear; [ "$(Y skip K-1 'again')" = new ] && pass "skip --clear drops it" || fail "skip clear"
 Y add K-1 >/dev/null; [ "$(Y skip K-1 'again')" = new ] && pass "add clears the item's skip" || fail "add clears skip"
 
+# --- unpark, plan=, followup, queue (#215) ---
+Y add U-1 "path=$(wt U-1)" branch=feat/U-1
+printf '%s parked out of tries: regression gate plan=docs/superpowers/plans/fix.md\n' "$(stamp "$NOW")" > "$P/U-1.log"
+out=$(Y sweep)
+echo "$out" | grep -qx 'parked U-1 out of tries: regression gate' && pass "park plan is omitted from the note" || fail "park plan output ($out)"
+[ "$(Y list | awk -F '\t' '$1=="U-1"{print $6}')" = "out of tries: regression gate" ] && pass "park note omits plan" || fail "park note"
+python3 -c 'import json,sys; r=[x for x in json.load(open(sys.argv[1]))["items"] if x["item"]=="U-1"][0]; assert r["plan"]=="docs/superpowers/plans/fix.md" and r["parkedAt"]' "$H/items.json" && pass "park plan and parkedAt are stored" || fail "park row metadata"
+printf '%s phase4 resumed: fix plan\n' "$(stamp $((NOW + 60)))" >> "$P/U-1.log"
+out=$(YUKI_NOW=$((NOW + 120)) Y sweep)
+echo "$out" | grep -qx 'unparked U-1 phase4' && [ "$(Y list | awk -F '\t' '$1=="U-1"{print $2}')" = running ] && pass "new work unparks a row" || fail "unpark ($out)"
+Y add U-2 "path=$(wt U-2)" branch=feat/U-2
+printf '%s parked out of tries: regression plan=fix.md\n' "$(stamp "$NOW")" > "$P/U-2.log"
+Y sweep >/dev/null
+printf '%s resumed plan fix.md\n' "$(stamp $((NOW + 60)))" >> "$P/U-2.log"
+out=$(Y sweep)
+echo "$out" | grep -q '^unparked U-2 ' && fail "a resumed line unparks a row" || [ "$(Y list | awk -F '\t' '$1=="U-2"{print $2}')" = parked ] && pass "yuki resume lines are not progress" || fail "resume line changed parked state"
+Y add U-3 "path=$(wt U-3)" branch=feat/U-3
+printf '%s parked out of tries: ci\n' "$(stamp "$NOW")" > "$P/U-3.log"
+Y sweep >/dev/null
+python3 - "$H/items.json" "$(stamp $((NOW + 60)))" <<'PY'
+import json, sys
+path, resumed = sys.argv[1:]
+data = json.load(open(path))
+next(row for row in data["items"] if row["item"] == "U-3").update(state="running", resumed=resumed)
+json.dump(data, open(path, "w"))
+PY
+out=$(YUKI_NOW=$((NOW + 120)) Y sweep)
+echo "$out" | grep -qx 'running U-3 parked 1m' && pass "a stale park does not re-park a resumed row" || fail "stale park ($out)"
+printf '%s parked out of tries: ci\n' "$(stamp $((NOW + 180)))" >> "$P/U-3.log"
+out=$(YUKI_NOW=$((NOW + 240)) Y sweep)
+echo "$out" | grep -qx 'parked U-3 out of tries: ci' && pass "a new park after resume parks" || fail "new park ($out)"
+Y add U-4 "path=$(wt U-4)" branch=feat/U-4
+printf '%s phase5 executing\n' "$(stamp $((NOW - 3 * 3600)))" > "$P/U-4.log"
+python3 - "$H/items.json" "$(stamp $((NOW - 600)))" <<'PY'
+import json, sys
+path, resumed = sys.argv[1:]
+data = json.load(open(path))
+next(row for row in data["items"] if row["item"] == "U-4").update(resumed=resumed)
+json.dump(data, open(path, "w"))
+PY
+out=$(Y sweep)
+echo "$out" | grep -qx 'running U-4 phase5 10m' && pass "quiet age starts from the resume" || fail "resume quiet clock ($out)"
+Y add U-5 "path=$(wt U-5)" branch=feat/U-5 pr=https://github.com/o/r/pull/55
+printf '%s phase8 reviewing\n%s followup #300\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/U-5.log"
+: > "$TMP/orca-calls"; echo OPEN > "$TMP/pr-55"
+out=$(Y sweep)
+[ -z "$(Y queue)" ] && pass "follow-up is not queued before merge" || fail "premature follow-up queue ($(Y queue))"
+echo MERGED > "$TMP/pr-55"; Y sweep >/dev/null
+[ "$(Y queue)" = '#300' ] && pass "merged follow-up is queued" || fail "merged follow-up ($(Y queue))"
+Y add issue-300 ref=#300 "path=$(wt U-300)"
+[ -z "$(Y queue)" ] && pass "known follow-up is not queued again" || fail "known follow-up queued ($(Y queue))"
+[ "$(Y config idleMinutes)" = 30 ] && [ "$(Y config unblock)" = null ] && pass "new config defaults" || fail "new config defaults"
+Y config idleMinutes 4 2>/dev/null && fail "idleMinutes below 5 accepted" || pass "idleMinutes below 5 refused"
+Y config idleMinutes 1441 2>/dev/null && fail "idleMinutes above 1440 accepted" || pass "idleMinutes above 1440 refused"
+Y config unblock '"yes"' 2>/dev/null && fail "invalid unblock accepted" || pass "unblock accepts only null or merge"
+Y config unblock '"merge"'; [ "$(Y config unblock)" = merge ] && Y config unblock null && pass "unblock merge can be set and cleared" || fail "unblock setting"
+(cd "$APP" && PATH="$TMP/bin:$PATH" sh "$SCRIPT" --kind yuna queue 2>&1) | grep -q 'queue is a yuki command' && pass "yuna refuses queue" || fail "yuna queue refusal"
+
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }

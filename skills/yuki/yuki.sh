@@ -34,6 +34,7 @@
 #   yuki.sh [--home H] known                     every item ever added, one per line: the tick skips them
 #   yuki.sh [--home H] free                      maxParallel minus the running rows, never below 0
 #   yuki.sh [--home H] sweep                     check every running row and apply what it finds:
+#       unparked <item> <step>                   the parked worker has a newer real progress line
 #       done <item> <pr> removed <path>          merged, and its worktree removed
 #       merged <item> <pr> kept <path>: <why>    merged, the worktree left in place (the slot is free)
 #       parked <item> <reason>                   the worker parked it, its PR closed unmerged, or its
@@ -41,6 +42,7 @@
 #       quiet <item> <age> <step>                no progress line for quietHours and no PR yet; printed
 #                                                once, later sweeps print the running line ending " quiet"
 #       running <item> <step> <age>[ quiet]
+#   yuki.sh [--home H] queue                     follow-ups of merged rows that are not known yet, one per line
 #   yuki.sh [--home H] nudge [<item> ...]        read each running row's terminal (default: every one with a
 #                                                terminal) and look at the last dialog on its rendered screen;
 #                                                at most one line per item, nothing when there is no dialog:
@@ -104,7 +106,8 @@
 #                                                merged PRs (CI, dependency and deploy bots excluded), or
 #                                                greptile-apps[bot] commenting on one; "unknown <why>" exit 1
 # A worker writes <home>/progress/<item>.log, one "<iso> <step> <text>" line per step. The steps
-# sweep reads: "pr <url>", "parked <reason>" and "merged <url> <sha>". GitHub decides a merge, not
+# sweep reads: "pr <url>", "parked <reason> plan=<path>", "followup <ref>" and "merged <url> <sha>".
+# Yuki's "resumed …" and "nudged …" lines never count as progress. GitHub decides a merge, not
 # the log: a row is done only when gh says its PR is MERGED.
 # A worktree is removed with `orca worktree rm --worktree path:<path> --json`, never --force, and
 # only when `git status --porcelain` in it prints nothing. Under yuna, a row with no throwaway is never
@@ -137,7 +140,7 @@ import time
 KIND, NAME = "yuki", "yuki"
 USAGE = ("usage: yuki.sh [--kind yuki|yuna] [--home H] path | init | config [<key> [<json>]]"
          " | add <item> [k=v ...] | set <item> k=v ... | skip <item> <reason>|--clear | list [--state <s>] | known | free | sweep"
-         " | nudge [<item> ...] | host | beat <token> | owner | access | gh ... | git ..."
+         " | nudge [<item> ...] | queue | host | beat <token> | owner | access | gh ... | git ..."
          " | yuki: deps set|unchecked|external|gate|list ... | bot"
          " | yuna: whoami | fresh <pr> ...")
 NAME_RE = r"[A-Za-z0-9_#][A-Za-z0-9._#/-]{0,79}"
@@ -150,6 +153,8 @@ DEFAULTS = {
     "mergeMethod": None,
     "minFreeGB": 3,
     "quietHours": 2,
+    "idleMinutes": 30,
+    "unblock": None,
     "repo": None,
     "owner": None,
     "cron": None,
@@ -231,7 +236,7 @@ if not argv:
     die(64, USAGE)
 cmd, rest = argv[0], argv[1:]
 YUNA = KIND == "yuna"
-if YUNA and cmd in ("bot", "deps"):
+if YUNA and cmd in ("bot", "deps", "unblock", "queue"):
     die(64, f"{cmd} is a yuki command")
 if not YUNA and cmd in ("whoami", "fresh"):
     die(64, f"{cmd} is a yuna command")
@@ -369,6 +374,24 @@ def orca_bin():
     return None
 
 
+PROGRESS_SKIP = ("nudged", "resumed")
+
+
+def real_lines(lines):
+    return [line for line in lines if line.partition(" ")[2].partition(" ")[0] not in PROGRESS_SKIP]
+
+
+def split_plan(text):
+    match = re.search(r"^(.*) plan=(\S+)$", text)
+    return (match.group(1), match.group(2)) if match else (text, None)
+
+
+def max_phase(lines):
+    phases = [int(match[1]) for line in real_lines(lines)
+              if (match := re.match(r"^\S+ phase(\d+)\b", line))]
+    return max(phases, default=0)
+
+
 def last_progress(item):
     path = os.path.join(home, "progress", f"{item}.log")
     try:
@@ -376,7 +399,7 @@ def last_progress(item):
             lines = [l.rstrip("\n") for l in f if l.strip()]
     except OSError:
         lines = []
-    steps = [l for l in lines if l.partition(" ")[2].partition(" ")[0] != "nudged"]
+    steps = real_lines(lines)
     if not steps:
         return None, None, None, lines
     stamp, _, tail = steps[-1].partition(" ")
@@ -439,8 +462,13 @@ def remove(row):
 
 
 def park(row, reason):
-    row.update(state="parked", note=reason, updated=iso())
-    return f"parked {row['item']} {reason}"
+    note, plan = split_plan(reason)
+    row.update(state="parked", note=note, parkedAt=iso(), updated=iso())
+    if plan:
+        row["plan"] = plan
+    else:
+        row.pop("plan", None)
+    return f"parked {row['item']} {note}"
 
 
 def sweep():
@@ -451,11 +479,22 @@ def sweep():
         data = items()
         out = []
         for row in data["items"]:
-            if row.get("state") != "running":
-                continue
             item = row["item"]
             stamp, step, text, lines = last_progress(item)
-            if step == "parked":
+            if row.get("state") == "parked":
+                parked_at = parse_iso(row.get("parkedAt") or row.get("updated") or "")
+                if step and step != "parked" and stamp and parked_at and stamp > parked_at:
+                    row.update(state="running", note="", updated=iso())
+                    out.append(f"unparked {item} {step}")
+                continue
+            if row.get("state") != "running":
+                continue
+            followups = [line.partition(" ")[2].partition(" ")[2].strip()
+                         for line in lines if line.partition(" ")[2].partition(" ")[0] == "followup"]
+            if followups and followups[-1]:
+                row["followup"] = followups[-1]
+            resumed = parse_iso(row.get("resumed") or "")
+            if step == "parked" and (resumed is None or (stamp is not None and stamp > resumed)):
                 out.append(park(row, text or "parked by the worker"))
                 continue
             pr, err = pr_of(row, lines, cfg)
@@ -483,7 +522,8 @@ def sweep():
             if row.get("path") and not os.path.isdir(row["path"]):
                 out.append(park(row, "worktree gone"))
                 continue
-            since = stamp if stamp is not None else parse_iso(row.get("added") or "") or now()
+            work_since = stamp if stamp is not None else parse_iso(row.get("added") or "") or now()
+            since = max(work_since, resumed) if resumed is not None else work_since
             label = step or "spawned"
             if err:
                 label = f"{label} (gh: {err})"
@@ -503,6 +543,18 @@ def sweep():
 def pr_number(row, pr):
     tail = (pr or "").rstrip("/").rsplit("/", 1)[-1]
     return tail if tail.isdigit() else str(row.get("ref") or "")
+
+
+def queue():
+    rows = items()["items"]
+    known = {row.get("item") for row in rows}
+    known.update(row.get("ref") for row in rows if row.get("ref"))
+    seen = set()
+    for row in rows:
+        ref = row.get("followup")
+        if row.get("state") in ("done", "merged") and ref and ref not in known and ref not in seen:
+            print(ref)
+            seen.add(ref)
 
 
 def submitted_reviews(number, cfg):
@@ -1295,6 +1347,10 @@ elif cmd == "config":
             die(64, f"{rest[1]!r} is not JSON (quote a string: '\"squash\"')")
         if rest[0] == "maxParallel" and not (isinstance(value, int) and 1 <= value <= 20):
             die(64, "maxParallel must be a whole number from 1 to 20")
+        if rest[0] == "idleMinutes" and not (type(value) is int and 5 <= value <= 1440):
+            die(64, "idleMinutes must be a whole number from 5 to 1440")
+        if rest[0] == "unblock" and value not in (None, "merge"):
+            die(64, 'unblock is null or "merge"')
         with Locked():
             data = read_json(cfg_path, {})
             data[rest[0]] = value
@@ -1368,6 +1424,8 @@ elif cmd == "known":
         print(row["item"])
         if row.get("ref") and row["ref"] != row["item"]:
             print(row["ref"])
+elif cmd == "queue":
+    queue()
 elif cmd == "free":
     cfg = config()
     running = sum(1 for r in items()["items"] if r.get("state") == "running")
