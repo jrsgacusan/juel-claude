@@ -153,8 +153,8 @@ PROTOCOL = ("Juel protocol: phases run in order, each with its progress line; co
             "run_in_background: true, watched and waited on, its output never redirected to a file, never "
             "polled or tailed; pr-review-toolkit:review-pr's agents run all parallel in the foreground "
             "(run_in_background: false), code-simplifier in the foreground; heavy gates go through "
-            "gate-lock.sh; ask nothing and take the recommended option; only what a person must supply "
-            "parks the item with a parked <reason> progress line.")
+            "gate-lock.sh; ask nothing and take the recommended option; park with a parked <reason> progress "
+            "line only for what a person must supply, or where Resumed by yuki says to.")
 
 KIND, NAME = "yuki", "yuki"
 USAGE = ("usage: yuki.sh [--kind yuki|yuna] [--home H] path | init | config [<key> [<json>]]"
@@ -1176,51 +1176,84 @@ def idle_screen(rows: Rows) -> bool:
             prompt = i
     if prompt is None or not re.fullmatch(EMPTY_PROMPT, raw[prompt]):
         return False
-    return not any(re.search(r"esc to interrupt", line, re.IGNORECASE) for line in raw[max(0, prompt - 4):])
+    return not any(re.search(r"esc to interrupt", line, re.IGNORECASE) for line in raw)
 
 
-def activity(row, lines) -> tuple[int, int]:
-    """Return (latest real work, latest activity including a yuki resume)."""
-    work_times = [stamp for line in real_lines(lines)
-                  if (stamp := parse_iso(line.partition(" ")[0])) is not None]
+def activity(row, lines) -> tuple[int | None, int | None, str | None]:
+    """Return (latest work, latest activity including acknowledgements and resumes, error)."""
+    work_times, progress_times = [], []
+    for line in real_lines(lines):
+        parts = line.split(" ", 2)
+        if len(parts) < 2:
+            continue
+        stamp = parse_iso(parts[0])
+        if stamp is None:
+            continue
+        progress_times.append(stamp)
+        if len(parts) < 3 or not parts[2].startswith("resumed:"):
+            work_times.append(stamp)
+
     path = row.get("path") or ""
     if path and os.path.isdir(path):
-        commit = subprocess.run(["git", "-C", path, "log", "-1", "--format=%ct"],
-                                 capture_output=True, text=True)
-        if commit.returncode == 0 and commit.stdout.strip().isdigit():
-            work_times.append(int(commit.stdout.strip()))
-        status = subprocess.run(["git", "-C", path, "status", "--porcelain"],
-                                capture_output=True, text=True)
-        if status.returncode == 0:
-            for line in status.stdout.splitlines():
-                listed = line[3:].strip() if len(line) > 3 else ""
-                if " -> " in listed:
-                    listed = listed.rsplit(" -> ", 1)[1]
-                if listed.startswith('"') and listed.endswith('"'):
-                    try:
-                        listed = json.loads(listed)
-                    except ValueError:
-                        pass
-                changed = os.path.join(path, listed)
+
+        def git(args):
+            try:
+                result = subprocess.run(["git", "--no-optional-locks", "-C", path, *args],
+                                        capture_output=True, text=True, timeout=30)
+            except (OSError, subprocess.TimeoutExpired) as e:
+                return None, str(e)
+            if result.returncode != 0:
+                lines = (result.stderr or "").strip().splitlines()
+                return None, lines[0] if lines else f"git exited {result.returncode}"
+            return result.stdout, None
+
+        commit, error = git(["log", "-1", "--format=%ct"])
+        if error:
+            return None, None, error
+        if commit and commit.strip().isdigit():
+            work_times.append(int(commit.strip()))
+
+        status, error = git(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+        if error:
+            return None, None, error
+        skip_old_path = False
+        for entry in status.split("\0"):
+            if skip_old_path:
+                skip_old_path = False
+                continue
+            if not entry:
+                continue
+            code, listed = entry[:2], entry[3:] if len(entry) >= 3 else ""
+            if "R" in code or "C" in code:
+                skip_old_path = True
+            if listed:
                 try:
-                    work_times.append(int(os.path.getmtime(changed)))
+                    work_times.append(int(os.path.getmtime(os.path.join(path, listed))))
                 except OSError:
-                    continue
+                    pass
+
     work = max(work_times) if work_times else parse_iso(row.get("added") or "") or now()
     resumed = parse_iso(row.get("resumed") or "")
-    return work, max(work, resumed) if resumed is not None else work
+    latest = max([work, *progress_times, *([resumed] if resumed is not None else [])])
+    return work, latest, None
 
 
-def send_text(handle: str, text: str) -> bool:
+def send_text(handle: str, text: str) -> tuple[bool, str]:
     orca = orca_bin()
     if not orca:
-        return False
+        return False, "orca not found"
+    text = " ".join(text.split())
     try:
         p = subprocess.run([orca, "terminal", "send", "--terminal", handle, "--text", text, "--enter"],
                            capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return p.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    except OSError as e:
+        return False, str(e)
+    if p.returncode != 0:
+        lines = (p.stderr or "").strip().splitlines()
+        return False, lines[-1] if lines else f"orca exited {p.returncode}"
+    return True, ""
 
 
 def resume_prompt(kind: str, row: dict, cfg: dict, detail: str) -> str:
@@ -1242,124 +1275,154 @@ def unblock(names: list[str]) -> None:
     cfg = config()
     snapshot = [dict(row) for row in items()["items"]]
     byname = {row["item"]: row for row in snapshot}
-    out, changes = [], {}
     if names:
         todo = []
         for name in names:
             if name not in byname:
-                out.append(f"unknown {name} no such row")
+                print(f"unknown {name} no such row", flush=True)
             else:
                 todo.append(byname[name])
     else:
         todo = [row for row in snapshot if row.get("state") in ("running", "parked") and row.get("terminal")]
 
-    def record(row, keys, drop=()):
-        update = {key: row[key] for key in keys if key in row}
-        if drop:
-            update["__drop"] = list(drop)
-        changes[row["item"]] = update
+    idle_minutes = cfg.get("idleMinutes")
+    if type(idle_minutes) is not int:
+        idle_minutes = 30
+
+    def persist(row, updates, drop=()):
+        with Locked():
+            data = items()
+            current = find(data, row["item"])
+            if (current is None or current.get("state") != row.get("state")
+                    or current.get("updated") != row.get("updated")):
+                return False
+            for key in drop:
+                current.pop(key, None)
+            current.update(updates)
+            write_json(items_path, data)
+        return True
 
     def log_resume(row, message):
         os.makedirs(os.path.join(home, "progress"), exist_ok=True)
         with open(os.path.join(home, "progress", f"{row['item']}.log"), "a") as f:
             f.write(f"{iso()} {message}\n")
 
+    def emit(message):
+        print(message, flush=True)
+
+    def row_changed(item):
+        emit(f"unknown {item} row changed during unblock")
+
     def screen_is_idle(row):
         rows, why = read_screen(row["terminal"])
         if rows is None:
-            out.append(f"unknown {row['item']} {why}")
+            emit(f"unknown {row['item']} {why}")
             return False
         if find_dialog(rows) is not None or not idle_screen(rows):
             return False
         return True
 
     for row in todo:
-        item, state, handle = row["item"], row.get("state"), row.get("terminal")
-        if state not in ("running", "parked"):
-            out.append(f"unknown {item} not running or parked")
-            continue
-        if not handle:
-            out.append(f"unknown {item} no terminal")
-            continue
-        stamp, step, text, lines = last_progress(item)
-        if state == "running":
-            work, latest = activity(row, lines)
-            if now() - latest < int(cfg.get("idleMinutes") or 30) * 60:
+        item = row["item"]
+        try:
+            state, handle = row.get("state"), row.get("terminal")
+            if state not in ("running", "parked"):
+                emit(f"unknown {item} not running or parked")
                 continue
-            if not screen_is_idle(row):
+            if not handle:
+                emit(f"unknown {item} no terminal")
                 continue
-            idle_resumed = parse_iso(row.get("idleResumed") or "")
-            if row.get("idleResumed") and idle_resumed is not None and work <= idle_resumed:
-                park(row, "idle after a resume")
-                record(row, ("state", "note", "parkedAt", "updated"), ("plan",))
-                out.append(f"parked {item} idle after a resume")
+            stamp, step, text, lines = last_progress(item)
+            work, latest, error = activity(row, lines)
+            if error:
+                emit(f"unknown {item} git failed: {error}")
                 continue
-            age_text, last_step = age(now() - work), step or "spawned"
-            prompt = resume_prompt("idle", row, cfg, f"{age_text} {last_step}")
-            if not send_text(handle, prompt):
-                out.append(f"unknown {item} send failed")
+            if latest is None or now() - latest < idle_minutes * 60:
                 continue
-            row.update(idleResumed=iso(), resumed=iso(), updated=iso())
-            log_resume(row, f"resumed idle {age_text} {last_step}")
-            record(row, ("idleResumed", "resumed", "updated"))
-            out.append(f"resumed {item} idle {age_text} {last_step}")
-            continue
 
-        plan = row.get("plan")
-        if plan and not row.get("planResumed"):
-            plan_path = plan if os.path.isabs(plan) else os.path.join(row.get("path") or "", plan)
-            if not os.path.isfile(plan_path):
-                row.pop("plan", None)
-                record(row, (), ("plan",))
-                out.append(f"unknown {item} no such plan {plan}")
-                continue
-            if not screen_is_idle(row):
-                continue
-            if not send_text(handle, resume_prompt("plan", row, cfg, plan)):
-                out.append(f"unknown {item} send failed")
-                continue
-            row.update(state="running", note="", planResumed=iso(), resumed=iso(), updated=iso())
-            log_resume(row, f"resumed plan {plan}")
-            record(row, ("state", "note", "planResumed", "resumed", "updated"))
-            out.append(f"resumed {item} plan {plan}")
-            continue
-
-        if (cfg.get("unblock") != "merge" or row.get("unblocked")
-                or (plan and not row.get("planResumed"))
-                or str(row.get("note") or "").lower().startswith("needs a person")):
-            continue
-        pr = row.get("pr")
-        if not pr:
-            for line in reversed(lines):
-                parts = line.split(" ", 2)
-                if len(parts) == 3 and parts[1] == "pr" and parts[2].startswith("http"):
-                    pr = parts[2]
-                    break
-        if not (pr or max_phase(lines) >= 6):
-            continue
-        if not screen_is_idle(row):
-            continue
-        if not send_text(handle, resume_prompt("unblock", row, cfg, "")):
-            out.append(f"unknown {item} send failed")
-            continue
-        row.update(state="running", note="", unblocked=iso(), resumed=iso(), updated=iso())
-        log_resume(row, "resumed unblock")
-        record(row, ("state", "note", "unblocked", "resumed", "updated"))
-        out.append(f"unblocking {item} {pr or '-'}")
-
-    if changes:
-        with Locked():
-            data = items()
-            for current in data["items"]:
-                if current["item"] not in changes:
+            if state == "running":
+                if not screen_is_idle(row):
                     continue
-                update = changes[current["item"]]
-                for key in update.pop("__drop", []):
-                    current.pop(key, None)
-                current.update(update)
-            write_json(items_path, data)
-    for line in out:
-        print(line)
+                resumed = parse_iso(row.get("resumed") or "")
+                if resumed is not None and work is not None and work <= resumed:
+                    updated = dict(row)
+                    park(updated, "idle after a resume", by="yuki")
+                    changes = {key: updated[key] for key in ("state", "note", "parkedAt", "parkedBy", "updated")}
+                    if not persist(row, changes, ("plan", "idleResumed")):
+                        row_changed(item)
+                        continue
+                    emit(f"parked {item} idle after a resume")
+                    continue
+
+                age_text, last_step = age(now() - (work if work is not None else now())), step or "spawned"
+                prompt = resume_prompt("idle", row, cfg, f"{age_text} {last_step}")
+                ok, reason = send_text(handle, prompt)
+                if not ok:
+                    emit(f"unknown {item} send failed: {reason}")
+                    continue
+                at = iso()
+                if not persist(row, {"idleResumed": at, "resumed": at, "updated": at}):
+                    row_changed(item)
+                    continue
+                log_resume(row, f"resumed idle {age_text} {last_step}")
+                emit(f"resumed {item} idle {age_text} {last_step}")
+                continue
+
+            plan = row.get("plan")
+            if plan and not row.get("planResumed"):
+                path = row.get("path") or ""
+                if not path or not os.path.isdir(path):
+                    emit(f"unknown {item} worktree gone")
+                    continue
+                plan_path = plan if os.path.isabs(plan) else os.path.join(path, plan)
+                if not os.path.isfile(plan_path):
+                    if not persist(row, {}, ("plan",)):
+                        row_changed(item)
+                    else:
+                        emit(f"unknown {item} no such plan {plan}")
+                    continue
+                if not screen_is_idle(row):
+                    continue
+                ok, reason = send_text(handle, resume_prompt("plan", row, cfg, plan))
+                if not ok:
+                    emit(f"unknown {item} send failed: {reason}")
+                    continue
+                at = iso()
+                if not persist(row, {"state": "running", "note": "", "planResumed": at,
+                                     "resumed": at, "updated": at}):
+                    row_changed(item)
+                    continue
+                log_resume(row, f"resumed plan {plan}")
+                emit(f"resumed {item} plan {plan}")
+                continue
+
+            if (cfg.get("unblock") != "merge" or row.get("unblocked")
+                    or not str(row.get("note") or "").lower().startswith("out of tries")):
+                continue
+            pr = row.get("pr")
+            if not pr:
+                for line in reversed(lines):
+                    parts = line.split(" ", 2)
+                    if len(parts) == 3 and parts[1] == "pr" and parts[2].startswith("http"):
+                        pr = parts[2]
+                        break
+            if not (pr or max_phase(lines) >= 6):
+                continue
+            if not screen_is_idle(row):
+                continue
+            ok, reason = send_text(handle, resume_prompt("unblock", row, cfg, ""))
+            if not ok:
+                emit(f"unknown {item} send failed: {reason}")
+                continue
+            at = iso()
+            if not persist(row, {"state": "running", "note": "", "unblocked": at,
+                                 "resumed": at, "updated": at}):
+                row_changed(item)
+                continue
+            log_resume(row, "resumed unblock")
+            emit(f"unblocking {item} {pr or '-'}")
+        except Exception as e:
+            emit(f"unknown {item} {type(e).__name__}: {e}")
 
 
 def host():

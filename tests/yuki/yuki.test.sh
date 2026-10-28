@@ -49,7 +49,7 @@ case "$*" in
   "terminal read "*)
     f="$STUB_DIR/screen-$4.json"; [ -f "$f" ] || { echo '{"ok":false}'; exit 1; }
     cat "$f"; [ -f "$STUB_DIR/screen-$4.next" ] && mv "$STUB_DIR/screen-$4.next" "$f"; exit 0 ;;
-  "terminal send "*) echo '{"ok":true}' ;;
+  "terminal send "*) [ -f "$STUB_DIR/sendfail-$4" ] && { echo 'refused' >&2; exit 1; }; echo '{"ok":true}' ;;
   *) echo "unexpected: $*" >&2; exit 9 ;;
 esac
 EOF
@@ -381,7 +381,13 @@ printf '%s parked out of tries: regression plan=fix.md\n' "$(stamp "$NOW")" > "$
 Y sweep >/dev/null
 printf '%s resumed plan fix.md\n' "$(stamp $((NOW + 60)))" >> "$P/U-2.log"
 out=$(Y sweep)
-echo "$out" | grep -q '^unparked U-2 ' && fail "a resumed line unparks a row" || [ "$(Y list | awk -F '\t' '$1=="U-2"{print $2}')" = parked ] && pass "yuki resume lines are not progress" || fail "resume line changed parked state"
+if echo "$out" | grep -q '^unparked U-2 '; then
+  fail "a resumed line unparks a row"
+elif [ "$(Y list | awk -F '\t' '$1=="U-2"{print $2}')" = parked ]; then
+  pass "yuki resume lines are not progress"
+else
+  fail "resume line changed parked state"
+fi
 Y add U-3 "path=$(wt U-3)" branch=feat/U-3
 printf '%s parked out of tries: ci\n' "$(stamp "$NOW")" > "$P/U-3.log"
 Y sweep >/dev/null
@@ -521,7 +527,7 @@ out=$(YUKI_NOW=$((NOW + 7200)) Y unblock V-20)
 [ "$out" = 'resumed V-20 plan docs/superpowers/plans/fix.md' ] && [ "$(Y list | awk -F '\t' '$1=="V-20"{print $2}')" = running ] && grep -F 'yuki: resume V-20 (plan ' "$TMP/orca-calls" >/dev/null && pass "a parked plan resumes once" || fail "plan resume ($out)"
 : > "$V20/docs/superpowers/plans/fix2.md"; printf '%s parked out of tries: gate plan=docs/superpowers/plans/fix2.md\n' "$(stamp $((NOW + 7300)))" >> "$P/V-20.log"; (YUKI_NOW=$((NOW + 7300)) Y sweep >/dev/null)
 out=$(YUKI_NOW=$((NOW + 7400)) Y unblock V-20)
-echo "$out" | grep -q 'resumed V-20 plan' && fail "a plan is resumed twice" || pass "a parked row gets only one plan resume"
+echo "$out" | grep -q 'resumed V-20 plan' && fail "a plan is resumed twice" || [ "$(sent tV20)" = 1 ] && pass "a parked row gets only one plan resume" || fail "plan resume send count ($(sent tV20))"
 V21=$(wt V-21); Y add V-21 "path=$V21" terminal=tV21; printf '%s parked out of tries: gate plan=nope.md\n' "$(stamp "$NOW")" > "$P/V-21.log"; Y sweep >/dev/null; idle tV21; : > "$TMP/orca-calls"
 [ "$(YUKI_NOW=$((NOW + 7200)) Y unblock V-21)" = 'unknown V-21 no such plan nope.md' ] && [ "$(sent tV21)" = 0 ] && pass "a missing fix plan is reported and dropped" || fail "missing plan"
 python3 -c 'import json,sys; r=next(x for x in json.load(open(sys.argv[1]))["items"] if x["item"]=="V-21"); assert "plan" not in r' "$H/items.json" && pass "missing plan is removed from the row" || fail "missing plan retained"
@@ -537,7 +543,7 @@ out=$(YUKI_NOW=$((NOW + 7200)) Y unblock V-30)
 [ "$out" = 'unblocking V-30 https://github.com/o/r/pull/30' ] && [ "$(Y list | awk -F '\t' '$1=="V-30"{print $2}')" = running ] && grep -F 'yuki: unblock V-30 (merge)' "$TMP/orca-calls" >/dev/null && pass "eligible parked PR is unblocked" || fail "unblock merge ($out)"
 printf '%s parked out of tries: ci red\n' "$(stamp $((NOW + 7300)))" >> "$P/V-30.log"; (YUKI_NOW=$((NOW + 7300)) Y sweep >/dev/null)
 out=$(YUKI_NOW=$((NOW + 7400)) Y unblock V-30)
-echo "$out" | grep -q '^unblocking V-30 ' && fail "a row is unblocked twice" || pass "unblock is once per row"
+echo "$out" | grep -q '^unblocking V-30 ' && fail "a row is unblocked twice" || [ "$(sent tV30)" = 1 ] && pass "unblock is once per row" || fail "unblock send count ($(sent tV30))"
 V31=$(wt V-31); Y add V-31 "path=$V31" terminal=tV31; printf '%s phase7 reviewing\n%s parked needs a person: STRIPE_KEY\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/V-31.log"; Y sweep >/dev/null; idle tV31; : > "$TMP/orca-calls"
 [ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock V-31)" ] && [ "$(sent tV31)" = 0 ] && pass "a needs-a-person park is ineligible" || fail "needs-a-person unblocked"
 V32=$(wt V-32); Y add V-32 "path=$V32" terminal=tV32; printf '%s phase4 executing\n%s parked out of tries: executor\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/V-32.log"; Y sweep >/dev/null; idle tV32; : > "$TMP/orca-calls"
@@ -552,6 +558,120 @@ V34=$(wt V-34); Y add V-34 "path=$V34" terminal=tV34; printf '%s phase6 verifyin
 V40=$(wt V-40); Y add V-40 "path=$V40" terminal=tV40; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/V-40.log"; : > "$TMP/orca-calls"
 case "$(YUKI_NOW=$((NOW + 7200)) Y unblock V-40)" in 'unknown V-40 '*) pass "an unreadable terminal is unknown" ;; *) fail "unreadable terminal" ;; esac
 (cd "$APP" && PATH="$TMP/bin:$PATH" sh "$SCRIPT" --kind yuna unblock 2>&1) | grep -q 'unblock is a yuki command' && pass "yuna refuses unblock" || fail "yuna unblock refusal"
+
+# --- unblock review fixes (#215) ---
+Y config unblock null
+# P1 no names: running and parked rows with terminals, kept in row order.
+R1=$(wt R-1); Y add R-1 "path=$R1" terminal=tR1; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-1.log"; idle tR1
+R2=$(wt R-2); Y add R-2 "path=$R2" terminal=tR2; : > "$R2/p.md"; printf '%s parked out of tries: gate plan=p.md\n' "$(stamp "$NOW")" > "$P/R-2.log"; idle tR2
+R3=$(wt R-3); Y add R-3 "path=$R3"; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-3.log"
+Y sweep >/dev/null; : > "$TMP/orca-calls"
+out=$(YUKI_NOW=$((NOW + 7200)) Y unblock)
+echo "$out" | grep -qx 'resumed R-1 idle 2h00m phase4' && echo "$out" | grep -qx 'resumed R-2 plan p.md' && ! echo "$out" | grep -q ' R-3 ' \
+  && [ "$(echo "$out" | grep -n '^resumed R-1 ' | cut -d: -f1)" -lt "$(echo "$out" | grep -n '^resumed R-2 ' | cut -d: -f1)" ] \
+  && [ "$(fld R-1 idleResumed)" != - ] && [ "$(st R-2)" = running ] && pass "P1 no names: all eligible rows run in row order" || fail "P1 no-arg ($out)"
+# P2 the idle clock runs from the resume.
+R4=$(wt R-4); Y add R-4 "path=$R4" terminal=tR4; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-4.log"; idle tR4; : > "$TMP/orca-calls"
+out=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-4)
+out=$(YUKI_NOW=$((NOW + 7800)) Y unblock R-4)
+[ -z "$out" ] && [ "$(sent tR4)" = 1 ] && [ "$(st R-4)" = running ] && pass "P2 a stall 10m after the resume is left alone" || fail "P2 resume clock ($out)"
+# P3 a plan resume is the first resume; its acknowledgement is not work.
+R5=$(wt R-5); Y add R-5 "path=$R5" terminal=tR5; : > "$R5/p.md"; printf '%s parked out of tries: gate plan=p.md\n' "$(stamp "$NOW")" > "$P/R-5.log"; Y sweep >/dev/null; idle tR5; : > "$TMP/orca-calls"
+out=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-5)
+printf '%s phase4 resumed: rerun the hung verify shell\n' "$(stamp $((NOW + 7230)))" >> "$P/R-5.log"
+out=$(YUKI_NOW=$((NOW + 7230 + 1900)) Y unblock R-5)
+[ "$out" = 'parked R-5 idle after a resume' ] && [ "$(sent tR5)" = 1 ] && pass "P3 an acknowledgement after a plan resume does not count as work" || fail "P3 plan acknowledgement ($out, sent $(sent tR5))"
+# P4 a footer below the prompt still marks a running turn.
+R6=$(wt R-6); Y add R-6 "path=$R6" terminal=tR6; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-6.log"; : > "$TMP/orca-calls"
+screen tR6 "⏺ Bash(npm test)" "" "────────────────────────────" "❯ " "────────────────────────────" "  ⏵⏵ bypass permissions on · esc to interrupt"
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-6)" ] && [ "$(sent tR6)" = 0 ] && pass "P4 esc to interrupt in the footer is a running turn" || fail "P4 footer"
+# P5 a spinner above a todo list is not idle.
+R7=$(wt R-7); Y add R-7 "path=$R7" terminal=tR7; printf '%s phase5 executing\n' "$(stamp "$NOW")" > "$P/R-7.log"; : > "$TMP/orca-calls"
+screen tR7 "✻ Waiting… (40m · esc to interrupt)" "  ⎿  ☐ run codex" "     ☐ review" "     ☐ verify" "     ☐ open PR" "" "────────────────────────────" "❯ " "────────────────────────────" "  ⏵⏵ bypass permissions on (shift+tab to cycle)"
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-7)" ] && [ "$(sent tR7)" = 0 ] && pass "P5 a spinner above a todo list is a running turn" || fail "P5 spinner above todo list"
+# P6 a dialog above an empty ruled prompt is not idle.
+R8=$(wt R-8); Y add R-8 "path=$R8" terminal=tR8; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-8.log"; : > "$TMP/orca-calls"
+screen tR8 "Do you want to proceed?" "❯ 1. Yes" "  2. No" "────────────────────────────" "❯ " "────────────────────────────"
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-8)" ] && [ "$(sent tR8)" = 0 ] && pass "P6 a dialog next to an empty prompt is not idle" || fail "P6 dialog guard"
+# P7 a changed file inside an untracked directory is activity.
+R9=$(wt R-9); Y add R-9 "path=$R9" terminal=tR9; printf '%s phase5 executing\n' "$(stamp "$NOW")" > "$P/R-9.log"; idle tR9; : > "$TMP/orca-calls"
+mkdir -p "$R9/newmod"; echo x > "$R9/newmod/a.ts"; tt "$R9/newmod/a.ts" $((NOW + 7140)); tt "$R9/newmod" "$NOW"
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-9)" ] && [ "$(sent tR9)" = 0 ] && pass "P7 an edit inside a new folder is activity" || fail "P7 untracked folder"
+# P8 a failed send changes nothing and the next tick retries.
+R10=$(wt R-10); Y add R-10 "path=$R10" terminal=tR10; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-10.log"; idle tR10; touch "$TMP/sendfail-tR10"
+out=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-10)
+case "$out" in 'unknown R-10 send failed: '*) [ "$(fld R-10 idleResumed)" = - ] && [ "$(wc -l < "$P/R-10.log" | tr -d ' ')" = 1 ] && pass "P8a a failed idle send records nothing" || fail "P8a state ($out)" ;; *) fail "P8a send reason ($out)" ;; esac
+rm "$TMP/sendfail-tR10"; [ "$(YUKI_NOW=$((NOW + 7260)) Y unblock R-10)" = 'resumed R-10 idle 2h01m phase4' ] && pass "P8b the next tick retries" || fail "P8b"
+Y config unblock '"merge"'
+R11=$(wt R-11); Y add R-11 "path=$R11" terminal=tR11; printf '%s phase6 verifying\n%s parked out of tries: gate\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/R-11.log"; Y sweep >/dev/null; idle tR11; touch "$TMP/sendfail-tR11"
+out=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-11)
+case "$out" in 'unknown R-11 send failed: '*) [ "$(st R-11)" = parked ] && [ "$(fld R-11 unblocked)" = - ] && pass "P8c a failed unblock send does not spend its one unblock" || fail "P8c state ($out)" ;; *) fail "P8c send reason ($out)" ;; esac
+rm "$TMP/sendfail-tR11"; [ "$(YUKI_NOW=$((NOW + 7260)) Y unblock R-11)" = 'unblocking R-11 -' ] && pass "P8d the unblock is retried" || fail "P8d"
+R22=$(wt R-22); Y add R-22 "path=$R22" terminal=tR22; : > "$R22/p.md"; printf '%s parked out of tries: gate plan=p.md\n' "$(stamp "$NOW")" > "$P/R-22.log"; Y sweep >/dev/null; idle tR22; touch "$TMP/sendfail-tR22"
+out=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-22)
+case "$out" in 'unknown R-22 send failed: '*) [ "$(st R-22)" = parked ] && [ "$(fld R-22 planResumed)" = - ] && [ "$(fld R-22 plan)" = p.md ] && pass "P8e a failed plan send keeps the plan unused" || fail "P8e state ($out)" ;; *) fail "P8e send reason ($out)" ;; esac
+rm "$TMP/sendfail-tR22"; [ "$(YUKI_NOW=$((NOW + 7260)) Y unblock R-22)" = 'resumed R-22 plan p.md' ] && pass "P8f the plan is retried" || fail "P8f"
+# P9 a busy screen or a dialog holds the unblock without spending it.
+R12=$(wt R-12); Y add R-12 "path=$R12" terminal=tR12; printf '%s phase6 verifying\n%s parked out of tries: gate\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/R-12.log"; Y sweep >/dev/null; : > "$TMP/orca-calls"
+screen tR12 "✻ Working… (12s · esc to interrupt)" "────────────────────────────" "❯ " "────────────────────────────"
+a=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-12); screen tR12 "Do you want to proceed?" "❯ 1. Yes" "  2. No"; b=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-12); idle tR12; c=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-12)
+[ -z "$a$b" ] && [ "$c" = 'unblocking R-12 -' ] && [ "$(sent tR12)" = 1 ] && pass "P9 busy and dialog screens hold the unblock until idle" || fail "P9 ($a|$b|$c)"
+# P10 a PR in the log makes the row eligible.
+R13=$(wt R-13); Y add R-13 "path=$R13" terminal=tR13; printf '%s phase5 executing\n%s pr https://github.com/o/r/pull/813\n%s parked out of tries: ci\n' "$(stamp "$NOW")" "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/R-13.log"; Y sweep >/dev/null; idle tR13
+[ "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-13)" = 'unblocking R-13 https://github.com/o/r/pull/813' ] && pass "P10 a pr line in the log makes the row eligible" || fail "P10"
+# P11 phase 5 without a PR is ineligible.
+R14=$(wt R-14); Y add R-14 "path=$R14" terminal=tR14; printf '%s phase5 executing\n%s parked out of tries: ci\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/R-14.log"; Y sweep >/dev/null; idle tR14
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-14)" ] && pass "P11 phase5 without a PR is ineligible" || fail "P11"
+# P12 a missing plan is dropped and a later tick can unblock.
+R15=$(wt R-15); Y add R-15 "path=$R15" terminal=tR15; printf '%s phase6 verifying\n%s parked out of tries: gate plan=gone.md\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/R-15.log"; Y sweep >/dev/null; idle tR15
+a=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-15); b=$(YUKI_NOW=$((NOW + 7800)) Y unblock R-15)
+[ "$a" = 'unknown R-15 no such plan gone.md' ] && [ "$b" = 'unblocking R-15 -' ] && pass "P12 a dropped plan lets the next tick unblock" || fail "P12 ($a|$b)"
+# P13 parks outside the out-of-tries allow-list never unblock.
+R16=$(wt R-16); Y add R-16 "path=$R16" terminal=tR16 pr=https://github.com/o/r/pull/816; echo CLOSED > "$TMP/pr-816"; printf '%s phase8 reviewing\n' "$(stamp "$NOW")" > "$P/R-16.log"; (YUKI_NOW=$((NOW + 60)) Y sweep >/dev/null 2>&1 || true); idle tR16
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-16)" ] && pass "P13a a PR closed without a merge is not unblocked" || fail "P13a closed PR unblocked"
+R17=$(wt R-17); Y add R-17 "path=$R17" terminal=tR17 pr=https://github.com/o/r/pull/817; printf '%s phase8 reviewing\n%s parked changes requested by alice, no push for 72 h\n' "$(stamp "$NOW")" "$(stamp "$NOW")" > "$P/R-17.log"; Y sweep >/dev/null; idle tR17
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-17)" ] && pass "P13b a person's changes request is not merged over" || fail "P13b changes-requested unblocked"
+Y add R-26 "path=$TMP/wt/gone-R26" terminal=tR26; printf '%s phase8 reviewing\n' "$(stamp "$NOW")" > "$P/R-26.log"; Y sweep >/dev/null; idle tR26
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-26)" ] && [ "$(sent tR26)" = 0 ] && pass "P13c a worktree-gone park is not unblocked" || fail "P13c worktree gone"
+R27=$(wt R-27); Y add R-27 "path=$R27" terminal=tR27; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-27.log"; idle tR27; : > "$TMP/orca-calls"
+[ "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-27)" = 'resumed R-27 idle 2h00m phase4' ] && pass "P13d an idle worker gets its resume" || fail "P13d first resume"
+a=$(YUKI_NOW=$((NOW + 9100)) Y unblock R-27); b=$(YUKI_NOW=$((NOW + 9100)) Y unblock R-27)
+[ "$a" = 'parked R-27 idle after a resume' ] && [ -z "$(echo "$b" | grep '^unblocking R-27 ')" ] && [ "$(sent tR27)" = 1 ] && pass "P13d an idle-after-resume park is not unblocked" || fail "P13d repeated stall ($a|$b)"
+# P14 a plan resume itself counts as the first resume.
+R18=$(wt R-18); Y add R-18 "path=$R18" terminal=tR18; : > "$R18/p.md"; printf '%s parked out of tries: gate plan=p.md\n' "$(stamp "$NOW")" > "$P/R-18.log"; Y sweep >/dev/null; idle tR18; : > "$TMP/orca-calls"
+a=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-18); b=$(YUKI_NOW=$((NOW + 9100)) Y unblock R-18)
+[ "$a" = 'resumed R-18 plan p.md' ] && [ "$b" = 'parked R-18 idle after a resume' ] && [ "$(sent tR18)" = 1 ] && pass "P14 a plan resume counts as the first resume" || fail "P14 ($a|$b)"
+# P15 idleMinutes is honored, and a nudge is not activity.
+R19=$(wt R-19); Y add R-19 "path=$R19" terminal=tR19; printf '%s phase4 executing\n' "$(stamp "$NOW")" > "$P/R-19.log"; idle tR19; Y config idleMinutes 60
+a=$(YUKI_NOW=$((NOW + 2700)) Y unblock R-19); b=$(YUKI_NOW=$((NOW + 3660)) Y unblock R-19); Y config idleMinutes 30
+[ -z "$a" ] && [ "$b" = 'resumed R-19 idle 1h01m phase4' ] && pass "P15a idleMinutes sets the idle time" || fail "P15a ($a|$b)"
+R20=$(wt R-20); Y add R-20 "path=$R20" terminal=tR20; printf '%s phase4 executing\n%s nudged permission: ls\n' "$(stamp "$NOW")" "$(stamp $((NOW + 7100)))" > "$P/R-20.log"; idle tR20
+[ "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-20)" = 'resumed R-20 idle 2h00m phase4' ] && pass "P15b a nudged line is not activity" || fail "P15b"
+# P16 plan and unblock resume lines are logged.
+grep -q ' resumed plan docs/superpowers/plans/fix.md$' "$P/V-20.log" && grep -q ' resumed unblock$' "$P/V-30.log" && pass "P16 plan and unblock resumes are logged" || fail "P16"
+# P18 idleMinutes accepts its endpoints and refuses a boolean.
+Y config idleMinutes 5 && Y config idleMinutes 1440 && [ "$(Y config idleMinutes)" = 1440 ] && ! Y config idleMinutes true 2>/dev/null && Y config idleMinutes 30 && pass "P18 idleMinutes accepts 5 and 1440, refuses true" || fail "P18"
+# A bad git path fails closed with a reason and no send.
+mkdir -p "$TMP/not-a-worktree"; Y add R-23 "path=$TMP/not-a-worktree" terminal=tR23; idle tR23; : > "$TMP/orca-calls"
+out=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-23)
+case "$out" in 'unknown R-23 git failed: '*) [ "$(sent tR23)" = 0 ] && pass "a git failure is reported without sending" || fail "git failure sent a prompt" ;; *) fail "git failure reason ($out)" ;; esac
+# A missing worktree keeps its parked plan.
+Y add R-24 "path=$TMP/wt/gone-R24" terminal=tR24; Y set R-24 state=parked note=out-of-tries >/dev/null
+python3 - "$H/items.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+r = next(x for x in d["items"] if x["item"] == "R-24")
+r["plan"] = "p.md"
+json.dump(d, open(p, "w"))
+PY
+idle tR24; : > "$TMP/orca-calls"; out=$(YUKI_NOW=$((NOW + 7200)) Y unblock R-24)
+[ "$out" = 'unknown R-24 worktree gone' ] && [ "$(fld R-24 plan)" = p.md ] && [ "$(sent tR24)" = 0 ] && pass "a parked plan with no worktree is kept" || fail "missing plan worktree ($out)"
+# A parked plan waits for the same idle interval as a running row.
+R25=$(wt R-25); Y add R-25 "path=$R25" terminal=tR25; : > "$R25/p.md"; printf '%s parked out of tries: gate plan=p.md\n' "$(stamp "$NOW")" > "$P/R-25.log"; Y sweep >/dev/null
+(cd "$R25" && GIT_COMMITTER_DATE="@$((NOW + 7140)) +0000" git commit -q --allow-empty -m recent)
+idle tR25; : > "$TMP/orca-calls"
+[ -z "$(YUKI_NOW=$((NOW + 7200)) Y unblock R-25)" ] && [ "$(sent tR25)" = 0 ] && pass "a parked plan with recent work waits" || fail "parked plan idle interval"
 
 echo "---"
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
